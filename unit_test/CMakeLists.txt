@@ -13,3 +13,7 @@ set(MY_LIBS
 add_executable(Test_coroutine_stack Test_coroutine_stack.cc)
 target_link_libraries(Test_coroutine_stack ${MY_LIBS})
 add_test(NAME Test_coroutine_stack COMMAND Test_coroutine_stack)
+
+add_executable(Test_coroutine Test_coroutine.cc)
+target_link_libraries(Test_coroutine ${MY_LIBS})
+add_test(NAME Test_coroutine COMMAND Test_coroutine)

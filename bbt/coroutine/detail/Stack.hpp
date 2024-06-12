@@ -22,7 +22,7 @@ public:
     ~Stack();
 
     /* 栈顶指针 */
-    void*   StackTop();   
+    char*   StackTop();   
     /* 内存块大小，包含 protect 块 */
     size_t  MemChunkSize();
     /* 栈大小 */

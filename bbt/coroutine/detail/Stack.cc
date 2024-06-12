@@ -107,7 +107,7 @@ void Stack::_Release()
     assert(Free(m_mem_chunk, m_mem_chunk_size) == 0);
 }
 
-void* Stack::StackTop()
+char* Stack::StackTop()
 {
     return m_useable_stack;
 }
@@ -119,7 +119,7 @@ size_t Stack::MemChunkSize()
 
 size_t Stack::UseableSize()
 {
-    return m_mem_chunk_size;
+    return m_useable_size;
 }
 
 
