@@ -33,6 +33,7 @@ BOOST_AUTO_TEST_CASE(t_coroutine_run)
     printf("main point 2\n");
     current_coroutine->Resume();
     printf("main point 3\n");
+    current_coroutine->Resume();
 
 }
 
