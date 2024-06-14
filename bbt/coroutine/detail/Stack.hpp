@@ -2,6 +2,7 @@
 #include <memory>
 #include <sys/mman.h>
 #include <bbt/base/templateutil/Noncopyable.hpp>
+#include <bbt/coroutine/detail/Define.hpp>
 
 namespace bbt::coroutine::detail
 {
