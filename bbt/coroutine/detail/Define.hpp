@@ -7,6 +7,9 @@ namespace bbt::coroutine::detail
 typedef uint64_t CoroutineId;
 #define BBT_COROUTINE_INVALID_COROUTINE_ID 0
 
+typedef uint64_t ProcesserId;
+#define BBT_COROUTINE_INVALID_PROCESSER_ID 0
+
 typedef std::function<void()> CoroutineCallback;        // 协程处理主函数
 typedef std::function<void()> CoroutineFinalCallback;
 
@@ -37,6 +40,26 @@ enum CoroutineStatus : int32_t
     Running = 2,    // 运行中
     Suspend = 3,    // 挂起
     Final   = 4,    // 执行结束
+};
+
+
+/**
+@startuml
+[*] --> Default
+Default --> Suspend : 初始化完成，挂起
+Suspend --> Running : 被调度器唤醒
+Running --> Suspend : 本地队列执行完
+
+Running: **执行任务**
+Suspend: **挂起中**
+
+@enduml
+ */
+enum ProcesserStatus : int32_t
+{
+    Default = 0,    // 默认。尚未初始化
+    Suspend = 1,    // 挂起中
+    Running = 2,    // 运行中。在执行任务
 };
 
 class Coroutine;

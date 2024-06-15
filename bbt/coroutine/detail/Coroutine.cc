@@ -6,8 +6,8 @@ namespace bbt::coroutine::detail
 
 CoroutineId Coroutine::GenCoroutineId()
 {
-    static std::atomic_int m_generate_co_id{BBT_COROUTINE_INVALID_COROUTINE_ID};
-    return (++m_generate_co_id);
+    static std::atomic_int _generate_id{BBT_COROUTINE_INVALID_COROUTINE_ID};
+    return (++_generate_id);
 }
 
 Coroutine::SPtr Coroutine::Create(int stack_size, const CoroutineCallback& co_func, const CoroutineFinalCallback& co_final_cb, bool need_protect)

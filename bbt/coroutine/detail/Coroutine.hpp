@@ -28,7 +28,7 @@ protected:
 private:
     Context             m_context;
     const CoroutineId   m_id{BBT_COROUTINE_INVALID_COROUTINE_ID};
-    CoroutineStatus     m_run_status{CoroutineStatus::Default};
+    volatile CoroutineStatus m_run_status{CoroutineStatus::Default};
 };
 
 }

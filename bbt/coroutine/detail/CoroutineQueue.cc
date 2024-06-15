@@ -3,6 +3,14 @@
 namespace bbt::coroutine::detail
 {
 
+CoroutineQueue::CoroutineQueue()
+{
+}
+
+CoroutineQueue::~CoroutineQueue()
+{
+}
+
 bool CoroutineQueue::Empty()
 {
     return m_queue.empty();
