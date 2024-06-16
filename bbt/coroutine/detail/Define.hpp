@@ -37,11 +37,11 @@ Final: **任务完成**
  */
 enum CoroutineStatus : int32_t
 {
-    CO_Default = 0,    // 默认，尚未初始化
-    CO_Pending = 1,    // 等待中，尚未开始
-    CO_Running = 2,    // 运行中
-    CO_Suspend = 3,    // 挂起
-    CO_Final   = 4,    // 执行结束
+    CO_DEFAULT = 0,    // 默认，尚未初始化
+    CO_PENDING = 1,    // 等待中，尚未开始
+    CO_RUNNING = 2,    // 运行中
+    CO_SUSPEND = 3,    // 挂起
+    CO_FINAL   = 4,    // 执行结束
 };
 
 
@@ -59,9 +59,10 @@ Suspend: **挂起中**
  */
 enum ProcesserStatus : int32_t
 {
-    PROC_Default = 0,    // 默认。尚未初始化
-    PROC_Suspend = 1,    // 挂起中
-    PROC_Running = 2,    // 运行中。在执行任务
+    PROC_DEFAULT = 0,    // 默认。尚未初始化
+    PROC_SUSPEND = 1,    // 挂起中
+    PROC_RUNNING = 2,    // 运行中。在执行任务
+    PROC_EXIT    = 3,    // 运行结束
 };
 
 class Coroutine;

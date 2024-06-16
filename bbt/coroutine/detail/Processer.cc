@@ -1,5 +1,6 @@
-#include <bbt/coroutine/detail/Processer.hpp>
 #include <atomic>
+#include <bbt/base/clock/Clock.hpp>
+#include <bbt/coroutine/detail/Processer.hpp>
 
 namespace bbt::coroutine::detail
 {
@@ -19,7 +20,7 @@ ProcesserId Processer::_GenProcesserId()
 Processer::Processer():
     m_id(_GenProcesserId())
 {
-    m_run_status = ProcesserStatus::PROC_Suspend;
+    m_run_status = ProcesserStatus::PROC_SUSPEND;
 }
 
 Processer::~Processer()
@@ -77,15 +78,20 @@ void Processer::_Run()
             coroutine_sptr->Resume();
         }
         std::unique_lock<std::mutex> lock_uptr(m_run_cond_mutex);
-        m_run_status = ProcesserStatus::PROC_Suspend;
+        m_run_status = ProcesserStatus::PROC_SUSPEND;
         m_run_cond.wait(lock_uptr);
     }
+
+    m_run_status = ProcesserStatus::PROC_EXIT;
 }
 
 void Processer::Stop()
 {
     m_is_running = false;
-    m_run_cond.notify_one();
+    while (m_run_status != ProcesserStatus::PROC_EXIT) {
+        std::this_thread::sleep_for(bbt::clock::milliseconds(50));
+        m_run_cond.notify_one();
+    }
 }
 
 void Processer::OnAddCorotinue()

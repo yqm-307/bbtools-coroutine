@@ -32,7 +32,7 @@ protected:
     void                            _Run();
 private:
     const ProcesserId               m_id{BBT_COROUTINE_INVALID_PROCESSER_ID};
-    volatile ProcesserStatus        m_run_status{ProcesserStatus::PROC_Default};
+    volatile ProcesserStatus        m_run_status{ProcesserStatus::PROC_DEFAULT};
     CoroutineQueue                  m_coroutine_queue;
     std::map<CoroutineId, Coroutine::SPtr>
                                     m_wait_coroutine_map;

@@ -5,14 +5,14 @@
 #include <bbt/coroutine/detail/Coroutine.hpp>
 
 using namespace bbt::coroutine;
-static bbt::coroutine::detail::Coroutine* current_coroutine = nullptr;
+detail::Coroutine::SPtr current_coroutine = nullptr;
 
 BOOST_AUTO_TEST_SUITE(CoroutineTest)
 
 BOOST_AUTO_TEST_CASE(t_coroutine_run)
 {
     
-    bbt::coroutine::detail::Coroutine co{4096,
+    current_coroutine = bbt::coroutine::detail::Coroutine::Create(4096,
     [](){
         printf("start\n");
         printf("coroutine point 1\n");
@@ -24,9 +24,7 @@ BOOST_AUTO_TEST_CASE(t_coroutine_run)
     },
     [](){
         printf("final\n");
-    }};
-
-    current_coroutine = &co;
+    });
 
     printf("main point 1\n");
     current_coroutine->Resume();

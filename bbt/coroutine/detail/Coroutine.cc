@@ -20,7 +20,7 @@ Coroutine::Coroutine(int stack_size, const CoroutineCallback& co_func, const Cor
     m_context(stack_size, co_func, co_final_cb, need_protect),
     m_id(GenCoroutineId())
 {
-    m_run_status = CoroutineStatus::CO_Pending;
+    m_run_status = CoroutineStatus::CO_PENDING;
 }
 
 Coroutine::~Coroutine()
