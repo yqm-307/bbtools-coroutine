@@ -17,3 +17,10 @@ add_test(NAME Test_coroutine_stack COMMAND Test_coroutine_stack)
 add_executable(Test_coroutine Test_coroutine.cc)
 target_link_libraries(Test_coroutine ${MY_LIBS})
 add_test(NAME Test_coroutine COMMAND Test_coroutine)
+
+add_executable(Test_hook Test_hook.cc)
+target_link_libraries(Test_hook ${MY_LIBS})
+add_test(NAME Test_hook COMMAND Test_hook)
+
+add_executable(Debug_scheduler Debug_scheduler.cc)
+target_link_libraries(Debug_scheduler ${MY_LIBS})

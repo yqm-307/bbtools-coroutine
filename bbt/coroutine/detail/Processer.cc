@@ -1,8 +1,14 @@
-#include <atomic>
 #include <bbt/coroutine/detail/Processer.hpp>
+#include <atomic>
 
 namespace bbt::coroutine::detail
 {
+
+Processer::SPtr Processer::Create()
+{
+    return std::make_shared<Processer>();
+}
+
 
 ProcesserId Processer::_GenProcesserId()
 {
@@ -13,7 +19,7 @@ ProcesserId Processer::_GenProcesserId()
 Processer::Processer():
     m_id(_GenProcesserId())
 {
-    m_run_status = ProcesserStatus::Suspend;
+    m_run_status = ProcesserStatus::PROC_Suspend;
 }
 
 Processer::~Processer()
@@ -29,5 +35,67 @@ int Processer::GetLoadValue()
 {
     return m_coroutine_queue.Size();
 }
+
+ProcesserId Processer::GetProcesserId()
+{
+    return m_id;
+}
+
+void Processer::AddCoroutineTask(Coroutine::SPtr coroutine)
+{
+    m_coroutine_queue.PushTail(coroutine);
+    OnAddCorotinue();
+}
+
+void Processer::AddCoroutineTaskRange(std::vector<Coroutine::SPtr>::iterator begin, std::vector<Coroutine::SPtr>::iterator end)
+{
+    m_coroutine_queue.PushTailRange(begin, end);
+    OnAddCorotinue();
+}
+
+void Processer::Start(bool background_thread)
+{
+    if (background_thread)
+    {
+        auto t = new std::thread([this](){_Run();});
+        t->detach();
+        return;
+    }
+
+    _Run();
+}
+
+void Processer::_Run()
+{
+    while (m_is_running)
+    {
+        while(!m_coroutine_queue.Empty())
+        {
+            auto coroutine_sptr = m_coroutine_queue.PopHead();
+            AssertWithInfo(coroutine_sptr != nullptr, "maybe coroutine queue has bug!");
+            //TODO 不考虑执行一半，没有做挂起协程的唤醒机制
+            coroutine_sptr->Resume();
+        }
+        std::unique_lock<std::mutex> lock_uptr(m_run_cond_mutex);
+        m_run_status = ProcesserStatus::PROC_Suspend;
+        m_run_cond.wait(lock_uptr);
+    }
+}
+
+void Processer::Stop()
+{
+    m_is_running = false;
+    m_run_cond.notify_one();
+}
+
+void Processer::OnAddCorotinue()
+{
+    // if (!m_is_running || !(m_run_status == ProcesserStatus::PROC_Suspend))
+    if (!m_is_running)
+        return;
+
+    m_run_cond.notify_one();
+}
+
 
 } // namespace bbt::coroutine::detail

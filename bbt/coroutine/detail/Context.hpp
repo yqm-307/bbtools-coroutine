@@ -1,3 +1,4 @@
+#pragma once
 #include <functional>
 #include <boost/context/detail/fcontext.hpp>
 #include <bbt/base/assert/Assert.hpp>

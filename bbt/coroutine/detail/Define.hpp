@@ -1,5 +1,7 @@
+#pragma once
 #include <functional>
 #include <cstdint>
+#include <bbt/base/Logger/DebugPrint.hpp>
 
 namespace bbt::coroutine::detail
 {
@@ -35,11 +37,11 @@ Final: **任务完成**
  */
 enum CoroutineStatus : int32_t
 {
-    Default = 0,    // 默认，尚未初始化
-    Pending = 1,    // 等待中，尚未开始
-    Running = 2,    // 运行中
-    Suspend = 3,    // 挂起
-    Final   = 4,    // 执行结束
+    CO_Default = 0,    // 默认，尚未初始化
+    CO_Pending = 1,    // 等待中，尚未开始
+    CO_Running = 2,    // 运行中
+    CO_Suspend = 3,    // 挂起
+    CO_Final   = 4,    // 执行结束
 };
 
 
@@ -57,9 +59,9 @@ Suspend: **挂起中**
  */
 enum ProcesserStatus : int32_t
 {
-    Default = 0,    // 默认。尚未初始化
-    Suspend = 1,    // 挂起中
-    Running = 2,    // 运行中。在执行任务
+    PROC_Default = 0,    // 默认。尚未初始化
+    PROC_Suspend = 1,    // 挂起中
+    PROC_Running = 2,    // 运行中。在执行任务
 };
 
 class Coroutine;
