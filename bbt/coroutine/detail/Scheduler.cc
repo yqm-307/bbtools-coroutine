@@ -46,6 +46,14 @@ void Scheduler::_SampleSchuduleAlgorithm()
     if (m_global_coroutine_deque.Empty())
         return;
     
+    /* 唤醒没有执行完毕所有任务但是阻塞的processer */
+    for (auto&& item : m_processer_map)
+    {
+        auto processer = item.second;
+        if ((processer->GetLoadValue() > 0) && (processer->GetStatus() == ProcesserStatus::PROC_SUSPEND))
+            processer->Notify();
+    }
+    
     /* 如果没有足够的processer，创建 */
     if (m_cfg_static_thread && (m_processer_map.size() < m_cfg_static_thread_num))
     {
@@ -59,8 +67,8 @@ void Scheduler::_SampleSchuduleAlgorithm()
     }
 
     /* 取出待分配task */
-    int total_loadvalue = 0;
-    int avg_loadvalue = 0;
+    int total_coroutine_count = 0;
+    int avg_coroutine_count = 0;
     std::map<Processer::SPtr, int> loadvalue_map;
     std::vector<Coroutine::SPtr> wait_tasks;
     m_global_coroutine_deque.PopAll(wait_tasks);
@@ -69,13 +77,12 @@ void Scheduler::_SampleSchuduleAlgorithm()
     /* 根据负载分配task */
     for (auto&& item : m_processer_map)
     {
-        int load_value = item.second->GetLoadValue();
+        int load_value = static_cast<int>(item.second->GetLoadValue());
         loadvalue_map.insert(std::make_pair(item.second, load_value));
-
-        total_loadvalue += load_value;
+        total_coroutine_count += load_value;
     }
 
-    avg_loadvalue = std::floor((total_loadvalue + wait_tasks.size()) / m_processer_map.size()) + 1;
+    avg_coroutine_count = std::floor((total_coroutine_count + wait_tasks.size()) / m_processer_map.size()) + 1;
 
 
     int cur_pushed_index = 0;
@@ -83,18 +90,23 @@ void Scheduler::_SampleSchuduleAlgorithm()
     {
         auto& processer_sptr = item.second;
         int processer_have_coroutine_num = processer_sptr->GetLoadValue();
-        if (processer_have_coroutine_num >= avg_loadvalue)
+        if (processer_have_coroutine_num >= avg_coroutine_count)
             break;
         
-        int give_coroutine_num = avg_loadvalue - processer_have_coroutine_num;
+        int give_coroutine_num = avg_coroutine_count - processer_have_coroutine_num;
         auto begin_itor = wait_tasks.begin() + cur_pushed_index;
         auto end_itor = begin_itor + give_coroutine_num;
-        if ((wait_tasks.size() - cur_pushed_index) < avg_loadvalue)
+        if ((wait_tasks.size() - cur_pushed_index) < avg_coroutine_count)
+        {
             end_itor = wait_tasks.end();
-
+            cur_pushed_index += wait_tasks.size() - cur_pushed_index;
+        }
+        else
+        {
+            cur_pushed_index += give_coroutine_num;
+        }
         processer_sptr->AddCoroutineTaskRange(begin_itor, end_itor);
     }
-
 }
 
 
@@ -105,13 +117,13 @@ void Scheduler::_FixTimingScan()
 
 void Scheduler::_Run()
 {
-    // auto prev_scan_timepoint = bbt::clock::now<>();
+    auto prev_scan_timepoint = bbt::clock::now<>();
 
     while(m_is_running)
     {
         _FixTimingScan();
-        // prev_scan_timepoint = prev_scan_timepoint + bbt::clock::ms(m_cfg_scan_interval_ms);
-        // std::this_thread::sleep_until(prev_scan_timepoint);
+        prev_scan_timepoint = prev_scan_timepoint + bbt::clock::ms(m_cfg_scan_interval_ms);
+        std::this_thread::sleep_until(prev_scan_timepoint);
     }
 }
 

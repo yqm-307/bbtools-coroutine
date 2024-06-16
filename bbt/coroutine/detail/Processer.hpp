@@ -25,6 +25,7 @@ public:
     void                            AddCoroutineTaskRange(std::vector<Coroutine::SPtr>::iterator begin, std::vector<Coroutine::SPtr>::iterator end);
     void                            Start(bool background_thread = true);
     void                            Stop();
+    void                            Notify();
 
     void                            OnAddCorotinue();
 protected:

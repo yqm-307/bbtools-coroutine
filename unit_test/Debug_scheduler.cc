@@ -1,5 +1,6 @@
 #include <atomic>
 #include <bbt/coroutine/coroutine.hpp>
+#include <bbt/base/clock/Clock.hpp>
 using namespace bbt::coroutine;
 
 std::atomic_int g_count = 0;
@@ -8,7 +9,7 @@ int main()
 {
     g_scheduler->Start(true);
 
-    for (int i = 0; i < 1000; ++i)
+    for (int i = 0; i < 50000; ++i)
     {
         g_scheduler->RegistCoroutineTask([](){
             g_count++;
@@ -17,9 +18,12 @@ int main()
     }
 
 
-    sleep(2);
-    if (g_count != 1000)
+    std::this_thread::sleep_for(bbt::clock::milliseconds(500));
+    if (g_count != 50000) {
+        printf("final count: %d\n", g_count.load());
+        g_scheduler->Stop();
         return -1;
+    }
 
     g_scheduler->Stop();
     return 0;

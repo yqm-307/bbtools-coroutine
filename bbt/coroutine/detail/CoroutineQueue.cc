@@ -13,11 +13,13 @@ CoroutineQueue::~CoroutineQueue()
 
 bool CoroutineQueue::Empty()
 {
+    std::lock_guard<std::recursive_mutex> _(m_mutex);
     return m_queue.empty();
 }
 
 size_t CoroutineQueue::Size()
 {
+    std::lock_guard<std::recursive_mutex> _(m_mutex);
     return m_queue.size();
 }
 

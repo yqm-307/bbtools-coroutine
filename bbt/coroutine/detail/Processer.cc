@@ -34,6 +34,7 @@ ProcesserStatus Processer::GetStatus()
 
 int Processer::GetLoadValue()
 {
+    Assert(m_coroutine_queue.Size() >= 0);
     return m_coroutine_queue.Size();
 }
 
@@ -70,6 +71,7 @@ void Processer::_Run()
 {
     while (m_is_running)
     {
+        m_run_status = ProcesserStatus::PROC_RUNNING;
         while(!m_coroutine_queue.Empty())
         {
             auto coroutine_sptr = m_coroutine_queue.PopHead();
@@ -77,6 +79,7 @@ void Processer::_Run()
             //TODO 不考虑执行一半，没有做挂起协程的唤醒机制
             coroutine_sptr->Resume();
         }
+
         std::unique_lock<std::mutex> lock_uptr(m_run_cond_mutex);
         m_run_status = ProcesserStatus::PROC_SUSPEND;
         m_run_cond.wait(lock_uptr);
@@ -87,11 +90,11 @@ void Processer::_Run()
 
 void Processer::Stop()
 {
-    m_is_running = false;
-    while (m_run_status != ProcesserStatus::PROC_EXIT) {
+    do {
+        m_is_running = false;
         std::this_thread::sleep_for(bbt::clock::milliseconds(50));
         m_run_cond.notify_one();
-    }
+    } while (m_run_status != ProcesserStatus::PROC_EXIT);
 }
 
 void Processer::OnAddCorotinue()
@@ -102,6 +105,12 @@ void Processer::OnAddCorotinue()
 
     m_run_cond.notify_one();
 }
+
+void Processer::Notify()
+{
+    m_run_cond.notify_one();
+}
+
 
 
 } // namespace bbt::coroutine::detail
