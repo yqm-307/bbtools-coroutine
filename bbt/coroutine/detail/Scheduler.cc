@@ -127,7 +127,9 @@ void Scheduler::_SampleSchuduleAlgorithm()
 
 void Scheduler::_FixTimingScan()
 {
+    m_run_status = ScheudlerStatus::SCHE_RUNNING;
     _SampleSchuduleAlgorithm();
+    m_run_status = ScheudlerStatus::SCHE_SUSPEND;
 }
 
 void Scheduler::_Run()
@@ -160,5 +162,7 @@ void Scheduler::Stop()
 
     for (auto item : m_processer_map)
         item.second->Stop();
+    
+    m_run_status = ScheudlerStatus::SCHE_EXIT;
 }
 } // namespace bbt::coroutine::detail

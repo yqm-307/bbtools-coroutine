@@ -65,6 +65,14 @@ enum ProcesserStatus : int32_t
     PROC_EXIT    = 3,    // 运行结束
 };
 
+enum ScheudlerStatus: int32_t
+{
+    SCHE_DEFAULT = 0,   // 默认
+    SCHE_RUNNING = 1,   // 执行中
+    SCHE_SUSPEND = 2,   // 挂起
+    SCHE_EXIT    = 3,   // 结束
+};
+
 class Coroutine;
 class Scheduler;
 class Processer;
