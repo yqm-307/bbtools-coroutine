@@ -10,14 +10,14 @@ CoroutineId Coroutine::GenCoroutineId()
     return (++_generate_id);
 }
 
-Coroutine::SPtr Coroutine::Create(int stack_size, const CoroutineCallback& co_func, const CoroutineFinalCallback& co_final_cb, bool need_protect)
+Coroutine::SPtr Coroutine::Create(int stack_size, const CoroutineCallback& co_func, bool need_protect)
 {
-    return std::make_shared<Coroutine>(stack_size, co_func, co_final_cb, need_protect);
+    return std::make_shared<Coroutine>(stack_size, co_func, need_protect);
 }
 
 
-Coroutine::Coroutine(int stack_size, const CoroutineCallback& co_func, const CoroutineFinalCallback& co_final_cb, bool need_protect):
-    m_context(stack_size, co_func, co_final_cb, need_protect),
+Coroutine::Coroutine(int stack_size, const CoroutineCallback& co_func, bool need_protect):
+    m_context(stack_size, co_func, [this](){_OnCoroutineFinal();}, need_protect),
     m_id(GenCoroutineId())
 {
     m_run_status = CoroutineStatus::CO_PENDING;
@@ -30,11 +30,13 @@ Coroutine::~Coroutine()
 
 void Coroutine::Resume()
 {
+    m_run_status = CoroutineStatus::CO_RUNNING;
     m_context.Resume();
 }
 
 void Coroutine::Yield()
 {
+    m_run_status = CoroutineStatus::CO_SUSPEND;
     m_context.Yield();
 }
 
@@ -46,6 +48,11 @@ CoroutineId Coroutine::GetId()
 CoroutineStatus Coroutine::GetStatus()
 {
     return m_run_status;
+}
+
+void Coroutine::_OnCoroutineFinal()
+{
+    m_run_status = CoroutineStatus::CO_FINAL;
 }
 
 

@@ -15,6 +15,11 @@ Scheduler::UPtr& Scheduler::GetInstance()
     return _inst;
 }
 
+Scheduler::Scheduler():
+    m_down_latch(m_cfg_static_thread_num)
+{
+}
+
 
 CoroutineId Scheduler::RegistCoroutineTask(const CoroutineCallback& handle)
 {
@@ -60,10 +65,20 @@ void Scheduler::_SampleSchuduleAlgorithm()
         int need_create_thread_num = m_cfg_static_thread_num - m_processer_map.size();
         for (int i = 0; i< need_create_thread_num; ++i)
         {
-            auto processer_sptr = Processer::Create();
-            m_processer_map.insert(std::make_pair(processer_sptr->GetProcesserId(), processer_sptr));
-            processer_sptr->Start(true);
+            auto t = new std::thread([this](){
+                auto processer = Processer::GetLocalProcesser();
+                {
+                    std::lock_guard<std::mutex> _(this->m_processer_map_mutex);
+                    this->m_processer_map.insert(std::make_pair(processer->GetProcesserId(), processer));
+                }
+                this->m_down_latch.Down();
+                processer->Start(false);
+            });
+            /* 让 processer 绑定的线程独立运行 */
+            t->detach();
         }
+
+        m_down_latch.Wait();
     }
 
     /* 取出待分配task */

@@ -15,10 +15,10 @@ public:
     typedef std::shared_ptr<Coroutine> SPtr;
 
     BBTATTR_FUNC_Ctor_Hidden
-    Coroutine(int stack_size, const CoroutineCallback& co_func, const CoroutineFinalCallback& co_final_cb, bool need_protect = true);
+    Coroutine(int stack_size, const CoroutineCallback& co_func, bool need_protect = true);
     ~Coroutine();
     
-    static SPtr                     Create(int stack_size, const CoroutineCallback& co_func, const CoroutineFinalCallback& co_final_cb, bool need_protect = true);
+    static SPtr                     Create(int stack_size, const CoroutineCallback& co_func, bool need_protect = true);
     virtual void                    Resume() override;
     virtual void                    Yield() override;
     virtual CoroutineId             GetId() override;
@@ -26,6 +26,7 @@ public:
 
 protected:
     static CoroutineId              GenCoroutineId();
+    void                            _OnCoroutineFinal();
 private:
     Context                         m_context;
     const CoroutineId               m_id{BBT_COROUTINE_INVALID_COROUTINE_ID};

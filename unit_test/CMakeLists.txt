@@ -24,3 +24,6 @@ add_test(NAME Test_hook COMMAND Test_hook)
 
 add_executable(Debug_scheduler Debug_scheduler.cc)
 target_link_libraries(Debug_scheduler ${MY_LIBS})
+
+add_executable(Debug_g_co Debug_g_co.cc)
+target_link_libraries(Debug_g_co ${MY_LIBS})

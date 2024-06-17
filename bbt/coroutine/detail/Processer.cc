@@ -10,6 +10,15 @@ Processer::SPtr Processer::Create()
     return std::make_shared<Processer>();
 }
 
+Processer::SPtr Processer::GetLocalProcesser()
+{
+    static thread_local Processer::SPtr tl_processer = nullptr;
+    if (!tl_processer) 
+        tl_processer = Create();
+
+    return tl_processer;
+}
+
 
 ProcesserId Processer::_GenProcesserId()
 {
@@ -46,13 +55,13 @@ ProcesserId Processer::GetProcesserId()
 void Processer::AddCoroutineTask(Coroutine::SPtr coroutine)
 {
     m_coroutine_queue.PushTail(coroutine);
-    OnAddCorotinue();
+    _OnAddCorotinue();
 }
 
 void Processer::AddCoroutineTaskRange(std::vector<Coroutine::SPtr>::iterator begin, std::vector<Coroutine::SPtr>::iterator end)
 {
     m_coroutine_queue.PushTailRange(begin, end);
-    OnAddCorotinue();
+    _OnAddCorotinue();
 }
 
 void Processer::Start(bool background_thread)
@@ -74,10 +83,11 @@ void Processer::_Run()
         m_run_status = ProcesserStatus::PROC_RUNNING;
         while(!m_coroutine_queue.Empty())
         {
-            auto coroutine_sptr = m_coroutine_queue.PopHead();
-            AssertWithInfo(coroutine_sptr != nullptr, "maybe coroutine queue has bug!");
+            m_running_coroutine = m_coroutine_queue.PopHead();
+            AssertWithInfo(m_running_coroutine != nullptr, "maybe coroutine queue has bug!");
             //TODO 不考虑执行一半，没有做挂起协程的唤醒机制
-            coroutine_sptr->Resume();
+            m_running_coroutine->Resume();
+            m_running_coroutine = nullptr;
         }
 
         std::unique_lock<std::mutex> lock_uptr(m_run_cond_mutex);
@@ -97,7 +107,7 @@ void Processer::Stop()
     } while (m_run_status != ProcesserStatus::PROC_EXIT);
 }
 
-void Processer::OnAddCorotinue()
+void Processer::_OnAddCorotinue()
 {
     // if (!m_is_running || !(m_run_status == ProcesserStatus::PROC_Suspend))
     if (!m_is_running)
@@ -109,6 +119,11 @@ void Processer::OnAddCorotinue()
 void Processer::Notify()
 {
     m_run_cond.notify_one();
+}
+
+Coroutine::SPtr Processer::GetCurrentCoroutine()
+{
+    return m_running_coroutine;
 }
 
 
