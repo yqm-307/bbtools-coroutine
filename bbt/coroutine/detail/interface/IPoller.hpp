@@ -1,3 +1,4 @@
+#pragma once
 #include <memory>
 #include <bbt/coroutine/detail/interface/IPollEvent.hpp>
 

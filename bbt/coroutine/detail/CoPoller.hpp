@@ -11,6 +11,9 @@ class CoPoller:
     public IPoller
 {
 public:
+    typedef std::unique_ptr<CoPoller> UPtr;
+    static UPtr& GetInstance();
+
     CoPoller();
     ~CoPoller();
 

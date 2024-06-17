@@ -1,10 +1,17 @@
 #pragma once
 #include <functional>
 #include <cstdint>
+#include <sys/timerfd.h>
 #include <bbt/base/Logger/DebugPrint.hpp>
 
 namespace bbt::coroutine::detail
 {
+
+class Coroutine;
+class Scheduler;
+class Processer;
+class CoPollEvent;
+class CoPoller;
 
 typedef uint64_t CoroutineId;
 #define BBT_COROUTINE_INVALID_COROUTINE_ID 0
@@ -73,7 +80,4 @@ enum ScheudlerStatus: int32_t
     SCHE_EXIT    = 3,   // 结束
 };
 
-class Coroutine;
-class Scheduler;
-class Processer;
 }

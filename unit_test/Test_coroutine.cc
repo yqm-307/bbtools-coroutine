@@ -21,9 +21,6 @@ BOOST_AUTO_TEST_CASE(t_coroutine_run)
         current_coroutine->Yield();
         printf("coroutine point 3\n");
 
-    },
-    [](){
-        printf("final\n");
     });
 
     printf("main point 1\n");

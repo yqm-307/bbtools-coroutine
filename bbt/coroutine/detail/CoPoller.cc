@@ -5,9 +5,18 @@
 namespace bbt::coroutine::detail
 {
 
+CoPoller::UPtr& CoPoller::GetInstance()
+{
+    static UPtr _inst = nullptr;
+    if (_inst == nullptr)
+        _inst = UPtr{new CoPoller()};
+    
+    return _inst;
+}
+
 
 CoPoller::CoPoller():
-    m_epoll_fd(epoll_create(0))
+    m_epoll_fd(::epoll_create(1024))
 {
     AssertWithInfo(m_epoll_fd >= 0, "epoll_create() failed!");
 }
@@ -17,25 +26,29 @@ CoPoller::~CoPoller()
     
 }
 
-int CoPoller::AddEvent(std::shared_ptr<IPollEvent> event, int addevent)
+int CoPoller::AddEvent(std::shared_ptr<IPollEvent> ievent, int addevent)
 {
     int ret = 0;
-    epoll_event ev;
+
+    auto event = std::dynamic_pointer_cast<CoPollEvent>(ievent);
+    auto& ev = event->GetEpollEvent();
 
     ev.events = addevent;
-    ev.data.ptr = new PrivData{event};
+    auto ptr = new PrivData{event};
+    ev.data.ptr = (void*)ptr;
     ret = epoll_ctl(m_epoll_fd, EPOLL_CTL_ADD, event->GetFd(), &ev);
 
     return ret;
 }
 
-int CoPoller::DelEvent(std::shared_ptr<IPollEvent> event, int delevent)
+int CoPoller::DelEvent(std::shared_ptr<IPollEvent> ievent, int delevent)
 {
     int ret = 0;
-    epoll_event ev;
+    auto event = std::dynamic_pointer_cast<CoPollEvent>(ievent);
+    auto& ev = event->GetEpollEvent();
 
-    ret = ::epoll_ctl(m_epoll_fd, EPOLL_CTL_DEL, event->GetFd(), &ev);
-    delete ev.data.ptr;
+    ret = ::epoll_ctl(m_epoll_fd, EPOLL_CTL_DEL, event->GetFd(), NULL);
+    delete (PrivData*)ev.data.ptr;
 
     return ret;
 }

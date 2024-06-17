@@ -1,3 +1,5 @@
+#pragma once
+
 namespace bbt::coroutine::detail
 {
 class IPoller;

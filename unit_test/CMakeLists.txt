@@ -27,3 +27,6 @@ target_link_libraries(Debug_scheduler ${MY_LIBS})
 
 add_executable(Debug_g_co Debug_g_co.cc)
 target_link_libraries(Debug_g_co ${MY_LIBS})
+
+add_executable(Debug_poller Debug_poller.cc)
+target_link_libraries(Debug_poller ${MY_LIBS})
