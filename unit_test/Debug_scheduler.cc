@@ -9,16 +9,21 @@ int main()
 {
     g_scheduler->Start(true);
 
-    for (int i = 0; i < 50000; ++i)
+
+    for (int i = 0; i < 10; ++i)
     {
-        g_scheduler->RegistCoroutineTask([](){
-            g_count++;
-            // printf("cur thread %ld %d\n", gettid(), g_count.load());
-        });
+        for (int i = 0; i < 5000; ++i)
+        {
+            g_scheduler->RegistCoroutineTask([](){
+                g_count++;
+                // printf("cur thread %ld %d\n", gettid(), g_count.load());
+            });
+        }
+        std::this_thread::sleep_for(bbt::clock::milliseconds(50));
     }
 
 
-    std::this_thread::sleep_for(bbt::clock::milliseconds(500));
+    std::this_thread::sleep_for(bbt::clock::milliseconds(1000));
     if (g_count != 50000) {
         printf("final count: %d\n", g_count.load());
         g_scheduler->Stop();

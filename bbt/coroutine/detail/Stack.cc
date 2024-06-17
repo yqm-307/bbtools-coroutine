@@ -54,11 +54,11 @@ int Stack::_ApplyStackProtect(char* mem_chunk, size_t mem_chunk_len)
     auto* phead = mem_chunk;
     auto* ptail = mem_chunk + mem_chunk_len - pagesize;
 
-    if(mprotect(phead, pagesize, PROT_NONE) < 0){
+    if (mprotect(phead, pagesize, PROT_NONE) < 0){
         bbt::log::WarnPrint("%s, errno : %d %s", __FUNCTION__, errno, strerror(errno));
         return -1;
     }
-    if(mprotect(ptail, pagesize, PROT_NONE) < 0){
+    if (mprotect(ptail, pagesize, PROT_NONE) < 0){
         bbt::log::WarnPrint("%s, errno : %d %s", __FUNCTION__, errno, strerror(errno));
         return -1;
     }
