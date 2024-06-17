@@ -69,7 +69,7 @@ void Scheduler::_SampleSchuduleAlgorithm()
                 auto processer = Processer::GetLocalProcesser();
                 {
                     std::lock_guard<std::mutex> _(this->m_processer_map_mutex);
-                    this->m_processer_map.insert(std::make_pair(processer->GetProcesserId(), processer));
+                    this->m_processer_map.insert(std::make_pair(processer->GetId(), processer));
                 }
                 this->m_down_latch.Down();
                 processer->Start(false);

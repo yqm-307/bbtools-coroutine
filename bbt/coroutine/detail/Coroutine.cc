@@ -1,5 +1,6 @@
 #include <atomic>
 #include <bbt/coroutine/detail/Coroutine.hpp>
+#include <bbt/coroutine/detail/Processer.hpp>
 
 namespace bbt::coroutine::detail
 {
@@ -53,6 +54,11 @@ CoroutineStatus Coroutine::GetStatus()
 void Coroutine::_OnCoroutineFinal()
 {
     m_run_status = CoroutineStatus::CO_FINAL;
+}
+
+void Coroutine::BindProcesser(std::shared_ptr<Processer> processer)
+{
+    m_bind_processer_id = processer->GetId();
 }
 
 

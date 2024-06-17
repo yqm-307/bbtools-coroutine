@@ -47,7 +47,7 @@ int Processer::GetLoadValue()
     return m_coroutine_queue.Size();
 }
 
-ProcesserId Processer::GetProcesserId()
+ProcesserId Processer::GetId()
 {
     return m_id;
 }
@@ -55,12 +55,15 @@ ProcesserId Processer::GetProcesserId()
 void Processer::AddCoroutineTask(Coroutine::SPtr coroutine)
 {
     m_coroutine_queue.PushTail(coroutine);
+    coroutine->BindProcesser(shared_from_this());
     _OnAddCorotinue();
 }
 
 void Processer::AddCoroutineTaskRange(std::vector<Coroutine::SPtr>::iterator begin, std::vector<Coroutine::SPtr>::iterator end)
 {
     m_coroutine_queue.PushTailRange(begin, end);
+    for (auto it = begin; it != end; ++it)
+        (*it)->BindProcesser(shared_from_this());
     _OnAddCorotinue();
 }
 

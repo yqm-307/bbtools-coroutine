@@ -23,7 +23,7 @@ public:
     /* 获取processer当前状态 */
     ProcesserStatus                 GetStatus();
     /* 获取processer id */
-    ProcesserId                     GetProcesserId();
+    ProcesserId                     GetId();
     Coroutine::SPtr                 GetCurrentCoroutine();
 
 protected:
