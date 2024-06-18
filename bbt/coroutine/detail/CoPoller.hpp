@@ -19,9 +19,10 @@ public:
 
     virtual int AddEvent(std::shared_ptr<IPollEvent> event, int addevent) override;
     virtual int DelEvent(std::shared_ptr<IPollEvent> event, int delevent) override;
-    virtual int ModifyEvent(std::shared_ptr<IPollEvent> event, int opt, int modify_event) override;
+    virtual int ModifyEvent(std::shared_ptr<IPollEvent> event, int modify_event) override;
     virtual void PollOnce() override;
 
+    /* 这个类用来包裹对象的智能指针，防止事件被意外被释放 */
     struct PrivData {std::shared_ptr<IPollEvent> event_sptr{nullptr};};
 protected:
 private:

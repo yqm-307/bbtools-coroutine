@@ -54,7 +54,7 @@ int CoPoller::DelEvent(std::shared_ptr<IPollEvent> ievent, int delevent)
     return ret;
 }
 
-int CoPoller::ModifyEvent(std::shared_ptr<IPollEvent> event, int opt, int modify_event)
+int CoPoller::ModifyEvent(std::shared_ptr<IPollEvent> event, int modify_event)
 {
     int ret = 0;
     epoll_event ev;

@@ -28,10 +28,15 @@ public:
     BBTATTR_FUNC_Ctor_Hidden        CoPollEvent(std::shared_ptr<Coroutine> coroutine, PollEventType type, int timeout, const CoPollEventCallback& cb);
                                     ~CoPollEvent();
 
+    /* 轮询事件，关注的套接字 */
     virtual int                     GetFd() override;
+    /* 触发监听事件 */
     virtual void                    Trigger(IPoller* poller, int trigger_events) override;
+    /* 获取监听的事件 */
     virtual int                     GetEvent() override;
+    /* 注册监听事件 */
     int                             RegistEvent();
+    /* 获取epoll_event结构体 */
     epoll_event&                    GetEpollEvent();
 
 
@@ -44,6 +49,7 @@ private:
     int                             m_events{-1};
     PollEventType                   m_type{PollEventType::POLL_EVENT_DEFAULT};
     int                             m_timeout{-1};
+    /* 事件对象内部保存注册到epoll时的结构体，自己管理生命期更安全 */
     epoll_event                     m_epoll_event;
 
     CoPollEventCallback             m_onevent_callback{nullptr};

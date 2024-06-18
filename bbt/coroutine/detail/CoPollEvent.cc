@@ -42,6 +42,12 @@ int CoPollEvent::GetFd()
 
 void CoPollEvent::Trigger(IPoller* poller, int trigger_events)
 {
+    /**
+     * 触发事件实际操作由创建者定义，实现完全解耦。
+     * 
+     * 对于CoPoller、CoPollEvent来说，都不需要关心事件完成后
+     * 到底执行什么样的操作了，只由外部创建者定义。
+     */
     if (m_onevent_callback != nullptr)
         m_onevent_callback(m_coroutine);
 

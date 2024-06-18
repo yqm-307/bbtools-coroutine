@@ -5,8 +5,8 @@ enable_testing()
 set(EXECUTABLE_OUTPUT_PATH ${PROJECT_BINARY_DIR}/bin/unit_test)
 
 set(MY_LIBS
-    boost_unit_test_framework
-    boost_test_exec_monitor
+    libboost_unit_test_framework.so
+    libboost_test_exec_monitor.so
     bbt_coroutine
 )
 
