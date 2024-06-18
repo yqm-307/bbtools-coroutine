@@ -95,9 +95,9 @@ BOOST_AUTO_TEST_CASE(t_poller_timerout_event_multi_thread)
     for (int i = 0; i < 10; ++i)
     {
         auto t = new std::thread([&](){
-            for (int i = 0; i < 1000; ++i)
+            for (int i = 0; i < 10000; ++i)
             {
-                auto co_sptr = Coroutine::Create(4096, [](){});
+                auto co_sptr = Coroutine::Create(4096, [](){}, false);
                 auto event = CoPollEvent::Create(co_sptr, 500, [&](Coroutine::SPtr co){
                     count++;
                     m_end_mutex.lock();
@@ -143,7 +143,7 @@ BOOST_AUTO_TEST_CASE(t_poller_timerout_event_multi_thread)
         BOOST_CHECK_LT(end_ts - begin_ts, 510);    // 误差
     }
 
-    BOOST_CHECK_EQUAL(count, 10000);
+    BOOST_CHECK_EQUAL(count, 100000);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
