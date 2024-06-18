@@ -8,21 +8,23 @@
 namespace bbt::coroutine::detail
 {
 
-CoPollEvent::SPtr CoPollEvent::Create(std::shared_ptr<Coroutine> coroutine, int timeout)
+CoPollEvent::SPtr CoPollEvent::Create(std::shared_ptr<Coroutine> coroutine, int timeout, const CoPollEventCallback& cb)
 {
-    return std::make_shared<CoPollEvent>(coroutine, PollEventType::POLL_EVENT_TIMEOUT, timeout);
+    return std::make_shared<CoPollEvent>(coroutine, PollEventType::POLL_EVENT_TIMEOUT, timeout, cb);
 }
 
 
-CoPollEvent::CoPollEvent(std::shared_ptr<Coroutine> coroutine, PollEventType type, int timeout):
+CoPollEvent::CoPollEvent(std::shared_ptr<Coroutine> coroutine, PollEventType type, int timeout, const CoPollEventCallback& cb):
     m_coroutine(coroutine),
     m_type(type),
     m_timeout(timeout),
-    m_fd(::timerfd_create(CLOCK_REALTIME, O_NONBLOCK))
+    m_fd(::timerfd_create(CLOCK_REALTIME, 0)),
+    m_onevent_callback(cb)
 {
     Assert(m_coroutine != nullptr);
     Assert(m_timeout > 0);
     Assert(m_fd >= 0);
+    Assert(m_onevent_callback != nullptr);
     m_events = 0;
 
 }
@@ -30,6 +32,7 @@ CoPollEvent::CoPollEvent(std::shared_ptr<Coroutine> coroutine, PollEventType typ
 
 CoPollEvent::~CoPollEvent()
 {
+    ::close(m_fd);
 }
 
 int CoPollEvent::GetFd()
@@ -39,8 +42,12 @@ int CoPollEvent::GetFd()
 
 void CoPollEvent::Trigger(IPoller* poller, int trigger_events)
 {
-    printf("[%ld]trigger event! event=%d\n", bbt::clock::now<>().time_since_epoch().count(), trigger_events);
-    Assert(CoPoller::GetInstance()->DelEvent(shared_from_this(), EPOLL_EVENTS::EPOLLIN) == 0);
+    if (m_onevent_callback != nullptr)
+        m_onevent_callback(m_coroutine);
+
+    /* 因为使用了 EPOLLONESHOT 所以触发超时任务后，主动释放资源 */
+    ((CoPoller::PrivData*)m_epoll_event.data.ptr)->event_sptr = nullptr;
+    delete (CoPoller::PrivData*)m_epoll_event.data.ptr;
 }
 
 int CoPollEvent::GetEvent()
@@ -53,13 +60,17 @@ int CoPollEvent::_RegistTimeoutEvent()
     // 计算超时时间
     itimerspec new_value; 
     timespec now;
-    memset(&new_value, '\0', sizeof(new_value));
 
     if (clock_gettime(CLOCK_REALTIME, &now) != 0)
         return -1;
+    
 
-    new_value.it_value.tv_sec = now.tv_sec + (m_timeout / 1000);
-    new_value.it_value.tv_nsec = now.tv_nsec + (m_timeout % 1000) * 1000;
+    int64_t nsec = now.tv_nsec + (m_timeout % 1000) * 1000000;
+
+    new_value.it_value.tv_sec = now.tv_sec + (m_timeout / 1000) + (nsec >= 1000000000 ? 1 : 0);
+    new_value.it_value.tv_nsec = (nsec >= 1000000000 ? nsec - 1000000000 : nsec);
+    new_value.it_interval.tv_nsec = 0;
+    new_value.it_interval.tv_sec = 0;
 
     if (timerfd_settime(m_fd, TFD_TIMER_ABSTIME, &new_value, NULL) != 0)
         return -1;

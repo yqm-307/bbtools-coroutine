@@ -22,8 +22,8 @@ public:
     virtual int ModifyEvent(std::shared_ptr<IPollEvent> event, int opt, int modify_event) override;
     virtual void PollOnce() override;
 
-protected:
     struct PrivData {std::shared_ptr<IPollEvent> event_sptr{nullptr};};
+protected:
 private:
     int                             m_epoll_fd;
 };

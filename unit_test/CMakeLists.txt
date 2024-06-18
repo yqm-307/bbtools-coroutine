@@ -22,6 +22,10 @@ add_executable(Test_hook Test_hook.cc)
 target_link_libraries(Test_hook ${MY_LIBS})
 add_test(NAME Test_hook COMMAND Test_hook)
 
+add_executable(Test_poller Test_poller.cc)
+target_link_libraries(Test_poller ${MY_LIBS})
+add_test(NAME Test_poller COMMAND Test_poller)
+
 add_executable(Debug_scheduler Debug_scheduler.cc)
 target_link_libraries(Debug_scheduler ${MY_LIBS})
 

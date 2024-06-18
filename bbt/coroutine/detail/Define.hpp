@@ -21,6 +21,7 @@ typedef uint64_t ProcesserId;
 
 typedef std::function<void()> CoroutineCallback;        // 协程处理主函数
 typedef std::function<void()> CoroutineFinalCallback;
+typedef std::function<void(std::shared_ptr<Coroutine>)> CoPollEventCallback;      // Poller监听事件完成回调
 
 /**
 @startuml

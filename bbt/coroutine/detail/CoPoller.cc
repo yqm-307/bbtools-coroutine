@@ -48,6 +48,7 @@ int CoPoller::DelEvent(std::shared_ptr<IPollEvent> ievent, int delevent)
     auto& ev = event->GetEpollEvent();
 
     ret = ::epoll_ctl(m_epoll_fd, EPOLL_CTL_DEL, event->GetFd(), NULL);
+    ((PrivData*)ev.data.ptr)->event_sptr = nullptr;
     delete (PrivData*)ev.data.ptr;
 
     return ret;

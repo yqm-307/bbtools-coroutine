@@ -23,9 +23,9 @@ public:
     typedef std::shared_ptr<CoPollEvent> SPtr;
 
     /* 创建一个超时事件 */
-    static SPtr                     Create(std::shared_ptr<Coroutine> coroutine, int timeout);
+    static SPtr                     Create(std::shared_ptr<Coroutine> coroutine, int timeout, const CoPollEventCallback& cb);
 
-    BBTATTR_FUNC_Ctor_Hidden        CoPollEvent(std::shared_ptr<Coroutine> coroutine, PollEventType type, int timeout);
+    BBTATTR_FUNC_Ctor_Hidden        CoPollEvent(std::shared_ptr<Coroutine> coroutine, PollEventType type, int timeout, const CoPollEventCallback& cb);
                                     ~CoPollEvent();
 
     virtual int                     GetFd() override;
@@ -45,6 +45,8 @@ private:
     PollEventType                   m_type{PollEventType::POLL_EVENT_DEFAULT};
     int                             m_timeout{-1};
     epoll_event                     m_epoll_event;
+
+    CoPollEventCallback             m_onevent_callback{nullptr};
 };
 
 }
