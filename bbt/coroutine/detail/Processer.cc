@@ -14,7 +14,7 @@ Processer::SPtr Processer::Create()
 Processer::SPtr Processer::GetLocalProcesser()
 {
     static thread_local Processer::SPtr tl_processer = nullptr;
-    if (!tl_processer) 
+    if (tl_processer == nullptr) 
         tl_processer = Create();
 
     return tl_processer;
@@ -47,6 +47,12 @@ int Processer::GetLoadValue()
     Assert(m_coroutine_queue.Size() >= 0);
     return m_coroutine_queue.Size();
 }
+
+int Processer::GetExecutableNum()
+{
+    return (m_coroutine_queue.Size() + m_actived_queue.Size());
+}
+
 
 ProcesserId Processer::GetId()
 {
@@ -85,7 +91,17 @@ void Processer::_Run()
     while (m_is_running)
     {
         m_run_status = ProcesserStatus::PROC_RUNNING;
-        while(!m_coroutine_queue.Empty())
+
+        /* 优先被激活的挂起协程 */
+        while (!m_actived_queue.Empty())
+        {
+            m_running_coroutine = m_actived_queue.PopHead();
+            AssertWithInfo(m_running_coroutine != nullptr, "maybe coroutine queue has bug!");
+            m_running_coroutine->Resume();
+        }
+        
+
+        while (!m_coroutine_queue.Empty())
         {
             m_running_coroutine = m_coroutine_queue.PopHead();
             AssertWithInfo(m_running_coroutine != nullptr, "maybe coroutine queue has bug!");
@@ -132,11 +148,13 @@ Coroutine::SPtr Processer::GetCurrentCoroutine()
 void Processer::AddActiveCoroutine(Coroutine::SPtr actived_coroutine)
 {
     m_actived_queue.PushTail(actived_coroutine);
+    _OnAddCorotinue();
 }
 
 void Processer::AddActiveCoroutine(std::vector<Coroutine::SPtr> coroutines)
 {
     m_actived_queue.PushTailRange(coroutines.begin(), coroutines.end());
+    _OnAddCorotinue();
 }
 
 int Processer::RegistTimeoutEvent(int ms)

@@ -37,6 +37,7 @@ protected:
     void                            Stop();
     void                            Notify();
     int                             GetLoadValue();
+    int                             GetExecutableNum(); /* 可执行协程数 */
     void                            AddCoroutineTask(Coroutine::SPtr coroutine);
     void                            AddCoroutineTaskRange(std::vector<Coroutine::SPtr>::iterator begin, std::vector<Coroutine::SPtr>::iterator end);
 

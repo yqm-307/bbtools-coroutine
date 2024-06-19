@@ -1,5 +1,6 @@
 #include <atomic>
 #include <bbt/coroutine/detail/Coroutine.hpp>
+#include <bbt/coroutine/detail/Scheduler.hpp>
 #include <bbt/coroutine/detail/Processer.hpp>
 
 namespace bbt::coroutine::detail
@@ -26,7 +27,6 @@ Coroutine::Coroutine(int stack_size, const CoroutineCallback& co_func, bool need
 
 Coroutine::~Coroutine()
 {
-
 }
 
 void Coroutine::Resume()
@@ -60,6 +60,17 @@ void Coroutine::BindProcesser(std::shared_ptr<Processer> processer)
 {
     m_bind_processer_id = processer->GetId();
 }
+
+void Coroutine::OnEventTimeout()
+{
+    g_scheduler->OnActiveCoroutine(shared_from_this());
+}
+
+ProcesserId Coroutine::GetBindProcesserId()
+{
+    return m_bind_processer_id;
+}
+
 
 
 }

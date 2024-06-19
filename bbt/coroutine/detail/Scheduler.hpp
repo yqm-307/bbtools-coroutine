@@ -17,7 +17,9 @@ public:
     void Start(bool background_thread = false);
     void Stop();
 
-    CoroutineId RegistCoroutineTask(const CoroutineCallback& handle);
+    CoroutineId                         RegistCoroutineTask(const CoroutineCallback& handle);
+    /* 协程被激活 */
+    void                                OnActiveCoroutine(Coroutine::SPtr coroutine);
     // void UnRegistCoroutineTask(CoroutineId coroutine_id);
 
 protected:

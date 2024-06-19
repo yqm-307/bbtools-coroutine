@@ -23,6 +23,7 @@ public:
     virtual void                    Resume() override;
     virtual void                    Yield() override;
     virtual CoroutineId             GetId() override;
+    ProcesserId                     GetBindProcesserId();
     CoroutineStatus                 GetStatus();
     void                            OnEventTimeout();
 protected:

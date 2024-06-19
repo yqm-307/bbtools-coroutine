@@ -19,7 +19,7 @@ int Hook_Connect(int socket, const struct sockaddr* address, socklen_t address_l
 
 int Hook_Close(int fd)
 {
-    return g_bbt_sys_hook_close_fun(fd);
+    return g_bbt_sys_hook_close_func(fd);
 }
 
 int Hook_Sleep(int ms)
@@ -31,11 +31,16 @@ int Hook_Sleep(int ms)
 
     auto current_run_co = g_bbt_coroutine_co;
     auto&poller = g_bbt_poller;
-    CoPollEvent::Create(current_run_co, ms, [](Coroutine::SPtr co){
+    auto event = CoPollEvent::Create(current_run_co, ms, [](Coroutine::SPtr co){
         co->OnEventTimeout();
     });
 
-    return -1;
+    int ret = event->RegistEvent();
+    if (ret != 0)
+        return ret;
+
+    current_run_co->Yield();
+    return 0;
 }
 
 }
@@ -54,4 +59,9 @@ int connect(int socket, const struct sockaddr* address, socklen_t address_len)
 int close(int fd)
 {
     return bbt::coroutine::detail::Hook_Close(fd);
+}
+
+unsigned int sleep(unsigned int sec)
+{
+    return bbt::coroutine::detail::Hook_Sleep(sec * 1000);
 }
