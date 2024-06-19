@@ -36,23 +36,31 @@ public:
     virtual int                     GetEvent() override;
     /* 注册监听事件 */
     int                             RegistEvent();
+    /* 注销监听事件 */
+    int                             UnRegistEvent();
     /* 获取epoll_event结构体 */
     epoll_event&                    GetEpollEvent();
+    bool                            IsListening();
+    bool                            IsFinal();
+    CoPollEventStatus               GetStatus();
 
-
+    /* 这个类用来包裹对象的智能指针，防止事件被意外被释放 */
+    struct PrivData {std::shared_ptr<IPollEvent> event_sptr{nullptr};};
 protected:
-
     int                             _RegistTimeoutEvent();
+
+    void                            _CreateEpollEvent(int epoll_events);
+    void                            _DestoryEpollEvent();
 private:
     std::shared_ptr<Coroutine>      m_coroutine{nullptr};
     int                             m_fd{-1};
-    int                             m_events{-1};
     PollEventType                   m_type{PollEventType::POLL_EVENT_DEFAULT};
     int                             m_timeout{-1};
     /* 事件对象内部保存注册到epoll时的结构体，自己管理生命期更安全 */
     epoll_event                     m_epoll_event;
 
     CoPollEventCallback             m_onevent_callback{nullptr};
+    volatile CoPollEventStatus      m_run_status{CoPollEventStatus::POLLEVENT_DEFAULT};
 };
 
 }

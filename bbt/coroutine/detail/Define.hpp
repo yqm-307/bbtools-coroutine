@@ -81,4 +81,22 @@ enum ScheudlerStatus: int32_t
     SCHE_EXIT    = 3,   // 结束
 };
 
+/*
+@startuml
+[*] --> POLL_EVENT_DEFAULT
+POLL_EVENT_DEFAULT --> POLL_EVENT_INITED : 创建监听事件
+POLL_EVENT_INITED  --> POLL_EVENT_LISTEN : 注册到poller中
+POLL_EVENT_LISTEN  --> POLL_EVENT_FINAL  : 触发监听事件
+POLL_EVENT_LISTEN  --> POLL_EVENT_FINAL  : 删除监听事件
+POLL_EVENT_FINAL   --> [*]
+@enduml
+ */
+enum CoPollEventStatus : int32_t
+{
+    POLLEVENT_DEFAULT = 0, // 默认
+    POLLEVENT_INITED  = 1, // 初始化完成
+    POLLEVENT_LISTEN  = 2, // 监听中
+    POLLEVENT_FINAL   = 3, // 监听结束
+};
+
 }

@@ -26,43 +26,36 @@ CoPoller::~CoPoller()
     
 }
 
-int CoPoller::AddEvent(std::shared_ptr<IPollEvent> ievent, int addevent)
+int CoPoller::AddEvent(std::shared_ptr<IPollEvent> ievent)
 {
-    int ret = 0;
+    auto co_event = std::dynamic_pointer_cast<CoPollEvent>(ievent);
 
-    auto event = std::dynamic_pointer_cast<CoPollEvent>(ievent);
-    auto& ev = event->GetEpollEvent();
+    /* 防止重复注册 */
+    if (co_event->GetStatus() != CoPollEventStatus::POLLEVENT_INITED)
+        return -1;
 
-    ev.events = addevent;
-    auto ptr = new PrivData{event};
-    ev.data.ptr = (void*)ptr;
-    ret = epoll_ctl(m_epoll_fd, EPOLL_CTL_ADD, event->GetFd(), &ev);
+    auto& ev = co_event->GetEpollEvent();
 
-    return ret;
+    return epoll_ctl(m_epoll_fd, EPOLL_CTL_ADD, co_event->GetFd(), &ev);
 }
 
-int CoPoller::DelEvent(std::shared_ptr<IPollEvent> ievent, int delevent)
+int CoPoller::DelEvent(std::shared_ptr<IPollEvent> ievent)
 {
     int ret = 0;
-    auto event = std::dynamic_pointer_cast<CoPollEvent>(ievent);
-    auto& ev = event->GetEpollEvent();
+    auto co_event = std::dynamic_pointer_cast<CoPollEvent>(ievent);
 
-    ret = ::epoll_ctl(m_epoll_fd, EPOLL_CTL_DEL, event->GetFd(), NULL);
-    ((PrivData*)ev.data.ptr)->event_sptr = nullptr;
-    delete (PrivData*)ev.data.ptr;
-
-    return ret;
+    return ::epoll_ctl(m_epoll_fd, EPOLL_CTL_DEL, co_event->GetFd(), NULL);
 }
 
-int CoPoller::ModifyEvent(std::shared_ptr<IPollEvent> event, int modify_event)
+int CoPoller::ModifyEvent(std::shared_ptr<IPollEvent> event)
 {
-    int ret = 0;
-    epoll_event ev;
+    // int ret = 0;
+    // epoll_event ev;
 
-    ev.events = modify_event;
-    ret = ::epoll_ctl(m_epoll_fd, EPOLL_CTL_MOD, event->GetFd(), &ev);
+    // ev.events = modify_event;
+    // ret = ::epoll_ctl(m_epoll_fd, EPOLL_CTL_MOD, event->GetFd(), &ev);
 
-    return ret;
+    return -1;
 }
 
 void CoPoller::PollOnce()
@@ -73,7 +66,7 @@ void CoPoller::PollOnce()
     for (int i = 0; i < active_event_num; ++i)
     {
         auto& event = events[i];
-        auto privdata = reinterpret_cast<PrivData*>(event.data.ptr);
+        auto privdata = reinterpret_cast<CoPollEvent::PrivData*>(event.data.ptr);
         auto event_sptr = std::dynamic_pointer_cast<CoPollEvent>(privdata->event_sptr);
         event_sptr->Trigger(this, event.events);
     }

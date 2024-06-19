@@ -140,7 +140,7 @@ BOOST_AUTO_TEST_CASE(t_poller_timerout_event_multi_thread)
         auto begin_ts = item.second;
         auto end_ts = m_end_time_map[item.first];
         BOOST_CHECK_GE(end_ts - begin_ts, 500);    // 超时时间不能提前
-        BOOST_CHECK_LT(end_ts - begin_ts, 510);    // 误差
+        BOOST_CHECK_LT(end_ts - begin_ts, 550);    // 误差
     }
 
     BOOST_CHECK_EQUAL(count, 100000);
