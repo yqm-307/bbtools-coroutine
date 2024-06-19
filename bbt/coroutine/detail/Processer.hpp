@@ -26,6 +26,11 @@ public:
     ProcesserId                     GetId();
     Coroutine::SPtr                 GetCurrentCoroutine();
 
+    /**
+     * 挂起事件相关
+     */
+    int                             RegistTimeoutEvent(int ms);                 
+
 protected:
     /* 非公开库内部接口 */
     void                            Start(bool background_thread = true);
@@ -35,6 +40,8 @@ protected:
     void                            AddCoroutineTask(Coroutine::SPtr coroutine);
     void                            AddCoroutineTaskRange(std::vector<Coroutine::SPtr>::iterator begin, std::vector<Coroutine::SPtr>::iterator end);
 
+    void                            AddActiveCoroutine(Coroutine::SPtr actived_coroutine);
+    void                            AddActiveCoroutine(std::vector<Coroutine::SPtr> coroutines);
 protected:
     static ProcesserId              _GenProcesserId();
     void                            _OnAddCorotinue();
@@ -43,8 +50,7 @@ private:
     const ProcesserId               m_id{BBT_COROUTINE_INVALID_PROCESSER_ID};
     volatile ProcesserStatus        m_run_status{ProcesserStatus::PROC_DEFAULT};
     CoroutineQueue                  m_coroutine_queue;
-    std::map<CoroutineId, Coroutine::SPtr>
-                                    m_wait_coroutine_map;
+    CoroutineQueue                  m_actived_queue;    // 被激活的协程
 
     std::condition_variable         m_run_cond;
     std::mutex                      m_run_cond_mutex;

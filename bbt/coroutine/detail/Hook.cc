@@ -1,5 +1,8 @@
 #include <stdio.h>
 #include <bbt/coroutine/detail/Hook.hpp>
+#include <bbt/coroutine/detail/Processer.hpp>
+#include <bbt/coroutine/detail/CoPoller.hpp>
+#include <bbt/coroutine/detail/CoPollEvent.hpp>
 
 namespace bbt::coroutine::detail
 {
@@ -21,6 +24,17 @@ int Hook_Close(int fd)
 
 int Hook_Sleep(int ms)
 {
+    if (ms <= 0)
+        return -1;
+
+    errno = EINVAL;
+
+    auto current_run_co = g_bbt_coroutine_co;
+    auto&poller = g_bbt_poller;
+    CoPollEvent::Create(current_run_co, ms, [](Coroutine::SPtr co){
+        co->OnEventTimeout();
+    });
+
     return -1;
 }
 

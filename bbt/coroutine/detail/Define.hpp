@@ -19,6 +19,13 @@ typedef uint64_t CoroutineId;
 typedef uint64_t ProcesserId;
 #define BBT_COROUTINE_INVALID_PROCESSER_ID 0
 
+#define g_scheduler bbt::coroutine::detail::Scheduler::GetInstance()
+
+/* 当前线程正在运行的 coroutine */
+#define g_bbt_coroutine_co (bbt::coroutine::detail::Processer::GetLocalProcesser()->GetCurrentCoroutine());
+
+#define g_bbt_poller (CoPoller::GetInstance())
+
 typedef std::function<void()> CoroutineCallback;        // 协程处理主函数
 typedef std::function<void()> CoroutineFinalCallback;
 typedef std::function<void(std::shared_ptr<Coroutine>)> CoPollEventCallback;      // Poller监听事件完成回调

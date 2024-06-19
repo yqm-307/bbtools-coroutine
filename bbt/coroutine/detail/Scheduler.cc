@@ -25,8 +25,7 @@ CoroutineId Scheduler::RegistCoroutineTask(const CoroutineCallback& handle)
 {
     auto coroutine_sptr = Coroutine::Create(
         m_cfg_stack_size,
-        handle,
-        [](){});
+        handle);
 
     m_global_coroutine_deque.PushTail(coroutine_sptr);
     return coroutine_sptr->GetId();

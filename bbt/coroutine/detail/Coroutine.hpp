@@ -24,6 +24,7 @@ public:
     virtual void                    Yield() override;
     virtual CoroutineId             GetId() override;
     CoroutineStatus                 GetStatus();
+    void                            OnEventTimeout();
 protected:
     void                            BindProcesser(std::shared_ptr<Processer> processer);
 
