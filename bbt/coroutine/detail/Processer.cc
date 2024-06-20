@@ -148,13 +148,11 @@ Coroutine::SPtr Processer::GetCurrentCoroutine()
 void Processer::AddActiveCoroutine(Coroutine::SPtr actived_coroutine)
 {
     m_actived_queue.PushTail(actived_coroutine);
-    _OnAddCorotinue();
 }
 
 void Processer::AddActiveCoroutine(std::vector<Coroutine::SPtr> coroutines)
 {
     m_actived_queue.PushTailRange(coroutines.begin(), coroutines.end());
-    _OnAddCorotinue();
 }
 
 int Processer::RegistTimeoutEvent(int ms)

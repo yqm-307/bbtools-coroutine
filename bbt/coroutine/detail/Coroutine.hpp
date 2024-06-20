@@ -13,6 +13,7 @@ class Coroutine:
 {
 public:
     friend class Processer;
+    friend int Hook_Sleep(int);
     typedef std::shared_ptr<Coroutine> SPtr;
 
     BBTATTR_FUNC_Ctor_Hidden
@@ -25,14 +26,13 @@ public:
     virtual CoroutineId             GetId() override;
     ProcesserId                     GetBindProcesserId();
     CoroutineStatus                 GetStatus();
-    void                            OnEventTimeout();
 protected:
     void                            BindProcesser(std::shared_ptr<Processer> processer);
+    void                            OnEventTimeout();
 
 protected:
     static CoroutineId              GenCoroutineId();
     void                            _OnCoroutineFinal();
-    void                            _OnBindWithProcesser(ProcesserId id);
 private:
     ProcesserId                     m_bind_processer_id{BBT_COROUTINE_INVALID_PROCESSER_ID};
 

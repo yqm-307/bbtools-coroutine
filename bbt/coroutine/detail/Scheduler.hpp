@@ -33,7 +33,7 @@ protected:
 private:
     /* XXX 配置，先静态配置 */
     const size_t                        m_cfg_stack_size{1024 * 8};
-    const size_t                        m_cfg_scan_interval_ms{50};
+    const size_t                        m_cfg_scan_interval_ms{10};
     const bool                          m_cfg_static_thread{true};
     const size_t                        m_cfg_static_thread_num{2};
 
