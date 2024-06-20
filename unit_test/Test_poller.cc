@@ -19,7 +19,7 @@ BOOST_AUTO_TEST_CASE(t_poller_timeout_event_single)
     auto begin_ts = bbt::clock::now<>().time_since_epoch().count();
     auto end_ts = begin_ts;
     auto co_sptr = Coroutine::Create(4096, [](){});
-    auto event = CoPollEvent::Create(co_sptr, 1000, [&](Coroutine::SPtr co){
+    auto event = CoPollEvent::Create(co_sptr, 1000, [&](auto event, Coroutine::SPtr co){
         count++;
         end_ts = bbt::clock::now<>().time_since_epoch().count();
     });
@@ -46,7 +46,7 @@ BOOST_AUTO_TEST_CASE(t_poller_timerout_event_multi)
     for (int i = 0; i < 1000; ++i)
     {
         auto co_sptr = Coroutine::Create(4096, [](){});
-        auto event = CoPollEvent::Create(co_sptr, 500, [&](Coroutine::SPtr co){
+        auto event = CoPollEvent::Create(co_sptr, 500, [&](auto, Coroutine::SPtr co){
             count++;
             m_end_time_map.insert(std::make_pair(co->GetId(), bbt::clock::now<>().time_since_epoch().count()));
         });
@@ -98,7 +98,7 @@ BOOST_AUTO_TEST_CASE(t_poller_timerout_event_multi_thread)
             for (int i = 0; i < 10000; ++i)
             {
                 auto co_sptr = Coroutine::Create(4096, [](){}, false);
-                auto event = CoPollEvent::Create(co_sptr, 500, [&](Coroutine::SPtr co){
+                auto event = CoPollEvent::Create(co_sptr, 500, [&](auto, Coroutine::SPtr co){
                     count++;
                     m_end_mutex.lock();
                     m_end_time_map.insert(std::make_pair(co->GetId(), bbt::clock::now<>().time_since_epoch().count()));

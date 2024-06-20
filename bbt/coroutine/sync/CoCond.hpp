@@ -10,13 +10,14 @@ class CoCond:
 {
 public:
     typedef std::unique_ptr<CoCond> UPtr;
-    static UPtr&& Create();
+    static UPtr Create();
 
     BBTATTR_FUNC_Ctor_Hidden CoCond();
     ~CoCond();
 
     int                         Init();
     int                         Wait();
+    int                         WaitWithTimeout(int ms);
     int                         Notify();
 protected:
     int                         m_fd{-1};

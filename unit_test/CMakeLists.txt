@@ -37,3 +37,6 @@ target_link_libraries(Debug_poller ${MY_LIBS})
 
 add_executable(Debug_hook_sleep Debug_hook_sleep.cc)
 target_link_libraries(Debug_hook_sleep ${MY_LIBS})
+
+add_executable(Debug_cond Debug_cond.cc)
+target_link_libraries(Debug_cond ${MY_LIBS})

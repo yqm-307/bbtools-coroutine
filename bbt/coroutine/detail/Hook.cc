@@ -29,15 +29,12 @@ int Hook_Sleep(int ms)
 
     errno = EINVAL;
 
+    /* 注册到全局轮询器中监听，并挂起协程 */
     auto current_run_co = g_bbt_coroutine_co;
     auto&poller = g_bbt_poller;
-    auto event = CoPollEvent::Create(current_run_co, ms, [](Coroutine::SPtr co){
-        co->OnEventTimeout();
-    });
-
-    int ret = event->RegistEvent();
-    if (ret != 0)
-        return ret;
+    auto event = current_run_co->RegistTimeout(ms);
+    if (event == nullptr)
+        return -1;
 
     current_run_co->Yield();
     return 0;

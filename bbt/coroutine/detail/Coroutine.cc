@@ -2,6 +2,8 @@
 #include <bbt/coroutine/detail/Coroutine.hpp>
 #include <bbt/coroutine/detail/Scheduler.hpp>
 #include <bbt/coroutine/detail/Processer.hpp>
+#include <bbt/coroutine/detail/CoPollEvent.hpp>
+#include <bbt/coroutine/detail/CoPoller.hpp>
 
 namespace bbt::coroutine::detail
 {
@@ -61,14 +63,27 @@ void Coroutine::BindProcesser(std::shared_ptr<Processer> processer)
     m_bind_processer_id = processer->GetId();
 }
 
-void Coroutine::OnEventTimeout()
+void Coroutine::OnEventTimeout(CoPollEvent::SPtr evnet)
 {
     g_scheduler->OnActiveCoroutine(shared_from_this());
+    _OnEventFinal();
 }
 
-void Coroutine::OnEventReadable()
+void Coroutine::OnEventReadable(CoPollEvent::SPtr evnet)
 {
     g_scheduler->OnActiveCoroutine(shared_from_this());
+    _OnEventFinal();
+}
+
+void Coroutine::_OnEventFinal()
+{
+    if (m_readable_event != nullptr)
+        m_readable_event->UnRegistEvent();
+    m_readable_event = nullptr;
+
+    if (m_timeout_event != nullptr)
+        m_timeout_event->UnRegistEvent();
+    m_timeout_event = nullptr;
 }
 
 ProcesserId Coroutine::GetBindProcesserId()
@@ -76,6 +91,32 @@ ProcesserId Coroutine::GetBindProcesserId()
     return m_bind_processer_id;
 }
 
+std::shared_ptr<CoPollEvent> Coroutine::RegistTimeout(int ms)
+{
+    AssertWithInfo(m_timeout_event == nullptr, "不可以重复注册事件");
+    m_timeout_event = CoPollEvent::Create(shared_from_this(), ms, [](CoPollEvent::SPtr event, Coroutine::SPtr co){
+        co->OnEventTimeout(event);
+    });
 
+    Assert(m_timeout_event != nullptr);
+    if (m_timeout_event->RegistEvent() != 0)
+        return nullptr;
+    
+    return m_timeout_event;
+}
+
+std::shared_ptr<CoPollEvent> Coroutine::RegistReadable(int fd, int ms)
+{
+    AssertWithInfo(m_readable_event == nullptr, "不可以重复注册事件");
+    m_readable_event = CoPollEvent::Create(shared_from_this(), fd, ms, [](CoPollEvent::SPtr event, Coroutine::SPtr co){
+        co->OnEventReadable(event);
+    });
+
+    Assert(m_readable_event != nullptr);
+    if (m_readable_event->RegistEvent() != 0)
+        return nullptr;
+
+    return m_readable_event;
+}
 
 }

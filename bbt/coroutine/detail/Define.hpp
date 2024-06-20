@@ -56,7 +56,7 @@ typedef uint64_t ProcesserId;
 
 typedef std::function<void()> CoroutineCallback;        // 协程处理主函数
 typedef std::function<void()> CoroutineFinalCallback;
-typedef std::function<void(std::shared_ptr<Coroutine>)> CoPollEventCallback;      // Poller监听事件完成回调
+typedef std::function<void(std::shared_ptr<CoPollEvent>, std::shared_ptr<Coroutine>)> CoPollEventCallback;      // Poller监听事件完成回调
 
 /**
 @startuml
@@ -131,7 +131,8 @@ enum CoPollEventStatus : int32_t
     POLLEVENT_DEFAULT = 0, // 默认
     POLLEVENT_INITED  = 1, // 初始化完成
     POLLEVENT_LISTEN  = 2, // 监听中
-    POLLEVENT_FINAL   = 3, // 监听结束
+    POLLEVENT_TRIGGER = 3, // 触发中
+    POLLEVENT_FINAL   = 4, // 监听结束
 };
 
 }

@@ -6,8 +6,6 @@
 namespace bbt::coroutine::sync
 {
 
-using ChanStatus = detail::ChanStatus;
-
 class Chan:
     public IChan<int>
 {

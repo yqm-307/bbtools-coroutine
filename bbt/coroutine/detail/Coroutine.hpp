@@ -7,6 +7,13 @@
 namespace bbt::coroutine::detail
 {
 
+enum FollowEventStatus
+{
+    DEFAULT = 0,
+    TIMEOUT = 1,
+    READABLE = 2,
+};
+
 class Coroutine:
     public ICoroutine,
     public std::enable_shared_from_this<Coroutine>
@@ -27,20 +34,31 @@ public:
     virtual CoroutineId             GetId() override;
     ProcesserId                     GetBindProcesserId();
     CoroutineStatus                 GetStatus();
+
+    std::shared_ptr<CoPollEvent>    RegistTimeout(int ms);
+    std::shared_ptr<CoPollEvent>    RegistReadable(int fd, int ms);
+
 protected:
     void                            BindProcesser(std::shared_ptr<Processer> processer);
-    void                            OnEventTimeout();
-    void                            OnEventReadable();
+    void                            OnEventTimeout(std::shared_ptr<CoPollEvent> event);
+    void                            OnEventReadable(std::shared_ptr<CoPollEvent> evnet);
 
 protected:
     static CoroutineId              GenCoroutineId();
     void                            _OnCoroutineFinal();
+    void                            _OnEventFinal(); // 事件触发结束
 private:
     ProcesserId                     m_bind_processer_id{BBT_COROUTINE_INVALID_PROCESSER_ID};
 
     Context                         m_context;
     const CoroutineId               m_id{BBT_COROUTINE_INVALID_COROUTINE_ID};
     volatile CoroutineStatus        m_run_status{CoroutineStatus::CO_DEFAULT};
+
+    FollowEventStatus               m_actived_event{DEFAULT}; // 触发的事件
+
+    std::shared_ptr<CoPollEvent>    m_timeout_event{nullptr};
+    std::shared_ptr<CoPollEvent>    m_readable_event{nullptr};
+
 };
 
 }

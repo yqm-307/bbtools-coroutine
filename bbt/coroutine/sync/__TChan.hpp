@@ -1,3 +1,4 @@
+#pragma once
 #include <bbt/coroutine/sync/Chan.hpp>
 #include <bbt/base/assert/Assert.hpp>
 

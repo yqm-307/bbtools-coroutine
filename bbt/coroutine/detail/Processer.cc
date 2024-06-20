@@ -164,7 +164,7 @@ int Processer::RegistTimeoutEvent(int ms)
     if (co == nullptr)
         return -1;
     
-    auto co_event = CoPollEvent::Create(co, ms , [this](Coroutine::SPtr co){this->AddActiveCoroutine(co);});
+    auto co_event = CoPollEvent::Create(co, ms , [this](auto _, Coroutine::SPtr co){this->AddActiveCoroutine(co);});
     int ret = co_event->RegistEvent();
 
     return ret;

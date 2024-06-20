@@ -8,7 +8,7 @@ using namespace bbt::coroutine::detail;
 int main()
 {
     auto co_sptr = Coroutine::Create(4096, [](){});
-    auto event = CoPollEvent::Create(co_sptr, 1000, [](Coroutine::SPtr co){
+    auto event = CoPollEvent::Create(co_sptr, 1000, [](auto, Coroutine::SPtr co){
         printf("[%ld] [%ld]\n", bbt::clock::now<>().time_since_epoch().count(), co->GetId());
     });
 

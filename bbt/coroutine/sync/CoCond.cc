@@ -10,7 +10,7 @@ namespace bbt::coroutine::sync
 
 using namespace bbt::coroutine::detail;
 
-CoCond::UPtr&& CoCond::Create()
+CoCond::UPtr CoCond::Create()
 {
     auto cond = std::make_unique<CoCond>();
     int ret =  cond->Init();
@@ -40,10 +40,7 @@ int CoCond::Init()
     if (co == nullptr)
         return -1;
 
-    m_poller_event = CoPollEvent::Create(co, m_pipe_fds[0], 10, [](Coroutine::SPtr co){
-        co->OnEventReadable();
-    });
-
+    co->RegistReadable(m_pipe_fds[0], 10);
     return 0;
 }
 
@@ -52,9 +49,6 @@ int CoCond::Wait()
     char byte;
     auto co = g_bbt_coroutine_co;
     if (co == nullptr)
-        return -1;
-
-    if (m_poller_event->RegistEvent() != 0)
         return -1;
 
     co->Yield();
@@ -66,9 +60,30 @@ int CoCond::Wait()
     return 0;
 }
 
+int CoCond::WaitWithTimeout(int ms)
+{
+    Assert(ms > 0);
+    char byte;
+    auto co = g_bbt_coroutine_co;
+    if (co == nullptr)
+        return -1;
+
+    /* 注册超时事件 */
+    co->RegistTimeout(ms);
+
+    /* 协程挂起 */
+    co->Yield();
+
+    /*XXX 可能读不尽*/
+    if (::read(m_pipe_fds[0], &byte, 1) < 0)
+        return -1;
+
+    return 0;
+}
+
 int CoCond::Notify()
 {
-    size_t n = ::write(m_pipe_fds[1], (void*)'y', 1);
+    size_t n = ::write(m_pipe_fds[1], (void*)"y", 1);
     if (n < 0) return -1;
 
     return 0;

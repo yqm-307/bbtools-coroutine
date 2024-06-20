@@ -62,7 +62,9 @@ void CoPoller::PollOnce()
 {
     const int max_event_num = 1024;
     epoll_event events[max_event_num];
-    int active_event_num = ::epoll_wait(m_epoll_fd, events, max_event_num, 20);
+    /* 获取系统关注事件中，被触发的事件 */
+    int active_event_num = ::epoll_wait(m_epoll_fd, events, max_event_num, 1);
+
     for (int i = 0; i < active_event_num; ++i)
     {
         auto& event = events[i];
