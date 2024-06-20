@@ -66,6 +66,11 @@ void Coroutine::OnEventTimeout()
     g_scheduler->OnActiveCoroutine(shared_from_this());
 }
 
+void Coroutine::OnEventReadable()
+{
+    g_scheduler->OnActiveCoroutine(shared_from_this());
+}
+
 ProcesserId Coroutine::GetBindProcesserId()
 {
     return m_bind_processer_id;

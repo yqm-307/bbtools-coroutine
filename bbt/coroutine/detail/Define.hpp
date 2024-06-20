@@ -14,6 +14,30 @@
 
 #define g_bbt_poller (CoPoller::GetInstance())
 
+namespace bbt::coroutine::sync
+{
+
+class Chan;
+class CoCond;
+
+
+/*
+@startuml
+[*] --> CHAN_DEFAUTL
+CHAN_DEFAUTL --> CHAN_OPEN  : 初始化
+CHAN_OPEN    --> CHAN_CLOSE : 主动关闭此信道
+CHAN_CLOSE   --> [*]
+@enduml
+*/
+enum ChanStatus : int32_t
+{
+    CHAN_DEFAUTL        = 0,
+    CHAN_OPEN           = 1,
+    CHAN_CLOSE          = 2,
+};
+
+}
+
 namespace bbt::coroutine::detail
 {
 

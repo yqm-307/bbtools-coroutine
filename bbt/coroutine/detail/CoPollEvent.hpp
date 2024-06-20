@@ -10,9 +10,9 @@ namespace bbt::coroutine::detail
 enum PollEventType
 {
     POLL_EVENT_DEFAULT      = 0,
-    POLL_EVENT_TIMEOUT      = 1,
-    POLL_EVENT_WRITEABLE    = 2,
-    POLL_EVENT_READABLE     = 3,
+    POLL_EVENT_TIMEOUT      = 1 << 0,
+    POLL_EVENT_WRITEABLE    = 1 << 1,
+    POLL_EVENT_READABLE     = 1 << 2,
 };
 
 class CoPollEvent:
@@ -25,7 +25,11 @@ public:
     /* 创建一个超时事件 */
     static SPtr                     Create(std::shared_ptr<Coroutine> coroutine, int timeout, const CoPollEventCallback& cb);
 
+    /* 创建一个可读事件 */
+    static SPtr                     Create(std::shared_ptr<Coroutine> coroutine, int fd, int timeout, const CoPollEventCallback& cb);
+
     BBTATTR_FUNC_Ctor_Hidden        CoPollEvent(std::shared_ptr<Coroutine> coroutine, PollEventType type, int timeout, const CoPollEventCallback& cb);
+    BBTATTR_FUNC_Ctor_Hidden        CoPollEvent(std::shared_ptr<Coroutine> coroutine, PollEventType type, int fd, int timeout, const CoPollEventCallback& cb);
                                     ~CoPollEvent();
 
     /* 轮询事件，关注的套接字 */
@@ -48,6 +52,7 @@ public:
     struct PrivData {std::shared_ptr<IPollEvent> event_sptr{nullptr};};
 protected:
     int                             _RegistTimeoutEvent();
+    int                             _RegistReadableEvent();
 
     void                            _CreateEpollEvent(int epoll_events);
     void                            _DestoryEpollEvent();

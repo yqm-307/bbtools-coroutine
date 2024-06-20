@@ -13,12 +13,32 @@ CoPollEvent::SPtr CoPollEvent::Create(std::shared_ptr<Coroutine> coroutine, int 
     return std::make_shared<CoPollEvent>(coroutine, PollEventType::POLL_EVENT_TIMEOUT, timeout, cb);
 }
 
+CoPollEvent::SPtr CoPollEvent::Create(std::shared_ptr<Coroutine> coroutine, int fd, int timeout, const CoPollEventCallback& cb)
+{
+    return std::make_shared<CoPollEvent>(coroutine, PollEventType::POLL_EVENT_READABLE, fd, timeout, cb);
+}
+
 
 CoPollEvent::CoPollEvent(std::shared_ptr<Coroutine> coroutine, PollEventType type, int timeout, const CoPollEventCallback& cb):
     m_coroutine(coroutine),
     m_type(type),
     m_timeout(timeout),
     m_fd(::timerfd_create(CLOCK_REALTIME, 0)),
+    m_onevent_callback(cb)
+{
+    Assert(m_coroutine != nullptr);
+    Assert(m_timeout > 0);
+    Assert(m_fd >= 0);
+    Assert(m_onevent_callback != nullptr);
+    memset(&m_epoll_event, '\0', sizeof(m_epoll_event));
+    m_run_status = CoPollEventStatus::POLLEVENT_INITED;
+}
+
+CoPollEvent::CoPollEvent(std::shared_ptr<Coroutine> coroutine, PollEventType type, int fd, int timeout, const CoPollEventCallback& cb):
+    m_coroutine(coroutine),
+    m_type(type),
+    m_timeout(timeout),
+    m_fd(fd),
     m_onevent_callback(cb)
 {
     Assert(m_coroutine != nullptr);
@@ -90,10 +110,23 @@ int CoPollEvent::_RegistTimeoutEvent()
     ret = CoPoller::GetInstance()->AddEvent(shared_from_this());
 
     /* 注册失败，销毁epoll_event对象 */
-    if (ret != 0)
-        _DestoryEpollEvent();
+    if (ret != 0) _DestoryEpollEvent();
     
     return ret;
+}
+
+int CoPollEvent::_RegistReadableEvent()
+{
+    int ret = 0;
+
+    _CreateEpollEvent(EPOLL_EVENTS::EPOLLIN | EPOLL_EVENTS::EPOLLONESHOT);
+
+    ret = CoPoller::GetInstance()->AddEvent(shared_from_this());
+
+    /* 注册失败，销毁epoll_event对象 */
+    if (ret != 0) _DestoryEpollEvent();
+
+    return -1;
 }
 
 void CoPollEvent::_CreateEpollEvent(int events)
@@ -113,8 +146,11 @@ int CoPollEvent::RegistEvent()
     int ret = 0;
     switch (m_type)
     {
-    case PollEventType::POLL_EVENT_TIMEOUT :
+    case PollEventType::POLL_EVENT_TIMEOUT:
         ret = _RegistTimeoutEvent();
+        break;
+    case PollEventType::POLL_EVENT_READABLE:
+        ret = _RegistReadableEvent();
         break;
     default:
         AssertWithInfo(false, "还没有开始做");

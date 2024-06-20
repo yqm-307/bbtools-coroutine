@@ -13,6 +13,7 @@ class Coroutine:
 {
 public:
     friend class Processer;
+    friend class sync::CoCond;
     friend int Hook_Sleep(int);
     typedef std::shared_ptr<Coroutine> SPtr;
 
@@ -29,6 +30,7 @@ public:
 protected:
     void                            BindProcesser(std::shared_ptr<Processer> processer);
     void                            OnEventTimeout();
+    void                            OnEventReadable();
 
 protected:
     static CoroutineId              GenCoroutineId();
