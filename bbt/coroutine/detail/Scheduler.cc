@@ -2,6 +2,7 @@
 #include <bbt/base/clock/Clock.hpp>
 #include <bbt/coroutine/detail/Scheduler.hpp>
 #include <bbt/coroutine/detail/Processer.hpp>
+#include <bbt/coroutine/detail/CoPoller.hpp>
 
 namespace bbt::coroutine::detail
 {
@@ -25,11 +26,19 @@ CoroutineId Scheduler::RegistCoroutineTask(const CoroutineCallback& handle)
 {
     auto coroutine_sptr = Coroutine::Create(
         m_cfg_stack_size,
-        handle,
-        [](){});
+        handle);
 
     m_global_coroutine_deque.PushTail(coroutine_sptr);
     return coroutine_sptr->GetId();
+}
+
+void Scheduler::OnActiveCoroutine(Coroutine::SPtr coroutine)
+{
+    ProcesserId co_bind_procid = coroutine->GetBindProcesserId();
+    std::unique_lock<std::mutex> _(m_processer_map_mutex);
+    auto it = m_processer_map.find(co_bind_procid);
+    Assert(it != m_processer_map.end());
+    it->second->AddActiveCoroutine(coroutine);
 }
 
 // void Scheduler::UnRegistCoroutineTask(CoroutineId coroutine_id)
@@ -48,16 +57,14 @@ void Scheduler::_SampleSchuduleAlgorithm()
      * 各个Processer中
      */
 
-    if (m_global_coroutine_deque.Empty())
-        return;
-    
     /* 唤醒没有执行完毕所有任务但是阻塞的processer */
     for (auto&& item : m_processer_map)
     {
         auto processer = item.second;
-        if ((processer->GetLoadValue() > 0) && (processer->GetStatus() == ProcesserStatus::PROC_SUSPEND))
-            processer->Notify();
+        // if ((processer->GetExecutableNum() > 0) && (processer->GetStatus() == ProcesserStatus::PROC_SUSPEND))
+        processer->Notify();
     }
+
     
     /* 如果没有足够的processer，创建 */
     if (m_cfg_static_thread && (m_processer_map.size() < m_cfg_static_thread_num))
@@ -80,6 +87,9 @@ void Scheduler::_SampleSchuduleAlgorithm()
 
         m_down_latch.Wait();
     }
+
+    if (m_global_coroutine_deque.Empty())
+        return;
 
     /* 取出待分配task */
     int total_coroutine_count = 0;
@@ -139,6 +149,7 @@ void Scheduler::_Run()
     while(m_is_running)
     {
         _FixTimingScan();
+        g_bbt_poller->PollOnce();
         prev_scan_timepoint = prev_scan_timepoint + bbt::clock::ms(m_cfg_scan_interval_ms);
         std::this_thread::sleep_until(prev_scan_timepoint);
     }

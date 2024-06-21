@@ -12,18 +12,16 @@ class CoPoller:
 {
 public:
     typedef std::unique_ptr<CoPoller> UPtr;
-    static UPtr& GetInstance();
+    static UPtr&                    GetInstance();
 
     CoPoller();
     ~CoPoller();
 
-    virtual int AddEvent(std::shared_ptr<IPollEvent> event, int addevent) override;
-    virtual int DelEvent(std::shared_ptr<IPollEvent> event, int delevent) override;
-    virtual int ModifyEvent(std::shared_ptr<IPollEvent> event, int modify_event) override;
-    virtual void PollOnce() override;
+    virtual int                     AddEvent(std::shared_ptr<IPollEvent> event) override;
+    virtual int                     DelEvent(std::shared_ptr<IPollEvent> event) override;
+    virtual int                     ModifyEvent(std::shared_ptr<IPollEvent> event) override;
+    virtual void                    PollOnce() override;
 
-    /* 这个类用来包裹对象的智能指针，防止事件被意外被释放 */
-    struct PrivData {std::shared_ptr<IPollEvent> event_sptr{nullptr};};
 protected:
 private:
     int                             m_epoll_fd;

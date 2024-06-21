@@ -26,6 +26,10 @@ add_executable(Test_poller Test_poller.cc)
 target_link_libraries(Test_poller ${MY_LIBS})
 add_test(NAME Test_poller COMMAND Test_poller)
 
+add_executable(Test_cond Test_cond.cc)
+target_link_libraries(Test_cond ${MY_LIBS})
+add_test(NAME Test_cond COMMAND Test_cond)
+
 add_executable(Debug_scheduler Debug_scheduler.cc)
 target_link_libraries(Debug_scheduler ${MY_LIBS})
 
@@ -34,3 +38,9 @@ target_link_libraries(Debug_g_co ${MY_LIBS})
 
 add_executable(Debug_poller Debug_poller.cc)
 target_link_libraries(Debug_poller ${MY_LIBS})
+
+add_executable(Debug_hook_sleep Debug_hook_sleep.cc)
+target_link_libraries(Debug_hook_sleep ${MY_LIBS})
+
+add_executable(Debug_cond Debug_cond.cc)
+target_link_libraries(Debug_cond ${MY_LIBS})

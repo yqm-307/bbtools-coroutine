@@ -1,8 +1,42 @@
 #pragma once
 #include <functional>
+#include <memory>
 #include <cstdint>
 #include <sys/timerfd.h>
+#include <sys/epoll.h>
 #include <bbt/base/Logger/DebugPrint.hpp>
+
+
+#define g_scheduler bbt::coroutine::detail::Scheduler::GetInstance()
+
+/* 当前线程正在运行的 coroutine */
+#define g_bbt_coroutine_co (bbt::coroutine::detail::Processer::GetLocalProcesser()->GetCurrentCoroutine());
+
+#define g_bbt_poller (CoPoller::GetInstance())
+
+namespace bbt::coroutine::sync
+{
+
+class Chan;
+class CoCond;
+
+
+/*
+@startuml
+[*] --> CHAN_DEFAUTL
+CHAN_DEFAUTL --> CHAN_OPEN  : 初始化
+CHAN_OPEN    --> CHAN_CLOSE : 主动关闭此信道
+CHAN_CLOSE   --> [*]
+@enduml
+*/
+enum ChanStatus : int32_t
+{
+    CHAN_DEFAUTL        = 0,
+    CHAN_OPEN           = 1,
+    CHAN_CLOSE          = 2,
+};
+
+}
 
 namespace bbt::coroutine::detail
 {
@@ -19,9 +53,10 @@ typedef uint64_t CoroutineId;
 typedef uint64_t ProcesserId;
 #define BBT_COROUTINE_INVALID_PROCESSER_ID 0
 
+
 typedef std::function<void()> CoroutineCallback;        // 协程处理主函数
 typedef std::function<void()> CoroutineFinalCallback;
-typedef std::function<void(std::shared_ptr<Coroutine>)> CoPollEventCallback;      // Poller监听事件完成回调
+typedef std::function<void(std::shared_ptr<CoPollEvent>, std::shared_ptr<Coroutine>)> CoPollEventCallback;      // Poller监听事件完成回调
 
 /**
 @startuml
@@ -79,6 +114,27 @@ enum ScheudlerStatus: int32_t
     SCHE_RUNNING = 1,   // 执行中
     SCHE_SUSPEND = 2,   // 挂起
     SCHE_EXIT    = 3,   // 结束
+};
+
+/*
+@startuml
+[*] --> POLLEVENT_DEFAULT
+POLLEVENT_DEFAULT --> POLLEVENT_INITED : 创建监听事件
+POLLEVENT_INITED  --> POLLEVENT_LISTEN : 注册到poller中
+POLLEVENT_LISTEN  --> POLLEVENT_TRIGGER: 触发监听事件
+POLLEVENT_TRIGGER --> POLLEVENT_FINAL  : 监听完成
+POLLEVENT_LISTEN  --> POLLEVENT_CANNEL : 取消监听
+POLLEVENT_FINAL   --> [*]
+@enduml
+ */
+enum CoPollEventStatus : int32_t
+{
+    POLLEVENT_DEFAULT = 0, // 默认
+    POLLEVENT_INITED  = 1, // 初始化完成
+    POLLEVENT_LISTEN  = 2, // 监听中
+    POLLEVENT_TRIGGER = 3, // 触发中
+    POLLEVENT_FINAL   = 4, // 监听结束
+    POLLEVENT_CANNEL  = 5, // 取消事件
 };
 
 }

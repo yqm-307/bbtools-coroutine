@@ -26,10 +26,12 @@
 using g_bbt_sys_hook_socket_fn_t = int(*)(int /*domain*/, int /*type*/, int /*protocol*/);
 using g_bbt_sys_hook_connect_fn_t = int(*)(int /*socket*/, const struct sockaddr* /*address*/, socklen_t /*address_len*/);
 using g_bbt_sys_hook_close_fn_t = int(*)(int /*fd*/);
+using g_bbt_sys_hook_sleep_fn_t = unsigned int(*)(unsigned int /*sec*/);
 
 static auto g_bbt_sys_hook_socket_func      = (g_bbt_sys_hook_socket_fn_t)dlsym(RTLD_NEXT, "socket");
-static auto g_bbt_sys_hook_connect_func       = (g_bbt_sys_hook_connect_fn_t)dlsym(RTLD_NEXT, "connect");
-static auto g_bbt_sys_hook_close_fun       = (g_bbt_sys_hook_close_fn_t)dlsym(RTLD_NEXT, "close");
+static auto g_bbt_sys_hook_connect_func     = (g_bbt_sys_hook_connect_fn_t)dlsym(RTLD_NEXT, "connect");
+static auto g_bbt_sys_hook_close_func       = (g_bbt_sys_hook_close_fn_t)dlsym(RTLD_NEXT, "close");
+static auto g_bbt_sys_hook_sleep_func       = (g_bbt_sys_hook_sleep_fn_t)dlsym(RTLD_NEXT, "sleep");
 
 namespace bbt::coroutine
 {
@@ -39,7 +41,7 @@ namespace detail
 extern int Hook_Socket(int domain, int type, int protocol);
 extern int Hook_Connect(int socket, const struct sockaddr* address, socklen_t address_len);
 extern int Hook_Close(int fd);
-extern int Hook_Sleep(int ms);
+extern int Hook_Sleep(int s);
 }
 
 }
