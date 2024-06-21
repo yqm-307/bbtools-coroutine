@@ -99,7 +99,7 @@ std::shared_ptr<CoPollEvent> Coroutine::RegistTimeout(int ms)
     });
 
     Assert(m_timeout_event != nullptr);
-    if (m_timeout_event->RegistEvent() != 0)
+    if (m_timeout_event->RegistEvent(0) != 0)
         return nullptr;
     
     return m_timeout_event;
@@ -107,13 +107,23 @@ std::shared_ptr<CoPollEvent> Coroutine::RegistTimeout(int ms)
 
 std::shared_ptr<CoPollEvent> Coroutine::RegistReadable(int fd, int ms)
 {
+    return _RegistReadableEx(fd, ms, 0);
+}
+
+std::shared_ptr<CoPollEvent> Coroutine::RegistReadableET(int fd, int ms)
+{
+    return _RegistReadableEx(fd, ms, EPOLLET);
+}
+
+std::shared_ptr<CoPollEvent> Coroutine::_RegistReadableEx(int fd, int ms, int ext_event)
+{
     AssertWithInfo(m_readable_event == nullptr, "不可以重复注册事件");
     m_readable_event = CoPollEvent::Create(shared_from_this(), fd, ms, [](CoPollEvent::SPtr event, Coroutine::SPtr co){
         co->OnEventReadable(event);
     });
 
     Assert(m_readable_event != nullptr);
-    if (m_readable_event->RegistEvent() != 0)
+    if (m_readable_event->RegistEvent(ext_event) != 0)
         return nullptr;
 
     return m_readable_event;

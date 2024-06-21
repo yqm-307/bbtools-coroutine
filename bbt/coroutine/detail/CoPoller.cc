@@ -16,7 +16,7 @@ CoPoller::UPtr& CoPoller::GetInstance()
 
 
 CoPoller::CoPoller():
-    m_epoll_fd(::epoll_create(1024))
+    m_epoll_fd(::epoll_create(65535))
 {
     AssertWithInfo(m_epoll_fd >= 0, "epoll_create() failed!");
 }
@@ -70,6 +70,9 @@ void CoPoller::PollOnce()
         auto& event = events[i];
         auto privdata = reinterpret_cast<CoPollEvent::PrivData*>(event.data.ptr);
         auto event_sptr = std::dynamic_pointer_cast<CoPollEvent>(privdata->event_sptr);
+
+        /* 注销事件，并触发事件通知监听者 */
+        event_sptr->_CannelRegistEvent();
         event_sptr->Trigger(this, event.events);
     }
 }

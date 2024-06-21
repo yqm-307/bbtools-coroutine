@@ -10,9 +10,9 @@ namespace bbt::coroutine::sync
 
 using namespace bbt::coroutine::detail;
 
-CoCond::UPtr CoCond::Create()
+CoCond::SPtr CoCond::Create()
 {
-    auto cond = std::make_unique<CoCond>();
+    auto cond = std::make_shared<CoCond>();
     int ret =  cond->Init();
     return (ret == 0 ? std::move(cond) : nullptr);
 }
@@ -25,7 +25,8 @@ CoCond::CoCond()
 
 CoCond::~CoCond()
 {
-
+    ::close(m_pipe_fds[0]);
+    ::close(m_pipe_fds[1]);
 }
 
 int CoCond::Init()
@@ -34,27 +35,32 @@ int CoCond::Init()
     if (ret != 0) return ret;
 
     ret = ::fcntl(m_pipe_fds[1], F_SETFL, O_NONBLOCK);
+    ret = ::fcntl(m_pipe_fds[0], F_SETFL ,O_NONBLOCK);
     if (ret != 0) return ret;
 
+    /* 只能在正在运行的协程上创建cond */
     auto co = g_bbt_coroutine_co;
     if (co == nullptr)
         return -1;
 
-    co->RegistReadable(m_pipe_fds[0], 10);
     return 0;
 }
 
 int CoCond::Wait()
 {
-    char byte;
+    int ret = 0;
+    char byte[32];
     auto co = g_bbt_coroutine_co;
     if (co == nullptr)
         return -1;
 
+    if (co->RegistReadableET(m_pipe_fds[0], 10) == nullptr)
+        return -1;
+
     co->Yield();
 
-    /*XXX 可能读不尽*/
-    if (::read(m_pipe_fds[0], &byte, 1) < 0)
+    /*XXX 可能读不尽，如果调用Notify次数过多有问题，先拓展byte大小，尽量容许Notify重复多次 */
+    if (::read(m_pipe_fds[0], &byte, sizeof(byte)) < 0)
         return -1;
 
     return 0;
@@ -68,8 +74,12 @@ int CoCond::WaitWithTimeout(int ms)
     if (co == nullptr)
         return -1;
 
+    if (co->RegistReadableET(m_pipe_fds[0], 10) == nullptr)
+        return -1;
+
     /* 注册超时事件 */
-    co->RegistTimeout(ms);
+    if (co->RegistTimeout(ms) == nullptr)
+        return -1;
 
     /* 协程挂起 */
     co->Yield();

@@ -13,7 +13,7 @@ int main()
     });
 
     printf("[%ld]\n", bbt::clock::now<>().time_since_epoch().count());
-    Assert(event->RegistEvent() == 0);
+    Assert(event->RegistEvent(0) == 0);
 
 
     for (int i = 0; i < 100; i++)

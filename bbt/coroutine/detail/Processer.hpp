@@ -26,12 +26,6 @@ public:
     ProcesserId                     GetId();
     Coroutine::SPtr                 GetCurrentCoroutine();
 
-    /**
-     * 挂起事件相关
-     */
-    BBTATTR_FUNC_DeprecatedMsg("可能没有用到，后续删除") 
-    int                             RegistTimeoutEvent(int ms);                 
-
 protected:
     /* 非公开库内部接口 */
     void                            Start(bool background_thread = true);

@@ -33,9 +33,9 @@ protected:
 private:
     /* XXX 配置，先静态配置 */
     const size_t                        m_cfg_stack_size{1024 * 8};
-    const size_t                        m_cfg_scan_interval_ms{10};
+    const size_t                        m_cfg_scan_interval_ms{2};
     const bool                          m_cfg_static_thread{true};
-    const size_t                        m_cfg_static_thread_num{2};
+    const size_t                        m_cfg_static_thread_num{4};
 
     std::map<ProcesserId, Processer::SPtr>   m_processer_map;
     std::mutex                               m_processer_map_mutex;

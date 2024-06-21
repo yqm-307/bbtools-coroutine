@@ -155,21 +155,4 @@ void Processer::AddActiveCoroutine(std::vector<Coroutine::SPtr> coroutines)
     m_actived_queue.PushTailRange(coroutines.begin(), coroutines.end());
 }
 
-int Processer::RegistTimeoutEvent(int ms)
-{
-    if (ms <= 0)
-        return -1;
-
-    auto co = GetCurrentCoroutine();
-    if (co == nullptr)
-        return -1;
-    
-    auto co_event = CoPollEvent::Create(co, ms , [this](auto _, Coroutine::SPtr co){this->AddActiveCoroutine(co);});
-    int ret = co_event->RegistEvent();
-
-    return ret;
-}
-
-
-
 } // namespace bbt::coroutine::detail

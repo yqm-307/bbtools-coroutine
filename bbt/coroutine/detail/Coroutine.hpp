@@ -37,6 +37,7 @@ public:
 
     std::shared_ptr<CoPollEvent>    RegistTimeout(int ms);
     std::shared_ptr<CoPollEvent>    RegistReadable(int fd, int ms);
+    std::shared_ptr<CoPollEvent>    RegistReadableET(int fd, int ms);   // 边缘触发
 
 protected:
     void                            BindProcesser(std::shared_ptr<Processer> processer);
@@ -47,6 +48,7 @@ protected:
     static CoroutineId              GenCoroutineId();
     void                            _OnCoroutineFinal();
     void                            _OnEventFinal(); // 事件触发结束
+    std::shared_ptr<CoPollEvent>    _RegistReadableEx(int fd, int ms, int ext_event);
 private:
     ProcesserId                     m_bind_processer_id{BBT_COROUTINE_INVALID_PROCESSER_ID};
 

@@ -9,22 +9,32 @@ class CoCond:
     public std::enable_shared_from_this<CoCond>
 {
 public:
-    typedef std::unique_ptr<CoCond> UPtr;
-    static UPtr Create();
+    typedef std::shared_ptr<CoCond> SPtr;
+    static SPtr                 Create();
 
-    BBTATTR_FUNC_Ctor_Hidden CoCond();
-    ~CoCond();
+    BBTATTR_FUNC_Ctor_Hidden    CoCond();
+                                ~CoCond();
 
-    int                         Init();
     int                         Wait();
+
+    /**
+     * @brief 等待并伴随一个超时时间
+     * 
+     * @param ms 
+     * @return int 
+     */
     int                         WaitWithTimeout(int ms);
+
+    /**
+     * @brief 唤醒一个Wait中的协程
+     * 
+     * @return  0表示成功，-1表示失败
+     */
     int                         Notify();
 protected:
-    int                         m_fd{-1};
+    int                         Init();
+protected:
     int                         m_pipe_fds[2];
-    void*                       m_data{nullptr};
-    std::shared_ptr<detail::CoPollEvent> 
-                                m_poller_event;
 };
 
 }

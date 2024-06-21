@@ -20,6 +20,7 @@ class CoPollEvent:
     public std::enable_shared_from_this<CoPollEvent>
 {
 public:
+    friend class CoPoller;
     typedef std::shared_ptr<CoPollEvent> SPtr;
 
     /* 创建一个超时事件 */
@@ -38,8 +39,8 @@ public:
     virtual void                    Trigger(IPoller* poller, int trigger_events) override;
     /* 获取监听的事件 */
     virtual int                     GetEvent() override;
-    /* 注册监听事件 */
-    int                             RegistEvent();
+    /* 注册监听事件，poll_event_ext附加的poll事件参数 */
+    int                             RegistEvent(int poll_event_ext = 0);
     /* 注销监听事件 */
     int                             UnRegistEvent();
     /* 获取epoll_event结构体 */
@@ -51,8 +52,9 @@ public:
     /* 这个类用来包裹对象的智能指针，防止事件被意外被释放 */
     struct PrivData {std::shared_ptr<IPollEvent> event_sptr{nullptr};};
 protected:
-    int                             _RegistTimeoutEvent();
-    int                             _RegistReadableEvent();
+    int                             _RegistTimeoutEvent(int);
+    int                             _RegistReadableEvent(int);
+    int                             _CannelRegistEvent();
 
     void                            _CreateEpollEvent(int epoll_events);
     void                            _DestoryEpollEvent();

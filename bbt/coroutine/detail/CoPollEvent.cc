@@ -52,7 +52,8 @@ CoPollEvent::CoPollEvent(std::shared_ptr<Coroutine> coroutine, PollEventType typ
 
 CoPollEvent::~CoPollEvent()
 {
-    ::close(m_fd);
+    if (m_type == PollEventType::POLL_EVENT_TIMEOUT)
+        ::close(m_fd);
 }
 
 int CoPollEvent::GetFd()
@@ -69,16 +70,14 @@ void CoPollEvent::Trigger(IPoller* poller, int trigger_events)
      * 对于CoPoller、CoPollEvent来说，都不需要关心事件完成后
      * 到底执行什么样的操作了，只由外部创建者定义。
      */
-    if (m_run_status == CoPollEventStatus::POLLEVENT_FINAL)
+    if (m_run_status == CoPollEventStatus::POLLEVENT_FINAL ||
+        m_run_status == CoPollEventStatus::POLLEVENT_CANNEL)
         return;
 
     m_run_status = CoPollEventStatus::POLLEVENT_TRIGGER;
 
     if (m_onevent_callback != nullptr)
         m_onevent_callback(shared_from_this(), m_coroutine);
-
-    /* 因为使用了 EPOLLONESHOT 所以触发超时任务后，主动释放资源 */
-    _DestoryEpollEvent();
 
     /* 标记事件已经完成 */
     m_run_status = CoPollEventStatus::POLLEVENT_FINAL;
@@ -89,8 +88,9 @@ int CoPollEvent::GetEvent()
     return m_epoll_event.events;
 }
 
-int CoPollEvent::_RegistTimeoutEvent()
+int CoPollEvent::_RegistTimeoutEvent(int ext_event)
 {
+    AssertWithInfo(ext_event == 0 || ext_event == EPOLLET, "目前先限定死只能是EPOLLET或者不填");
     // 计算超时时间
     itimerspec new_value; 
     timespec now;
@@ -110,7 +110,7 @@ int CoPollEvent::_RegistTimeoutEvent()
     if (timerfd_settime(m_fd, TFD_TIMER_ABSTIME, &new_value, NULL) != 0)
         return -1;
 
-    _CreateEpollEvent(EPOLL_EVENTS::EPOLLIN | EPOLL_EVENTS::EPOLLONESHOT);
+    _CreateEpollEvent(EPOLL_EVENTS::EPOLLIN | EPOLL_EVENTS::EPOLLONESHOT | ext_event);
 
     ret = CoPoller::GetInstance()->AddEvent(shared_from_this());
 
@@ -120,18 +120,18 @@ int CoPollEvent::_RegistTimeoutEvent()
     return ret;
 }
 
-int CoPollEvent::_RegistReadableEvent()
+int CoPollEvent::_RegistReadableEvent(int ext_event)
 {
+    AssertWithInfo(ext_event == 0 || ext_event == EPOLLET, "目前先限定死只能是EPOLLET或者不填");
     int ret = 0;
-
-    _CreateEpollEvent(EPOLL_EVENTS::EPOLLIN | EPOLL_EVENTS::EPOLLONESHOT);
+    _CreateEpollEvent(EPOLL_EVENTS::EPOLLIN | EPOLL_EVENTS::EPOLLONESHOT | ext_event);
 
     ret = CoPoller::GetInstance()->AddEvent(shared_from_this());
 
     /* 注册失败，销毁epoll_event对象 */
     if (ret != 0) _DestoryEpollEvent();
 
-    return -1;
+    return ret;
 }
 
 void CoPollEvent::_CreateEpollEvent(int events)
@@ -142,20 +142,23 @@ void CoPollEvent::_CreateEpollEvent(int events)
 
 void CoPollEvent::_DestoryEpollEvent()
 {
+    if (m_epoll_event.data.ptr == nullptr)
+        return;
+
     ((PrivData*)m_epoll_event.data.ptr)->event_sptr = nullptr;
     delete (PrivData*)m_epoll_event.data.ptr;
 }
 
-int CoPollEvent::RegistEvent()
+int CoPollEvent::RegistEvent(int poll_event_ext)
 {
     int ret = 0;
     switch (m_type)
     {
     case PollEventType::POLL_EVENT_TIMEOUT:
-        ret = _RegistTimeoutEvent();
+        ret = _RegistTimeoutEvent(poll_event_ext);
         break;
     case PollEventType::POLL_EVENT_READABLE:
-        ret = _RegistReadableEvent();
+        ret = _RegistReadableEvent(poll_event_ext);
         break;
     default:
         AssertWithInfo(false, "还没有开始做");
@@ -170,10 +173,6 @@ int CoPollEvent::UnRegistEvent()
 {
     int ret = 0;
 
-    /* 事件正在通知中，会自动释放，所以不需要重复释放 */
-    if (m_run_status == CoPollEventStatus::POLLEVENT_TRIGGER)
-        return 0;
-
     /* 只能对监听中的任务执行操作 */
     if (m_run_status != CoPollEventStatus::POLLEVENT_LISTEN)
         return -1;
@@ -183,7 +182,22 @@ int CoPollEvent::UnRegistEvent()
     if (ret == 0)
     {
         _DestoryEpollEvent();
-        m_run_status = CoPollEventStatus::POLLEVENT_FINAL;
+        m_run_status = CoPollEventStatus::POLLEVENT_CANNEL;
+    }
+
+    return ret;
+}
+
+int CoPollEvent::_CannelRegistEvent()
+{
+    int ret = 0;
+    if (m_run_status != CoPollEventStatus::POLLEVENT_LISTEN)
+        return -1;
+    
+    ret = CoPoller::GetInstance()->DelEvent(shared_from_this());
+
+    if (ret == 0) {
+        _DestoryEpollEvent();
     }
 
     return ret;
