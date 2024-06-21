@@ -61,8 +61,8 @@ void Scheduler::_SampleSchuduleAlgorithm()
     for (auto&& item : m_processer_map)
     {
         auto processer = item.second;
-        // if ((processer->GetExecutableNum() > 0) && (processer->GetStatus() == ProcesserStatus::PROC_SUSPEND))
-        processer->Notify();
+        if ((processer->GetExecutableNum() > 0) && (processer->GetStatus() == ProcesserStatus::PROC_SUSPEND))
+            processer->Notify();
     }
 
     
@@ -148,8 +148,8 @@ void Scheduler::_Run()
 
     while(m_is_running)
     {
-        _FixTimingScan();
         g_bbt_poller->PollOnce();
+        _FixTimingScan();
         prev_scan_timepoint = prev_scan_timepoint + bbt::clock::ms(m_cfg_scan_interval_ms);
         std::this_thread::sleep_until(prev_scan_timepoint);
     }

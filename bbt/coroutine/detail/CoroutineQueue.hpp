@@ -22,7 +22,7 @@ public:
     void                            PushTailRange(std::vector<Coroutine::SPtr>::iterator begin, std::vector<Coroutine::SPtr>::iterator end);
 private:
     std::deque<Coroutine::SPtr>     m_queue;
-    std::recursive_mutex            m_mutex;
+    std::mutex                      m_mutex;
 };
 
 }

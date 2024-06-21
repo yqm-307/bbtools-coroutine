@@ -14,14 +14,17 @@ BOOST_AUTO_TEST_CASE(t_cond)
 {
     const int n_max_notify_count = 10000;
     std::atomic_int ncount = 0;
+    uint64_t n_begin_time = bbt::clock::now<>().time_since_epoch().count();
+    uint64_t n_last_time = 0;
     g_scheduler->Start(true);
 
     g_scheduler->RegistCoroutineTask([&]() {
         auto cond = sync::CoCond::Create();
         Assert(cond != nullptr);
         for (int i = 0; i < n_max_notify_count; ++i) {
-            g_scheduler->RegistCoroutineTask([cond, &ncount](){
+            g_scheduler->RegistCoroutineTask([cond, &n_last_time, &ncount](){
                 cond->Notify();
+                n_last_time = bbt::clock::now<>().time_since_epoch().count();
                 ncount++;
             });
             cond->Wait();
@@ -37,6 +40,8 @@ BOOST_AUTO_TEST_CASE(t_cond)
         std::this_thread::sleep_for(bbt::clock::milliseconds(100));
     }
 
+    printf("begin time: %ld\n", n_begin_time);
+    printf("end   time: %ld\n", n_last_time);
     BOOST_CHECK_EQUAL(ncount.load(), n_max_notify_count);
 
     g_scheduler->Stop();

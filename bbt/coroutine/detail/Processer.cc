@@ -92,18 +92,20 @@ void Processer::_Run()
     {
         m_run_status = ProcesserStatus::PROC_RUNNING;
 
+        std::vector<Coroutine::SPtr> actived_coroutines;
+        std::vector<Coroutine::SPtr> pending_coroutines;
+
+        m_actived_queue.PopAll(actived_coroutines);
+        m_coroutine_queue.PopAll(pending_coroutines);
         /* 优先被激活的挂起协程 */
-        while (!m_actived_queue.Empty())
-        {
-            m_running_coroutine = m_actived_queue.PopHead();
+        for (auto&& coroutine : actived_coroutines) {
+            m_running_coroutine = coroutine;
             AssertWithInfo(m_running_coroutine != nullptr, "maybe coroutine queue has bug!");
             m_running_coroutine->Resume();
         }
-        
 
-        while (!m_coroutine_queue.Empty())
-        {
-            m_running_coroutine = m_coroutine_queue.PopHead();
+        for (auto&& coroutine : pending_coroutines) {
+            m_running_coroutine = coroutine;
             AssertWithInfo(m_running_coroutine != nullptr, "maybe coroutine queue has bug!");
             //TODO 不考虑执行一半，没有做挂起协程的唤醒机制
             m_running_coroutine->Resume();

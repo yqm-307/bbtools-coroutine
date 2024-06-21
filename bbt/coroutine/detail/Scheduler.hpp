@@ -17,34 +17,32 @@ public:
     void Start(bool background_thread = false);
     void Stop();
 
-    CoroutineId                         RegistCoroutineTask(const CoroutineCallback& handle);
+    CoroutineId                                 RegistCoroutineTask(const CoroutineCallback& handle);
     /* 协程被激活 */
-    void                                OnActiveCoroutine(Coroutine::SPtr coroutine);
-    // void UnRegistCoroutineTask(CoroutineId coroutine_id);
-
+    void                                        OnActiveCoroutine(Coroutine::SPtr coroutine);
 protected:
     Scheduler();
 
-    void _Run();
+    void                                        _Run();
     /* 定时扫描 */
-    void _FixTimingScan();
+    void                                        _FixTimingScan();
     /* 简单调度算法 */
-    void _SampleSchuduleAlgorithm();
+    void                                        _SampleSchuduleAlgorithm();
 private:
     /* XXX 配置，先静态配置 */
-    const size_t                        m_cfg_stack_size{1024 * 8};
-    const size_t                        m_cfg_scan_interval_ms{2};
-    const bool                          m_cfg_static_thread{true};
-    const size_t                        m_cfg_static_thread_num{4};
+    const size_t                                m_cfg_stack_size{1024 * 8};
+    const size_t                                m_cfg_scan_interval_ms{1};
+    const bool                                  m_cfg_static_thread{true};
+    const size_t                                m_cfg_static_thread_num{4};
 
-    std::map<ProcesserId, Processer::SPtr>   m_processer_map;
-    std::mutex                               m_processer_map_mutex;
-    bbt::thread::CountDownLatch              m_down_latch;
+    std::map<ProcesserId, Processer::SPtr>      m_processer_map;
+    std::mutex                                  m_processer_map_mutex;
+    bbt::thread::CountDownLatch                 m_down_latch;
 
     /* coroutine全局队列 */
-    CoroutineQueue                      m_global_coroutine_deque;
-    volatile bool                       m_is_running{true};
-    volatile ScheudlerStatus            m_run_status{ScheudlerStatus::SCHE_DEFAULT};
+    CoroutineQueue                              m_global_coroutine_deque;
+    volatile bool                               m_is_running{true};
+    volatile ScheudlerStatus                    m_run_status{ScheudlerStatus::SCHE_DEFAULT};
 
 };
 
