@@ -56,7 +56,6 @@ void Scheduler::_SampleSchuduleAlgorithm()
      * 调度器扫描时，若global队列有任务，则分配到
      * 各个Processer中
      */
-
     /* 唤醒没有执行完毕所有任务但是阻塞的processer */
     for (auto&& item : m_processer_map)
     {
@@ -148,8 +147,11 @@ void Scheduler::_Run()
 
     while(m_is_running)
     {
-        g_bbt_poller->PollOnce();
-        _FixTimingScan();
+        int trigger_event = 0;
+        do {
+            trigger_event = g_bbt_poller->PollOnce();
+            _FixTimingScan();
+        } while(trigger_event > 0);
         prev_scan_timepoint = prev_scan_timepoint + bbt::clock::ms(m_cfg_scan_interval_ms);
         std::this_thread::sleep_until(prev_scan_timepoint);
     }

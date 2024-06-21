@@ -131,8 +131,8 @@ void Processer::Stop()
 void Processer::_OnAddCorotinue()
 {
     // if (!m_is_running || !(m_run_status == ProcesserStatus::PROC_Suspend))
-    if (!m_is_running)
-        return;
+    // if (!m_is_running)
+        // return;
 
     m_run_cond.notify_one();
 }

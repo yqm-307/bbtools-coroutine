@@ -38,8 +38,9 @@ public:
     /**
      * @brief 执行一次轮询，触发所有完成的事件
      * 
+     * @return 触发的事件数量
      */
-    virtual void PollOnce() = 0;
+    virtual int PollOnce() = 0;
 
 };
 
