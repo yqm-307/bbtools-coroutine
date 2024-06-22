@@ -101,6 +101,7 @@ void Processer::_Run()
         for (auto&& coroutine : actived_coroutines) {
             m_running_coroutine = coroutine;
             AssertWithInfo(m_running_coroutine != nullptr, "maybe coroutine queue has bug!");
+            m_co_swap_times++;
             m_running_coroutine->Resume();
         }
 
@@ -108,6 +109,7 @@ void Processer::_Run()
             m_running_coroutine = coroutine;
             AssertWithInfo(m_running_coroutine != nullptr, "maybe coroutine queue has bug!");
             //TODO 不考虑执行一半，没有做挂起协程的唤醒机制
+            m_co_swap_times++;
             m_running_coroutine->Resume();
         }
 
@@ -131,8 +133,8 @@ void Processer::Stop()
 void Processer::_OnAddCorotinue()
 {
     // if (!m_is_running || !(m_run_status == ProcesserStatus::PROC_Suspend))
-    // if (!m_is_running)
-        // return;
+    if (!m_is_running)
+        return;
 
     m_run_cond.notify_one();
 }
@@ -155,6 +157,11 @@ void Processer::AddActiveCoroutine(Coroutine::SPtr actived_coroutine)
 void Processer::AddActiveCoroutine(std::vector<Coroutine::SPtr> coroutines)
 {
     m_actived_queue.PushTailRange(coroutines.begin(), coroutines.end());
+}
+
+uint64_t Processer::GetContextSwapTimes()
+{
+    return m_co_swap_times;
 }
 
 } // namespace bbt::coroutine::detail

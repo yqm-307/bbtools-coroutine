@@ -196,9 +196,9 @@ int CoPollEvent::_CannelRegistEvent()
     
     ret = CoPoller::GetInstance()->DelEvent(shared_from_this());
 
-    if (ret == 0) {
-        _DestoryEpollEvent();
-    }
+    // if (ret == 0) {
+    // }
+    _DestoryEpollEvent();
 
     return ret;
 }

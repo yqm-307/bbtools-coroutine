@@ -24,6 +24,7 @@ BOOST_AUTO_TEST_CASE(t_coroutine)
         }
 
         std::this_thread::sleep_for(bbt::clock::seconds(1));
+        printf("1 sec : %ld\n", ncount.load());
     }
 
     g_scheduler->Stop();

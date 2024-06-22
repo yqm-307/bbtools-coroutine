@@ -6,7 +6,12 @@
 #include <bbt/coroutine/detail/CoPoller.hpp>
 
 namespace bbt::coroutine::detail
-{
+{ 
+
+#ifdef BBT_COROUTINE_PROFILE
+std::atomic_int Coroutine::m_created_size = 0;
+std::atomic_int Coroutine::m_released_size = 0;
+#endif
 
 CoroutineId Coroutine::GenCoroutineId()
 {
@@ -19,16 +24,38 @@ Coroutine::SPtr Coroutine::Create(int stack_size, const CoroutineCallback& co_fu
     return std::make_shared<Coroutine>(stack_size, co_func, need_protect);
 }
 
+Coroutine::SPtr Coroutine::Create(int stack_size, const CoroutineCallback& co_func, const CoroutineFinalCallback& co_final_cb, bool need_protect)
+{
+    return std::make_shared<Coroutine>(stack_size, co_func, co_final_cb, need_protect);
+}
 
 Coroutine::Coroutine(int stack_size, const CoroutineCallback& co_func, bool need_protect):
     m_context(stack_size, co_func, [this](){_OnCoroutineFinal();}, need_protect),
     m_id(GenCoroutineId())
 {
     m_run_status = CoroutineStatus::CO_PENDING;
+#ifdef BBT_COROUTINE_PROFILE
+    m_created_size++;
+#endif
 }
+
+Coroutine::Coroutine(int stack_size, const CoroutineCallback& co_func, const CoroutineFinalCallback& co_final_cb, bool need_protect):
+    m_context(stack_size, co_func, [this](){_OnCoroutineFinal();}, need_protect),
+    m_id(GenCoroutineId()),
+    m_co_final_callback(co_final_cb)
+{
+    m_run_status = CoroutineStatus::CO_PENDING;
+#ifdef BBT_COROUTINE_PROFILE
+    m_created_size++;
+#endif
+}
+
 
 Coroutine::~Coroutine()
 {
+#ifdef BBT_COROUTINE_PROFILE
+    m_released_size++;
+#endif
 }
 
 void Coroutine::Resume()
@@ -56,6 +83,8 @@ CoroutineStatus Coroutine::GetStatus()
 void Coroutine::_OnCoroutineFinal()
 {
     m_run_status = CoroutineStatus::CO_FINAL;
+    if (m_co_final_callback)
+        m_co_final_callback();
 }
 
 void Coroutine::BindProcesser(std::shared_ptr<Processer> processer)

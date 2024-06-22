@@ -38,6 +38,8 @@ protected:
 
     void                            AddActiveCoroutine(Coroutine::SPtr actived_coroutine);
     void                            AddActiveCoroutine(std::vector<Coroutine::SPtr> coroutines);
+
+    uint64_t                        GetContextSwapTimes();  /* 协程上下文换出次数 */
 protected:
     static ProcesserId              _GenProcesserId();
     void                            _OnAddCorotinue();
@@ -54,6 +56,7 @@ private:
     volatile bool                   m_is_running{true};
 
     Coroutine::SPtr                 m_running_coroutine{nullptr};   // processer当前运行中的协程
+    uint64_t                        m_co_swap_times{0};
 };
 
 }

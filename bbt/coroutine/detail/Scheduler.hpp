@@ -1,4 +1,5 @@
 #pragma once
+#include <bbt/base/clock/Clock.hpp>
 #include <bbt/coroutine/detail/Processer.hpp>
 #include <bbt/base/thread/Lock.hpp>
 
@@ -28,12 +29,15 @@ protected:
     void                                        _FixTimingScan();
     /* 简单调度算法 */
     void                                        _SampleSchuduleAlgorithm();
+
+#ifdef BBT_COROUTINE_PROFILE
+protected: /* profiler */
+    void                                        _ProfileInfo(std::string& info);
+    std::atomic_int                             m_coroutine_regist_count{0};
+    std::atomic_int                             m_coroutine_final_count{0};
+#endif
 private:
-    /* XXX 配置，先静态配置 */
-    const size_t                                m_cfg_stack_size{1024 * 8};
-    const size_t                                m_cfg_scan_interval_ms{1};
-    const bool                                  m_cfg_static_thread{true};
-    const size_t                                m_cfg_static_thread_num{4};
+    bbt::clock::Timestamp<>                     m_begin_timestamp;  // 调度器开启时间
 
     std::map<ProcesserId, Processer::SPtr>      m_processer_map;
     std::mutex                                  m_processer_map_mutex;
@@ -44,6 +48,7 @@ private:
     volatile bool                               m_is_running{true};
     volatile ScheudlerStatus                    m_run_status{ScheudlerStatus::SCHE_DEFAULT};
 
+    uint64_t                                    m_regist_coroutine_count{0};
 };
 
 }

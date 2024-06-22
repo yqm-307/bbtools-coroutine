@@ -1,8 +1,10 @@
 #include <cmath>
+#include <bbt/base/Logger/DebugPrint.hpp>
 #include <bbt/base/clock/Clock.hpp>
 #include <bbt/coroutine/detail/Scheduler.hpp>
 #include <bbt/coroutine/detail/Processer.hpp>
 #include <bbt/coroutine/detail/CoPoller.hpp>
+#include <bbt/coroutine/detail/GlobalConfig.hpp>
 
 namespace bbt::coroutine::detail
 {
@@ -17,16 +19,24 @@ Scheduler::UPtr& Scheduler::GetInstance()
 }
 
 Scheduler::Scheduler():
-    m_down_latch(m_cfg_static_thread_num)
+    m_down_latch(g_bbt_coroutine_config->m_cfg_static_thread_num)
 {
 }
 
 
 CoroutineId Scheduler::RegistCoroutineTask(const CoroutineCallback& handle)
 {
+#ifdef BBT_COROUTINE_PROFILE
     auto coroutine_sptr = Coroutine::Create(
-        m_cfg_stack_size,
+        g_bbt_coroutine_config->m_cfg_stack_size,
+        [this](){ m_coroutine_final_count++;},
         handle);
+    m_coroutine_regist_count++;
+#else
+    auto coroutine_sptr = Coroutine::Create(
+        g_bbt_coroutine_config->m_cfg_stack_size,
+        handle);
+#endif
 
     m_global_coroutine_deque.PushTail(coroutine_sptr);
     return coroutine_sptr->GetId();
@@ -66,9 +76,9 @@ void Scheduler::_SampleSchuduleAlgorithm()
 
     
     /* 如果没有足够的processer，创建 */
-    if (m_cfg_static_thread && (m_processer_map.size() < m_cfg_static_thread_num))
+    if (g_bbt_coroutine_config->m_cfg_static_thread && (m_processer_map.size() < g_bbt_coroutine_config->m_cfg_static_thread_num))
     {
-        int need_create_thread_num = m_cfg_static_thread_num - m_processer_map.size();
+        int need_create_thread_num = g_bbt_coroutine_config->m_cfg_static_thread_num - m_processer_map.size();
         for (int i = 0; i< need_create_thread_num; ++i)
         {
             auto t = new std::thread([this](){
@@ -143,16 +153,29 @@ void Scheduler::_FixTimingScan()
 
 void Scheduler::_Run()
 {
+    m_begin_timestamp = bbt::clock::now<>();
     auto prev_scan_timepoint = bbt::clock::now<>();
+    auto prev_profile_timepoint = bbt::clock::now<>();
 
     while(m_is_running)
     {
+#ifdef BBT_COROUTINE_PROFILE
+        if (g_bbt_coroutine_config->m_cfg_profile_printf_ms > 0 &&
+            bbt::clock::is_expired<bbt::clock::milliseconds>((prev_profile_timepoint + bbt::clock::milliseconds(g_bbt_coroutine_config->m_cfg_profile_printf_ms))))
+        {
+            std::string info;
+            _ProfileInfo(info);
+            bbt::log::DebugPrint(info.c_str());
+            prev_profile_timepoint = bbt::clock::now<>();
+        }
+#endif
+
         int trigger_event = 0;
         do {
             trigger_event = g_bbt_poller->PollOnce();
             _FixTimingScan();
         } while(trigger_event > 0);
-        prev_scan_timepoint = prev_scan_timepoint + bbt::clock::ms(m_cfg_scan_interval_ms);
+        prev_scan_timepoint = prev_scan_timepoint + bbt::clock::ms(g_bbt_coroutine_config->m_cfg_scan_interval_ms);
         std::this_thread::sleep_until(prev_scan_timepoint);
     }
 }
@@ -178,4 +201,24 @@ void Scheduler::Stop()
     
     m_run_status = ScheudlerStatus::SCHE_EXIT;
 }
+
+#ifdef BBT_COROUTINE_PROFILE
+void Scheduler::_ProfileInfo(std::string& info)
+{
+    info.clear();
+    info += "================== Scheduler ProfileInfo ==================\n";
+    info += "已运行时间(ms)：" + std::to_string((bbt::clock::now<>() - m_begin_timestamp).count()) + '\n';
+    info += "注册协程数：" + std::to_string(m_coroutine_regist_count.load()) + '\n';    
+    info += "完成协程数：" + std::to_string(m_coroutine_final_count.load())  + '\n';
+    info += "全局协程数：" + std::to_string(m_global_coroutine_deque.Size()) + '\n';
+    for (auto&& processer : m_processer_map)
+    {
+        info += "\tPID："                    + std::to_string(processer.second->GetId()) +
+                "\t本地队列任务数："          + std::to_string(processer.second->GetExecutableNum()) + 
+                "\t上下文切换次数："          + std::to_string(processer.second->GetContextSwapTimes()) +
+                '\n';
+    }
+}
+#endif
+
 } // namespace bbt::coroutine::detail

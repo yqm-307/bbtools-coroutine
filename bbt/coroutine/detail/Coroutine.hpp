@@ -25,10 +25,13 @@ public:
     typedef std::shared_ptr<Coroutine> SPtr;
 
     BBTATTR_FUNC_Ctor_Hidden
-    Coroutine(int stack_size, const CoroutineCallback& co_func, bool need_protect = true);
+    Coroutine(int stack_size, const CoroutineCallback& co_func, bool need_protect);
+    BBTATTR_FUNC_Ctor_Hidden
+    Coroutine(int stack_size, const CoroutineCallback& co_func, const CoroutineFinalCallback& co_final_cb, bool need_protect);
     ~Coroutine();
     
     static SPtr                     Create(int stack_size, const CoroutineCallback& co_func, bool need_protect = true);
+    static SPtr                     Create(int stack_size, const CoroutineCallback& co_func, const CoroutineFinalCallback& co_final_cb, bool need_protect = true);
     virtual void                    Resume() override;
     virtual void                    Yield() override;
     virtual CoroutineId             GetId() override;
@@ -61,6 +64,12 @@ private:
     std::shared_ptr<CoPollEvent>    m_timeout_event{nullptr};
     std::shared_ptr<CoPollEvent>    m_readable_event{nullptr};
 
+    CoroutineFinalCallback          m_co_final_callback{nullptr};
+
+#ifdef BBT_COROUTINE_PROFILE
+    static std::atomic_int                 m_created_size{0};
+    static std::atomic_int                 m_released_size{0};
+#endif
 };
 
 }
