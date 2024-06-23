@@ -4,14 +4,10 @@
 #include <bbt/coroutine/detail/Processer.hpp>
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
 #include <bbt/coroutine/detail/CoPoller.hpp>
+#include <bbt/coroutine/detail/Profiler.hpp>
 
 namespace bbt::coroutine::detail
-{ 
-
-#ifdef BBT_COROUTINE_PROFILE
-std::atomic_int Coroutine::m_created_size = 0;
-std::atomic_int Coroutine::m_released_size = 0;
-#endif
+{
 
 CoroutineId Coroutine::GenCoroutineId()
 {
@@ -35,7 +31,7 @@ Coroutine::Coroutine(int stack_size, const CoroutineCallback& co_func, bool need
 {
     m_run_status = CoroutineStatus::CO_PENDING;
 #ifdef BBT_COROUTINE_PROFILE
-    m_created_size++;
+    g_bbt_profiler->OnEvent_CreateCoroutine();
 #endif
 }
 
@@ -46,7 +42,7 @@ Coroutine::Coroutine(int stack_size, const CoroutineCallback& co_func, const Cor
 {
     m_run_status = CoroutineStatus::CO_PENDING;
 #ifdef BBT_COROUTINE_PROFILE
-    m_created_size++;
+    g_bbt_profiler->OnEvent_CreateCoroutine();
 #endif
 }
 
@@ -54,7 +50,7 @@ Coroutine::Coroutine(int stack_size, const CoroutineCallback& co_func, const Cor
 Coroutine::~Coroutine()
 {
 #ifdef BBT_COROUTINE_PROFILE
-    m_released_size++;
+    g_bbt_profiler->OnEvent_DestoryCoroutine();
 #endif
 }
 

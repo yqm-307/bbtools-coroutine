@@ -65,11 +65,6 @@ private:
     std::shared_ptr<CoPollEvent>    m_readable_event{nullptr};
 
     CoroutineFinalCallback          m_co_final_callback{nullptr};
-
-#ifdef BBT_COROUTINE_PROFILE
-    static std::atomic_int                 m_created_size{0};
-    static std::atomic_int                 m_released_size{0};
-#endif
 };
 
 }

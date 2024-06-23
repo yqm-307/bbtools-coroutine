@@ -2,6 +2,7 @@
 #include <bbt/base/clock/Clock.hpp>
 #include <bbt/coroutine/detail/Processer.hpp>
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
+#include <bbt/coroutine/detail/Profiler.hpp>
 
 namespace bbt::coroutine::detail
 {
@@ -14,8 +15,12 @@ Processer::SPtr Processer::Create()
 Processer::SPtr Processer::GetLocalProcesser()
 {
     static thread_local Processer::SPtr tl_processer = nullptr;
-    if (tl_processer == nullptr) 
+    if (tl_processer == nullptr) {
         tl_processer = Create();
+#ifdef BBT_COROUTINE_PROFILE
+        g_bbt_profiler->OnEvent_StartProcesser(tl_processer);
+#endif
+    }
 
     return tl_processer;
 }
@@ -163,5 +168,8 @@ uint64_t Processer::GetContextSwapTimes()
 {
     return m_co_swap_times;
 }
+
+void GetProfilerInfo(std::string& info);
+
 
 } // namespace bbt::coroutine::detail

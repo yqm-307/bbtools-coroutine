@@ -9,8 +9,9 @@ namespace bbt::coroutine::detail
 class Scheduler
 {
 public:
+    friend class Profiler;
     typedef std::unique_ptr<Scheduler> UPtr;
-    ~Scheduler() {}
+    ~Scheduler();
 
     static UPtr& GetInstance();
 
@@ -30,14 +31,10 @@ protected:
     /* 简单调度算法 */
     void                                        _SampleSchuduleAlgorithm();
 
-#ifdef BBT_COROUTINE_PROFILE
-protected: /* profiler */
-    void                                        _ProfileInfo(std::string& info);
-    std::atomic_int                             m_coroutine_regist_count{0};
-    std::atomic_int                             m_coroutine_final_count{0};
-#endif
 private:
     bbt::clock::Timestamp<>                     m_begin_timestamp;  // 调度器开启时间
+    std::thread*                                m_thread{nullptr};
+    std::vector<std::thread*>                   m_proc_threads;
 
     std::map<ProcesserId, Processer::SPtr>      m_processer_map;
     std::mutex                                  m_processer_map_mutex;

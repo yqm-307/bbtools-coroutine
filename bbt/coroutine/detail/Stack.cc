@@ -24,7 +24,8 @@ Stack::Stack(const size_t stack_size,const bool stack_protect)
     if (m_stack_protect_flag)
     {
         m_mem_chunk_size = m_useable_size + (2 * pagesize);
-        m_mem_chunk = (char*)Alloc(NULL, m_mem_chunk_size, PROT_READ | PROT_WRITE, MAP_PRIVATE);
+        m_mem_chunk = (char*)mmap(NULL, m_mem_chunk_size, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+        // m_mem_chunk = (char*)Alloc(NULL, m_mem_chunk_size, PROT_READ | PROT_WRITE, MAP_PRIVATE);
         assert(m_mem_chunk != nullptr);    
         m_useable_stack = m_mem_chunk + pagesize;   //可访问内存栈   
         _ApplyStackProtect(m_mem_chunk, m_mem_chunk_size);
@@ -32,7 +33,7 @@ Stack::Stack(const size_t stack_size,const bool stack_protect)
     else
     {
         m_mem_chunk_size = m_useable_size;
-        m_mem_chunk = (char*)Alloc(NULL, m_mem_chunk_size, PROT_READ | PROT_WRITE, MAP_PRIVATE);
+        m_mem_chunk = (char*)mmap(NULL, m_mem_chunk_size, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
         assert(m_mem_chunk != nullptr);
         m_useable_stack = m_mem_chunk;
     }
@@ -51,8 +52,8 @@ Stack::~Stack()
 int Stack::_ApplyStackProtect(char* mem_chunk, size_t mem_chunk_len)
 {
     int pagesize = getpagesize();
-    auto* phead = mem_chunk;
-    auto* ptail = mem_chunk + mem_chunk_len - pagesize;
+    void* phead = mem_chunk;
+    void* ptail = mem_chunk + mem_chunk_len - pagesize;
 
     if (mprotect(phead, pagesize, PROT_NONE) < 0){
         bbt::log::WarnPrint("%s, errno : %d %s", __FUNCTION__, errno, strerror(errno));
@@ -69,8 +70,8 @@ int Stack::_ApplyStackProtect(char* mem_chunk, size_t mem_chunk_len)
 int Stack::_ReleaseStackProtect()
 {
     int pagesize = getpagesize();
-    auto* phead = m_mem_chunk;
-    auto* ptail = m_mem_chunk + m_mem_chunk_size - pagesize;
+    void* phead = m_mem_chunk;
+    void* ptail = m_mem_chunk + m_mem_chunk_size - pagesize;
 
 
     if (mprotect(phead, pagesize, PROT_READ | PROT_WRITE) < 0) {
@@ -83,7 +84,6 @@ int Stack::_ReleaseStackProtect()
         return -1;
     }
 
-    m_mem_chunk = nullptr;
     return 0;
 }
 

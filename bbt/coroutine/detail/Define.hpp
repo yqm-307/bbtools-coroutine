@@ -17,6 +17,8 @@
 
 #define g_bbt_coroutine_config (GlobalConfig::GetInstance())
 
+#define g_bbt_profiler (Profiler::GetInstance())
+
 namespace bbt::coroutine::sync
 {
 
