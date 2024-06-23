@@ -3,6 +3,8 @@
 #include <bbt/coroutine/detail/Processer.hpp>
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
 #include <bbt/coroutine/detail/Profiler.hpp>
+#include <bbt/coroutine/detail/Scheduler.hpp>
+#include <bbt/coroutine/detail/GlobalConfig.hpp>
 
 namespace bbt::coroutine::detail
 {
@@ -97,30 +99,31 @@ void Processer::_Run()
     {
         m_run_status = ProcesserStatus::PROC_RUNNING;
 
-        std::vector<Coroutine::SPtr> actived_coroutines;
-        std::vector<Coroutine::SPtr> pending_coroutines;
+        while (_TryGetCoroutineFromGlobal() > 0)
+        {
+            std::vector<Coroutine::SPtr> actived_coroutines;
+            std::vector<Coroutine::SPtr> pending_coroutines;
+            m_actived_queue.PopAll(actived_coroutines);
+            m_coroutine_queue.PopAll(pending_coroutines);
+            /* 优先被激活的挂起协程 */
+            for (auto&& coroutine : actived_coroutines) {
+                m_running_coroutine = coroutine;
+                AssertWithInfo(m_running_coroutine != nullptr, "maybe coroutine queue has bug!");
+                m_co_swap_times++;
+                m_running_coroutine->Resume();
+            }
 
-        m_actived_queue.PopAll(actived_coroutines);
-        m_coroutine_queue.PopAll(pending_coroutines);
-        /* 优先被激活的挂起协程 */
-        for (auto&& coroutine : actived_coroutines) {
-            m_running_coroutine = coroutine;
-            AssertWithInfo(m_running_coroutine != nullptr, "maybe coroutine queue has bug!");
-            m_co_swap_times++;
-            m_running_coroutine->Resume();
-        }
-
-        for (auto&& coroutine : pending_coroutines) {
-            m_running_coroutine = coroutine;
-            AssertWithInfo(m_running_coroutine != nullptr, "maybe coroutine queue has bug!");
-            //TODO 不考虑执行一半，没有做挂起协程的唤醒机制
-            m_co_swap_times++;
-            m_running_coroutine->Resume();
+            for (auto&& coroutine : pending_coroutines) {
+                m_running_coroutine = coroutine;
+                AssertWithInfo(m_running_coroutine != nullptr, "maybe coroutine queue has bug!");
+                m_co_swap_times++;
+                m_running_coroutine->Resume();
+            }
         }
 
         std::unique_lock<std::mutex> lock_uptr(m_run_cond_mutex);
         m_run_status = ProcesserStatus::PROC_SUSPEND;
-        m_run_cond.wait(lock_uptr);
+        m_run_cond.wait_for(lock_uptr, bbt::clock::milliseconds(1));
     }
 
     m_run_status = ProcesserStatus::PROC_EXIT;
@@ -143,6 +146,17 @@ void Processer::_OnAddCorotinue()
 
     m_run_cond.notify_one();
 }
+
+size_t Processer::_TryGetCoroutineFromGlobal()
+{
+    std::vector<Coroutine::SPtr> vec;
+    g_scheduler->GetGlobalCoroutine(vec, g_bbt_coroutine_config->m_cfg_processer_get_co_from_g_count);
+    for (auto&& co : vec)
+        co->BindProcesser(shared_from_this());
+    m_coroutine_queue.PushTailRange(vec.begin(), vec.end());
+    return vec.size();
+}
+
 
 void Processer::Notify()
 {

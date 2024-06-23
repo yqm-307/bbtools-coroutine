@@ -8,7 +8,7 @@ int main()
 {
     g_scheduler->Start(true);
 
-    for (int i = 0; i < 1000; ++i)
+    for (int i = 0; i < 10000; ++i)
     {
         g_scheduler->RegistCoroutineTask([=](){
             printf("当前协程id %lu 当前线程id %ld\n", GetLocalCoroutineId(), gettid());

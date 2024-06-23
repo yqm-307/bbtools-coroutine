@@ -62,6 +62,16 @@ void CoroutineQueue::PopAll(std::vector<Coroutine::SPtr>& out)
     m_queue.clear();
 }
 
+void CoroutineQueue::PopNTail(std::vector<Coroutine::SPtr>& out, size_t n)
+{
+    std::lock_guard<std::mutex> _(m_mutex);
+    size_t can_give_num = (m_queue.size() >= n) ? n : m_queue.size();
+    for (int i = 0; i < can_give_num; ++i) {
+        out.push_back(m_queue.back());
+        m_queue.pop_back();
+    }
+}
+
 void CoroutineQueue::PushHeadRange(std::vector<Coroutine::SPtr>::iterator begin, std::vector<Coroutine::SPtr>::iterator end)
 {
     std::lock_guard<std::mutex> _(m_mutex);

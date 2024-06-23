@@ -41,10 +41,10 @@ protected:
     void                            AddActiveCoroutine(std::vector<Coroutine::SPtr> coroutines);
 
     uint64_t                        GetContextSwapTimes();  /* 协程上下文换出次数 */
-    void                            GetProfilerInfo(std::string& info);
 protected:
     static ProcesserId              _GenProcesserId();
     void                            _OnAddCorotinue();
+    size_t                          _TryGetCoroutineFromGlobal();
     void                            _Run();
 private:
     const ProcesserId               m_id{BBT_COROUTINE_INVALID_PROCESSER_ID};

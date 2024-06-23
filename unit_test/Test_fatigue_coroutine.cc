@@ -11,20 +11,20 @@ BOOST_AUTO_TEST_SUITE()
 
 BOOST_AUTO_TEST_CASE(t_coroutine)
 {
-    std::atomic_uint64_t ncount = 0;
+    int ncount = 0;
     g_scheduler->Start(true);
 
     while (true)
     {
-        for (int i = 0; i < 500; ++i)
+        for (int i = 0; i < 500000; ++i)
         {
             g_scheduler->RegistCoroutineTask([&](){
                 ncount++;
             });
         }
 
-        std::this_thread::sleep_for(bbt::clock::seconds(1));
-        printf("1 sec : %ld\n", ncount.load());
+        // std::this_thread::sleep_for(bbt::clock::seconds(1));
+        // printf("1 sec : %ld\n", ncount.load());
     }
 
     g_scheduler->Stop();

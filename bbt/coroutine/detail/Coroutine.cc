@@ -49,6 +49,7 @@ Coroutine::Coroutine(int stack_size, const CoroutineCallback& co_func, const Cor
 
 Coroutine::~Coroutine()
 {
+    // Assert(m_bind_processer_id != BBT_COROUTINE_INVALID_PROCESSER_ID);
 #ifdef BBT_COROUTINE_PROFILE
     g_bbt_profiler->OnEvent_DestoryCoroutine();
 #endif
