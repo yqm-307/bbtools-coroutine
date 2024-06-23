@@ -4,6 +4,7 @@
 
 #include <bbt/coroutine/detail/Hook.hpp>
 #include <bbt/coroutine/detail/Scheduler.hpp>
+#include <bbt/coroutine/coroutine.hpp>
 BOOST_AUTO_TEST_SUITE(CoroutineTest)
 
 BOOST_AUTO_TEST_CASE(t_multi_coroutine)
@@ -13,9 +14,9 @@ BOOST_AUTO_TEST_CASE(t_multi_coroutine)
 
     for (int i = 0; i < 100000; ++i)
     {
-        g_scheduler->RegistCoroutineTask([&](){
+        bbtco [&](){
             ncount++;
-        });
+        };
     }
 
     std::this_thread::sleep_for(bbt::clock::milliseconds(500));
