@@ -12,6 +12,13 @@ CoroutineQueue::~CoroutineQueue()
 {
 }
 
+void CoroutineQueue::Clear()
+{
+    Lock();
+    m_queue.clear();
+    UnLock();
+}
+
 bool CoroutineQueue::Empty()
 {
     Lock();
@@ -115,4 +122,14 @@ void CoroutineQueue::UnLock()
     else
         m_mutex.unlock();
 }
+
+bool CoroutineQueue::Exist(Coroutine::SPtr co)
+{
+    for (auto&& it : m_queue)
+        if (co == it) return true;
+    
+    return false;
+}
+
+
 }

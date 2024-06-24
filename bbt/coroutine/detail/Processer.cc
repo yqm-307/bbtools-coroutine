@@ -56,7 +56,7 @@ int Processer::GetLoadValue()
 
 int Processer::GetExecutableNum()
 {
-    return (m_coroutine_queue.Size() + m_actived_queue.Size());
+    return m_coroutine_queue.Size();
 }
 
 
@@ -68,20 +68,25 @@ ProcesserId Processer::GetId()
 void Processer::AddCoroutineTask(Coroutine::SPtr coroutine)
 {
     m_coroutine_queue.PushTail(coroutine);
-    coroutine->BindProcesser(shared_from_this());
     _OnAddCorotinue();
 }
 
 void Processer::AddCoroutineTaskRange(std::vector<Coroutine::SPtr>::iterator begin, std::vector<Coroutine::SPtr>::iterator end)
 {
     m_coroutine_queue.PushTailRange(begin, end);
-    for (auto it = begin; it != end; ++it)
-        (*it)->BindProcesser(shared_from_this());
     _OnAddCorotinue();
+}
+
+void Processer::_Init()
+{
+    m_run_status = ProcesserStatus::PROC_DEFAULT;
+    m_is_running = true;
+    m_running_coroutine = nullptr;
 }
 
 void Processer::Start(bool background_thread)
 {
+    _Init();
     if (background_thread)
     {
         auto t = new std::thread([this](){_Run();});
@@ -97,27 +102,22 @@ void Processer::_Run()
     while (m_is_running)
     {
         m_run_status = ProcesserStatus::PROC_RUNNING;
-        do
+        while (_TryGetCoroutineFromGlobal() > 0)
         {
-            std::vector<Coroutine::SPtr> actived_coroutines;
             std::vector<Coroutine::SPtr> pending_coroutines;
-            m_actived_queue.PopAll(actived_coroutines);
             m_coroutine_queue.PopAll(pending_coroutines);
-            /* 优先被激活的挂起协程 */
-            for (auto&& coroutine : actived_coroutines) {
-                m_running_coroutine = coroutine;
-                AssertWithInfo(m_running_coroutine != nullptr, "maybe coroutine queue has bug!");
-                m_co_swap_times++;
-                m_running_coroutine->Resume();
-            }
 
             for (auto&& coroutine : pending_coroutines) {
+                if (coroutine->GetStatus() == CO_RUNNING || coroutine->GetStatus() == CO_FINAL)
+                    continue;
+
                 m_running_coroutine = coroutine;
                 AssertWithInfo(m_running_coroutine != nullptr, "maybe coroutine queue has bug!");
+                AssertWithInfo(m_running_coroutine->GetStatus() != CoroutineStatus::CO_RUNNING, "error, try to resume a already running coroutine!");
                 m_co_swap_times++;
                 m_running_coroutine->Resume();
             }
-        } while (_TryGetCoroutineFromGlobal() > 0);
+        }
 
         auto begin = bbt::clock::now<bbt::clock::microseconds>();
         std::unique_lock<std::mutex> lock_uptr(m_run_cond_mutex);
@@ -136,6 +136,7 @@ void Processer::Stop()
         std::this_thread::sleep_for(bbt::clock::milliseconds(50));
         m_run_cond.notify_one();
     } while (m_run_status != ProcesserStatus::PROC_EXIT);
+    m_coroutine_queue.Clear();
 }
 
 void Processer::_OnAddCorotinue()
@@ -151,8 +152,6 @@ size_t Processer::_TryGetCoroutineFromGlobal()
 {
     std::vector<Coroutine::SPtr> vec;
     g_scheduler->GetGlobalCoroutine(vec, g_bbt_coroutine_config->m_cfg_processer_get_co_from_g_count);
-    for (auto&& co : vec)
-        co->BindProcesser(shared_from_this());
     m_coroutine_queue.PushTailRange(vec.begin(), vec.end());
     return vec.size();
 }
@@ -166,16 +165,6 @@ void Processer::Notify()
 Coroutine::SPtr Processer::GetCurrentCoroutine()
 {
     return m_running_coroutine;
-}
-
-void Processer::AddActiveCoroutine(Coroutine::SPtr actived_coroutine)
-{
-    m_actived_queue.PushTail(actived_coroutine);
-}
-
-void Processer::AddActiveCoroutine(std::vector<Coroutine::SPtr> coroutines)
-{
-    m_actived_queue.PushTailRange(coroutines.begin(), coroutines.end());
 }
 
 uint64_t Processer::GetContextSwapTimes()

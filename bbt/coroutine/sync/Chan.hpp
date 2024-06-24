@@ -1,6 +1,7 @@
 #pragma once
 #include <queue>
 #include <mutex>
+#include <atomic>
 #include <bbt/coroutine/detail/Define.hpp>
 #include <bbt/coroutine/sync/interface/IChan.hpp>
 #include <bbt/coroutine/detail/Coroutine.hpp>
@@ -31,7 +32,8 @@ private:
     std::mutex                              m_item_queue_mutex;
     volatile ChanStatus                     m_run_status{ChanStatus::CHAN_DEFAUTL};
     detail::Coroutine::SPtr                 m_bind_co{nullptr};
-    volatile bool                           m_can_notify{false};
+    std::atomic_bool                        m_can_notify{true};
+    std::atomic_bool                        m_is_reading{false};
 };
 
 }

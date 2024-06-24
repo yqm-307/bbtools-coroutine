@@ -1,4 +1,4 @@
-#pragma once
+// #pragma once
 #include <bbt/base/assert/Assert.hpp>
 #include <bbt/coroutine/sync/Chan.hpp>
 #include <bbt/coroutine/detail/CoPoller.hpp>
@@ -20,6 +20,8 @@ Chan::Chan(int max_queue_size):
 
 Chan::~Chan()
 {
+    if (!IsClosed())
+        Close();
 }
 
 int Chan::Write(const ItemType& item)
@@ -32,6 +34,7 @@ int Chan::Write(const ItemType& item)
         return -1;
     
     m_item_queue.push(item);
+    _Notify();
 
     return 0;
 }
@@ -41,12 +44,20 @@ int Chan::Read(ItemType& item)
     if (IsClosed())
         return -1;
     
-    std::unique_lock<std::mutex> _(m_item_queue_mutex);
-    if (m_item_queue.empty())
+    bool a = false;
+    if (!m_is_reading.compare_exchange_strong(a, true))
         return -1;
+
+    m_item_queue_mutex.lock();
+    if (m_item_queue.empty()) {
+        m_item_queue_mutex.unlock();
+        _Wait();
+    }
     
     item = m_item_queue.front();
     m_item_queue.pop();
+    m_item_queue_mutex.unlock();
+    m_is_reading = false;
 
     return 0;
 }
@@ -56,6 +67,11 @@ int Chan::TryRead(ItemType& item)
     if (!IsClosed())
         return -1;
     
+    bool a = false;
+    if (!m_is_reading.compare_exchange_strong(a, true))
+        return -1;
+
+    std::unique_lock<std::mutex> _(m_item_queue_mutex);
     if (m_item_queue.empty())
         return -1;
     
@@ -88,15 +104,17 @@ int Chan::_Wait()
 
     m_bind_co->Yield();
     m_can_notify = true;
+    return 0;
 }
 
 int Chan::_Notify()
 {
     if (!m_can_notify)
-        return;
+        return -1;
 
     m_can_notify = false;
     m_bind_co->OnEventChanWrite();
+    return 0;
 }
 
 }

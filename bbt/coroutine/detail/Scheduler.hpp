@@ -20,13 +20,14 @@ public:
     void Stop();
 
     CoroutineId                                 RegistCoroutineTask(const CoroutineCallback& handle);
-    /* 协程被激活 */
+    /* 协程被激活，重新加入全局队列 */
     void                                        OnActiveCoroutine(Coroutine::SPtr coroutine);
     /* 从全局队列中取一定数量的协程 */
     size_t                                      GetGlobalCoroutine(std::vector<Coroutine::SPtr>& coroutines, size_t size);
     // size_t                                      GetGlobalCoroutine(CoroutineQueue& coroutines, size_t size);
 protected:
     Scheduler();
+    void                                        _Init();
 
     void                                        _Run();
     /* 定时扫描 */

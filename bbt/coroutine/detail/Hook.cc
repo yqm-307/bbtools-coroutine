@@ -60,5 +60,9 @@ int close(int fd)
 
 unsigned int sleep(unsigned int sec)
 {
+    auto cur_co = g_bbt_coroutine_co;
+    if (cur_co == nullptr)
+        return g_bbt_sys_hook_sleep_func(sec);
+
     return bbt::coroutine::detail::Hook_Sleep(sec * 1000);
 }

@@ -26,25 +26,24 @@ Scheduler::Scheduler():
 
 Scheduler::~Scheduler()
 {
-    if (m_thread != nullptr) {
-        m_thread->join();
-        delete m_thread;
-    }
-
-    for (auto&& proc_thread : m_proc_threads) {
-        proc_thread->join();
-        delete proc_thread;
-    }
 }
 
+void Scheduler::_Init()
+{
+    m_thread = nullptr;
+    m_is_running = true;
+    m_run_status = SCHE_DEFAULT;
+    m_regist_coroutine_count = 0;
+    m_down_latch.Reset(g_bbt_coroutine_config->m_cfg_static_thread_num);
+}
 
 CoroutineId Scheduler::RegistCoroutineTask(const CoroutineCallback& handle)
 {
 #ifdef BBT_COROUTINE_PROFILE
     auto coroutine_sptr = Coroutine::Create(
         g_bbt_coroutine_config->m_cfg_stack_size,
-        [this](){ g_bbt_profiler->OnEvent_DoneCoroutine(); },
         handle,
+        [this](){ g_bbt_profiler->OnEvent_DoneCoroutine(); },
         g_bbt_coroutine_config->m_cfg_stack_protect);
 
     // g_bbt_profiler->OnEvent_RegistCoroutine();
@@ -61,11 +60,8 @@ CoroutineId Scheduler::RegistCoroutineTask(const CoroutineCallback& handle)
 
 void Scheduler::OnActiveCoroutine(Coroutine::SPtr coroutine)
 {
-    ProcesserId co_bind_procid = coroutine->GetBindProcesserId();
-    std::unique_lock<std::mutex> _(m_processer_map_mutex);
-    auto it = m_processer_map.find(co_bind_procid);
-    Assert(it != m_processer_map.end());
-    it->second->AddActiveCoroutine(coroutine);
+    Assert(!m_global_coroutine_deque.Exist(coroutine));
+    m_global_coroutine_deque.PushTail(coroutine);
 }
 
 void Scheduler::_SampleSchuduleAlgorithm()
@@ -188,8 +184,10 @@ void Scheduler::_Run()
 
 void Scheduler::Start(bool background_thread)
 {
+    _Init();
     if (background_thread)
     {
+        Assert(m_thread == nullptr);
         m_thread = new std::thread([this](){ _Run(); });
         return;
     }
@@ -203,15 +201,32 @@ void Scheduler::Stop()
 
     for (auto item : m_processer_map)
         item.second->Stop();
+
+    m_processer_map.clear();
     
+    if (m_thread != nullptr) {
+        if (m_thread->joinable())
+            m_thread->join();
+        delete m_thread;
+    }
+
+    m_thread = nullptr;
+
+    for (auto&& proc_thread : m_proc_threads) {
+        if (proc_thread->joinable())
+            proc_thread->join();
+        delete proc_thread;
+    }
+
+    m_proc_threads.clear();
+    m_global_coroutine_deque.Clear();
+    m_run_status = ScheudlerStatus::SCHE_EXIT;
 #ifdef BBT_COROUTINE_PROFILE
     std::string profileinfo;
     g_bbt_profiler->ProfileInfo(profileinfo);
     bbt::log::DebugPrint(profileinfo.c_str());
 #endif
 
-
-    m_run_status = ScheudlerStatus::SCHE_EXIT;
 }
 
 size_t Scheduler::GetGlobalCoroutine(std::vector<Coroutine::SPtr>& coroutines, size_t size)

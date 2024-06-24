@@ -84,11 +84,6 @@ void Coroutine::_OnCoroutineFinal()
         m_co_final_callback();
 }
 
-void Coroutine::BindProcesser(std::shared_ptr<Processer> processer)
-{
-    m_bind_processer_id = processer->GetId();
-}
-
 void Coroutine::OnEventTimeout(CoPollEvent::SPtr evnet)
 {
     g_scheduler->OnActiveCoroutine(shared_from_this());
@@ -116,11 +111,6 @@ void Coroutine::_OnEventFinal()
     if (m_timeout_event != nullptr)
         m_timeout_event->UnRegistEvent();
     m_timeout_event = nullptr;
-}
-
-ProcesserId Coroutine::GetBindProcesserId()
-{
-    return m_bind_processer_id;
 }
 
 std::shared_ptr<CoPollEvent> Coroutine::RegistTimeout(int ms)

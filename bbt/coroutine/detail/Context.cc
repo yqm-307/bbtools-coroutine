@@ -31,6 +31,7 @@ Context::Context(size_t stack_size, const CoroutineCallback& co_func, const Coro
     m_user_main(co_func),
     m_final_handle(co_final_cb)
 {
+    Assert(m_user_main != nullptr);
     void* stack = m_stack->StackTop() + m_stack->UseableSize();
     m_context = boost::context::detail::make_fcontext(stack, m_stack->UseableSize(), &Context::_CoroutineMain);
 }
