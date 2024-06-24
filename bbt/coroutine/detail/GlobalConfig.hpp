@@ -20,10 +20,12 @@ public:
     const size_t                                m_cfg_stack_size{1024 * 8};
     const size_t                                m_cfg_scan_interval_ms{10};
     const bool                                  m_cfg_static_thread{true};
-    const size_t                                m_cfg_static_thread_num{8};
+    const size_t                                m_cfg_static_thread_num{4};
     const size_t                                m_cfg_profile_printf_ms{5000}; // 打印profile间隔，0不打印
 
     const size_t                                m_cfg_processer_get_co_from_g_count{256};  // 每次从g队列获取任务数量
+
+    const bool                                  m_cfg_coroutine_queue_use_spinlock{false};   // 是否使用自旋锁
 
 };
 
