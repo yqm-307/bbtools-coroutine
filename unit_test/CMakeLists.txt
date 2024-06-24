@@ -8,6 +8,7 @@ set(MY_LIBS
     libboost_unit_test_framework.so
     libboost_test_exec_monitor.so
     bbt_coroutine
+    tcmalloc
 )
 
 add_executable(Test_coroutine_stack Test_coroutine_stack.cc)
@@ -53,3 +54,6 @@ target_link_libraries(Debug_hook_sleep ${MY_LIBS})
 
 add_executable(Debug_cond Debug_cond.cc)
 target_link_libraries(Debug_cond ${MY_LIBS})
+
+add_executable(Debug_regist_co Debug_regist_co.cc)
+target_link_libraries(Debug_regist_co ${MY_LIBS})

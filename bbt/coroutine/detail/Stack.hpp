@@ -30,7 +30,7 @@ public:
     size_t  UseableSize();
     void    Clear();
 protected:
-    void*   Alloc(char* start, size_t len, int opt, int flag, int offset = 0);
+    void*   Alloc(size_t len);
     int     Free(char* start, size_t len);
 
     /**

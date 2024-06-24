@@ -63,6 +63,7 @@ void Profiler::ProfileInfo(std::string& info)
         info += "\tPID："                    + std::to_string(processer.second->GetId()) +
                 "\t本地队列任务数："          + std::to_string(processer.second->GetExecutableNum()) + 
                 "\t上下文切换次数："          + std::to_string(processer.second->GetContextSwapTimes()) +
+                "\t挂起时间(ms)："            + std::to_string(processer.second->GetSuspendCostTime() / 1000) +
                 '\n';
     }
 }

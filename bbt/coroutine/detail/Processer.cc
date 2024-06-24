@@ -1,5 +1,4 @@
 #include <atomic>
-#include <bbt/base/clock/Clock.hpp>
 #include <bbt/coroutine/detail/Processer.hpp>
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
 #include <bbt/coroutine/detail/Profiler.hpp>
@@ -98,7 +97,6 @@ void Processer::_Run()
     while (m_is_running)
     {
         m_run_status = ProcesserStatus::PROC_RUNNING;
-
         while (_TryGetCoroutineFromGlobal() > 0)
         {
             std::vector<Coroutine::SPtr> actived_coroutines;
@@ -121,9 +119,11 @@ void Processer::_Run()
             }
         }
 
+        auto begin = bbt::clock::now<bbt::clock::microseconds>();
         std::unique_lock<std::mutex> lock_uptr(m_run_cond_mutex);
         m_run_status = ProcesserStatus::PROC_SUSPEND;
         m_run_cond.wait_for(lock_uptr, bbt::clock::milliseconds(1));
+        m_suspend_cost_times += std::chrono::duration_cast<decltype(m_suspend_cost_times)>(bbt::clock::now<bbt::clock::microseconds>() - begin);
     }
 
     m_run_status = ProcesserStatus::PROC_EXIT;
@@ -183,7 +183,10 @@ uint64_t Processer::GetContextSwapTimes()
     return m_co_swap_times;
 }
 
-void GetProfilerInfo(std::string& info);
+uint64_t Processer::GetSuspendCostTime()
+{
+    return m_suspend_cost_times.count();
+}
 
 
 } // namespace bbt::coroutine::detail

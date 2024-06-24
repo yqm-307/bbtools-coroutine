@@ -44,13 +44,15 @@ CoroutineId Scheduler::RegistCoroutineTask(const CoroutineCallback& handle)
     auto coroutine_sptr = Coroutine::Create(
         g_bbt_coroutine_config->m_cfg_stack_size,
         [this](){ g_bbt_profiler->OnEvent_DoneCoroutine(); },
-        handle);
+        handle,
+        g_bbt_coroutine_config->m_cfg_stack_protect);
 
-    g_bbt_profiler->OnEvent_RegistCoroutine();
+    // g_bbt_profiler->OnEvent_RegistCoroutine();
 #else
     auto coroutine_sptr = Coroutine::Create(
         g_bbt_coroutine_config->m_cfg_stack_size,
-        handle);
+        handle,
+        g_bbt_coroutine_config->m_cfg_stack_protect);
 #endif
 
     m_global_coroutine_deque.PushTail(coroutine_sptr);
@@ -68,22 +70,6 @@ void Scheduler::OnActiveCoroutine(Coroutine::SPtr coroutine)
 
 void Scheduler::_SampleSchuduleAlgorithm()
 {
-    /**
-     * 简单调度算法
-     * 
-     * coroutine创建完毕，放入global队列中。
-     * 
-     * 调度器扫描时，若global队列有任务，则分配到
-     * 各个Processer中
-     */
-    /* 唤醒没有执行完毕所有任务但是阻塞的processer */
-    for (auto&& item : m_processer_map)
-    {
-        auto processer = item.second;
-        if ((processer->GetExecutableNum() > 0) && (processer->GetStatus() == ProcesserStatus::PROC_SUSPEND))
-            processer->Notify();
-    }
-
     /* 如果没有足够的processer，创建 */
     if (g_bbt_coroutine_config->m_cfg_static_thread && (m_processer_map.size() < g_bbt_coroutine_config->m_cfg_static_thread_num))
     {
@@ -103,6 +89,15 @@ void Scheduler::_SampleSchuduleAlgorithm()
         }
 
         m_down_latch.Wait();
+    }
+
+    if (!m_global_coroutine_deque.Empty())
+    {
+        for (auto&& item : m_processer_map)
+        {
+            auto processer = item.second;
+            processer->Notify();
+        }
     }
 
     // if (m_global_coroutine_deque.Empty())

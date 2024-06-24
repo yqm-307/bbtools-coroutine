@@ -45,6 +45,9 @@ private:
 
     bbt::clock::Timestamp<>     m_scheduler_begin_timestamp;    /* 调度器开启时间 */
 
+
+
+    /* Processer 相关指标 */
     std::map<ProcesserId, Processer::SPtr>
                                 m_processer_map;
     std::mutex                  m_processer_map_mutex;

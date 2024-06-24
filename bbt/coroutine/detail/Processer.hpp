@@ -1,5 +1,6 @@
 #pragma once
 #include <condition_variable>
+#include <bbt/base/clock/Clock.hpp>
 #include <bbt/coroutine/detail/CoroutineQueue.hpp>
 
 namespace bbt::coroutine::detail
@@ -41,6 +42,7 @@ protected:
     void                            AddActiveCoroutine(std::vector<Coroutine::SPtr> coroutines);
 
     uint64_t                        GetContextSwapTimes();  /* 协程上下文换出次数 */
+    uint64_t                        GetSuspendCostTime();     /* 任务执行耗时，返回微秒 */
 protected:
     static ProcesserId              _GenProcesserId();
     void                            _OnAddCorotinue();
@@ -59,6 +61,7 @@ private:
 
     Coroutine::SPtr                 m_running_coroutine{nullptr};   // processer当前运行中的协程
     uint64_t                        m_co_swap_times{0};
+    bbt::clock::us                  m_suspend_cost_times;
 };
 
 }

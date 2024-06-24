@@ -2,6 +2,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <malloc.h>
 #include <sys/types.h>
 
 #include <bbt/base/Logger/DebugPrint.hpp>
@@ -23,17 +24,17 @@ Stack::Stack(const size_t stack_size,const bool stack_protect)
 
     if (m_stack_protect_flag)
     {
-        m_mem_chunk_size = m_useable_size + (2 * pagesize);
-        m_mem_chunk = (char*)mmap(NULL, m_mem_chunk_size, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
-        // m_mem_chunk = (char*)Alloc(NULL, m_mem_chunk_size, PROT_READ | PROT_WRITE, MAP_PRIVATE);
+        m_mem_chunk_size = m_useable_size + pagesize;
+        m_mem_chunk = (char*)Alloc(m_mem_chunk_size);
+        // m_mem_chunk = (char*)mmap(NULL, m_mem_chunk_size, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
         assert(m_mem_chunk != nullptr);    
-        m_useable_stack = m_mem_chunk + pagesize;   //可访问内存栈   
+        m_useable_stack = m_mem_chunk;   //可访问内存栈   
         _ApplyStackProtect(m_mem_chunk, m_mem_chunk_size);
     }
     else
     {
         m_mem_chunk_size = m_useable_size;
-        m_mem_chunk = (char*)mmap(NULL, m_mem_chunk_size, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+        m_mem_chunk = (char*)Alloc(m_mem_chunk_size);
         assert(m_mem_chunk != nullptr);
         m_useable_stack = m_mem_chunk;
     }
@@ -52,13 +53,8 @@ Stack::~Stack()
 int Stack::_ApplyStackProtect(char* mem_chunk, size_t mem_chunk_len)
 {
     int pagesize = getpagesize();
-    void* phead = mem_chunk;
     void* ptail = mem_chunk + mem_chunk_len - pagesize;
 
-    if (mprotect(phead, pagesize, PROT_NONE) < 0){
-        bbt::log::WarnPrint("%s, errno : %d %s", __FUNCTION__, errno, strerror(errno));
-        return -1;
-    }
     if (mprotect(ptail, pagesize, PROT_NONE) < 0){
         bbt::log::WarnPrint("%s, errno : %d %s", __FUNCTION__, errno, strerror(errno));
         return -1;
@@ -70,14 +66,7 @@ int Stack::_ApplyStackProtect(char* mem_chunk, size_t mem_chunk_len)
 int Stack::_ReleaseStackProtect()
 {
     int pagesize = getpagesize();
-    void* phead = m_mem_chunk;
     void* ptail = m_mem_chunk + m_mem_chunk_size - pagesize;
-
-
-    if (mprotect(phead, pagesize, PROT_READ | PROT_WRITE) < 0) {
-        bbt::log::WarnPrint("%s, errno : %d %s", __FUNCTION__, errno, strerror(errno));
-        return -1;
-    }
 
     if (mprotect(ptail, pagesize, PROT_READ | PROT_WRITE) < 0) {
         bbt::log::WarnPrint("%s, errno : %d %s", __FUNCTION__, errno, strerror(errno));
@@ -123,15 +112,18 @@ size_t Stack::UseableSize()
 }
 
 
-void* Stack::Alloc(char* start, size_t len, int opt, int flag, int offset)
+void* Stack::Alloc(size_t len)
 {
-    flag |= MAP_ANONYMOUS;
-    return (char*)mmap(start, len, opt, flag, -1, offset);
+    static int page_size = getpagesize();
+    // return (char*)mmap(NULL, len, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    return (char*)memalign(page_size, len);
 }
 
 int Stack::Free(char* start, size_t len)
 {
-    return munmap(start, len);
+    // return munmap(start, len);
+    free(start);
+    return 0;
 }
 
 void Stack::Swap(Stack&& other)

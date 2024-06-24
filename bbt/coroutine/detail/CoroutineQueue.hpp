@@ -20,7 +20,7 @@ public:
     void                            PushTail(Coroutine::SPtr);
     void                            PopAll(std::vector<Coroutine::SPtr>& out);
     void                            PopNTail(std::vector<Coroutine::SPtr>& out, size_t n);
-    void                            PopNTail(CoroutineQueue& out, size_t n);
+    // void                            PopNTail(CoroutineQueue& out, size_t n);
     void                            PushHeadRange(std::vector<Coroutine::SPtr>::iterator begin, std::vector<Coroutine::SPtr>::iterator end);
     void                            PushTailRange(std::vector<Coroutine::SPtr>::iterator begin, std::vector<Coroutine::SPtr>::iterator end);
 protected:
