@@ -3,6 +3,7 @@
 #include <bbt/coroutine/sync/Chan.hpp>
 #include <bbt/coroutine/detail/CoPoller.hpp>
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
+#include <bbt/coroutine/detail/Processer.hpp>
 
 
 namespace bbt::coroutine::sync
@@ -13,6 +14,8 @@ Chan::Chan(int max_queue_size):
 {
     Assert(m_max_size > 0);
     m_run_status = ChanStatus::CHAN_OPEN;
+    m_bind_co = g_bbt_coroutine_co;
+    AssertWithInfo(m_bind_co != nullptr, "请在协程中使用chan");
 }
 
 Chan::~Chan()
@@ -77,15 +80,23 @@ bool Chan::IsClosed()
     return (m_run_status == ChanStatus::CHAN_CLOSE);
 }
 
-void Chan::_Wait()
+int Chan::_Wait()
 {
+    auto cur_co = g_bbt_coroutine_co;
+    if (cur_co == nullptr || cur_co != m_bind_co)
+        return -1;
 
-    // m_event->Trigger();
+    m_bind_co->Yield();
+    m_can_notify = true;
 }
 
-void Chan::_Notify()
+int Chan::_Notify()
 {
+    if (!m_can_notify)
+        return;
 
+    m_can_notify = false;
+    m_bind_co->OnEventChanWrite();
 }
 
 }

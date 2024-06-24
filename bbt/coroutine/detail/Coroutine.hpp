@@ -21,6 +21,7 @@ class Coroutine:
 public:
     friend class Processer;
     friend class sync::CoCond;
+    friend class sync::Chan;
     friend int Hook_Sleep(int);
     typedef std::shared_ptr<Coroutine> SPtr;
 
@@ -46,6 +47,7 @@ protected:
     void                            BindProcesser(std::shared_ptr<Processer> processer);
     void                            OnEventTimeout(std::shared_ptr<CoPollEvent> event);
     void                            OnEventReadable(std::shared_ptr<CoPollEvent> evnet);
+    void                            OnEventChanWrite();
 
 protected:
     static CoroutineId              GenCoroutineId();

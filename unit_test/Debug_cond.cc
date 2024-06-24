@@ -18,19 +18,19 @@ void debug_notify()
     PrintTime("t1");
 
     /* 注册一个 coroutine */
-    g_scheduler->RegistCoroutineTask([](){
+    bbtco [](){
         PrintTime("t2");
         /* 创建条件变量 */
         auto cond = sync::CoCond::Create();
         Assert(cond != nullptr);
 
         /* 注册一个coroutine */
-        g_scheduler->RegistCoroutineTask([&cond](){
+        bbtco [cond](){
             PrintTime("t4");
             /* 协程休眠1s后唤醒等待中的条件变量 */
             ::sleep(1);
             cond->Notify();
-        });
+        };
 
         PrintTime("t3");
         /* 让当前协程等待条件变量变化 */
@@ -38,15 +38,15 @@ void debug_notify()
         PrintTime("t5");
 
         /* 注册一个coroutine */
-        g_scheduler->RegistCoroutineTask([&cond](){
+        bbtco [cond](){
             PrintTime("t6");
             /* 协程休眠1s后唤醒等待中的条件变量 */
             ::sleep(1);
             cond->Notify();
-        });
+        };
         Assert(cond->Wait() == 0);
         PrintTime("t7");
-    });
+    };
 
     std::this_thread::sleep_for(bbt::clock::milliseconds(4000));
 
@@ -54,14 +54,14 @@ void debug_notify()
     printf("====================== wait timeout  ========================\n");
     printf("=============================================================\n");
 
-    g_scheduler->RegistCoroutineTask([](){
+    bbtco [](){
         PrintTime("p1");
         auto cond = sync::CoCond::Create();
         Assert(cond != nullptr);
         int ret = cond->WaitWithTimeout(1000);
         PrintTime("p2");
         printf("WaitRet=%d\n", ret);
-    });
+    };
 
     std::this_thread::sleep_for(bbt::clock::milliseconds(2000));
 

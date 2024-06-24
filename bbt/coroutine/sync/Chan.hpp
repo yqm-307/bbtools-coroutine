@@ -3,6 +3,7 @@
 #include <mutex>
 #include <bbt/coroutine/detail/Define.hpp>
 #include <bbt/coroutine/sync/interface/IChan.hpp>
+#include <bbt/coroutine/detail/Coroutine.hpp>
 
 namespace bbt::coroutine::sync
 {
@@ -14,22 +15,23 @@ public:
     Chan(int max_queue_size = 65535);
     ~Chan();
 
-    virtual int                     Write(const ItemType& item) override;
-    virtual int                     Read(ItemType& item) override;
+    virtual int                             Write(const ItemType& item) override;
+    virtual int                             Read(ItemType& item) override;
 
-    virtual int                     TryRead(ItemType& item) override;
-    virtual int                     TryRead(ItemType& item, int timeout) override;
-    virtual void                    Close() override;
-    virtual bool                    IsClosed() override;
+    virtual int                             TryRead(ItemType& item) override;
+    virtual int                             TryRead(ItemType& item, int timeout) override;
+    virtual void                            Close() override;
+    virtual bool                            IsClosed() override;
 protected:
-    void                            _Wait();
-    void                            _Notify();
+    int                                     _Wait();
+    int                                     _Notify();
 private:
-    const int                       m_max_size{-1};
-    std::queue<ItemType>            m_item_queue;
-    std::mutex                      m_item_queue_mutex;
-    volatile ChanStatus             m_run_status{ChanStatus::CHAN_DEFAUTL};
-    std::shared_ptr<detail::CoPollEvent>    m_event{nullptr};
+    const int                               m_max_size{-1};
+    std::queue<ItemType>                    m_item_queue;
+    std::mutex                              m_item_queue_mutex;
+    volatile ChanStatus                     m_run_status{ChanStatus::CHAN_DEFAUTL};
+    detail::Coroutine::SPtr                 m_bind_co{nullptr};
+    volatile bool                           m_can_notify{false};
 };
 
 }

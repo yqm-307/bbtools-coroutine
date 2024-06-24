@@ -101,6 +101,12 @@ void Coroutine::OnEventReadable(CoPollEvent::SPtr evnet)
     _OnEventFinal();
 }
 
+void Coroutine::OnEventChanWrite()
+{
+    g_scheduler->OnActiveCoroutine(shared_from_this());
+}
+
+
 void Coroutine::_OnEventFinal()
 {
     if (m_readable_event != nullptr)

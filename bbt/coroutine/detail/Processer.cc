@@ -97,7 +97,7 @@ void Processer::_Run()
     while (m_is_running)
     {
         m_run_status = ProcesserStatus::PROC_RUNNING;
-        while (_TryGetCoroutineFromGlobal() > 0)
+        do
         {
             std::vector<Coroutine::SPtr> actived_coroutines;
             std::vector<Coroutine::SPtr> pending_coroutines;
@@ -117,7 +117,7 @@ void Processer::_Run()
                 m_co_swap_times++;
                 m_running_coroutine->Resume();
             }
-        }
+        } while (_TryGetCoroutineFromGlobal() > 0);
 
         auto begin = bbt::clock::now<bbt::clock::microseconds>();
         std::unique_lock<std::mutex> lock_uptr(m_run_cond_mutex);

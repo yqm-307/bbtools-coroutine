@@ -204,6 +204,13 @@ void Scheduler::Stop()
     for (auto item : m_processer_map)
         item.second->Stop();
     
+#ifdef BBT_COROUTINE_PROFILE
+    std::string profileinfo;
+    g_bbt_profiler->ProfileInfo(profileinfo);
+    bbt::log::DebugPrint(profileinfo.c_str());
+#endif
+
+
     m_run_status = ScheudlerStatus::SCHE_EXIT;
 }
 
