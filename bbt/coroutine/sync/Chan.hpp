@@ -1,6 +1,7 @@
 #pragma once
 #include <queue>
 #include <mutex>
+#include <bbt/coroutine/detail/Define.hpp>
 #include <bbt/coroutine/sync/interface/IChan.hpp>
 
 namespace bbt::coroutine::sync
@@ -20,11 +21,15 @@ public:
     virtual int                     TryRead(ItemType& item, int timeout) override;
     virtual void                    Close() override;
     virtual bool                    IsClosed() override;
+protected:
+    void                            _Wait();
+    void                            _Notify();
 private:
     const int                       m_max_size{-1};
     std::queue<ItemType>            m_item_queue;
     std::mutex                      m_item_queue_mutex;
     volatile ChanStatus             m_run_status{ChanStatus::CHAN_DEFAUTL};
+    std::shared_ptr<detail::CoPollEvent>    m_event{nullptr};
 };
 
 }

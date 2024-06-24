@@ -1,4 +1,5 @@
 #pragma once
+#include <bbt/base/clock/Clock.hpp>
 #include <bbt/coroutine/detail/Processer.hpp>
 #include <bbt/base/thread/Lock.hpp>
 
@@ -8,8 +9,9 @@ namespace bbt::coroutine::detail
 class Scheduler
 {
 public:
+    friend class Profiler;
     typedef std::unique_ptr<Scheduler> UPtr;
-    ~Scheduler() {}
+    ~Scheduler();
 
     static UPtr& GetInstance();
 
@@ -17,35 +19,36 @@ public:
     void Start(bool background_thread = false);
     void Stop();
 
-    CoroutineId                         RegistCoroutineTask(const CoroutineCallback& handle);
+    CoroutineId                                 RegistCoroutineTask(const CoroutineCallback& handle);
     /* 协程被激活 */
-    void                                OnActiveCoroutine(Coroutine::SPtr coroutine);
-    // void UnRegistCoroutineTask(CoroutineId coroutine_id);
-
+    void                                        OnActiveCoroutine(Coroutine::SPtr coroutine);
+    /* 从全局队列中取一定数量的协程 */
+    size_t                                      GetGlobalCoroutine(std::vector<Coroutine::SPtr>& coroutines, size_t size);
+    size_t                                      GetGlobalCoroutine(CoroutineQueue& coroutines, size_t size);
 protected:
     Scheduler();
 
-    void _Run();
+    void                                        _Run();
     /* 定时扫描 */
-    void _FixTimingScan();
+    void                                        _FixTimingScan();
     /* 简单调度算法 */
-    void _SampleSchuduleAlgorithm();
-private:
-    /* XXX 配置，先静态配置 */
-    const size_t                        m_cfg_stack_size{1024 * 8};
-    const size_t                        m_cfg_scan_interval_ms{2};
-    const bool                          m_cfg_static_thread{true};
-    const size_t                        m_cfg_static_thread_num{4};
+    void                                        _SampleSchuduleAlgorithm();
 
-    std::map<ProcesserId, Processer::SPtr>   m_processer_map;
-    std::mutex                               m_processer_map_mutex;
-    bbt::thread::CountDownLatch              m_down_latch;
+private:
+    bbt::clock::Timestamp<>                     m_begin_timestamp;  // 调度器开启时间
+    std::thread*                                m_thread{nullptr};
+    std::vector<std::thread*>                   m_proc_threads;
+
+    std::map<ProcesserId, Processer::SPtr>      m_processer_map;
+    std::mutex                                  m_processer_map_mutex;
+    bbt::thread::CountDownLatch                 m_down_latch;
 
     /* coroutine全局队列 */
-    CoroutineQueue                      m_global_coroutine_deque;
-    volatile bool                       m_is_running{true};
-    volatile ScheudlerStatus            m_run_status{ScheudlerStatus::SCHE_DEFAULT};
+    CoroutineQueue                              m_global_coroutine_deque;
+    volatile bool                               m_is_running{true};
+    volatile ScheudlerStatus                    m_run_status{ScheudlerStatus::SCHE_DEFAULT};
 
+    uint64_t                                    m_regist_coroutine_count{0};
 };
 
 }

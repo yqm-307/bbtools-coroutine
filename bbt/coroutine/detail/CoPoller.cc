@@ -58,12 +58,12 @@ int CoPoller::ModifyEvent(std::shared_ptr<IPollEvent> event)
     return -1;
 }
 
-void CoPoller::PollOnce()
+int CoPoller::PollOnce()
 {
     const int max_event_num = 1024;
     epoll_event events[max_event_num];
     /* 获取系统关注事件中，被触发的事件 */
-    int active_event_num = ::epoll_wait(m_epoll_fd, events, max_event_num, 1);
+    int active_event_num = ::epoll_wait(m_epoll_fd, events, max_event_num, 0);
 
     for (int i = 0; i < active_event_num; ++i)
     {
@@ -75,6 +75,8 @@ void CoPoller::PollOnce()
         event_sptr->_CannelRegistEvent();
         event_sptr->Trigger(this, event.events);
     }
+
+    return active_event_num;
 }
 
 }

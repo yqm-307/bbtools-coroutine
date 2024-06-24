@@ -1,6 +1,9 @@
 #pragma once
-#include <bbt/coroutine/sync/Chan.hpp>
 #include <bbt/base/assert/Assert.hpp>
+#include <bbt/coroutine/sync/Chan.hpp>
+#include <bbt/coroutine/detail/CoPoller.hpp>
+#include <bbt/coroutine/detail/CoPollEvent.hpp>
+
 
 namespace bbt::coroutine::sync
 {
@@ -47,7 +50,16 @@ int Chan::Read(ItemType& item)
 
 int Chan::TryRead(ItemType& item)
 {
-    return -1;
+    if (!IsClosed())
+        return -1;
+    
+    if (m_item_queue.empty())
+        return -1;
+    
+    item = m_item_queue.front();
+    m_item_queue.pop();
+
+    return 0;
 }
 
 int Chan::TryRead(ItemType& item, int timeout)
@@ -63,6 +75,17 @@ void Chan::Close()
 bool Chan::IsClosed()
 {
     return (m_run_status == ChanStatus::CHAN_CLOSE);
+}
+
+void Chan::_Wait()
+{
+
+    // m_event->Trigger();
+}
+
+void Chan::_Notify()
+{
+
 }
 
 }

@@ -20,7 +20,7 @@ public:
     virtual int                     AddEvent(std::shared_ptr<IPollEvent> event) override;
     virtual int                     DelEvent(std::shared_ptr<IPollEvent> event) override;
     virtual int                     ModifyEvent(std::shared_ptr<IPollEvent> event) override;
-    virtual void                    PollOnce() override;
+    virtual int                     PollOnce() override;
 
 protected:
 private:

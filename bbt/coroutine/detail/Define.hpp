@@ -6,6 +6,7 @@
 #include <sys/epoll.h>
 #include <bbt/base/Logger/DebugPrint.hpp>
 
+// #define BBT_COROUTINE_PROFILE
 
 #define g_scheduler bbt::coroutine::detail::Scheduler::GetInstance()
 
@@ -13,6 +14,10 @@
 #define g_bbt_coroutine_co (bbt::coroutine::detail::Processer::GetLocalProcesser()->GetCurrentCoroutine());
 
 #define g_bbt_poller (CoPoller::GetInstance())
+
+#define g_bbt_coroutine_config (GlobalConfig::GetInstance())
+
+#define g_bbt_profiler (Profiler::GetInstance())
 
 namespace bbt::coroutine::sync
 {
@@ -46,6 +51,8 @@ class Scheduler;
 class Processer;
 class CoPollEvent;
 class CoPoller;
+class GlobalConfig;
+
 
 typedef uint64_t CoroutineId;
 #define BBT_COROUTINE_INVALID_COROUTINE_ID 0
@@ -137,4 +144,4 @@ enum CoPollEventStatus : int32_t
     POLLEVENT_CANNEL  = 5, // 取消事件
 };
 
-}
+} // namespace bbt::coroutine::detail

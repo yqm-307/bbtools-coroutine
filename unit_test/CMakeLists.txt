@@ -26,9 +26,18 @@ add_executable(Test_poller Test_poller.cc)
 target_link_libraries(Test_poller ${MY_LIBS})
 add_test(NAME Test_poller COMMAND Test_poller)
 
+
+add_executable(Test_fatigue_coroutine Test_fatigue_coroutine.cc)
+target_link_libraries(Test_fatigue_coroutine ${MY_LIBS})
+add_test(NAME Test_fatigue_coroutine COMMAND Test_fatigue_coroutine)
+
 add_executable(Test_cond Test_cond.cc)
 target_link_libraries(Test_cond ${MY_LIBS})
 add_test(NAME Test_cond COMMAND Test_cond)
+
+add_executable(Test_g_co Test_g_co.cc)
+target_link_libraries(Test_g_co ${MY_LIBS})
+add_test(NAME Test_g_co COMMAND Test_g_co)
 
 add_executable(Debug_scheduler Debug_scheduler.cc)
 target_link_libraries(Debug_scheduler ${MY_LIBS})

@@ -10,6 +10,7 @@ class Processer:
 {
 public:
     friend class Scheduler;
+    friend class Profiler;
     typedef std::shared_ptr<Processer> SPtr;
 
     static SPtr Create();
@@ -38,15 +39,18 @@ protected:
 
     void                            AddActiveCoroutine(Coroutine::SPtr actived_coroutine);
     void                            AddActiveCoroutine(std::vector<Coroutine::SPtr> coroutines);
+
+    uint64_t                        GetContextSwapTimes();  /* 协程上下文换出次数 */
 protected:
     static ProcesserId              _GenProcesserId();
     void                            _OnAddCorotinue();
+    size_t                          _TryGetCoroutineFromGlobal();
     void                            _Run();
 private:
     const ProcesserId               m_id{BBT_COROUTINE_INVALID_PROCESSER_ID};
     volatile ProcesserStatus        m_run_status{ProcesserStatus::PROC_DEFAULT};
     CoroutineQueue                  m_coroutine_queue;
-    CoroutineQueue                  m_actived_queue;    // 被激活的协程
+    CoroutineQueue                  m_actived_queue;                // 被激活的协程
 
     std::condition_variable         m_run_cond;
     std::mutex                      m_run_cond_mutex;
@@ -54,6 +58,7 @@ private:
     volatile bool                   m_is_running{true};
 
     Coroutine::SPtr                 m_running_coroutine{nullptr};   // processer当前运行中的协程
+    uint64_t                        m_co_swap_times{0};
 };
 
 }

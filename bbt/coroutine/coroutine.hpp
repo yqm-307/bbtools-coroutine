@@ -2,8 +2,10 @@
 
 #include <bbt/coroutine/detail/Scheduler.hpp>
 #include <bbt/coroutine/detail/Hook.hpp>
+#include <bbt/coroutine/_CoHelper.hpp>
 
 
+#define bbtco bbt::coroutine::_CoHelper()-
 
 namespace bbt::coroutine
 {

@@ -1,4 +1,5 @@
 #include <bbt/coroutine/detail/CoroutineQueue.hpp>
+#include <bbt/coroutine/detail/GlobalConfig.hpp>
 
 namespace bbt::coroutine::detail
 {
@@ -13,67 +14,105 @@ CoroutineQueue::~CoroutineQueue()
 
 bool CoroutineQueue::Empty()
 {
-    std::lock_guard<std::recursive_mutex> _(m_mutex);
-    return m_queue.empty();
+    Lock();
+    bool is_empty = m_queue.empty();
+    UnLock();
+    return is_empty;
 }
 
 size_t CoroutineQueue::Size()
 {
-    std::lock_guard<std::recursive_mutex> _(m_mutex);
-    return m_queue.size();
+    Lock();
+    size_t queue_size = m_queue.size();
+    UnLock();
+    return queue_size;
 }
 
 Coroutine::SPtr CoroutineQueue::PopHead()
 {
-    std::lock_guard<std::recursive_mutex> _(m_mutex);
+    Lock();
     auto coroutine_sptr = m_queue.front();
     m_queue.pop_front();
+    UnLock();
     return coroutine_sptr;
 }
 
 Coroutine::SPtr CoroutineQueue::PopTail()
 {
-    std::lock_guard<std::recursive_mutex> _(m_mutex);
+    Lock();
     auto coroutine_sptr = m_queue.back();
     m_queue.pop_back();
+    UnLock();
     return coroutine_sptr;
 }
 
 void CoroutineQueue::PushHead(Coroutine::SPtr co)
 {
-    std::lock_guard<std::recursive_mutex> _(m_mutex);
+    Lock();
     m_queue.push_front(co);
+    UnLock();
 }
 
 void CoroutineQueue::PushTail(Coroutine::SPtr co)
 {
-    std::lock_guard<std::recursive_mutex> _(m_mutex);
+    Lock();
     m_queue.push_back(co);
+    UnLock();
 }
 
 void CoroutineQueue::PopAll(std::vector<Coroutine::SPtr>& out)
 {
-    std::lock_guard<std::recursive_mutex> _(m_mutex);
+    Lock();
     for (auto&& item : m_queue)
     {
         out.push_back(item);
     }
 
     m_queue.clear();
+    UnLock();
+}
+
+void CoroutineQueue::PopNTail(std::vector<Coroutine::SPtr>& out, size_t n)
+{
+    Lock();
+    size_t can_give_num = (m_queue.size() >= n) ? n : m_queue.size();
+    for (int i = 0; i < can_give_num; ++i) {
+        out.push_back(m_queue.back());
+        m_queue.pop_back();
+    }
+    UnLock();
 }
 
 void CoroutineQueue::PushHeadRange(std::vector<Coroutine::SPtr>::iterator begin, std::vector<Coroutine::SPtr>::iterator end)
 {
-    std::lock_guard<std::recursive_mutex> _(m_mutex);
+    Lock();
     for (auto i = begin; i != end; i++)
-        PushHead((*i));
+        m_queue.push_front((*i));
+    UnLock();
 }
 
 void CoroutineQueue::PushTailRange(std::vector<Coroutine::SPtr>::iterator begin, std::vector<Coroutine::SPtr>::iterator end)
 {
-    std::lock_guard<std::recursive_mutex> _(m_mutex);
+    Lock();
     for (auto i = begin; i != end; i++)
-        PushTail((*i));
+        m_queue.push_back((*i));
+    UnLock();
 }
 
+
+void CoroutineQueue::Lock()
+{
+    if (g_bbt_coroutine_config->m_cfg_coroutine_queue_use_spinlock)
+        m_spinlock.Lock();
+    else
+        m_mutex.lock();
+}
+
+void CoroutineQueue::UnLock()
+{
+    if (g_bbt_coroutine_config->m_cfg_coroutine_queue_use_spinlock)
+        m_spinlock.UnLock();
+    else
+        m_mutex.unlock();
+}
 }

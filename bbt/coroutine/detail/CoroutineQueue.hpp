@@ -1,5 +1,6 @@
 #pragma once
 #include <deque>
+#include <bbt/base/thread/lock/Spinlock.hpp>
 #include <bbt/coroutine/detail/Coroutine.hpp>
 
 namespace bbt::coroutine::detail
@@ -18,11 +19,17 @@ public:
     void                            PushHead(Coroutine::SPtr);
     void                            PushTail(Coroutine::SPtr);
     void                            PopAll(std::vector<Coroutine::SPtr>& out);
+    void                            PopNTail(std::vector<Coroutine::SPtr>& out, size_t n);
+    void                            PopNTail(CoroutineQueue& out, size_t n);
     void                            PushHeadRange(std::vector<Coroutine::SPtr>::iterator begin, std::vector<Coroutine::SPtr>::iterator end);
     void                            PushTailRange(std::vector<Coroutine::SPtr>::iterator begin, std::vector<Coroutine::SPtr>::iterator end);
+protected:
+    void                            Lock();
+    void                            UnLock();
 private:
     std::deque<Coroutine::SPtr>     m_queue;
-    std::recursive_mutex            m_mutex;
+    std::mutex                      m_mutex;
+    bbt::thread::Spinlock           m_spinlock;
 };
 
 }
