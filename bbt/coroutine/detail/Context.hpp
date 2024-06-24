@@ -29,7 +29,7 @@ private:
     fcontext_t              m_context;
     CoroutineCallback       m_user_main{nullptr};
     CoroutineFinalCallback  m_final_handle{nullptr};
-    Stack                   m_stack;                    
+    Stack*                  m_stack{nullptr};                    
 
 };
 

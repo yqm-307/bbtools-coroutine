@@ -11,13 +11,15 @@
 #define g_scheduler bbt::coroutine::detail::Scheduler::GetInstance()
 
 /* 当前线程正在运行的 coroutine */
-#define g_bbt_coroutine_co (bbt::coroutine::detail::Processer::GetLocalProcesser()->GetCurrentCoroutine());
+#define g_bbt_coroutine_co          (bbt::coroutine::detail::Processer::GetLocalProcesser()->GetCurrentCoroutine());
 
-#define g_bbt_poller (CoPoller::GetInstance())
+#define g_bbt_poller                (bbt::coroutine::detail::CoPoller::GetInstance())
 
-#define g_bbt_coroutine_config (GlobalConfig::GetInstance())
+#define g_bbt_coroutine_config      (bbt::coroutine::detail::GlobalConfig::GetInstance())
 
-#define g_bbt_profiler (Profiler::GetInstance())
+#define g_bbt_profiler              (bbt::coroutine::detail::Profiler::GetInstance())
+
+#define g_bbt_stackpoll             (bbt::coroutine::detail::StackPool::GetInstance())
 
 namespace bbt::coroutine::sync
 {

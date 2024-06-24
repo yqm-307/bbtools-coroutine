@@ -1,4 +1,5 @@
 #include <bbt/coroutine/detail/Context.hpp>
+#include <bbt/coroutine/detail/StackPool.hpp>
 
 namespace bbt::coroutine::detail
 {
@@ -26,16 +27,17 @@ void Context::_CoroutineMain(boost::context::detail::transfer_t transfer)
 
 
 Context::Context(size_t stack_size, const CoroutineCallback& co_func, const CoroutineFinalCallback& co_final_cb, bool stack_protect):
-    m_stack(stack_size, stack_protect),
+    m_stack(g_bbt_stackpoll->Apply()),
     m_user_main(co_func),
     m_final_handle(co_final_cb)
 {
-    void* stack = m_stack.StackTop() + m_stack.UseableSize();
-    m_context = boost::context::detail::make_fcontext(stack, m_stack.UseableSize(), &Context::_CoroutineMain);
+    void* stack = m_stack->StackTop() + m_stack->UseableSize();
+    m_context = boost::context::detail::make_fcontext(stack, m_stack->UseableSize(), &Context::_CoroutineMain);
 }
 
 Context::~Context()
 {
+    g_bbt_stackpoll->Release(m_stack);
 }
 
 void Context::Yield()
