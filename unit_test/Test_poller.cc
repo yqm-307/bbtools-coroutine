@@ -82,15 +82,15 @@ BOOST_AUTO_TEST_CASE(t_poller_timerout_event_multi_thread)
 {
     /* 多线程注册事件，单线程处理（reactor模型） */
 
-    std::atomic_int count = 0;
-    std::vector<std::thread*> threads;
-    std::map<CoroutineId, int64_t> m_begin_time_map;
-    std::mutex                     m_begin_mutex;
-    std::map<CoroutineId, int64_t> m_end_time_map;
-    std::mutex                     m_end_mutex;
+    std::atomic_int                 count = 0;
+    std::vector<std::thread*>       threads;
+    std::map<CoroutineId, int64_t>  m_begin_time_map;
+    std::mutex                      m_begin_mutex;
+    std::map<CoroutineId, int64_t>  m_end_time_map;
+    std::mutex                      m_end_mutex;
 
-    std::vector<CoPollEvent::SPtr> events;
-    std::mutex                     events_mutex;
+    std::vector<CoPollEvent::SPtr>  events;
+    std::mutex                      events_mutex;
 
     for (int i = 0; i < 10; ++i)
     {

@@ -59,8 +59,8 @@ BOOST_AUTO_TEST_CASE(t_chan_1_vs_n)
 
             for (int i = 0; i < 1000 * 100; ++i) {
                 int val;
-                BOOST_ASSERT(c.Read(val) == 0);
-                count++;
+                BOOST_ASSERT    (c.Read(val) == 0);
+                count++;                                                                                                                                                                                    
             }
         };
         sleep(1);

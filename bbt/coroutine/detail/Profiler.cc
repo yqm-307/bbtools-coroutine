@@ -66,7 +66,7 @@ void Profiler::ProfileInfo(std::string& info)
     info += "已运行时间(ms)：" + std::to_string((bbt::clock::now<>() - m_scheduler_begin_timestamp).count()) + '\n';
     info += "完成协程数：" + std::to_string(m_total_done_co_count.load())  + '\n';
     info += "注册协程数：" + std::to_string(m_total_regist_co_count.load()) + '\n';
-    info += "执行速率："   + std::to_string(m_total_done_co_count.load() / ((bbt::clock::now<>() - m_scheduler_begin_timestamp).count() / 1000)) + '\n';
+    info += "执行速率(n/ms)："   + std::to_string(m_total_done_co_count.load() / (bbt::clock::now<>() - m_scheduler_begin_timestamp).count()) + '\n';
     info += "未释放协程数：" + std::to_string(m_create_coroutine_count.load() - m_destory_coroutine_count.load()) + '\n';
     info += "StackPool大小：" + std::to_string(g_bbt_stackpoll->AllocSize()) + '\n';
     for (auto&& processer : m_processer_map)

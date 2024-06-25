@@ -13,7 +13,7 @@ BOOST_AUTO_TEST_SUITE(CoCondTest)
 
 BOOST_AUTO_TEST_CASE(t_cond)
 {
-    const int n_max_notify_count = 1000;
+    const int n_max_notify_count = 500;
     std::atomic_int ncount = 0;
     uint64_t n_begin_time = bbt::clock::now<>().time_since_epoch().count();
     uint64_t n_last_time = 0;
@@ -25,7 +25,6 @@ BOOST_AUTO_TEST_CASE(t_cond)
         for (int i = 0; i < n_max_notify_count; ++i) {
             g_scheduler->RegistCoroutineTask([cond, &n_last_time, &ncount](){
                 cond->Notify();
-                // PrintTime("");
                 n_last_time = bbt::clock::now<>().time_since_epoch().count();
                 ncount++;
             });

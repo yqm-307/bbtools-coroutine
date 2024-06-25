@@ -5,7 +5,31 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "unit_test chan",
+            "name": "Test_g_co",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/bin/unit_test/Test_g_co",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/build/bin/unit_test/",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "为 gdb 启用整齐打印",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "将反汇编风格设置为 Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Test_chan",
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/bin/unit_test/Test_chan",
@@ -29,7 +53,7 @@
             ]
         },
         {
-            "name": "debug chan",
+            "name": "Debug_chan",
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/bin/unit_test/Debug_chan",
@@ -53,7 +77,7 @@
             ]
         },
         {
-            "name": "unit_test fatigue",
+            "name": "Test_fatigue_coroutine",
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/bin/unit_test/Test_fatigue_coroutine",
@@ -77,7 +101,7 @@
             ]
         },
         {
-            "name": "unit_test cond",
+            "name": "Test_cond",
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/bin/unit_test/Test_cond",
@@ -101,7 +125,7 @@
             ]
         },
         {
-            "name": "debug cond",
+            "name": "Debug_cond",
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/bin/unit_test/Debug_cond",
@@ -125,7 +149,7 @@
             ]
         },
         {
-            "name": "debug hook_sleep",
+            "name": "Debug_hook_sleep",
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/bin/unit_test/Debug_hook_sleep",
@@ -149,7 +173,7 @@
             ]
         },
         {
-            "name": "unit_test poller",
+            "name": "Test_poller",
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/bin/unit_test/Test_poller",
@@ -173,7 +197,7 @@
             ]
         },
         {
-            "name": "debug co_poller",
+            "name": "Debug_poller",
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/bin/unit_test/Debug_poller",
@@ -197,7 +221,7 @@
             ]
         },
         {
-            "name": "debug g_co",
+            "name": "Debug_g_co",
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/bin/unit_test/Debug_g_co",
@@ -221,7 +245,7 @@
             ]
         },
         {
-            "name": "debug scheduler",
+            "name": "Debug_scheduler",
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/bin/unit_test/Debug_scheduler",
@@ -245,7 +269,7 @@
             ]
         },
         {
-            "name": "unit_test hook",
+            "name": "Test_hook",
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/bin/unit_test/Test_hook",
@@ -269,7 +293,7 @@
             ]
         },
         {
-            "name": "unit_test coroutine",
+            "name": "Test_coroutine",
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/bin/unit_test/Test_coroutine",
@@ -293,7 +317,7 @@
             ]
         },
         {
-            "name": "unit_test coroutine stack",
+            "name": "Test_coroutine_stack",
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/bin/unit_test/Test_coroutine_stack",
