@@ -64,3 +64,6 @@ target_link_libraries(Debug_regist_co ${MY_LIBS})
 
 add_executable(Debug_chan Debug_chan.cc)
 target_link_libraries(Debug_chan ${MY_LIBS})
+
+add_executable(Debug_create_coroutine Debug_create_coroutine.cc)
+target_link_libraries(Debug_create_coroutine ${MY_LIBS})

@@ -17,7 +17,7 @@ public:
 
 
     /* XXX 配置，先静态配置 */
-    const size_t                                m_cfg_stack_size{1024 * 8};     // 栈大小
+    const size_t                                m_cfg_stack_size{1024 * 4};     // 栈大小
     const bool                                  m_cfg_stack_protect{true};     // 栈保护
     const size_t                                m_cfg_scan_interval_ms{10};     // scheduler 扫描间隔
     const bool                                  m_cfg_static_thread{true};      // 是否静态创建线程

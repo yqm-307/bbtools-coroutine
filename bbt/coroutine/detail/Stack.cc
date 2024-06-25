@@ -55,6 +55,7 @@ int Stack::_ApplyStackProtect(char* mem_chunk, size_t mem_chunk_len)
     int pagesize = getpagesize();
     void* ptail = mem_chunk + mem_chunk_len - pagesize;
 
+    /* Ubuntu2204Tls下测试， mprotect对内存页PROT_NONE可映射最大值为 32767，也就是说协程最大数量为 32767（安全起见，设置为30000合理） */
     if (mprotect(ptail, pagesize, PROT_NONE) < 0){
         bbt::log::WarnPrint("%s, errno : %d %s", __FUNCTION__, errno, strerror(errno));
         return -1;

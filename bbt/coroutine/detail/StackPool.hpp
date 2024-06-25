@@ -28,6 +28,7 @@ private:
     std::mutex                          m_pool_mutex;
 
     uint32_t                            m_alloc_obj_count{0};
+    const int                           m_max_size{30000};
 };
 
 }

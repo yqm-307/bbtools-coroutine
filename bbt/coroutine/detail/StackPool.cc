@@ -32,6 +32,9 @@ void StackPool::Release(ItemType* item)
 StackPool::ItemType* StackPool::Apply()
 {
     std::lock_guard<std::mutex> _(m_pool_mutex);
+    if (m_alloc_obj_count >= m_max_size)
+        return nullptr;
+
     if (m_pool.empty()) {
         m_alloc_obj_count++;
         return new Stack(g_bbt_coroutine_config->m_cfg_stack_size, g_bbt_coroutine_config->m_cfg_stack_protect);
