@@ -20,7 +20,9 @@ public:
     ~Profiler() {}
 
     void                        OnEvent_StartScheudler();
+
     void                        OnEvent_StartProcesser(Processer::SPtr proc);
+    void                        OnEvent_StopPorcesser(Processer::SPtr proc);
 
     void                        OnEvent_RegistCoroutine();
     void                        OnEvent_DoneCoroutine();

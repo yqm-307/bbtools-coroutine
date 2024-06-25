@@ -3,6 +3,7 @@
 #include <bbt/coroutine/detail/Processer.hpp>
 #include <bbt/coroutine/detail/CoPoller.hpp>
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
+#include <bbt/coroutine/detail/LocalThread.hpp>
 
 namespace bbt::coroutine::detail
 {
@@ -30,7 +31,7 @@ int Hook_Sleep(int ms)
     errno = EINVAL;
 
     /* 注册到全局轮询器中监听，并挂起协程 */
-    auto current_run_co = g_bbt_coroutine_co;
+    auto current_run_co = g_bbt_tls_coroutine_co;
     auto&poller = g_bbt_poller;
     auto event = current_run_co->RegistTimeout(ms);
     if (event == nullptr)
@@ -60,7 +61,7 @@ int close(int fd)
 
 unsigned int sleep(unsigned int sec)
 {
-    auto cur_co = g_bbt_coroutine_co;
+    auto cur_co = g_bbt_tls_coroutine_co;
     if (cur_co == nullptr)
         return g_bbt_sys_hook_sleep_func(sec);
 

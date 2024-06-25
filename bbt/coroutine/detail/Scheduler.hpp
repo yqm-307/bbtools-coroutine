@@ -35,6 +35,9 @@ protected:
     /* 简单调度算法 */
     void                                        _SampleSchuduleAlgorithm();
 
+    void                                        _CreateProcessers();
+    void                                        _DestoryProcessers();
+
 private:
     bbt::clock::Timestamp<>                     m_begin_timestamp;  // 调度器开启时间
     std::thread*                                m_thread{nullptr};

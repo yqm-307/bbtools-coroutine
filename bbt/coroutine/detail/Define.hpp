@@ -10,8 +10,12 @@
 
 #define g_scheduler bbt::coroutine::detail::Scheduler::GetInstance()
 
+#define g_bbt_tls_helper            (bbt::coroutine::detail::LocalThread::GetTLSInst())
+
+#define g_bbt_tls_processer         (g_bbt_tls_helper->GetProcesser())
+
 /* 当前线程正在运行的 coroutine */
-#define g_bbt_coroutine_co          (bbt::coroutine::detail::Processer::GetLocalProcesser()->GetCurrentCoroutine());
+#define g_bbt_tls_coroutine_co      (g_bbt_tls_processer->GetCurrentCoroutine());
 
 #define g_bbt_poller                (bbt::coroutine::detail::CoPoller::GetInstance())
 
@@ -48,12 +52,13 @@ enum ChanStatus : int32_t
 namespace bbt::coroutine::detail
 {
 
-class Coroutine;
-class Scheduler;
-class Processer;
-class CoPollEvent;
-class CoPoller;
-class GlobalConfig;
+class Coroutine;    // 协程
+class Scheduler;    // 调度器
+class Processer;    // 执行器
+class CoPollEvent;  // 协程事件
+class CoPoller;     // 事件轮询器
+class GlobalConfig; // 全局配置
+class LocalThread;  // 线程局部数据辅助类
 
 
 typedef uint64_t CoroutineId;

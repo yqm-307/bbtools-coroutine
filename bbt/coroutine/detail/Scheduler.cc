@@ -6,6 +6,7 @@
 #include <bbt/coroutine/detail/CoPoller.hpp>
 #include <bbt/coroutine/detail/GlobalConfig.hpp>
 #include <bbt/coroutine/detail/Profiler.hpp>
+#include <bbt/coroutine/detail/LocalThread.hpp>
 
 namespace bbt::coroutine::detail
 {
@@ -66,27 +67,6 @@ void Scheduler::OnActiveCoroutine(Coroutine::SPtr coroutine)
 
 void Scheduler::_SampleSchuduleAlgorithm()
 {
-    /* 如果没有足够的processer，创建 */
-    if (g_bbt_coroutine_config->m_cfg_static_thread && (m_processer_map.size() < g_bbt_coroutine_config->m_cfg_static_thread_num))
-    {
-        int need_create_thread_num = g_bbt_coroutine_config->m_cfg_static_thread_num - m_processer_map.size();
-        for (int i = 0; i< need_create_thread_num; ++i)
-        {
-            auto t = new std::thread([this](){
-                auto processer = Processer::GetLocalProcesser();
-                {
-                    std::lock_guard<std::mutex> _(this->m_processer_map_mutex);
-                    this->m_processer_map.insert(std::make_pair(processer->GetId(), processer));
-                }
-                this->m_down_latch.Down();
-                processer->Start(false);
-            });
-            m_proc_threads.push_back(t);
-        }
-
-        m_down_latch.Wait();
-    }
-
     if (!m_global_coroutine_deque.Empty())
     {
         for (auto&& item : m_processer_map)
@@ -95,51 +75,6 @@ void Scheduler::_SampleSchuduleAlgorithm()
             processer->Notify();
         }
     }
-
-    // if (m_global_coroutine_deque.Empty())
-        // return;
-
-    /* 取出待分配task */
-    // int total_coroutine_count = 0;
-    // int avg_coroutine_count = 0;
-    // std::map<Processer::SPtr, int> loadvalue_map;
-    // std::vector<Coroutine::SPtr> wait_tasks;
-    // m_global_coroutine_deque.PopAll(wait_tasks);
-
-
-    /* 根据负载分配task */
-    // for (auto&& item : m_processer_map)
-    // {
-    //     int load_value = static_cast<int>(item.second->GetLoadValue());
-    //     loadvalue_map.insert(std::make_pair(item.second, load_value));
-    //     total_coroutine_count += load_value;
-    // }
-
-    // avg_coroutine_count = std::floor((total_coroutine_count + wait_tasks.size()) / m_processer_map.size()) + 1;
-
-
-    // int cur_pushed_index = 0;
-    // for (auto&& item : m_processer_map)
-    // {
-    //     auto& processer_sptr = item.second;
-    //     int processer_have_coroutine_num = processer_sptr->GetLoadValue();
-    //     if (processer_have_coroutine_num >= avg_coroutine_count)
-    //         break;
-        
-    //     int give_coroutine_num = avg_coroutine_count - processer_have_coroutine_num;
-    //     auto begin_itor = wait_tasks.begin() + cur_pushed_index;
-    //     auto end_itor = begin_itor + give_coroutine_num;
-    //     if ((wait_tasks.size() - cur_pushed_index) < avg_coroutine_count)
-    //     {
-    //         end_itor = wait_tasks.end();
-    //         cur_pushed_index += wait_tasks.size() - cur_pushed_index;
-    //     }
-    //     else
-    //     {
-    //         cur_pushed_index += give_coroutine_num;
-    //     }
-    //     processer_sptr->AddCoroutineTaskRange(begin_itor, end_itor);
-    // }
 }
 
 
@@ -152,6 +87,8 @@ void Scheduler::_FixTimingScan()
 
 void Scheduler::_Run()
 {
+    _CreateProcessers();
+
     m_begin_timestamp = bbt::clock::now<>();
     auto prev_scan_timepoint = bbt::clock::now<>();
     auto prev_profile_timepoint = bbt::clock::now<>();
@@ -199,10 +136,7 @@ void Scheduler::Stop()
 {
     m_is_running = false;
 
-    for (auto item : m_processer_map)
-        item.second->Stop();
-
-    m_processer_map.clear();
+    _DestoryProcessers();
     
     if (m_thread != nullptr) {
         if (m_thread->joinable())
@@ -211,14 +145,6 @@ void Scheduler::Stop()
     }
 
     m_thread = nullptr;
-
-    for (auto&& proc_thread : m_proc_threads) {
-        if (proc_thread->joinable())
-            proc_thread->join();
-        delete proc_thread;
-    }
-
-    m_proc_threads.clear();
     m_global_coroutine_deque.Clear();
     m_run_status = ScheudlerStatus::SCHE_EXIT;
 #ifdef BBT_COROUTINE_PROFILE
@@ -234,6 +160,44 @@ size_t Scheduler::GetGlobalCoroutine(std::vector<Coroutine::SPtr>& coroutines, s
     coroutines.clear();
     m_global_coroutine_deque.PopNTail(coroutines, size);
     return coroutines.size();
+}
+
+void Scheduler::_CreateProcessers()
+{
+    int need_create_thread_num = g_bbt_coroutine_config->m_cfg_static_thread_num - m_processer_map.size();
+    for (int i = 0; i < need_create_thread_num; ++i)
+    {
+        auto t = new std::thread([this](){
+            g_bbt_tls_helper->SetEnableUseCo(true);
+            auto processer = g_bbt_tls_processer;
+            {
+                std::lock_guard<std::mutex> _(this->m_processer_map_mutex);
+                this->m_processer_map.insert(std::make_pair(processer->GetId(), processer));
+            }
+            this->m_down_latch.Down();
+            processer->Start(false);
+        });
+        m_proc_threads.push_back(t);
+    }
+
+    m_down_latch.Wait();
+}
+
+void Scheduler::_DestoryProcessers()
+{
+    /* 停止所有执行processer */
+    for (auto item : m_processer_map)
+        item.second->Stop();
+    m_processer_map.clear();
+
+    /* 释放所有执行processer的线程 */
+    for (auto&& proc_thread : m_proc_threads) {
+        if (proc_thread->joinable())
+            proc_thread->join();
+        delete proc_thread;
+    }
+
+    m_proc_threads.clear();
 }
 
 } // namespace bbt::coroutine::detail

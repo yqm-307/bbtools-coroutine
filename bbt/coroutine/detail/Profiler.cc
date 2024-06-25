@@ -49,6 +49,15 @@ void Profiler::OnEvent_StartProcesser(Processer::SPtr proc)
     m_processer_map.insert(std::make_pair(id, proc));
 }
 
+void Profiler::OnEvent_StopPorcesser(Processer::SPtr proc)
+{
+    std::unique_lock<std::mutex> _(m_processer_map_mutex);
+    ProcesserId id = proc->GetId();
+    auto it = m_processer_map.find(id);
+    Assert(it != m_processer_map.end());
+    m_processer_map.erase(it);
+}
+
 
 void Profiler::ProfileInfo(std::string& info)
 {

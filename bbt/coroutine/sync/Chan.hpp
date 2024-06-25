@@ -31,8 +31,8 @@ private:
     std::queue<ItemType>                    m_item_queue;
     std::mutex                              m_item_queue_mutex;
     volatile ChanStatus                     m_run_status{ChanStatus::CHAN_DEFAUTL};
-    detail::Coroutine::SPtr                 m_bind_co{nullptr};
-    std::atomic_bool                        m_can_notify{true};
+    detail::Coroutine::SPtr                 m_wait_co{nullptr};
+    std::mutex                              m_wait_co_mutex;
     std::atomic_bool                        m_is_reading{false};
 };
 

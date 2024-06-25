@@ -26,6 +26,10 @@ Processer::SPtr Processer::GetLocalProcesser()
     return tl_processer;
 }
 
+static bool EnableCo();
+
+static void SetEnableCo(bool this_thread_enable_use_coroutine);
+
 
 ProcesserId Processer::_GenProcesserId()
 {

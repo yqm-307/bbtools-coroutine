@@ -4,6 +4,7 @@
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
 #include <bbt/coroutine/detail/Scheduler.hpp>
 #include <bbt/coroutine/detail/Coroutine.hpp>
+#include <bbt/coroutine/detail/LocalThread.hpp>
 
 namespace bbt::coroutine::sync
 {
@@ -39,7 +40,7 @@ int CoCond::Init()
     if (ret != 0) return ret;
 
     /* 只能在正在运行的协程上创建cond */
-    auto co = g_bbt_coroutine_co;
+    auto co = g_bbt_tls_coroutine_co;
     if (co == nullptr)
         return -1;
 
@@ -50,7 +51,7 @@ int CoCond::Wait()
 {
     int ret = 0;
     char byte[32];
-    auto co = g_bbt_coroutine_co;
+    auto co = g_bbt_tls_coroutine_co;
     if (co == nullptr)
         return -1;
 
@@ -70,7 +71,7 @@ int CoCond::WaitWithTimeout(int ms)
 {
     Assert(ms > 0);
     char byte;
-    auto co = g_bbt_coroutine_co;
+    auto co = g_bbt_tls_coroutine_co;
     if (co == nullptr)
         return -1;
 

@@ -17,6 +17,8 @@ public:
     static SPtr Create();
     /* 获取当前线程Processer */
     static SPtr GetLocalProcesser(); 
+    static bool EnableCo();
+    static void SetEnableCo(bool this_thread_enable_use_coroutine);
 
     explicit
     Processer();

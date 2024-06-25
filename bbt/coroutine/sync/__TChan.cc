@@ -4,6 +4,7 @@
 #include <bbt/coroutine/detail/CoPoller.hpp>
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
 #include <bbt/coroutine/detail/Processer.hpp>
+#include <bbt/coroutine/detail/LocalThread.hpp>
 
 
 namespace bbt::coroutine::sync
@@ -14,8 +15,6 @@ Chan::Chan(int max_queue_size):
 {
     Assert(m_max_size > 0);
     m_run_status = ChanStatus::CHAN_OPEN;
-    m_bind_co = g_bbt_coroutine_co;
-    AssertWithInfo(m_bind_co != nullptr, "请在协程中使用chan");
 }
 
 Chan::~Chan()
@@ -98,22 +97,30 @@ bool Chan::IsClosed()
 
 int Chan::_Wait()
 {
-    auto cur_co = g_bbt_coroutine_co;
-    if (cur_co == nullptr || cur_co != m_bind_co)
-        return -1;
+    {
+        std::unique_lock<std::mutex> _(m_wait_co_mutex);
+        auto cur_co = g_bbt_tls_coroutine_co;
+        if (cur_co == nullptr || m_wait_co != nullptr)
+            return -1;
 
-    m_bind_co->Yield();
-    m_can_notify = true;
+        m_wait_co = cur_co;
+    }
+    m_wait_co->Yield();
     return 0;
 }
 
 int Chan::_Notify()
 {
-    if (!m_can_notify)
-        return -1;
+    detail::Coroutine::SPtr wait_co = nullptr;
 
-    m_can_notify = false;
-    m_bind_co->OnEventChanWrite();
+    {
+        if (m_wait_co == nullptr)
+            return -1;
+
+        wait_co = m_wait_co;
+        m_wait_co = nullptr;
+    }
+    wait_co->OnEventChanWrite();
     return 0;
 }
 
