@@ -22,7 +22,7 @@ public:
     const size_t                                m_cfg_scan_interval_ms{10};                 // scheduler 扫描间隔
     const bool                                  m_cfg_static_thread{true};                  // 是否静态创建线程
     const size_t                                m_cfg_static_thread_num{4};                 // 静态线程数
-    const size_t                                m_cfg_profile_printf_ms{5000};              // 打印profile间隔，0不打印
+    const size_t                                m_cfg_profile_printf_ms{500};              // 打印profile间隔，0不打印
 
     const size_t                                m_cfg_processer_get_co_from_g_count{128};   // 每次从g队列获取任务数量
 

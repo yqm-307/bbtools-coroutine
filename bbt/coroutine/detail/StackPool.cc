@@ -1,3 +1,5 @@
+#include <cmath>
+#include <bbt/base/assert/Assert.hpp>
 #include <bbt/coroutine/detail/GlobalConfig.hpp>
 #include <bbt/coroutine/detail/StackPool.hpp>
 
@@ -13,7 +15,8 @@ StackPool::UPtr& StackPool::GetInstance()
     return _inst;
 }
 
-StackPool::StackPool()
+StackPool::StackPool():
+    m_prev_adjust_pool_ts(bbt::clock::now<>())
 {
 
 }
@@ -47,8 +50,50 @@ StackPool::ItemType* StackPool::Apply()
 
 int StackPool::AllocSize()
 {
-    // std::lock_guard<std::mutex> _(m_pool_mutex);
+    std::lock_guard<std::mutex> _(m_pool_mutex);
     return m_alloc_obj_count;
+}
+
+
+void StackPool::OnUpdate()
+{
+    if (m_rtts == 0)
+        m_rtts = GetCurCoNum();
+    
+    m_rtts = ::floor(0.875 * m_rtts + 0.125 * GetCurCoNum());
+    int allowable_stack_num = ::floor((m_rate + 1) * m_rtts);
+
+    if ( bbt::clock::is_expired<bbt::clock::milliseconds>((m_prev_adjust_pool_ts + bbt::clock::milliseconds(500))))
+    {
+        m_prev_adjust_pool_ts = bbt::clock::now<>();
+        if (m_alloc_obj_count > allowable_stack_num)
+        {
+            std::queue<ItemType*> m_swap_queue;
+            {
+                std::lock_guard<std::mutex> _(m_pool_mutex);
+                m_swap_queue.swap(m_pool);
+                Assert(m_pool.size() == 0);
+                m_alloc_obj_count -= m_swap_queue.size();
+            }
+
+            while (!m_swap_queue.empty())
+            {
+                delete m_swap_queue.front();
+                m_swap_queue.pop();
+            }
+        }
+    }
+}
+
+int StackPool::GetCurCoNum()
+{
+    std::lock_guard<std::mutex> _(m_pool_mutex);
+    return (m_alloc_obj_count - m_pool.size());
+}
+
+int StackPool::GetRtts()
+{
+    return m_rtts;
 }
 
 

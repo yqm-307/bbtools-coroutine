@@ -7,6 +7,7 @@
 #include <bbt/coroutine/detail/GlobalConfig.hpp>
 #include <bbt/coroutine/detail/Profiler.hpp>
 #include <bbt/coroutine/detail/LocalThread.hpp>
+#include <bbt/coroutine/detail/StackPool.hpp>
 
 namespace bbt::coroutine::detail
 {
@@ -113,6 +114,7 @@ void Scheduler::_Run()
         do {
             trigger_event = g_bbt_poller->PollOnce();
             _FixTimingScan();
+            g_bbt_stackpoll->OnUpdate();
         } while(trigger_event > 0);
         prev_scan_timepoint = prev_scan_timepoint + bbt::clock::ms(g_bbt_coroutine_config->m_cfg_scan_interval_ms);
         std::this_thread::sleep_until(prev_scan_timepoint);
