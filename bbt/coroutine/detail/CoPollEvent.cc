@@ -28,12 +28,6 @@ CoPollEvent::~CoPollEvent()
     if (m_timerfd >= 0) ::close(m_timerfd);
 }
 
-int CoPollEvent::GetFd() const
-{
-    return m_fd;
-}
-
-
 void CoPollEvent::Trigger(IPoller* poller, int trigger_events)
 {
     /**
@@ -51,7 +45,7 @@ void CoPollEvent::Trigger(IPoller* poller, int trigger_events)
     m_run_status = CoPollEventStatus::POLLEVENT_TRIGGER;
 
     if (m_onevent_callback != nullptr) {
-        m_onevent_callback(shared_from_this(), m_coroutine);
+        m_onevent_callback(shared_from_this(), trigger_events, m_custom_key);
     }
 
     _OnFinal();
@@ -95,29 +89,6 @@ int CoPollEvent::InitTimeoutEvent(int timeout)
     m_timerfd = ::timerfd_create(CLOCK_REALTIME, 0);
     if (m_timerfd < 0)
         return -1;
-    
-    itimerspec new_value;
-    timespec   now;
-    if (clock_gettime(CLOCK_REALTIME, &now) != 0)
-        return -1;
-    
-    int64_t nsec = now.tv_nsec + (m_timeout % 1000) * 1000000;
-
-    new_value.it_value.tv_sec = now.tv_sec + (m_timeout / 1000) + (nsec >= 1000000000 ? 1 : 0);
-    new_value.it_value.tv_nsec = (nsec >= 1000000000 ? nsec - 1000000000 : nsec);
-    new_value.it_interval.tv_nsec = 0;
-    new_value.it_interval.tv_sec = 0;
-
-    if (timerfd_settime(m_fd, TFD_TIMER_ABSTIME, &new_value, NULL) != 0)
-        return -1;
-    
-    _CreateEpollEvent(EPOLLIN | EPOLLONESHOT);
-
-    ret = g_bbt_poller->AddFdEvent(shared_from_this(), m_timerfd);
-    if (ret != 0) {
-        std::unique_lock<std::mutex> _(m_epoll_event_map_mutex);
-        _DestoryEpollEvent(m_timerfd);
-    }
 
     return ret;
 }
@@ -128,21 +99,27 @@ int CoPollEvent::InitCustomEvent(int key, void* args)
         return -1;
 
     m_has_custom_event = true;
+    m_custom_key = key;
     return 0;
 }
 
 int CoPollEvent::Regist()
 {
     int ret = 0;
-    m_run_status = CoPollEventStatus::POLLEVENT_LISTEN;
 
     /* fd 事件 */
     if (m_fd >= 0)
         ret = _RegistFdEvent();
 
+    if (ret != 0)
+        return ret;
+
     /* 超时事件 */
     if (m_timerfd >= 0)
         ret = _RegistTimeoutEvent();
+
+    if (ret != 0)
+        return ret;
 
     /* 自定义事件 */
     if (m_has_custom_event)

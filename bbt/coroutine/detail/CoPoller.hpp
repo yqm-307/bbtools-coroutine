@@ -22,7 +22,7 @@ public:
     virtual int                     ModifyFdEvent(std::shared_ptr<IPollEvent> event, int fd, int event_opt) override;
     virtual int                     PollOnce() override;
 
-    int                             OnCustomEvent(std::shared_ptr<IPollEvent> event, int key);
+    int                             NotifyCustomEvent(std::shared_ptr<IPollEvent> event);
 protected:
 private:
     int                             m_epoll_fd{-1};

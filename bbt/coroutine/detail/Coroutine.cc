@@ -84,44 +84,95 @@ void Coroutine::_OnCoroutineFinal()
         m_co_final_callback();
 }
 
-void Coroutine::OnEventTimeout(CoPollEvent::SPtr evnet)
-{
-    g_scheduler->OnActiveCoroutine(shared_from_this());
-    _OnEventFinal();
-}
+// void Coroutine::OnEventTimeout(CoPollEvent::SPtr evnet)
+// {
+//     g_scheduler->OnActiveCoroutine(shared_from_this());
+//     _OnEventFinal();
+// }
 
-void Coroutine::OnEventReadable(CoPollEvent::SPtr evnet)
-{
-    g_scheduler->OnActiveCoroutine(shared_from_this());
-    _OnEventFinal();
-}
+// void Coroutine::OnEventReadable(CoPollEvent::SPtr evnet)
+// {
+//     g_scheduler->OnActiveCoroutine(shared_from_this());
+//     _OnEventFinal();
+// }
 
-void Coroutine::OnEventChanWrite()
-{
-    g_scheduler->OnActiveCoroutine(shared_from_this());
-}
+// void Coroutine::OnEventChanWrite()
+// {
+//     g_scheduler->OnActiveCoroutine(shared_from_this());
+// }
 
 
-void Coroutine::_OnEventFinal()
-{
-}
+// void Coroutine::_OnEventFinal()
+// {
+// }
 
 std::shared_ptr<CoPollEvent> Coroutine::RegistTimeout(int ms)
 {
+    std::unique_lock<std::mutex> _(m_await_event_mutex);
+    if (m_await_event != nullptr)
+        return nullptr;
+
+    m_await_event = CoPollEvent::Create(shared_from_this(), [this](auto, int event, int custom_key){
+        OnCoPollEvent(event, custom_key);
+    });
+
+    if (m_await_event->InitTimeoutEvent(ms) != 0)
+        return nullptr;
+
+    if (m_await_event->Regist() != 0)
+        return nullptr;
+
+    return m_await_event;
 }
 
-std::shared_ptr<CoPollEvent> Coroutine::RegistReadable(int fd, int ms)
+std::shared_ptr<CoPollEvent> Coroutine::RegistCustom(int key)
 {
-    return _RegistReadableEx(fd, ms, 0);
+    std::unique_lock<std::mutex> _(m_await_event_mutex);
+    if (m_await_event != nullptr)
+        return nullptr;
+    
+    m_await_event = CoPollEvent::Create(shared_from_this(), [this](auto, int event, int custom_key){
+        OnCoPollEvent(event, custom_key);
+    });
+
+    if (m_await_event->InitCustomEvent(key, NULL) != 0)
+        return nullptr;
+    
+    if (m_await_event->Regist() != 0)
+        return nullptr;
+    
+    return m_await_event;
 }
 
-std::shared_ptr<CoPollEvent> Coroutine::RegistReadableET(int fd, int ms)
+
+void Coroutine::OnCoPollEvent(int event, int custom_key)
 {
-    return _RegistReadableEx(fd, ms, EPOLLET);
+    std::unique_lock<std::mutex> _(m_await_event_mutex);
+    Assert(m_await_event != nullptr);
+
+    g_scheduler->OnActiveCoroutine(shared_from_this());
+
+    m_await_event = nullptr;
 }
 
-std::shared_ptr<CoPollEvent> Coroutine::_RegistReadableEx(int fd, int ms, int ext_event)
-{
-}
+
+
+// std::shared_ptr<CoPollEvent> Coroutine::RegistTimeout(int ms)
+// {
+// }
+
+// std::shared_ptr<CoPollEvent> Coroutine::RegistReadable(int fd, int ms)
+// {
+//     return _RegistReadableEx(fd, ms, 0);
+// }
+
+// std::shared_ptr<CoPollEvent> Coroutine::RegistReadableET(int fd, int ms)
+// {
+//     return _RegistReadableEx(fd, ms, EPOLLET);
+// }
+
+// std::shared_ptr<CoPollEvent> Coroutine::_RegistReadableEx(int fd, int ms, int ext_event)
+// {
+// }
 
 }

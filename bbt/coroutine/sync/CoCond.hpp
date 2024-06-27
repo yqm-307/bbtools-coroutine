@@ -23,7 +23,7 @@ public:
      * @param ms 
      * @return int 
      */
-    int                         WaitWithTimeout(int ms);
+    // int                         WaitWithTimeout(int ms);
 
     /**
      * @brief 唤醒一个Wait中的协程
@@ -34,7 +34,9 @@ public:
 protected:
     int                         Init();
 protected:
-    int                         m_pipe_fds[2];
+    // int                         m_pipe_fds[2];
+    std::shared_ptr<detail::CoPollEvent>    m_co_event{nullptr};
+    std::mutex                      m_co_event_mutex;
 };
 
 }

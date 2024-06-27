@@ -76,5 +76,6 @@
         "typeinfo": "cpp",
         "variant": "cpp",
         "unordered_set": "cpp"
-    }
+    },
+    "C_Cpp.default.compilerPath": "/usr/bin/gcc"
 }

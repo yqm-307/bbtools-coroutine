@@ -8,6 +8,7 @@
 #include <atomic>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <cstdint>
 #include <sys/timerfd.h>
 #include <sys/epoll.h>
@@ -22,7 +23,7 @@
 #define g_bbt_tls_processer         (g_bbt_tls_helper->GetProcesser())
 
 /* 当前线程正在运行的 coroutine */
-#define g_bbt_tls_coroutine_co      (g_bbt_tls_processer->GetCurrentCoroutine());
+#define g_bbt_tls_coroutine_co      (g_bbt_tls_processer->GetCurrentCoroutine())
 
 #define g_bbt_poller                (bbt::coroutine::detail::CoPoller::GetInstance())
 
@@ -77,7 +78,7 @@ typedef uint64_t ProcesserId;
 
 typedef std::function<void()> CoroutineCallback;        // 协程处理主函数
 typedef std::function<void()> CoroutineFinalCallback;
-typedef std::function<void(std::shared_ptr<CoPollEvent>, std::shared_ptr<Coroutine>)> CoPollEventCallback;      // Poller监听事件完成回调
+typedef std::function<void(std::shared_ptr<CoPollEvent>, int, int)> CoPollEventCallback;      // Poller监听事件完成回调
 
 /**
 @startuml
@@ -156,6 +157,21 @@ enum CoPollEventStatus : int32_t
     POLLEVENT_TRIGGER = 3, // 触发中
     POLLEVENT_FINAL   = 4, // 监听结束
     POLLEVENT_CANNEL  = 5, // 取消事件
+};
+
+
+enum PollEventType
+{
+    POLL_EVENT_DEFAULT      = 0,
+    POLL_EVENT_TIMEOUT      = 1 << 0,
+    POLL_EVENT_WRITEABLE    = 1 << 1,
+    POLL_EVENT_READABLE     = 1 << 2,
+    POLL_EVENT_CUSTOM       = 1 << 3,
+};
+
+enum CoPollEventCustom
+{
+    POLL_EVENT_CUSTOM_COND  = 1,    // co cond
 };
 
 } // namespace bbt::coroutine::detail

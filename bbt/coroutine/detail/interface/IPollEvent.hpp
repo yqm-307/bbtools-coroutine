@@ -7,12 +7,6 @@ class IPoller;
 class IPollEvent
 {
 public:
-    /**
-     * @brief 获取套接字
-     * 
-     * @return int 
-     */
-    virtual int GetFd() const = 0;
 
     /**
      * @brief 触发事件

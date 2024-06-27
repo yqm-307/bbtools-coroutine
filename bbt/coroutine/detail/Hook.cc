@@ -4,6 +4,7 @@
 #include <bbt/coroutine/detail/CoPoller.hpp>
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
 #include <bbt/coroutine/detail/LocalThread.hpp>
+#include <bbt/coroutine/detail/Coroutine.hpp>
 
 namespace bbt::coroutine::detail
 {
@@ -32,7 +33,7 @@ int Hook_Sleep(int ms)
 
     /* 注册到全局轮询器中监听，并挂起协程 */
     auto current_run_co = g_bbt_tls_coroutine_co;
-    auto&poller = g_bbt_poller;
+    auto& poller = g_bbt_poller;
     auto event = current_run_co->RegistTimeout(ms);
     if (event == nullptr)
         return -1;

@@ -34,9 +34,9 @@ int CoPoller::AddFdEvent(std::shared_ptr<IPollEvent> ievent, int fd)
     if (co_event->GetStatus() != CoPollEventStatus::POLLEVENT_INITED)
         return -1;
 
-    auto& ev = co_event->GetEpollEvent(fd);
+    auto ev = co_event->GetEpollEvent(fd);
 
-    return epoll_ctl(m_epoll_fd, EPOLL_CTL_ADD, co_event->GetFd(), &ev);
+    return epoll_ctl(m_epoll_fd, EPOLL_CTL_ADD, fd, ev);
 }
 
 int CoPoller::DelFdEvent(int fd)
@@ -70,7 +70,7 @@ int CoPoller::PollOnce()
         auto event_sptr = std::dynamic_pointer_cast<CoPollEvent>(privdata->event_sptr);
 
         /* 注销事件，并触发事件通知监听者 */
-        event_sptr->_CannelAllFdEvent();
+        // event_sptr->_CannelAllFdEvent();
         event_sptr->Trigger(this, event.events);
     }
 
@@ -93,7 +93,7 @@ int CoPoller::PollOnce()
     return active_event_num;
 }
 
-int CoPoller::OnCustomEvent(std::shared_ptr<IPollEvent> event, int key)
+int CoPoller::NotifyCustomEvent(std::shared_ptr<IPollEvent> event)
 {
     std::unique_lock<std::mutex> _(m_custom_event_active_queue_mutex);
     // AssertWithInfo(m_safe_active_set.find(event) != m_safe_active_set.end(), "有bug，这里不应该有重复的事件");

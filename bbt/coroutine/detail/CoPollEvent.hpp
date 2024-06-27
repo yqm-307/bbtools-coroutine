@@ -7,14 +7,6 @@
 namespace bbt::coroutine::detail
 {
 
-enum PollEventType
-{
-    POLL_EVENT_DEFAULT      = 0,
-    POLL_EVENT_TIMEOUT      = 1 << 0,
-    POLL_EVENT_WRITEABLE    = 1 << 1,
-    POLL_EVENT_READABLE     = 1 << 2,
-    POLL_EVENT_CUSTOM       = 1 << 3,
-};
 
 class CoPollEvent:
     public IPollEvent,
@@ -29,7 +21,6 @@ public:
     BBTATTR_FUNC_Ctor_Hidden        CoPollEvent(std::shared_ptr<Coroutine> coroutine, const CoPollEventCallback& cb);
                                     ~CoPollEvent();
 
-    // virtual int                     GetFd() const override;
     virtual int                     GetEvent() const override;
     epoll_event*                    GetEpollEvent(int fd);
     bool                            IsListening() const;
@@ -65,6 +56,7 @@ private:
     PollEventType                   m_type{PollEventType::POLL_EVENT_DEFAULT};
     int                             m_timeout{-1};
     bool                            m_has_custom_event{false};
+    int                             m_custom_key{-1};
     /* 事件对象内部保存注册到epoll时的结构体，自己管理生命期更安全 */
     std::unordered_map<int, epoll_event>
                                     m_epoll_event_map;

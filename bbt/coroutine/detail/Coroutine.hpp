@@ -39,19 +39,21 @@ public:
     CoroutineStatus                 GetStatus();
 
     std::shared_ptr<CoPollEvent>    RegistTimeout(int ms);
-    std::shared_ptr<CoPollEvent>    RegistReadable(int fd, int ms);
-    std::shared_ptr<CoPollEvent>    RegistReadableET(int fd, int ms);   // 边缘触发
+    std::shared_ptr<CoPollEvent>    RegistCustom(int key);
+    // std::shared_ptr<CoPollEvent>    RegistReadable(int fd, int ms);
+    // std::shared_ptr<CoPollEvent>    RegistReadableET(int fd, int ms);   // 边缘触发
 
 protected:
-    void                            OnEventTimeout(std::shared_ptr<CoPollEvent> event);
-    void                            OnEventReadable(std::shared_ptr<CoPollEvent> evnet);
-    void                            OnEventChanWrite();
+    void                            OnCoPollEvent(int event, int custom_key);
+    // void                            OnEventTimeout(std::shared_ptr<CoPollEvent> event);
+    // void                            OnEventReadable(std::shared_ptr<CoPollEvent> evnet);
+    // void                            OnEventChanWrite();
 
 protected:
     static CoroutineId              GenCoroutineId();
     void                            _OnCoroutineFinal();
-    void                            _OnEventFinal(); // 事件触发结束
-    std::shared_ptr<CoPollEvent>    _RegistReadableEx(int fd, int ms, int ext_event);
+    // void                            _OnEventFinal(); // 事件触发结束
+    // std::shared_ptr<CoPollEvent>    _RegistReadableEx(int fd, int ms, int ext_event);
 private:
     // ProcesserId                     m_bind_processer_id{BBT_COROUTINE_INVALID_PROCESSER_ID};
 
@@ -62,6 +64,7 @@ private:
     FollowEventStatus               m_actived_event{DEFAULT}; // 触发的事件
 
     std::shared_ptr<CoPollEvent>    m_await_event{nullptr};
+    std::mutex                      m_await_event_mutex;
 
     CoroutineFinalCallback          m_co_final_callback{nullptr};
 };
