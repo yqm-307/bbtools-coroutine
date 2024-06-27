@@ -17,14 +17,21 @@ public:
     CoPoller();
     ~CoPoller();
 
-    virtual int                     AddEvent(std::shared_ptr<IPollEvent> event) override;
-    virtual int                     DelEvent(std::shared_ptr<IPollEvent> event) override;
-    virtual int                     ModifyEvent(std::shared_ptr<IPollEvent> event) override;
+    virtual int                     AddFdEvent(std::shared_ptr<IPollEvent> event, int fd) override;
+    virtual int                     DelFdEvent(int fd) override;
+    virtual int                     ModifyFdEvent(std::shared_ptr<IPollEvent> event, int fd, int event_opt) override;
     virtual int                     PollOnce() override;
 
+    int                             OnCustomEvent(std::shared_ptr<IPollEvent> event, int key);
 protected:
 private:
-    int                             m_epoll_fd;
+    int                             m_epoll_fd{-1};
+
+    std::unordered_set<std::shared_ptr<IPollEvent>>
+                                    m_safe_active_set;              // 保证不重复的事件
+    std::queue<std::shared_ptr<IPollEvent>>
+                                    m_custom_event_active_queue;    // 自定义事件活跃队列
+    std::mutex                      m_custom_event_active_queue_mutex;
 };
 
 }

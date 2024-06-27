@@ -1,4 +1,11 @@
 #pragma once
+#include <set>
+#include <map>
+#include <queue>
+#include <vector>
+#include <unordered_set>
+#include <unordered_map>
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <cstdint>

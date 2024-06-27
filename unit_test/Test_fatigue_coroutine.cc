@@ -16,16 +16,15 @@ BOOST_AUTO_TEST_CASE(t_coroutine)
 
     while (true)
     {
-        for (int i = 0; i < 100000; ++i)
-        {
+        // for (int i = 0; i < 100000; ++i)
+        // {
             g_scheduler->RegistCoroutineTask([&](){
                 ncount++;
             });
-        }
+        // }
 
-        std::this_thread::sleep_for(bbt::clock::seconds(1));
+        // std::this_thread::sleep_for(bbt::clock::seconds(1));
     }
-
     g_scheduler->Stop();
 }
 

@@ -12,7 +12,7 @@ public:
      * 
      * @return int 
      */
-    virtual int GetFd() = 0;
+    virtual int GetFd() const = 0;
 
     /**
      * @brief 触发事件
@@ -22,7 +22,7 @@ public:
      */
     virtual void Trigger(IPoller* poller, int trigger_events) = 0;
 
-    virtual int GetEvent() = 0;
+    virtual int GetEvent() const = 0;
 };
 
 }

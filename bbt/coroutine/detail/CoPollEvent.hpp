@@ -13,6 +13,7 @@ enum PollEventType
     POLL_EVENT_TIMEOUT      = 1 << 0,
     POLL_EVENT_WRITEABLE    = 1 << 1,
     POLL_EVENT_READABLE     = 1 << 2,
+    POLL_EVENT_CUSTOM       = 1 << 3,
 };
 
 class CoPollEvent:
@@ -23,48 +24,51 @@ public:
     friend class CoPoller;
     typedef std::shared_ptr<CoPollEvent> SPtr;
 
-    /* 创建一个超时事件 */
-    static SPtr                     Create(std::shared_ptr<Coroutine> coroutine, int timeout, const CoPollEventCallback& cb);
+    static SPtr                     Create(std::shared_ptr<Coroutine> coroutine, const CoPollEventCallback& cb);
 
-    /* 创建一个可读事件 */
-    static SPtr                     Create(std::shared_ptr<Coroutine> coroutine, int fd, int timeout, const CoPollEventCallback& cb);
-
-    BBTATTR_FUNC_Ctor_Hidden        CoPollEvent(std::shared_ptr<Coroutine> coroutine, PollEventType type, int timeout, const CoPollEventCallback& cb);
-    BBTATTR_FUNC_Ctor_Hidden        CoPollEvent(std::shared_ptr<Coroutine> coroutine, PollEventType type, int fd, int timeout, const CoPollEventCallback& cb);
+    BBTATTR_FUNC_Ctor_Hidden        CoPollEvent(std::shared_ptr<Coroutine> coroutine, const CoPollEventCallback& cb);
                                     ~CoPollEvent();
 
-    /* 轮询事件，关注的套接字 */
-    virtual int                     GetFd() override;
-    /* 触发监听事件 */
+    // virtual int                     GetFd() const override;
+    virtual int                     GetEvent() const override;
+    epoll_event*                    GetEpollEvent(int fd);
+    bool                            IsListening() const;
+    bool                            IsFinal() const;
+    CoPollEventStatus               GetStatus() const;
+
     virtual void                    Trigger(IPoller* poller, int trigger_events) override;
-    /* 获取监听的事件 */
-    virtual int                     GetEvent() override;
-    /* 注册监听事件，poll_event_ext附加的poll事件参数 */
-    int                             RegistEvent(int poll_event_ext = 0);
-    /* 注销监听事件 */
+    /* 下面3个函数注册不同的事件，但是事件在第一次触发后失效 */
+    int                             InitFdReadableEvent(int fd);
+    int                             InitTimeoutEvent(int timeout);
+    int                             InitCustomEvent(int key, void* args);
+    int                             Regist();
+
     int                             UnRegistEvent();
-    /* 获取epoll_event结构体 */
-    epoll_event&                    GetEpollEvent();
-    bool                            IsListening();
-    bool                            IsFinal();
-    CoPollEventStatus               GetStatus();
 
     /* 这个类用来包裹对象的智能指针，防止事件被意外被释放 */
     struct PrivData {std::shared_ptr<IPollEvent> event_sptr{nullptr};};
 protected:
-    int                             _RegistTimeoutEvent(int);
-    int                             _RegistReadableEvent(int);
-    int                             _CannelRegistEvent();
+    int                             _RegistCustomEvent();
+    int                             _RegistTimeoutEvent();
+    int                             _RegistFdEvent();
+    int                             _CannelAllFdEvent();
 
-    void                            _CreateEpollEvent(int epoll_events);
-    void                            _DestoryEpollEvent();
+    int                             _CreateEpollEvent(int fd, int epoll_events);
+    void                            _DestoryEpollEvent(int fd);
+
+    void                            _OnListen();
+    void                            _OnFinal();
 private:
     std::shared_ptr<Coroutine>      m_coroutine{nullptr};
     int                             m_fd{-1};
+    int                             m_timerfd{-1};
     PollEventType                   m_type{PollEventType::POLL_EVENT_DEFAULT};
     int                             m_timeout{-1};
+    bool                            m_has_custom_event{false};
     /* 事件对象内部保存注册到epoll时的结构体，自己管理生命期更安全 */
-    epoll_event                     m_epoll_event;
+    std::unordered_map<int, epoll_event>
+                                    m_epoll_event_map;
+    std::mutex                      m_epoll_event_map_mutex;
 
     CoPollEventCallback             m_onevent_callback{nullptr};
     volatile CoPollEventStatus      m_run_status{CoPollEventStatus::POLLEVENT_DEFAULT};

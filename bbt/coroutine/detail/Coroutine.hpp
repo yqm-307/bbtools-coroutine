@@ -61,8 +61,7 @@ private:
 
     FollowEventStatus               m_actived_event{DEFAULT}; // 触发的事件
 
-    std::shared_ptr<CoPollEvent>    m_timeout_event{nullptr};
-    std::shared_ptr<CoPollEvent>    m_readable_event{nullptr};
+    std::shared_ptr<CoPollEvent>    m_await_event{nullptr};
 
     CoroutineFinalCallback          m_co_final_callback{nullptr};
 };
