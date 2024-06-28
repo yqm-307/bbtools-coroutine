@@ -23,7 +23,7 @@ public:
      * @param ms 
      * @return int 
      */
-    // int                         WaitWithTimeout(int ms);
+    int                         WaitWithTimeout(int ms);
 
     /**
      * @brief 唤醒一个Wait中的协程

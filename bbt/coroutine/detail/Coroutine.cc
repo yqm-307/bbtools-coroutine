@@ -144,6 +144,27 @@ std::shared_ptr<CoPollEvent> Coroutine::RegistCustom(int key)
     return m_await_event;
 }
 
+std::shared_ptr<CoPollEvent> Coroutine::RegistCustom(int key, int timeout_ms)
+{
+    std::unique_lock<std::mutex> _(m_await_event_mutex);
+    if (m_await_event != nullptr)
+        return nullptr;
+    
+    m_await_event = CoPollEvent::Create(shared_from_this(), [this](auto, int event, int custom_key){
+        OnCoPollEvent(event, custom_key);
+    });
+
+    if (m_await_event->InitCustomEvent(key, NULL) != 0)
+        return nullptr;
+    
+    if (m_await_event->InitTimeoutEvent(timeout_ms) != 0)
+        return nullptr;
+    
+    if (m_await_event->Regist() != 0)
+        return nullptr;
+    
+    return m_await_event;
+}
 
 void Coroutine::OnCoPollEvent(int event, int custom_key)
 {

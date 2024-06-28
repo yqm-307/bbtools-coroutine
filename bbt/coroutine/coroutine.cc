@@ -6,9 +6,14 @@ namespace bbt::coroutine
 
 detail::CoroutineId GetLocalCoroutineId()
 {
+    auto tls_processer = g_bbt_tls_helper->GetProcesser();
+    if (tls_processer == nullptr)
+        return 0;
+
     auto coroutine = g_bbt_tls_coroutine_co;
     if (coroutine == nullptr)
         return 0;
+
     return coroutine->GetId();
 }
 

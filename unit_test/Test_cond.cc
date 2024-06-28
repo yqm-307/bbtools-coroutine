@@ -23,8 +23,9 @@ BOOST_AUTO_TEST_CASE(t_cond)
         auto cond = sync::CoCond::Create();
         Assert(cond != nullptr);
         for (int i = 0; i < n_max_notify_count; ++i) {
-            g_scheduler->RegistCoroutineTask([cond, &n_last_time, &ncount](){
+            g_scheduler->RegistCoroutineTask([i, cond, &n_last_time, &ncount](){
                 cond->Notify();
+                printf("[%d] now: %ld diff: %ld\n", i, bbt::clock::now<>().time_since_epoch().count(), bbt::clock::now<>().time_since_epoch().count() - n_last_time);
                 n_last_time = bbt::clock::now<>().time_since_epoch().count();
                 ncount++;
             });

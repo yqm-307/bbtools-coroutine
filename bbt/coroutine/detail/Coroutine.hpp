@@ -40,6 +40,7 @@ public:
 
     std::shared_ptr<CoPollEvent>    RegistTimeout(int ms);
     std::shared_ptr<CoPollEvent>    RegistCustom(int key);
+    std::shared_ptr<CoPollEvent>    RegistCustom(int key, int timeout_ms);
     // std::shared_ptr<CoPollEvent>    RegistReadable(int fd, int ms);
     // std::shared_ptr<CoPollEvent>    RegistReadableET(int fd, int ms);   // 边缘触发
 

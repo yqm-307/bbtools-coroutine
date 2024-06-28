@@ -23,7 +23,12 @@ StackPool::StackPool():
 
 StackPool::~StackPool()
 {
-
+    std::lock_guard<std::mutex> _(m_pool_mutex);
+    while (!m_pool.empty()) {
+        auto item = m_pool.front();
+        m_pool.pop();
+        delete item;
+    }
 }
 
 void StackPool::Release(ItemType* item)
