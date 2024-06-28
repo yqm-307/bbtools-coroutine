@@ -88,6 +88,8 @@ int CoPoller::PollOnce()
         auto item = m_swap_queue.front();
         item->Trigger(this, POLL_EVENT_CUSTOM);
         m_swap_queue.pop();
+        std::unique_lock<std::mutex> _(m_custom_event_active_queue_mutex);
+        Assert(m_safe_active_set.erase(item) > 0);
     }
 
     return active_event_num;

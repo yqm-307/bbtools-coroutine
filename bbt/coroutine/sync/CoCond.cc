@@ -75,6 +75,7 @@ int CoCond::WaitWithTimeout(int ms)
     
     auto current_co = g_bbt_tls_coroutine_co;
     m_co_event = current_co->RegistCustom(detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND, ms);
+    Assert(m_co_event != nullptr);
     if (m_co_event == nullptr) {
         m_co_event_mutex.unlock();
         return -1;
@@ -99,7 +100,7 @@ int CoCond::Notify()
     if (m_co_event == nullptr)
         return -1;
     
-    if (g_bbt_poller->NotifyCustomEvent(m_co_event) != 0);
+    if (g_bbt_poller->NotifyCustomEvent(m_co_event) != 0)
         return -1;
 
     return 0;

@@ -6,6 +6,8 @@
 
 
 #define bbtco bbt::coroutine::_CoHelper()-
+#define bbtco_sleep(ms) bbt::coroutine::detail::Hook_Sleep(ms)
+
 
 namespace bbt::coroutine
 {

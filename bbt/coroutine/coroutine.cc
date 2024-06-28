@@ -1,5 +1,8 @@
 #include <bbt/coroutine/coroutine.hpp>
 #include <bbt/coroutine/detail/LocalThread.hpp>
+#include <bbt/coroutine/detail/Coroutine.hpp>
+#include <bbt/coroutine/detail/Scheduler.hpp>
+#include <bbt/coroutine/detail/CoPoller.hpp>
 
 namespace bbt::coroutine
 {

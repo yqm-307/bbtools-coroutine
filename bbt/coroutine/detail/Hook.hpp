@@ -42,6 +42,7 @@ extern int Hook_Socket(int domain, int type, int protocol);
 extern int Hook_Connect(int socket, const struct sockaddr* address, socklen_t address_len);
 extern int Hook_Close(int fd);
 extern int Hook_Sleep(int s);
+extern int MsSleep(int ms);
 }
 
 }
