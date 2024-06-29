@@ -25,6 +25,7 @@ BOOST_AUTO_TEST_CASE(t_poller_timeout_event_single)
     });
 
     Assert(event->InitTimeoutEvent(1000) == 0);
+    Assert(event->Regist() == 0);
 
     while (count != 1)
     {

@@ -10,12 +10,12 @@ class CoCond:
 {
 public:
     typedef std::shared_ptr<CoCond> SPtr;
-    static SPtr                 Create();
+    static SPtr                         Create();
 
-    BBTATTR_FUNC_Ctor_Hidden    CoCond();
-                                ~CoCond();
+    BBTATTR_FUNC_Ctor_Hidden            CoCond();
+                                        ~CoCond();
 
-    int                         Wait();
+    int                                 Wait();
 
     /**
      * @brief 等待并伴随一个超时时间
@@ -23,20 +23,20 @@ public:
      * @param ms 
      * @return int 
      */
-    int                         WaitWithTimeout(int ms);
+    int                                 WaitWithTimeout(int ms);
 
     /**
      * @brief 唤醒一个Wait中的协程
      * 
      * @return  0表示成功，-1表示失败
      */
-    int                         Notify();
+    int                                 Notify();
 protected:
-    int                         Init();
+    int                                 Init();
 protected:
-    // int                         m_pipe_fds[2];
-    std::shared_ptr<detail::CoPollEvent>    m_co_event{nullptr};
-    std::mutex                      m_co_event_mutex;
+    std::shared_ptr<detail::CoPollEvent> m_co_event{nullptr};
+    int                                 m_await_co_num{};
+    std::mutex                          m_co_event_mutex;
 };
 
 }
