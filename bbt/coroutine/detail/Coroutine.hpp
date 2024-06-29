@@ -21,7 +21,6 @@ class Coroutine:
 public:
     friend class Processer;
     friend class sync::CoCond;
-    friend class sync::Chan;
     friend int Hook_Sleep(int);
     typedef std::shared_ptr<Coroutine> SPtr;
 

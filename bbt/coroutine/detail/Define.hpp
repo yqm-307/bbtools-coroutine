@@ -37,7 +37,7 @@
 namespace bbt::coroutine::sync
 {
 
-class Chan;
+template<class TItem> class Chan;
 class CoCond;
 
 

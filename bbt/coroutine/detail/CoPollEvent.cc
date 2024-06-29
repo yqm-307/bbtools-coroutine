@@ -37,7 +37,7 @@ void CoPollEvent::Trigger(IPoller* poller, int trigger_events)
      * 到底执行什么样的操作了，只由外部创建者定义。
      */
     /* 取消所有系统fd事件并释放资源 */
-    Assert(_CannelAllFdEvent() == 0);
+    _CannelAllFdEvent();
 
     if (m_run_status != CoPollEventStatus::POLLEVENT_LISTEN)
         return;
@@ -54,13 +54,6 @@ void CoPollEvent::Trigger(IPoller* poller, int trigger_events)
 void CoPollEvent::_OnFinal()
 {
     m_run_status = CoPollEventStatus::POLLEVENT_FINAL;
-    /**
-     * 自定义事件，不会再次触发了
-     * 系统相关的fd事件，需要手动释放掉
-     */
-
-    _CannelAllFdEvent();
-
 }
 
 

@@ -68,25 +68,23 @@ int CoCond::WaitWithTimeout(int ms)
     if (!g_bbt_tls_helper->EnableUseCo())
         return -1;
     
-    m_co_event_mutex.lock();
-    if (m_co_event != nullptr)
-        return -1;
-    
     auto current_co = g_bbt_tls_coroutine_co;
-    m_co_event = current_co->RegistCustom(detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND, ms);
-    Assert(m_co_event != nullptr);
-    if (m_co_event == nullptr) {
-        m_co_event_mutex.unlock();
+    if (current_co == nullptr)
         return -1;
+    {
+        std::unique_lock<std::mutex> _(m_co_event_mutex);
+        if (m_co_event != nullptr)
+            return -1;
+        
+        m_co_event = current_co->RegistCustom(detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND, ms);
+        if (m_co_event == nullptr)
+            return -1;
     }
 
-    m_co_event_mutex.unlock();
     current_co->Yield();
-
-    m_co_event_mutex.lock();
+    
+    std::unique_lock<std::mutex> _(m_co_event_mutex);
     m_co_event = nullptr;
-    m_co_event_mutex.unlock();
-
     return 0;
 }
 

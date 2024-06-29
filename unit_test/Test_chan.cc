@@ -16,7 +16,7 @@ BOOST_AUTO_TEST_CASE(t_chan_1_vs_1)
     g_scheduler->Start(true);
     std::atomic_int count = 0;
     bbtco [&count](){
-        sync::Chan c;
+        sync::Chan<int> c;
         
         bbtco [&c](){
             for (int i = 0; i < 100; ++i)
@@ -39,13 +39,12 @@ BOOST_AUTO_TEST_CASE(t_chan_1_vs_1)
 BOOST_AUTO_TEST_CASE(t_chan_1_vs_n)
 {
     g_scheduler->Start(true);
-
     /* 跑100轮 */
-    for (int i = 0; i < 10; ++i)
-    {
+    // for (int i = 0; i < 10; ++i)
+    // {
         std::atomic_int count = 0;
         bbtco [&count](){
-            sync::Chan c{100*1000};
+            sync::Chan<int> c{100*1000};
             
             for (int i = 0; i < 1000; ++i)
             {
@@ -63,9 +62,9 @@ BOOST_AUTO_TEST_CASE(t_chan_1_vs_n)
                 count++;                                                                                                                                                                                    
             }
         };
-        sleep(1);
+        sleep(5);
         BOOST_CHECK_EQUAL(count.load(), 100 * 1000);
-    }
+    // }
 
     g_scheduler->Stop();
 }

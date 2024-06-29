@@ -1,4 +1,4 @@
-// #pragma once
+#pragma once
 #include <bbt/base/assert/Assert.hpp>
 #include <bbt/coroutine/sync/Chan.hpp>
 #include <bbt/coroutine/detail/CoPoller.hpp>
@@ -10,7 +10,8 @@
 namespace bbt::coroutine::sync
 {
 
-Chan::Chan(int max_queue_size):
+template<class TItem>
+Chan<TItem>::Chan(int max_queue_size):
     m_max_size(max_queue_size),
     m_cond(CoCond::Create())
 {
@@ -18,13 +19,15 @@ Chan::Chan(int max_queue_size):
     m_run_status = ChanStatus::CHAN_OPEN;
 }
 
-Chan::~Chan()
+template<class TItem>
+Chan<TItem>::~Chan()
 {
     if (!IsClosed())
         Close();
 }
 
-int Chan::Write(const ItemType& item)
+template<class TItem>
+int Chan<TItem>::Write(const ItemType& item)
 {
     if (IsClosed())
         return -1;
@@ -39,7 +42,8 @@ int Chan::Write(const ItemType& item)
     return 0;
 }
 
-int Chan::Read(ItemType& item)
+template<class TItem>
+int Chan<TItem>::Read(ItemType& item)
 {
     // 如果信道关闭，不可以读了
     if (IsClosed())
@@ -60,7 +64,8 @@ int Chan::Read(ItemType& item)
     return 0;
 }
 
-int Chan::TryRead(ItemType& item)
+template<class TItem>
+int Chan<TItem>::TryRead(ItemType& item)
 {
     if (IsClosed())
         return -1;
@@ -75,7 +80,8 @@ int Chan::TryRead(ItemType& item)
     return 0;
 }
 
-int Chan::TryRead(ItemType& item, int timeout)
+template<class TItem>
+int Chan<TItem>::TryRead(ItemType& item, int timeout)
 {
     if (IsClosed())
         return -1;
@@ -99,27 +105,32 @@ int Chan::TryRead(ItemType& item, int timeout)
     return 0;
 }
 
-void Chan::Close()
+template<class TItem>
+void Chan<TItem>::Close()
 {
     m_run_status = ChanStatus::CHAN_CLOSE;
 }
 
-bool Chan::IsClosed()
+template<class TItem>
+bool Chan<TItem>::IsClosed()
 {
     return (m_run_status == ChanStatus::CHAN_CLOSE);
 }
 
-int Chan::_Wait()
+template<class TItem>
+int Chan<TItem>::_Wait()
 {
     return m_cond->Wait();
 }
 
-int Chan::_Notify()
+template<class TItem>
+int Chan<TItem>::_Notify()
 {
     return m_cond->Notify();
 }
 
-int Chan::_WaitWithTimeout(int timeout_ms)
+template<class TItem>
+int Chan<TItem>::_WaitWithTimeout(int timeout_ms)
 {
     return m_cond->WaitWithTimeout(timeout_ms);
 }

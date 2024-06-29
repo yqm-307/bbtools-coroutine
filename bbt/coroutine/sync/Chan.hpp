@@ -10,10 +10,13 @@
 namespace bbt::coroutine::sync
 {
 
+template<class TItem>
 class Chan:
-    public IChan<int>
+    public IChan<TItem>
 {
 public:
+    typedef TItem ItemType;
+
     Chan(int max_queue_size = 65535);
     ~Chan();
 
@@ -40,3 +43,5 @@ private:
 };
 
 }
+
+#include <bbt/coroutine/sync/__TChan.hpp>
