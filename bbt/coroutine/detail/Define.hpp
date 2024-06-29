@@ -173,6 +173,7 @@ enum PollEventType
 enum CoPollEventCustom
 {
     POLL_EVENT_CUSTOM_COND  = 1,    // co cond
+    POLL_EVENT_CUSTOM_CHAN  = 2,    // chan
 };
 
 } // namespace bbt::coroutine::detail

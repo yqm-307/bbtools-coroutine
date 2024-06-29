@@ -40,9 +40,9 @@ add_executable(Test_g_co Test_g_co.cc)
 target_link_libraries(Test_g_co ${MY_LIBS})
 add_test(NAME Test_g_co COMMAND Test_g_co)
 
-# add_executable(Test_chan Test_chan.cc)
-# target_link_libraries(Test_chan ${MY_LIBS})
-# add_test(NAME Test_chan COMMAND Test_chan)
+add_executable(Test_chan Test_chan.cc)
+target_link_libraries(Test_chan ${MY_LIBS})
+add_test(NAME Test_chan COMMAND Test_chan)
 
 add_executable(Debug_scheduler Debug_scheduler.cc)
 target_link_libraries(Debug_scheduler ${MY_LIBS})
