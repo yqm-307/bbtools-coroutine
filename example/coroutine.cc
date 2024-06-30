@@ -1,0 +1,48 @@
+#include <atomic>
+#include <bbt/coroutine/coroutine.hpp>
+#include <bbt/base/clock/Clock.hpp>
+#include <bbt/coroutine/sync/Chan.hpp>
+using namespace bbt::coroutine;
+
+void Normal()
+{
+    bbtco [](){
+        printf("i am coroutine!\n");
+    };
+
+    sleep(1);
+}
+
+void SleepHook()
+{
+    printf("SleepHook begin\n");
+
+    auto id1 = bbtco [](){
+        printf("[%d] sleep before!, now=%ld\n", bbt::coroutine::GetLocalCoroutineId(), bbt::clock::now<>().time_since_epoch().count());
+        sleep(1);
+        printf("[%d] sleep end!, now=%ld\n", bbt::coroutine::GetLocalCoroutineId(), bbt::clock::now<>().time_since_epoch().count());
+    };
+    printf("create co1 id=%ld now=%ld\n", id1, bbt::clock::now<>().time_since_epoch().count());
+
+    auto id2 = bbtco [](){
+        printf("[%d] sleep before!, now=%ld\n", bbt::coroutine::GetLocalCoroutineId(), bbt::clock::now<>().time_since_epoch().count());
+        sleep(1);
+        printf("[%d] sleep end!, now=%ld\n", bbt::coroutine::GetLocalCoroutineId(), bbt::clock::now<>().time_since_epoch().count());
+    };
+    printf("create co2 id=%ld now=%ld\n", id2, bbt::clock::now<>().time_since_epoch().count());
+
+    sleep(2);
+
+    printf("SleepHook end\n");
+}
+
+int main()
+{
+    g_scheduler->Start(true);
+
+    Normal();
+
+    SleepHook();
+
+    g_scheduler->Stop();
+}

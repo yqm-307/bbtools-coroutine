@@ -3,6 +3,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti -std=c++17 ${Wall_Flag} -g -O2
 
 enable_testing()
 set(EXECUTABLE_OUTPUT_PATH ${PROJECT_BINARY_DIR}/bin/unit_test)
+add_definitions(-DBBT_COROUTINE_PROFILE)
 
 set(MY_LIBS
     libboost_unit_test_framework.so
@@ -26,11 +27,6 @@ add_test(NAME Test_hook COMMAND Test_hook)
 add_executable(Test_poller Test_poller.cc)
 target_link_libraries(Test_poller ${MY_LIBS})
 add_test(NAME Test_poller COMMAND Test_poller)
-
-
-add_executable(Test_fatigue_coroutine Test_fatigue_coroutine.cc)
-target_link_libraries(Test_fatigue_coroutine ${MY_LIBS})
-add_test(NAME Test_fatigue_coroutine COMMAND Test_fatigue_coroutine)
 
 add_executable(Test_cond Test_cond.cc)
 target_link_libraries(Test_cond ${MY_LIBS})

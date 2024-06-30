@@ -49,7 +49,7 @@ CoroutineId Scheduler::RegistCoroutineTask(const CoroutineCallback& handle)
         [this](){ g_bbt_profiler->OnEvent_DoneCoroutine(); },
         g_bbt_coroutine_config->m_cfg_stack_protect);
 
-    // g_bbt_profiler->OnEvent_RegistCoroutine();
+    g_bbt_profiler->OnEvent_RegistCoroutine();
 #else
     auto coroutine_sptr = Coroutine::Create(
         g_bbt_coroutine_config->m_cfg_stack_size,

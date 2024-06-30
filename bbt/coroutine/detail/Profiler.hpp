@@ -38,8 +38,8 @@ public:
         
     };
 private:
-    std::atomic_int             m_total_regist_co_count{0}; /* 总注册协程数量 */
-    std::atomic_int             m_total_done_co_count{0};   /* 总完成协程数量 */
+    std::atomic_uint64_t        m_total_regist_co_count{0}; /* 总注册协程数量 */
+    std::atomic_uint64_t        m_total_done_co_count{0};   /* 总完成协程数量 */
 
     std::atomic_int             m_create_coroutine_count{0};
     std::atomic_int             m_destory_coroutine_count{0};
