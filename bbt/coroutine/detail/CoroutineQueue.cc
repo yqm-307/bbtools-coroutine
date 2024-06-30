@@ -4,7 +4,8 @@
 namespace bbt::coroutine::detail
 {
 
-CoroutineQueue::CoroutineQueue()
+CoroutineQueue::CoroutineQueue(bool use_spinlock):
+    m_use_spinlock(use_spinlock)
 {
 }
 
@@ -84,7 +85,7 @@ void CoroutineQueue::PopNTail(std::vector<Coroutine::SPtr>& out, size_t n)
     Lock();
     size_t can_give_num = (m_queue.size() >= n) ? n : m_queue.size();
     for (int i = 0; i < can_give_num; ++i) {
-        out.push_back(m_queue.back());
+        out.emplace_back(m_queue.back());
         m_queue.pop_back();
     }
     UnLock();
@@ -109,7 +110,7 @@ void CoroutineQueue::PushTailRange(std::vector<Coroutine::SPtr>::iterator begin,
 
 void CoroutineQueue::Lock()
 {
-    if (g_bbt_coroutine_config->m_cfg_coroutine_queue_use_spinlock)
+    if (m_use_spinlock)
         m_spinlock.Lock();
     else
         m_mutex.lock();
@@ -117,7 +118,7 @@ void CoroutineQueue::Lock()
 
 void CoroutineQueue::UnLock()
 {
-    if (g_bbt_coroutine_config->m_cfg_coroutine_queue_use_spinlock)
+    if (m_use_spinlock)
         m_spinlock.UnLock();
     else
         m_mutex.unlock();

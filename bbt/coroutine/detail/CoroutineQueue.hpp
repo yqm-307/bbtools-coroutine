@@ -9,7 +9,7 @@ namespace bbt::coroutine::detail
 class CoroutineQueue
 {
 public:
-    CoroutineQueue();
+    CoroutineQueue(bool use_spinlock = false);
     ~CoroutineQueue();
 
     void                            Clear();
@@ -32,6 +32,7 @@ private:
     std::deque<Coroutine::SPtr>     m_queue;
     std::mutex                      m_mutex;
     bbt::thread::Spinlock           m_spinlock;
+    const bool                      m_use_spinlock{false};
 };
 
 }

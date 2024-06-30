@@ -38,12 +38,17 @@ protected:
     void                                        _CreateProcessers();
     void                                        _DestoryProcessers();
 
+    bool                                        _LoadBlance2Proc(Coroutine::SPtr co);
 private:
+    /* Scheduler */
     bbt::clock::Timestamp<>                     m_begin_timestamp;  // 调度器开启时间
     std::thread*                                m_thread{nullptr};
     std::vector<std::thread*>                   m_proc_threads;
 
+    /* Processer 管理 */
     std::map<ProcesserId, Processer::SPtr>      m_processer_map;
+    std::vector<Processer::SPtr>                m_load_blance_vec;
+    uint32_t                                    m_load_idx{0};
     std::mutex                                  m_processer_map_mutex;
     bbt::thread::CountDownLatch                 m_down_latch;
 

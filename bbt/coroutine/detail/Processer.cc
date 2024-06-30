@@ -26,11 +26,6 @@ Processer::SPtr Processer::GetLocalProcesser()
     return tl_processer;
 }
 
-static bool EnableCo();
-
-static void SetEnableCo(bool this_thread_enable_use_coroutine);
-
-
 ProcesserId Processer::_GenProcesserId()
 {
     static std::atomic_uint64_t _generate_id{BBT_COROUTINE_INVALID_PROCESSER_ID};
@@ -38,7 +33,8 @@ ProcesserId Processer::_GenProcesserId()
 }
 
 Processer::Processer():
-    m_id(_GenProcesserId())
+    m_id(_GenProcesserId()),
+    m_coroutine_queue(true)
 {
     m_run_status = ProcesserStatus::PROC_SUSPEND;
 }
@@ -106,7 +102,7 @@ void Processer::_Run()
     while (m_is_running)
     {
         m_run_status = ProcesserStatus::PROC_RUNNING;
-        while (_TryGetCoroutineFromGlobal() > 0)
+        while (m_coroutine_queue.Size() > 0 || _TryGetCoroutineFromGlobal() > 0 )
         {
             std::vector<Coroutine::SPtr> pending_coroutines;
             m_coroutine_queue.PopAll(pending_coroutines);

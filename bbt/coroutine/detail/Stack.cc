@@ -136,6 +136,11 @@ void Stack::Swap(Stack&& other)
 
     m_useable_stack = other.m_useable_stack;
     m_useable_size = other.m_useable_size;
+
+    other.m_mem_chunk = nullptr;
+    other.m_mem_chunk_size = 0;
+    other.m_useable_stack = nullptr;
+    other.m_useable_size = 0;
 }
 
 }

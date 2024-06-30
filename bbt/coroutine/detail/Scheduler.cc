@@ -22,7 +22,8 @@ Scheduler::UPtr& Scheduler::GetInstance()
 }
 
 Scheduler::Scheduler():
-    m_down_latch(g_bbt_coroutine_config->m_cfg_static_thread_num)
+    m_down_latch(g_bbt_coroutine_config->m_cfg_static_thread_num),
+    m_global_coroutine_deque(true)
 {
 }
 
@@ -55,8 +56,11 @@ CoroutineId Scheduler::RegistCoroutineTask(const CoroutineCallback& handle)
         handle,
         g_bbt_coroutine_config->m_cfg_stack_protect);
 #endif
-
-    m_global_coroutine_deque.PushTail(coroutine_sptr);
+    /* 尝试先找个Processer放进执行队列，失败放入全局队列 */
+    if (!_LoadBlance2Proc(coroutine_sptr)) {
+        m_global_coroutine_deque.PushTail(coroutine_sptr);
+    }
+    
     return coroutine_sptr->GetId();
 }
 
@@ -88,8 +92,6 @@ void Scheduler::_FixTimingScan()
 
 void Scheduler::_Run()
 {
-    _CreateProcessers();
-
     m_begin_timestamp = bbt::clock::now<>();
     auto prev_scan_timepoint = bbt::clock::now<>();
     auto prev_profile_timepoint = bbt::clock::now<>();
@@ -124,14 +126,22 @@ void Scheduler::_Run()
 void Scheduler::Start(bool background_thread)
 {
     _Init();
+    bbt::thread::CountDownLatch latch{1};
     if (background_thread)
     {
         Assert(m_thread == nullptr);
-        m_thread = new std::thread([this](){ _Run(); });
-        return;
+        m_thread = new std::thread([this, &latch](){
+            _CreateProcessers();
+            latch.Down();
+            _Run();
+        });
+
+        latch.Wait();
+    } else {
+        _CreateProcessers();
+        _Run();
     }
 
-    _Run();
 }
 
 void Scheduler::Stop()
@@ -175,6 +185,7 @@ void Scheduler::_CreateProcessers()
             {
                 std::lock_guard<std::mutex> _(this->m_processer_map_mutex);
                 this->m_processer_map.insert(std::make_pair(processer->GetId(), processer));
+                m_load_blance_vec.push_back(processer);
             }
             this->m_down_latch.Down();
             processer->Start(false);
@@ -191,6 +202,7 @@ void Scheduler::_DestoryProcessers()
     for (auto item : m_processer_map)
         item.second->Stop();
     m_processer_map.clear();
+    m_load_blance_vec.clear();
 
     /* 释放所有执行processer的线程 */
     for (auto&& proc_thread : m_proc_threads) {
@@ -200,6 +212,21 @@ void Scheduler::_DestoryProcessers()
     }
 
     m_proc_threads.clear();
+}
+
+bool Scheduler::_LoadBlance2Proc(Coroutine::SPtr co)
+{
+    uint32_t index = m_load_idx;
+    m_load_idx++;
+
+    index %= g_bbt_coroutine_config->m_cfg_static_thread_num;
+    auto proc = m_load_blance_vec[index];
+    if (proc->GetStatus() != ProcesserStatus::PROC_SUSPEND)
+        return false;
+    
+    proc->AddCoroutineTask(co);    
+
+    return true;
 }
 
 } // namespace bbt::coroutine::detail

@@ -4,7 +4,7 @@ project(bbtools-coroutine)
 
 set(CMAKE_CXX_FALGS "${CMAKE_CXX_FLAGS} -std=c++17 -g -O2")
 # set(CMAKE_CXX_FALGS "${CMAKE_CXX_FLAGS} -std=c++17 -g")
-# add_definitions(-DBBT_COROUTINE_PROFILE)
+add_definitions(-DBBT_COROUTINE_PROFILE)
 
 
 set(LIBRARY_OUTPUT_PATH ${PROJECT_BINARY_DIR}/lib) 
@@ -22,6 +22,7 @@ add_library(bbt_coroutine SHARED ${SRCS})
 target_link_libraries(bbt_coroutine
     boost_context
     ybbt
+    # tcmalloc
 )
 
 add_subdirectory(unit_test)

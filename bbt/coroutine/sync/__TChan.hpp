@@ -37,7 +37,7 @@ int Chan<TItem>::Write(const ItemType& item)
         return -1;
     
     m_item_queue.push(item);
-    _Notify();
+    if (m_is_reading) _Notify();
 
     return 0;
 }
@@ -47,6 +47,10 @@ int Chan<TItem>::Read(ItemType& item)
 {
     // 如果信道关闭，不可以读了
     if (IsClosed())
+        return -1;
+
+    bool expect = false;
+    if (!m_is_reading.compare_exchange_strong(expect, true))
         return -1;
 
     m_item_queue_mutex.lock();
@@ -59,6 +63,35 @@ int Chan<TItem>::Read(ItemType& item)
     
     item = m_item_queue.front();
     m_item_queue.pop();
+    m_is_reading = false;
+    m_item_queue_mutex.unlock();
+
+    return 0;
+}
+
+
+template<class TItem>
+int Chan<TItem>::ReadAll(std::vector<ItemType>& items)
+{
+    if (IsClosed())
+        return -1;
+    
+    bool expect = false;
+    if (!m_is_reading.compare_exchange_strong(expect, true))
+        return -1;
+
+    m_item_queue_mutex.lock();
+    if (m_item_queue.empty()) {
+        m_item_queue_mutex.unlock();
+        _Wait();
+        m_item_queue_mutex.lock();
+    }
+
+    while (!m_item_queue.empty()) {
+        items.push_back(m_item_queue.front());
+        m_item_queue.pop();
+    }
+    m_is_reading = false;
     m_item_queue_mutex.unlock();
 
     return 0;
@@ -70,7 +103,12 @@ int Chan<TItem>::TryRead(ItemType& item)
     if (IsClosed())
         return -1;
     
+    bool expect = false;
+    if (!m_is_reading.compare_exchange_strong(expect, true))
+        return -1;
+
     std::unique_lock<std::mutex> _(m_item_queue_mutex);
+
     if (m_item_queue.empty())
         return -1;
     
@@ -86,6 +124,10 @@ int Chan<TItem>::TryRead(ItemType& item, int timeout)
     if (IsClosed())
         return -1;
     
+    bool expect = false;
+    if (!m_is_reading.compare_exchange_strong(expect, true))
+        return -1;
+
     m_item_queue_mutex.lock();
     if (m_item_queue.empty()) {
         m_item_queue_mutex.unlock();
@@ -100,6 +142,7 @@ int Chan<TItem>::TryRead(ItemType& item, int timeout)
 
     item = m_item_queue.front();
     m_item_queue.pop();
+    m_is_reading = false;
     m_item_queue_mutex.unlock();
 
     return 0;

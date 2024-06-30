@@ -23,7 +23,8 @@ StackPool::StackPool():
 
 StackPool::~StackPool()
 {
-    std::lock_guard<std::mutex> _(m_pool_mutex);
+    // std::lock_guard<std::mutex> _(m_pool_mutex);
+    bbt::thread::lock_guard _(m_pool_lock);
     while (!m_pool.empty()) {
         auto item = m_pool.front();
         m_pool.pop();
@@ -33,13 +34,13 @@ StackPool::~StackPool()
 
 void StackPool::Release(ItemType* item)
 {
-    std::lock_guard<std::mutex> _(m_pool_mutex);
+    bbt::thread::lock_guard _(m_pool_lock);
     m_pool.push(item);
 }
 
 StackPool::ItemType* StackPool::Apply()
 {
-    std::lock_guard<std::mutex> _(m_pool_mutex);
+    bbt::thread::lock_guard _(m_pool_lock);
     if (m_alloc_obj_count >= g_bbt_coroutine_config->m_cfg_stackpool_max_alloc_size)
         return nullptr;
 
@@ -55,7 +56,7 @@ StackPool::ItemType* StackPool::Apply()
 
 int StackPool::AllocSize()
 {
-    std::lock_guard<std::mutex> _(m_pool_mutex);
+    bbt::thread::lock_guard _(m_pool_lock);
     return m_alloc_obj_count;
 }
 
@@ -64,8 +65,11 @@ void StackPool::OnUpdate()
 {
     if (m_rtts == 0)
         m_rtts = GetCurCoNum();
-    
-    m_rtts = ::floor(0.875 * m_rtts + 0.125 * GetCurCoNum());
+
+    if (bbt::clock::is_expired<bbt::clock::milliseconds>(m_prev_rtts_sample_ts + bbt::clock::milliseconds(g_bbt_coroutine_config->m_cfg_stackpool_sample_interval))) {
+        m_rtts = ::floor(0.875 * m_rtts + 0.125 * GetCurCoNum());
+    }
+
     int allowable_stack_num = ::floor((m_rate + 1) * m_rtts);
 
     if ( bbt::clock::is_expired<bbt::clock::milliseconds>((m_prev_adjust_pool_ts + bbt::clock::milliseconds(500))))
@@ -75,7 +79,7 @@ void StackPool::OnUpdate()
         {
             std::queue<ItemType*> m_swap_queue;
             {
-                std::lock_guard<std::mutex> _(m_pool_mutex);
+                bbt::thread::lock_guard _(m_pool_lock);
                 m_swap_queue.swap(m_pool);
                 Assert(m_pool.size() == 0);
                 m_alloc_obj_count -= m_swap_queue.size();
@@ -92,7 +96,7 @@ void StackPool::OnUpdate()
 
 int StackPool::GetCurCoNum()
 {
-    std::lock_guard<std::mutex> _(m_pool_mutex);
+    bbt::thread::lock_guard _(m_pool_lock);
     return (m_alloc_obj_count - m_pool.size());
 }
 
