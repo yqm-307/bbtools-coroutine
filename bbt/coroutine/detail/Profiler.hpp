@@ -30,6 +30,8 @@ public:
     void                        OnEvent_CreateCoroutine();
     void                        OnEvent_DestoryCoroutine();
 
+    void                        OnEvent_StealSucc(int num);
+
     void                        ProfileInfo(std::string& info);
 
     struct ProcesserProfile
@@ -44,6 +46,7 @@ private:
     std::atomic_int             m_create_coroutine_count{0};
     std::atomic_int             m_destory_coroutine_count{0};
 
+    std::atomic_uint64_t        m_total_steal_count{0};             
 
     bbt::clock::Timestamp<>     m_scheduler_begin_timestamp;    /* 调度器开启时间 */
 

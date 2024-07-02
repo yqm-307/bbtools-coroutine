@@ -106,7 +106,8 @@ void Processer::_Run()
         while (m_coroutine_queue.Size() > 0 || _TryGetCoroutineFromGlobal() > 0 )
         {
             std::vector<Coroutine::SPtr> pending_coroutines;
-            m_coroutine_queue.PopAll(pending_coroutines);
+            // m_coroutine_queue.PopAll(pending_coroutines);
+            m_coroutine_queue.PopNHead(pending_coroutines, g_bbt_coroutine_config->m_cfg_processer_do_task_once_task_num);
 
             for (auto&& coroutine : pending_coroutines) {
                 if (coroutine->GetStatus() == CO_RUNNING || coroutine->GetStatus() == CO_FINAL)
@@ -190,6 +191,10 @@ void Processer::_Steal(std::vector<Coroutine::SPtr>& works)
 
     int steal_num = g_bbt_coroutine_config->m_cfg_processer_steal_once_min_task_num > size ? g_bbt_coroutine_config->m_cfg_processer_steal_once_min_task_num : size / 2;
     m_coroutine_queue.PopNTail(works, steal_num);
+
+#ifdef BBT_COROUTINE_PROFILE
+    g_bbt_profiler->OnEvent_StealSucc(steal_num);
+#endif
 }
 
 } // namespace bbt::coroutine::detail
