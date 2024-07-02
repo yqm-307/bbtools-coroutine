@@ -151,6 +151,10 @@ int Chan<TItem>::TryRead(ItemType& item, int timeout)
 template<class TItem>
 void Chan<TItem>::Close()
 {
+    if (IsClosed())
+        return;
+    
+    if (m_is_reading) _Notify();
     m_run_status = ChanStatus::CHAN_CLOSE;
 }
 
