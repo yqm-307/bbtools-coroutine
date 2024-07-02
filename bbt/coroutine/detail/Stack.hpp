@@ -7,6 +7,17 @@
 namespace bbt::coroutine::detail
 {
 
+/**
+ * @brief 协程栈
+ * bbt的协程实现方式是固定栈大小 + 独立栈空间。
+ * 栈内存结构如下，在栈底部加了内存页保护，如果读写非法页会抛出SIGSEGV信号
+ * |        | <-- bottom
+ * |        |  
+ * |        |  
+ * |        |  
+ * |        | 
+ * |        | <-- protect page (can`t read & write)
+ */
 class Stack:
     bbt::templateutil::noncopyable
 {
@@ -22,12 +33,24 @@ public:
     Stack(Stack&& other);
     ~Stack();
 
-    /* 栈顶指针 */
-    char*   StackTop();   
-    /* 内存块大小，包含 protect 块 */
+    /**
+     * @brief 获取栈内存起始指针
+     */
+    char*   MemChunkBegin(); 
+
+    /**
+     * @brief 内存块大小，包含 protect 块
+     */
     size_t  MemChunkSize();
-    /* 栈大小 */
+
+    /**
+     * @brief 栈可用大小，不包含 protect 块
+     */
     size_t  UseableSize();
+
+    /**
+     * @brief 释放资源
+     */
     void    Clear();
 protected:
     void*   Alloc(size_t len);
@@ -43,7 +66,6 @@ protected:
     int     _ReleaseStackProtect();
 
     void    _Release();
-
     void    Swap(Stack&& other);
 private:
     char*   m_useable_stack{nullptr};       // 可用栈，不包含 protect 内存块

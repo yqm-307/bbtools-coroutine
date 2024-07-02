@@ -33,7 +33,7 @@ Context::Context(size_t stack_size, const CoroutineCallback& co_func, const Coro
 {
     Assert(m_user_main != nullptr);
     AssertWithInfo(m_stack != nullptr, "可申请的保护栈数量已达上限");
-    void* stack = m_stack->StackTop() + m_stack->UseableSize();
+    void* stack = m_stack->MemChunkBegin() + m_stack->UseableSize();
     m_context = boost::context::detail::make_fcontext(stack, m_stack->UseableSize(), &Context::_CoroutineMain);
 }
 

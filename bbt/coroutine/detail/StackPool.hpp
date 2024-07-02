@@ -9,6 +9,15 @@
 namespace bbt::coroutine::detail
 {
 
+/**
+ * @brief 栈池
+ * 
+ * 使用固定栈，为了减少内存消耗，使用栈池来做栈的复用。
+ * 
+ * 使用了较为稳定的最大协程数算法，可以获取一个平稳值
+ * 同时兼顾到内存和cpu占用。
+ * 
+ */
 class StackPool
 {
 public:
@@ -29,11 +38,9 @@ public:
 protected:
     int                                 GetCurCoNum();
 private:
-    std::queue<ItemType*>               m_pool;                 // 空闲的stack个数  1000    ( +200 )
+    std::queue<ItemType*>               m_pool;                 // 空闲的stack个数
     bbt::thread::Spinlock               m_pool_lock;
-    // std::mutex                          m_pool_mutex;
-                                                                // 正在使用中       1000    (1000 - 1200) (20%)
-    uint32_t                            m_alloc_obj_count{0};   // 总数             2000
+    uint32_t                            m_alloc_obj_count{0};   // 总数
 
     uint32_t                            m_rtts{0};              // 一段时间内，程序中平均值协程数量
     float                               m_rate{0.2};

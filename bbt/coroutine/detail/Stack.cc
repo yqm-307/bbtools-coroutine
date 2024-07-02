@@ -26,7 +26,6 @@ Stack::Stack(const size_t stack_size,const bool stack_protect)
     {
         m_mem_chunk_size = m_useable_size + pagesize;
         m_mem_chunk = (char*)Alloc(m_mem_chunk_size);
-        // m_mem_chunk = (char*)mmap(NULL, m_mem_chunk_size, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
         assert(m_mem_chunk != nullptr);    
         m_useable_stack = m_mem_chunk;   //可访问内存栈   
         _ApplyStackProtect(m_mem_chunk, m_mem_chunk_size);
@@ -55,7 +54,6 @@ int Stack::_ApplyStackProtect(char* mem_chunk, size_t mem_chunk_len)
     int pagesize = getpagesize();
     void* ptail = mem_chunk + mem_chunk_len - pagesize;
 
-    /* Ubuntu2204Tls下测试， mprotect对内存页PROT_NONE可映射最大值为 32767，也就是说协程最大数量为 32767（安全起见，设置为30000合理） */
     if (mprotect(ptail, pagesize, PROT_NONE) < 0){
         bbt::log::WarnPrint("%s, errno : %d %s", __FUNCTION__, errno, strerror(errno));
         return -1;
@@ -97,7 +95,7 @@ void Stack::_Release()
     assert(Free(m_mem_chunk, m_mem_chunk_size) == 0);
 }
 
-char* Stack::StackTop()
+char* Stack::MemChunkBegin()
 {
     return m_useable_stack;
 }
@@ -116,13 +114,15 @@ size_t Stack::UseableSize()
 void* Stack::Alloc(size_t len)
 {
     static int page_size = getpagesize();
-    // return (char*)mmap(NULL, len, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    /**
+     * mprotect 需要对齐的内存页，这个接口可以获取对齐的内存页。
+     * 这里是个可以优化的点，因为大块儿内存可以在库内部管理
+     */
     return (char*)memalign(page_size, len);
 }
 
 int Stack::Free(char* start, size_t len)
 {
-    // return munmap(start, len);
     free(start);
     return 0;
 }

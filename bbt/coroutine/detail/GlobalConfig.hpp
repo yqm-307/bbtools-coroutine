@@ -4,6 +4,10 @@
 namespace bbt::coroutine::detail
 {
 
+/**
+ * @brief 协程库静态配置
+ * 
+ */
 class GlobalConfig
 {
 public:

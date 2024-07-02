@@ -9,18 +9,33 @@ namespace bbt::coroutine::detail
 
 using fcontext_t = boost::context::detail::fcontext_t;
 
+/**
+ * @brief 协程上下文。提供了对栈可切换的上下文操作
+ * 
+ */
 class Context
 {
 public:
     Context(size_t stack_size, const CoroutineCallback& co_func, const CoroutineFinalCallback& co_final, bool stack_protect = true);
     ~Context();
 
-    // 挂起当前协程，回到上一次记录的协程
+    /**
+     * @brief 挂起（让出当前CPU控制权）
+     * 
+     */
     void Yield();
 
-    /* 唤醒当前协程 */
+    /**
+     * @brief 唤醒（切换到当前协程，给与CPU控制权）
+     * 
+     */
     void Resume();
 
+    /**
+     * @brief 获取当前线程正在运行的协程上下文
+     * 
+     * @return fcontext_t& 
+     */
     static fcontext_t& GetCurThreadContext();
 
 protected:

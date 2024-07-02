@@ -14,6 +14,10 @@ enum FollowEventStatus
     READABLE = 2,
 };
 
+/**
+ * @brief 协程对象
+ * 
+ */
 class Coroutine:
     public ICoroutine,
     public std::enable_shared_from_this<Coroutine>
