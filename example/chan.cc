@@ -42,11 +42,34 @@ void MultiWrite()
     sleep(1);
 }
 
+void CloseNotify()
+{
+
+    bbtco [](){
+        sync::Chan<char> c;
+        bbtco [&c](){
+            printf("co2 beg %ld\n", bbt::clock::gettime<>());
+            ::sleep(1);
+            c.Close();
+            printf("co2 end %ld\n", bbt::clock::gettime<>());
+        };
+
+        char val;
+        c.Read(val);
+        printf("co1 end %ld\n", bbt::clock::gettime<>());
+    };
+
+    sleep(2);
+}
+
 int main()
 {
     g_scheduler->Start(true);
-
+    printf("============================ Example 1 ============================\n");
     ReadOnce();
-
+    printf("============================ Example 2 ============================\n");
+    MultiWrite();
+    printf("============================ Example 3 ============================\n");
+    CloseNotify();
     g_scheduler->Stop();
 }
