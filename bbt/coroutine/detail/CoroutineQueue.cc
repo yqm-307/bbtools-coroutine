@@ -95,7 +95,7 @@ void CoroutineQueue::PushHeadRange(std::vector<Coroutine::SPtr>::iterator begin,
 {
     Lock();
     for (auto i = begin; i != end; i++)
-        m_queue.push_front((*i));
+        m_queue.emplace_front((*i));
     UnLock();
 }
 
@@ -103,7 +103,7 @@ void CoroutineQueue::PushTailRange(std::vector<Coroutine::SPtr>::iterator begin,
 {
     Lock();
     for (auto i = begin; i != end; i++)
-        m_queue.push_back((*i));
+        m_queue.emplace_back((*i));
     UnLock();
 }
 
