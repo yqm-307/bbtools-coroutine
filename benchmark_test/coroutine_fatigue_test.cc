@@ -7,10 +7,8 @@ int main()
     std::atomic_uint64_t ncount = 0;
     g_scheduler->Start(true);
 
-    while (true)
-    {
-        for (int i = 0; i < 100000; ++i)
-        {
+    while (true) {
+        for (int i = 0; i < 100000; ++i) {
             bbtco ([&](){
                 ncount++;
             });
@@ -18,5 +16,6 @@ int main()
 
         sleep(1);
     }
+
     g_scheduler->Stop();
 }

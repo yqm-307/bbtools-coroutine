@@ -12,3 +12,6 @@ target_link_libraries(coroutine_fatigue_test ${MY_LIBS})
 
 add_executable(coroutine_bench_test coroutine_bench_test.cc)
 target_link_libraries(coroutine_bench_test ${MY_LIBS})
+
+add_executable(chan_fatigue_test chan_fatigue_test.cc)
+target_link_libraries(chan_fatigue_test ${MY_LIBS})
