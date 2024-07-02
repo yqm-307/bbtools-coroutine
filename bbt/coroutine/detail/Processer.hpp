@@ -45,6 +45,7 @@ protected:
     static ProcesserId              _GenProcesserId();
     void                            _OnAddCorotinue();
     size_t                          _TryGetCoroutineFromGlobal();
+    void                            _Steal(std::vector<Coroutine::SPtr>& works); /* 偷取任务 */
     void                            _Run();
 private:
     const ProcesserId               m_id{BBT_COROUTINE_INVALID_PROCESSER_ID};

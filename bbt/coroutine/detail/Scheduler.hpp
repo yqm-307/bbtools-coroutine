@@ -24,7 +24,13 @@ public:
     void                                        OnActiveCoroutine(Coroutine::SPtr coroutine);
     /* 从全局队列中取一定数量的协程 */
     size_t                                      GetGlobalCoroutine(std::vector<Coroutine::SPtr>& coroutines, size_t size);
-    // size_t                                      GetGlobalCoroutine(CoroutineQueue& coroutines, size_t size);
+    /**
+     * @brief 尝试窃取任务
+     * 
+     * @param thief 窃取者
+     * @return 偷取任务数量
+     */
+    int                                         TryWorkSteal(Processer::SPtr thief);
 protected:
     Scheduler();
     void                                        _Init();
@@ -49,6 +55,7 @@ private:
     std::map<ProcesserId, Processer::SPtr>      m_processer_map;
     std::vector<Processer::SPtr>                m_load_blance_vec;
     uint32_t                                    m_load_idx{0};
+    uint32_t                                    m_steal_idx{0};
     std::mutex                                  m_processer_map_mutex;
     bbt::thread::CountDownLatch                 m_down_latch;
 

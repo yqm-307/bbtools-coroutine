@@ -91,11 +91,22 @@ void CoroutineQueue::PopNTail(std::vector<Coroutine::SPtr>& out, size_t n)
     UnLock();
 }
 
+void CoroutineQueue::PopNHead(std::vector<Coroutine::SPtr>& out, size_t n)
+{
+    Lock();
+    size_t can_give_num = (m_queue.size() >= n) ? n : m_queue.size();
+    for (int i = 0; i < can_give_num; ++i) {
+        out.emplace_back(m_queue.front());
+        m_queue.pop_front();
+    }
+    UnLock();
+}
+
 void CoroutineQueue::PushHeadRange(std::vector<Coroutine::SPtr>::iterator begin, std::vector<Coroutine::SPtr>::iterator end)
 {
     Lock();
     for (auto i = begin; i != end; i++)
-        m_queue.push_front((*i));
+        m_queue.emplace_front((*i));
     UnLock();
 }
 
@@ -103,7 +114,7 @@ void CoroutineQueue::PushTailRange(std::vector<Coroutine::SPtr>::iterator begin,
 {
     Lock();
     for (auto i = begin; i != end; i++)
-        m_queue.push_back((*i));
+        m_queue.emplace_back((*i));
     UnLock();
 }
 

@@ -182,12 +182,14 @@ void Scheduler::_CreateProcessers()
         auto t = new std::thread([this](){
             g_bbt_tls_helper->SetEnableUseCo(true);
             auto processer = g_bbt_tls_processer;
+            Assert(processer != nullptr);
             {
                 std::lock_guard<std::mutex> _(this->m_processer_map_mutex);
                 this->m_processer_map.insert(std::make_pair(processer->GetId(), processer));
                 m_load_blance_vec.push_back(processer);
             }
             this->m_down_latch.Down();
+            this->m_down_latch.Wait();
             processer->Start(false);
         });
         m_proc_threads.push_back(t);
@@ -227,6 +229,26 @@ bool Scheduler::_LoadBlance2Proc(Coroutine::SPtr co)
     proc->AddCoroutineTask(co);    
 
     return true;
+}
+
+int Scheduler::TryWorkSteal(Processer::SPtr thief)
+{
+    uint32_t index = m_steal_idx;
+    m_steal_idx++;
+
+    index %= m_processer_map.size();
+    auto proc = m_load_blance_vec[index];
+    Assert(proc != nullptr);
+    std::vector<Coroutine::SPtr> works;
+    proc->_Steal(works);
+
+    if (works.empty())
+        return 0;
+    
+    int steal_num = works.size();
+    thief->AddCoroutineTaskRange(works.begin(), works.end());
+
+    return steal_num;
 }
 
 } // namespace bbt::coroutine::detail

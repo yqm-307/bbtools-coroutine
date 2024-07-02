@@ -1,6 +1,6 @@
 set(Wall_Flag "-Wall -Wno-sign-compare -Wno-format -Wno-reorder -Wno-unknown-pragmas")
-# set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti -std=c++17 ${Wall_Flag} -g -O2")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti -std=c++17 ${Wall_Flag} -g")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti -std=c++17 ${Wall_Flag} -g -O2")
+# set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti -std=c++17 ${Wall_Flag} -g")
 
 enable_testing()
 set(EXECUTABLE_OUTPUT_PATH ${PROJECT_BINARY_DIR}/bin/unit_test)
@@ -64,3 +64,6 @@ target_link_libraries(Debug_chan ${MY_LIBS})
 
 add_executable(Debug_create_coroutine Debug_create_coroutine.cc)
 target_link_libraries(Debug_create_coroutine ${MY_LIBS})
+
+add_executable(Debug_steal Debug_steal.cc)
+target_link_libraries(Debug_steal ${MY_LIBS})

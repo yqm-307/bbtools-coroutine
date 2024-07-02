@@ -102,10 +102,12 @@ void Processer::_Run()
     while (m_is_running)
     {
         m_run_status = ProcesserStatus::PROC_RUNNING;
+        // 执行本地任务
         while (m_coroutine_queue.Size() > 0 || _TryGetCoroutineFromGlobal() > 0 )
         {
             std::vector<Coroutine::SPtr> pending_coroutines;
-            m_coroutine_queue.PopAll(pending_coroutines);
+            // m_coroutine_queue.PopAll(pending_coroutines);
+            m_coroutine_queue.PopNHead(pending_coroutines, g_bbt_coroutine_config->m_cfg_processer_do_task_once_task_num);
 
             for (auto&& coroutine : pending_coroutines) {
                 if (coroutine->GetStatus() == CO_RUNNING || coroutine->GetStatus() == CO_FINAL)
@@ -119,11 +121,15 @@ void Processer::_Run()
             }
         }
 
-        auto begin = bbt::clock::now<bbt::clock::microseconds>();
-        std::unique_lock<std::mutex> lock_uptr(m_run_cond_mutex);
-        m_run_status = ProcesserStatus::PROC_SUSPEND;
-        m_run_cond.wait_for(lock_uptr, bbt::clock::milliseconds(1));
-        m_suspend_cost_times += std::chrono::duration_cast<decltype(m_suspend_cost_times)>(bbt::clock::now<bbt::clock::microseconds>() - begin);
+        // 尝试窃取其他Processer任务，失败挂起
+        if (g_scheduler->TryWorkSteal(shared_from_this()) <= 0)
+        {
+            auto begin = bbt::clock::now<bbt::clock::microseconds>();
+            std::unique_lock<std::mutex> lock_uptr(m_run_cond_mutex);
+            m_run_status = ProcesserStatus::PROC_SUSPEND;
+            m_run_cond.wait_for(lock_uptr, bbt::clock::milliseconds(1));
+            m_suspend_cost_times += std::chrono::duration_cast<decltype(m_suspend_cost_times)>(bbt::clock::now<bbt::clock::microseconds>() - begin);
+        }
     }
 
     m_run_status = ProcesserStatus::PROC_EXIT;
@@ -177,5 +183,18 @@ uint64_t Processer::GetSuspendCostTime()
     return m_suspend_cost_times.count();
 }
 
+void Processer::_Steal(std::vector<Coroutine::SPtr>& works)
+{
+    auto size = m_coroutine_queue.Size();
+    if (size <= 0)
+        return;
+
+    int steal_num = g_bbt_coroutine_config->m_cfg_processer_steal_once_min_task_num > size ? g_bbt_coroutine_config->m_cfg_processer_steal_once_min_task_num : size / 2;
+    m_coroutine_queue.PopNTail(works, steal_num);
+
+#ifdef BBT_COROUTINE_PROFILE
+    g_bbt_profiler->OnEvent_StealSucc(steal_num);
+#endif
+}
 
 } // namespace bbt::coroutine::detail
