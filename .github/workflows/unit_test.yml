@@ -1,0 +1,32 @@
+# 工作流名字
+name: do-unit-test
+
+# 触发条件
+on:
+    pull_request:
+        branches:
+            - main
+    push:
+        branches:
+            - main
+    schedule:
+        - cron: '30 10,14 * * *'
+jobs:
+    job_1:
+        name: 第一个Job
+        runs-on: [self-hosted, linux]
+        steps:
+            - name: step 1
+              run: echo "do step job1 1 succ"
+            - name: step 2
+              run: echo "do step job1 2 succ"
+    job_2:
+        name: 第二个Job
+        runs-on: [self-hosted, linux]
+        needs:
+            - job_1
+        steps:
+            - name: step 1
+              run: echo "do step job2 step 1" 
+            
+            
