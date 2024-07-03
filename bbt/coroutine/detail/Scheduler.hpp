@@ -45,6 +45,8 @@ protected:
     void                                        _DestoryProcessers();
 
     bool                                        _LoadBlance2Proc(Coroutine::SPtr co);
+    /* 初始化全局实例 */
+    void                                        _InitGlobalUniqInstance();
 private:
     /* Scheduler */
     bbt::clock::Timestamp<>                     m_begin_timestamp;  // 调度器开启时间

@@ -8,6 +8,7 @@
 #include <bbt/coroutine/detail/Profiler.hpp>
 #include <bbt/coroutine/detail/LocalThread.hpp>
 #include <bbt/coroutine/detail/StackPool.hpp>
+#include <bbt/coroutine/detail/CoPoller.hpp>
 
 namespace bbt::coroutine::detail
 {
@@ -125,6 +126,7 @@ void Scheduler::_Run()
 
 void Scheduler::Start(bool background_thread)
 {
+    _InitGlobalUniqInstance();
     _Init();
     bbt::thread::CountDownLatch latch{1};
     if (background_thread)
@@ -249,6 +251,16 @@ int Scheduler::TryWorkSteal(Processer::SPtr thief)
     thief->AddCoroutineTaskRange(works.begin(), works.end());
 
     return steal_num;
+}
+
+void Scheduler::_InitGlobalUniqInstance()
+{
+#pragma optimize("", off)
+    auto& _init_tls_helper = g_bbt_tls_helper;
+    auto& _init_poller = g_bbt_poller;
+    auto& _init_profile = g_bbt_profiler;
+    auto& _init_stackpool = g_bbt_stackpoll;
+#pragma optimize("", on)
 }
 
 } // namespace bbt::coroutine::detail
