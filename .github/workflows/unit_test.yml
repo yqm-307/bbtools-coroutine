@@ -2,56 +2,39 @@
 name: do-unit-test
 
 # 工作流触发条件
-on: {
-    pull_request: {
-        branches: [main],
-    },
-    push: {
-        branches: [main],
-    },
-    schedule: [
-        cron: "30 10,14 * * *",
-    ],
-}
+on:
+    pull_request:
+        branches: [main]
+    push:
+        branches: [main]
+    schedule:
+        - cron: "30 10,14 * * *"
     
 # 工作流
-jobs: {
-    job_1: {
-        name: "初始化测试环境",
-        runs-on: ["self-hosted", "linux"],
-        steps: [
-            {
-                name: "拉取代码库",
-                uses: "actions/checkout@v4",
-            },
-            {
-                name: "输出代码库文件tree",
-                run: "
-                tree
-                pwd
-                " ,
-            },
-            {
-                name: "编译测试文件",
-                run: "
-                cd bbt-coroutine
-                ./build.sh",
-            },
-        ],
-    },
-    job_2: {
-        name: "运行测试",
-        runs-on: ["self-hosted", "linux"],
-        steps: [
-            {
-                name: "step1",
-                run: "pwd",
-            },
-        ],
-    },
-    job_3: {
-        name: "发送结果",
-        runs-on: ["self-hosted", "linux"],
-    },
-        
-}            
+jobs:
+    job_1:
+        name: "初始化测试环境"
+        runs-on: ["self-hosted", "linux"]
+        steps: 
+            -   name: "拉取代码库"
+                uses: actions/checkout@v4
+            
+            -   name: "输出代码库文件tree"
+                run: |
+                    tree
+                    pwd
+            -   name: "编译测试文件"
+                run: |
+                    cd bbt-coroutine
+                    ./build.sh
+    job_2:
+        name: "运行测试"
+        runs-on: ["self-hosted", "linux"]
+        steps:
+            -   name: "step1"
+                run: pwd
+
+    job_3:
+        name: "发送结果"
+        runs-on: ["self-hosted", "linux"]
+            
