@@ -37,4 +37,8 @@ jobs:
     job_3:
         name: "发送结果"
         runs-on: ["self-hosted", "linux"]
-            
+        steps:
+            -   name: "step1"
+                run: | 
+                    echo "do job3 step3"
+                    pwd
