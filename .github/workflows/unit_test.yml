@@ -24,9 +24,7 @@ jobs:
                     tree
                     pwd
             -   name: "编译测试文件"
-                run: |
-                    cd bbt-coroutine
-                    ./build.sh
+                run: ./build.sh
     job_2:
         name: "运行测试"
         runs-on: ["self-hosted", "linux"]
