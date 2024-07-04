@@ -23,15 +23,18 @@ jobs:
                 run: |
                     tree
                     pwd
+
             -   name: "编译测试文件"
-                run: ./build.sh
+                run: ./shell/build_test.sh
     job_2:
         name: "运行测试"
         needs: [job_1]
         runs-on: ["self-hosted", "linux"]
         steps:
-            -   name: "step1"
-                run: pwd
+            -   name: "运行测试"
+                run: | 
+                    cd build/unit_test
+                    ctest
 
     job_3:
         name: "发送结果"
