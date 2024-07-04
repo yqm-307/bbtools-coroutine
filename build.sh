@@ -8,6 +8,6 @@ if [ ! -d "${workpath}/build" ];then
 fi
 
 cd ${workpath}/build && cmake ..
-make -j4
+make
 
 cd ${workpath}/shell && ./install.sh
