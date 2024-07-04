@@ -1,32 +1,57 @@
 # 工作流名字
 name: do-unit-test
 
-# 触发条件
-on:
-    pull_request:
-        branches:
-            - main
-    push:
-        branches:
-            - main
-    schedule:
-        - cron: '30 10,14 * * *'
-jobs:
-    job_1:
-        name: 第一个Job
-        runs-on: [self-hosted, linux]
-        steps:
-            - name: step 1
-              run: echo "do step job1 1 succ"
-            - name: step 2
-              run: echo "do step job1 2 succ"
-    job_2:
-        name: 第二个Job
-        runs-on: [self-hosted, linux]
-        needs:
-            - job_1
-        steps:
-            - name: step 1
-              run: echo "do step job2 step 1" 
-            
-            
+# 工作流触发条件
+on: {
+    pull_request: {
+        branches: [main],
+    },
+    push: {
+        branches: [main],
+    },
+    schedule: [
+        cron: "30 10,14 * * *",
+    ],
+}
+    
+# 工作流
+jobs: {
+    job_1: {
+        name: "初始化测试环境",
+        runs-on: ["self-hosted", "linux"],
+        steps: [
+            {
+                name: "拉取代码库",
+                uses: "actions/checkout@v4",
+            },
+            {
+                name: "输出代码库文件tree",
+                run: "
+                tree
+                pwd
+                " ,
+            },
+            {
+                name: "编译测试文件",
+                run: "
+                cd bbt-coroutine
+                ./build.sh",
+            },
+        ],
+    },
+    job_2: {
+        name: "运行测试",
+        runs-on: ["self-hosted", "linux"],
+        steps: [
+            {
+                name: "step1",
+                run: "pwd",
+            },
+        ],
+    },
+    job_3: {
+        name: "发送结果",
+        runs-on: ["self-hosted", "linux"],
+    },
+        
+}            

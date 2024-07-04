@@ -77,5 +77,8 @@
         "variant": "cpp",
         "unordered_set": "cpp"
     },
-    "C_Cpp.default.compilerPath": "/usr/bin/gcc"
+    "C_Cpp.default.compilerPath": "/usr/bin/gcc",
+    "github-actions.workflows.pinned.workflows": [
+        ".github/workflows/unit_test.yml"
+    ]
 }
