@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <event2/util.h>
 #include <bbt/coroutine/detail/Hook.hpp>
 #include <bbt/coroutine/detail/Processer.hpp>
 #include <bbt/coroutine/detail/CoPoller.hpp>
@@ -11,7 +12,18 @@ namespace bbt::coroutine::detail
 
 int Hook_Socket(int domain, int type, int protocol)
 {
-    return g_bbt_sys_hook_socket_func(domain, type, protocol);
+    int fd;
+
+    fd = g_bbt_sys_hook_socket_func(domain, type, protocol);
+    if (fd < 0)
+        return -1;
+
+    if (evutil_make_socket_nonblocking(fd) != 0) {
+        ::close(fd);
+        return -1;
+    }
+
+    return fd;
 }
 
 int Hook_Connect(int socket, const struct sockaddr* address, socklen_t address_len)
@@ -47,6 +59,9 @@ int Hook_Sleep(int ms)
 
 int socket(int domain, int type, int protocol)
 {
+    if (!g_bbt_tls_helper->EnableUseCo())
+        return g_bbt_sys_hook_socket_func(domain, type, protocol);
+    
     return bbt::coroutine::detail::Hook_Socket(domain, type, protocol);
 }
 
