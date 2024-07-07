@@ -2,6 +2,7 @@
 #include <fcntl.h>
 #include <bbt/base/assert/Assert.hpp>
 #include <bbt/base/clock/Clock.hpp>
+#include <bbt/base/Logger/DebugPrint.hpp>
 #include <bbt/coroutine/detail/CoPoller.hpp>
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
 
@@ -24,7 +25,6 @@ CoPollEvent::CoPollEvent(std::shared_ptr<Coroutine> coroutine, const CoPollEvent
 
 CoPollEvent::~CoPollEvent()
 {
-    if (m_fd >= 0) ::close(m_fd);
     if (m_timerfd >= 0) ::close(m_timerfd);
 }
 
@@ -37,7 +37,7 @@ void CoPollEvent::Trigger(IPoller* poller, int trigger_events)
      * 到底执行什么样的操作了，只由外部创建者定义。
      */
     /* 取消所有系统fd事件并释放资源 */
-    _CannelAllFdEvent();
+    if (_CannelAllFdEvent() != 0) g_bbt_warn_print;
 
     if (m_run_status != CoPollEventStatus::POLLEVENT_LISTEN)
         return;
@@ -65,17 +65,29 @@ int CoPollEvent::GetEvent() const
 int CoPollEvent::InitFdReadableEvent(int fd)
 {
     int ret = 0;
-    if (m_run_status >= CoPollEventStatus::POLLEVENT_LISTEN || m_fd >= 0)
+    if (m_run_status >= CoPollEventStatus::POLLEVENT_LISTEN || fd < 0)
         return -1;
 
-    m_fd = fd;
+    m_ref_fd = fd;
+    m_type |= PollEventType::POLL_EVENT_READABLE;
+    return ret;
+}
+
+int CoPollEvent::InitFdWriteableEvent(int fd)
+{
+    int ret = 0;
+    if (m_run_status >= CoPollEventStatus::POLLEVENT_LISTEN || fd < 0)
+        return -1;
+    
+    m_ref_fd = fd;
+    m_type |= PollEventType::POLL_EVENT_WRITEABLE;
     return ret;
 }
 
 int CoPollEvent::InitTimeoutEvent(int timeout)
 {
     int ret = 0;
-    if (m_run_status >= CoPollEventStatus::POLLEVENT_LISTEN || timeout <= 0 || m_timerfd >= 0)
+    if (m_run_status >= CoPollEventStatus::POLLEVENT_LISTEN || timeout <= 0)
         return -1;
 
     m_timeout = timeout;
@@ -83,6 +95,7 @@ int CoPollEvent::InitTimeoutEvent(int timeout)
     if (m_timerfd < 0)
         return -1;
 
+    m_type |= PollEventType::POLL_EVENT_TIMEOUT;
     return ret;
 }
 
@@ -93,36 +106,35 @@ int CoPollEvent::InitCustomEvent(int key, void* args)
 
     m_has_custom_event = true;
     m_custom_key = key;
+    m_type |= PollEventType::POLL_EVENT_CUSTOM;
     return 0;
 }
 
 int CoPollEvent::Regist()
 {
-    int ret = 0;
+    /**
+     * 目前不支持同时注册可读、可写事件
+     */
+    Assert( ! (m_type & PollEventType::POLL_EVENT_READABLE && m_type & PollEventType::POLL_EVENT_WRITEABLE) );
 
-    /* fd 事件 */
-    if (m_fd >= 0)
-        ret = _RegistFdEvent();
+    /* fd 可读事件 */
+    if (m_ref_fd >= 0 && (m_type & PollEventType::POLL_EVENT_READABLE) && (_RegistFdReadableEvent() != 0))
+        return -1;
 
-    if (ret != 0)
-        return ret;
+    /* fd 可写事件 */
+    if (m_ref_fd >= 0 && (m_type & PollEventType::POLL_EVENT_WRITEABLE) && (_RegistFdWriteableEvent() != 0))
+        return -1;
 
     /* 超时事件 */
-    if (m_timerfd >= 0)
-        ret = _RegistTimeoutEvent();
-
-    if (ret != 0)
-        return ret;
+    if (m_timerfd >= 0 && (m_type & PollEventType::POLL_EVENT_TIMEOUT) && (_RegistTimeoutEvent() != 0))
+        return -1;
 
     /* 自定义事件 */
-    if (m_has_custom_event)
-        ret = _RegistCustomEvent();
-
-    if (ret != 0)
-        return ret;
+    if (m_has_custom_event && (m_type & PollEventType::POLL_EVENT_CUSTOM) && (_RegistCustomEvent() != 0))
+        return -1;
 
     _OnListen();
-    return ret;
+    return 0;
 }
 
 int CoPollEvent::_CreateEpollEvent(int fd, int events)
@@ -211,29 +223,41 @@ int CoPollEvent::_RegistTimeoutEvent()
     if (ret != 0) {
         std::unique_lock<std::mutex> _(m_epoll_event_map_mutex);
         _DestoryEpollEvent(m_timerfd);
+        g_bbt_warn_print;
     }
 
     return ret;
 }
 
-int CoPollEvent::_RegistFdEvent()
+int CoPollEvent::_RegistFdEvent(int io_event)
 {
     int ret = 0;
-    if (m_fd < 0)
+    if (m_ref_fd < 0)
         return -1;
 
-    ret = _CreateEpollEvent(m_fd, EPOLLIN | EPOLLONESHOT | EPOLLET);
+    ret = _CreateEpollEvent(m_ref_fd, io_event | EPOLLONESHOT | EPOLLET);
     if (ret != 0)
         return ret;
 
-    ret = g_bbt_poller->AddFdEvent(shared_from_this(), m_fd);
+    ret = g_bbt_poller->AddFdEvent(shared_from_this(), m_ref_fd);
 
     if (ret != 0) {
         std::unique_lock<std::mutex> _(m_epoll_event_map_mutex);
-        _DestoryEpollEvent(m_fd);
+        _DestoryEpollEvent(m_ref_fd);
+        g_bbt_warn_print;
     }
 
     return ret;
+}
+
+int CoPollEvent::_RegistFdWriteableEvent()
+{
+    return _RegistFdEvent(EPOLLOUT);
+}
+
+int CoPollEvent::_RegistFdReadableEvent()
+{
+    return _RegistFdEvent(EPOLLIN);
 }
 
 int CoPollEvent::_CannelAllFdEvent()

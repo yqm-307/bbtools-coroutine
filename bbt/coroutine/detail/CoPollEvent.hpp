@@ -35,6 +35,7 @@ public:
     virtual void                    Trigger(IPoller* poller, int trigger_events) override;
     /* 下面3个函数注册不同的事件，但是事件在第一次触发后失效 */
     int                             InitFdReadableEvent(int fd);
+    int                             InitFdWriteableEvent(int fd);
     int                             InitTimeoutEvent(int timeout);
     int                             InitCustomEvent(int key, void* args);
     int                             Regist();
@@ -46,7 +47,9 @@ public:
 protected:
     int                             _RegistCustomEvent();
     int                             _RegistTimeoutEvent();
-    int                             _RegistFdEvent();
+    int                             _RegistFdEvent(int io_event);
+    int                             _RegistFdWriteableEvent();
+    int                             _RegistFdReadableEvent();
     int                             _CannelAllFdEvent();
 
     int                             _CreateEpollEvent(int fd, int epoll_events);
@@ -56,9 +59,9 @@ protected:
     void                            _OnFinal();
 private:
     std::shared_ptr<Coroutine>      m_coroutine{nullptr};
-    int                             m_fd{-1};
+    int                             m_ref_fd{-1};
+    int                             m_type{PollEventType::POLL_EVENT_DEFAULT};
     int                             m_timerfd{-1};
-    PollEventType                   m_type{PollEventType::POLL_EVENT_DEFAULT};
     int                             m_timeout{-1};
     bool                            m_has_custom_event{false};
     int                             m_custom_key{-1};
