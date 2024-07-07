@@ -69,6 +69,74 @@ int Hook_Sleep(int ms)
     return 0;
 }
 
+ssize_t Hook_Read(int fd, void* buf, size_t nbytes)
+{
+    ssize_t read_len;
+    
+    while ((read_len = g_bbt_sys_hook_read_func(fd, buf, nbytes)) <= 0) {
+        /* 读到eof了 */
+        if (read_len == 0)
+            return -1;
+
+        /* 如果read没有立即成功，判断失败原因是否为正在执行读操作 */
+        if (errno != EAGAIN && errno != EINPROGRESS && errno != EINTR && errno != EWOULDBLOCK)
+            return -1;
+
+        /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读 */        
+        auto current_run_co = g_bbt_tls_coroutine_co;
+        auto event = current_run_co->RegistFdReadable(fd);
+        if (event == nullptr)
+            return -1;
+        
+        current_run_co->Yield();
+    }
+
+    return read_len;
+}
+
+ssize_t Hook_Write(int fd, const void* buf, size_t n)
+{
+    ssize_t write_len;
+    while ((write_len = g_bbt_sys_hook_write_func(fd, buf, n)) < 0) {
+        /* 如果write没有立即成功，判断失败原因是否为正在执行写操作 */
+        if (errno != EAGAIN && errno != EINTR && errno != EWOULDBLOCK)
+            return -1;
+        
+        /* 对当前协程注册fd可写事件，挂起当前协程直到fd可写 */
+        auto current_run_co = g_bbt_tls_coroutine_co;
+        auto event = current_run_co->RegistFdWriteable(fd);
+        if (event == nullptr)
+            return -1;
+        
+        /* 挂起直到fd可写 */
+        current_run_co->Yield();
+    }
+
+    return write_len;
+}
+
+int Hook_Accept(int fd, struct sockaddr* addr, socklen_t* len)
+{
+    int ret;
+
+    while ((ret = g_bbt_sys_hook_accept_func(fd, addr, len)) < 0) {
+        /* 如果accept没有立即成功，判断失败原因是否为设置非阻塞 */
+        if (errno != EAGAIN && errno != EWOULDBLOCK)
+            return -1;
+
+        /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读 */
+        auto current_run_co = g_bbt_tls_coroutine_co;
+        auto event = current_run_co->RegistFdReadable(fd);
+        if (event == nullptr)
+            return -1;
+
+        current_run_co->Yield();
+    }
+    
+    return ret;
+}
+
+
 }
 
 
@@ -99,4 +167,28 @@ unsigned int sleep(unsigned int sec)
         return g_bbt_sys_hook_sleep_func(sec);
 
     return bbt::coroutine::detail::Hook_Sleep(sec * 1000);
+}
+
+ssize_t read(int fd, void* buf, size_t nbytes)
+{
+    if (!g_bbt_tls_helper->EnableUseCo())
+        return g_bbt_sys_hook_read_func(fd, buf, nbytes);
+
+    return bbt::coroutine::detail::Hook_Read(fd, buf, nbytes);
+}
+
+ssize_t write(int fd, const void* buf, size_t n)
+{
+    if (!g_bbt_tls_helper->EnableUseCo())
+        return g_bbt_sys_hook_write_func(fd, buf, n);
+
+    return bbt::coroutine::detail::Hook_Write(fd, buf, n);
+}
+
+int accept (int fd, __SOCKADDR_ARG addr, socklen_t *__restrict addr_len)
+{
+    if (!g_bbt_tls_helper->EnableUseCo())
+        return g_bbt_sys_hook_accept_func(fd, addr, addr_len);
+
+    return bbt::coroutine::detail::Hook_Accept(fd, addr, addr_len);
 }
