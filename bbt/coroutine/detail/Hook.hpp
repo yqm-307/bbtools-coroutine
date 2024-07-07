@@ -23,15 +23,21 @@
  * 
  */
 
-using g_bbt_sys_hook_socket_fn_t = int(*)(int /*domain*/, int /*type*/, int /*protocol*/);
-using g_bbt_sys_hook_connect_fn_t = int(*)(int /*socket*/, const struct sockaddr* /*address*/, socklen_t /*address_len*/);
-using g_bbt_sys_hook_close_fn_t = int(*)(int /*fd*/);
-using g_bbt_sys_hook_sleep_fn_t = unsigned int(*)(unsigned int /*sec*/);
+using g_bbt_sys_hook_socket_fn_t    = int           (*)(int /*domain*/, int /*type*/, int /*protocol*/);
+using g_bbt_sys_hook_connect_fn_t   = int           (*)(int /*socket*/, const struct sockaddr* /*address*/, socklen_t /*address_len*/);
+using g_bbt_sys_hook_close_fn_t     = int           (*)(int /*fd*/);
+using g_bbt_sys_hook_sleep_fn_t     = unsigned int  (*)(unsigned int /*sec*/);
+using g_bbt_sys_hook_read_fn_t      = ssize_t       (*)(int /*fd*/, void* /*buf*/, size_t /*nbytes*/);
+using g_bbt_sys_hook_write_fn_t     = ssize_t       (*) (int /*fd*/, const void * /*buf*/, size_t /*n*/);
+using g_bbt_sys_hook_accept_fn_t    = int           (*) (int /*fd*/, __SOCKADDR_ARG /*addr*/, socklen_t *__restrict /*addr_len*/);
 
 static auto g_bbt_sys_hook_socket_func      = (g_bbt_sys_hook_socket_fn_t)dlsym(RTLD_NEXT, "socket");
 static auto g_bbt_sys_hook_connect_func     = (g_bbt_sys_hook_connect_fn_t)dlsym(RTLD_NEXT, "connect");
 static auto g_bbt_sys_hook_close_func       = (g_bbt_sys_hook_close_fn_t)dlsym(RTLD_NEXT, "close");
 static auto g_bbt_sys_hook_sleep_func       = (g_bbt_sys_hook_sleep_fn_t)dlsym(RTLD_NEXT, "sleep");
+static auto g_bbt_sys_hook_read_func        = (g_bbt_sys_hook_read_fn_t)dlsym(RTLD_NEXT, "read");
+static auto g_bbt_sys_hook_write_func       = (g_bbt_sys_hook_write_fn_t)dlsym(RTLD_NEXT, "write");
+static auto g_bbt_sys_hook_accept_func      = (g_bbt_sys_hook_accept_fn_t)dlsym(RTLD_NEXT, "accept");
 
 namespace bbt::coroutine
 {
@@ -43,6 +49,9 @@ extern int Hook_Connect(int socket, const struct sockaddr* address, socklen_t ad
 extern int Hook_Close(int fd);
 extern int Hook_Sleep(int s);
 extern int MsSleep(int ms);
+extern ssize_t Hook_Read(int fd, void* buf, size_t nbytes);
+extern ssize_t Hook_Write(int fd, const void* buf, size_t n);
+extern int Hook_Accept(int fd, struct sockaddr* addr, socklen_t* len);
 }
 
 }
