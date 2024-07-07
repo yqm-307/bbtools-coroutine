@@ -34,6 +34,8 @@
 
 #define g_bbt_stackpoll             (bbt::coroutine::detail::StackPool::GetInstance())
 
+#define g_bbt_warn_print            (bbt::log::WarnPrint("%s, errno : %d %s", __FUNCTION__, errno, strerror(errno)))
+
 namespace bbt::coroutine::sync
 {
 

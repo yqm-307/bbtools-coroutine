@@ -44,23 +44,18 @@ public:
     std::shared_ptr<CoPollEvent>    RegistTimeout(int ms);
     std::shared_ptr<CoPollEvent>    RegistCustom(int key);
     std::shared_ptr<CoPollEvent>    RegistCustom(int key, int timeout_ms);
-    // std::shared_ptr<CoPollEvent>    RegistReadable(int fd, int ms);
-    // std::shared_ptr<CoPollEvent>    RegistReadableET(int fd, int ms);   // 边缘触发
+    std::shared_ptr<CoPollEvent>    RegistFdReadable(int fd);
+    std::shared_ptr<CoPollEvent>    RegistFdReadable(int fd, int timeout_ms);
+    std::shared_ptr<CoPollEvent>    RegistFdWriteable(int fd);
+    std::shared_ptr<CoPollEvent>    RegistFdWriteable(int fd, int timeout_ms);
 
 protected:
     void                            OnCoPollEvent(int event, int custom_key);
-    // void                            OnEventTimeout(std::shared_ptr<CoPollEvent> event);
-    // void                            OnEventReadable(std::shared_ptr<CoPollEvent> evnet);
-    // void                            OnEventChanWrite();
 
 protected:
     static CoroutineId              GenCoroutineId();
     void                            _OnCoroutineFinal();
-    // void                            _OnEventFinal(); // 事件触发结束
-    // std::shared_ptr<CoPollEvent>    _RegistReadableEx(int fd, int ms, int ext_event);
 private:
-    // ProcesserId                     m_bind_processer_id{BBT_COROUTINE_INVALID_PROCESSER_ID};
-
     Context                         m_context;
     const CoroutineId               m_id{BBT_COROUTINE_INVALID_COROUTINE_ID};
     volatile CoroutineStatus        m_run_status{CoroutineStatus::CO_DEFAULT};

@@ -28,7 +28,22 @@ int Hook_Socket(int domain, int type, int protocol)
 
 int Hook_Connect(int socket, const struct sockaddr* address, socklen_t address_len)
 {
-    return g_bbt_sys_hook_connect_func(socket, address, address_len);
+    int ret;
+
+    while (g_bbt_sys_hook_connect_func(socket, address, address_len) != 0) {
+        // 是否因为非阻塞导致没法立即完成
+        if (errno != EAGAIN && errno != EINPROGRESS && errno != EINTR)
+            return -1;
+
+        auto current_run_co = g_bbt_tls_coroutine_co;
+        auto event = current_run_co->RegistFdWriteable(socket);
+        if (event == nullptr)
+            return -1;
+
+        current_run_co->Yield();
+    }
+
+    return 0;
 }
 
 int Hook_Close(int fd)
@@ -67,6 +82,9 @@ int socket(int domain, int type, int protocol)
 
 int connect(int socket, const struct sockaddr* address, socklen_t address_len)
 {
+    if (!g_bbt_tls_helper->EnableUseCo())
+        return g_bbt_sys_hook_connect_func(socket, address, address_len);
+
     return bbt::coroutine::detail::Hook_Connect(socket, address, address_len);
 }
 
