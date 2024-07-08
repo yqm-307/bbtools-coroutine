@@ -1,5 +1,6 @@
 #pragma once
 #include <sys/epoll.h>
+#include <bbt/pollevent/EventLoop.hpp>
 #include <bbt/coroutine/detail/Define.hpp>
 #include <bbt/coroutine/detail/interface/IPoller.hpp>
 
@@ -18,8 +19,7 @@ namespace bbt::coroutine::detail
  *     目前只有timerfd，后续添加更多对系统操作的hook
  * 
  */
-class CoPoller:
-    public IPoller
+class CoPoller
 {
 public:
     typedef std::unique_ptr<CoPoller> UPtr;
@@ -28,19 +28,21 @@ public:
     CoPoller();
     ~CoPoller();
 
-    virtual int                     AddFdEvent(std::shared_ptr<IPollEvent> event, int fd) override;
-    virtual int                     DelFdEvent(int fd) override;
-    virtual int                     ModifyFdEvent(std::shared_ptr<IPollEvent> event, int fd, int event_opt) override;
-    virtual int                     PollOnce() override;
+    /* 是否有活跃事件 */
+    bool                            PollOnce();
 
-    int                             NotifyCustomEvent(std::shared_ptr<IPollEvent> event);
+    std::shared_ptr<bbt::pollevent::Event> 
+                                    CreateEvent(int fd, short events, const bbt::pollevent::OnEventCallback& onevent_cb);
+
+    int                             NotifyCustomEvent(std::shared_ptr<CoPollEvent> event);
 protected:
 private:
-    int                             m_epoll_fd{-1};
+    std::shared_ptr<bbt::pollevent::EventLoop> m_event_loop{nullptr};
+    // int                             m_epoll_fd{-1};
 
-    std::unordered_set<std::shared_ptr<IPollEvent>>
+    std::unordered_set<std::shared_ptr<CoPollEvent>>
                                     m_safe_active_set;              // 保证不重复的事件
-    std::queue<std::shared_ptr<IPollEvent>>
+    std::queue<std::shared_ptr<CoPollEvent>>
                                     m_custom_event_active_queue;    // 自定义事件活跃队列
     std::mutex                      m_custom_event_active_queue_mutex;
 };

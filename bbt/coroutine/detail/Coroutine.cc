@@ -9,6 +9,8 @@
 namespace bbt::coroutine::detail
 {
 
+typedef bbt::pollevent::EventOpt EventOpt;
+
 CoroutineId Coroutine::GenCoroutineId()
 {
     static std::atomic_int _generate_id{BBT_COROUTINE_INVALID_COROUTINE_ID};
@@ -84,28 +86,6 @@ void Coroutine::_OnCoroutineFinal()
         m_co_final_callback();
 }
 
-// void Coroutine::OnEventTimeout(CoPollEvent::SPtr evnet)
-// {
-//     g_scheduler->OnActiveCoroutine(shared_from_this());
-//     _OnEventFinal();
-// }
-
-// void Coroutine::OnEventReadable(CoPollEvent::SPtr evnet)
-// {
-//     g_scheduler->OnActiveCoroutine(shared_from_this());
-//     _OnEventFinal();
-// }
-
-// void Coroutine::OnEventChanWrite()
-// {
-//     g_scheduler->OnActiveCoroutine(shared_from_this());
-// }
-
-
-// void Coroutine::_OnEventFinal()
-// {
-// }
-
 std::shared_ptr<CoPollEvent> Coroutine::RegistTimeout(int ms)
 {
     std::unique_lock<std::mutex> _(m_await_event_mutex);
@@ -116,7 +96,7 @@ std::shared_ptr<CoPollEvent> Coroutine::RegistTimeout(int ms)
         OnCoPollEvent(event, custom_key);
     });
 
-    if (m_await_event->InitTimeoutEvent(ms) != 0)
+    if (m_await_event->RegistFdEvent(-1, EventOpt::TIMEOUT, ms) != 0)
         return nullptr;
 
     if (m_await_event->Regist() != 0)
@@ -157,7 +137,7 @@ std::shared_ptr<CoPollEvent> Coroutine::RegistCustom(int key, int timeout_ms)
     if (m_await_event->InitCustomEvent(key, NULL) != 0)
         return nullptr;
     
-    if (m_await_event->InitTimeoutEvent(timeout_ms) != 0)
+    if (m_await_event->RegistFdEvent(-1, EventOpt::TIMEOUT, timeout_ms) != 0)
         return nullptr;
     
     if (m_await_event->Regist() != 0)
@@ -176,7 +156,7 @@ std::shared_ptr<CoPollEvent> Coroutine::RegistFdReadable(int fd)
         OnCoPollEvent(event, custom_key);
     });
 
-    if (m_await_event->InitFdReadableEvent(fd) != 0)
+    if (m_await_event->RegistFdEvent(fd, EventOpt::READABLE, 0) != 0)
         return nullptr;
     
     if (m_await_event->Regist() != 0)
@@ -195,12 +175,9 @@ std::shared_ptr<CoPollEvent> Coroutine::RegistFdReadable(int fd, int timeout_ms)
         OnCoPollEvent(event, custom_key);
     });
 
-    if (m_await_event->InitFdReadableEvent(fd) != 0)
+    if (m_await_event->RegistFdEvent(fd, EventOpt::READABLE | EventOpt::TIMEOUT, timeout_ms))
         return nullptr;
-    
-    if (m_await_event->InitTimeoutEvent(timeout_ms) != 0)
-        return nullptr;
-    
+
     if (m_await_event->Regist() != 0)
         return nullptr;
     
@@ -217,7 +194,7 @@ std::shared_ptr<CoPollEvent> Coroutine::RegistFdWriteable(int fd)
         OnCoPollEvent(event, custom_key);
     });
 
-    if (m_await_event->InitFdWriteableEvent(fd) != 0)
+    if (m_await_event->RegistFdEvent(fd, EventOpt::WRITEABLE, 0) != 0)
         return nullptr;
     
     if (m_await_event->Regist() != 0)
@@ -236,10 +213,7 @@ std::shared_ptr<CoPollEvent> Coroutine::RegistFdWriteable(int fd, int timeout_ms
         OnCoPollEvent(event, custom_key);
     });
 
-    if (m_await_event->InitFdWriteableEvent(fd) != 0)
-        return nullptr;
-    
-    if (m_await_event->InitTimeoutEvent(timeout_ms) != 0)
+    if (m_await_event->RegistFdEvent(fd, EventOpt::WRITEABLE | EventOpt::TIMEOUT, timeout_ms) != 0)
         return nullptr;
 
     if (m_await_event->Regist() != 0)

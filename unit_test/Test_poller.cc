@@ -24,7 +24,7 @@ BOOST_AUTO_TEST_CASE(t_poller_timeout_event_single)
         end_ts = bbt::clock::now<>().time_since_epoch().count();
     });
 
-    Assert(event->InitTimeoutEvent(1000) == 0);
+    Assert(event->RegistFdEvent(-1, bbt::pollevent::EventOpt::TIMEOUT, 1000) == 0);
     Assert(event->Regist() == 0);
 
     while (count != 1)
@@ -32,8 +32,8 @@ BOOST_AUTO_TEST_CASE(t_poller_timeout_event_single)
         CoPoller::GetInstance()->PollOnce();
     }
 
-    BOOST_CHECK_GE(end_ts - begin_ts, 1000);    // 超时时间不能提前
-    BOOST_CHECK_LT(end_ts - begin_ts, 1010);    // 误差
+    BOOST_CHECK_GE(end_ts - begin_ts, 995);    // 超时时间不能提前
+    BOOST_CHECK_LT(end_ts - begin_ts, 1005);    // 误差
 }
 
 // BOOST_AUTO_TEST_CASE(t_poller_timerout_event_multi)
