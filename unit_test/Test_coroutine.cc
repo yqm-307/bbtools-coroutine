@@ -11,24 +11,32 @@ BOOST_AUTO_TEST_SUITE(CoroutineTest)
 
 BOOST_AUTO_TEST_CASE(t_coroutine_run)
 {
+    std::atomic_int ncount = 0;
+
+    std::atomic_int sign_value = 0;
+
     
     current_coroutine = bbt::coroutine::detail::Coroutine::Create(4096,
-    [](){
-        printf("start\n");
-        printf("coroutine point 1\n");
-        current_coroutine->Yield();
-        printf("coroutine point 2\n");
-        current_coroutine->Yield();
-        printf("coroutine point 3\n");
+    [&sign_value,&ncount](){
+        for (int i = 0; i < 10000; ++i)
+        {
+            BOOST_CHECK_EQUAL(sign_value, 1);
+            sign_value--;
+            ncount++;
+            current_coroutine->Yield();
+        }
 
     });
+    for (int i = 0; i < 10000; ++i)
+    {
+        BOOST_CHECK_EQUAL(sign_value, 0);
+        sign_value++;
+        ncount++;
+        current_coroutine->Resume();
+    }
 
-    printf("main point 1\n");
-    current_coroutine->Resume();
-    printf("main point 2\n");
-    current_coroutine->Resume();
-    printf("main point 3\n");
-    current_coroutine->Resume();
+    BOOST_CHECK_EQUAL(ncount, 20000);
+
 
 }
 
