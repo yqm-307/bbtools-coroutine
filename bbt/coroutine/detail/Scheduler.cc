@@ -113,12 +113,12 @@ void Scheduler::_Run()
         }
 #endif
 
-        int trigger_event = 0;
+        bool actived = false;
         do {
-            trigger_event = g_bbt_poller->PollOnce();
+            actived = g_bbt_poller->PollOnce();
             _FixTimingScan();
             g_bbt_stackpoll->OnUpdate();
-        } while(trigger_event > 0);
+        } while(actived);
         prev_scan_timepoint = prev_scan_timepoint + bbt::clock::ms(g_bbt_coroutine_config->m_cfg_scan_interval_ms);
         std::this_thread::sleep_until(prev_scan_timepoint);
     }
