@@ -74,7 +74,7 @@ void CoPollEvent::_OnFinal()
     m_run_status = CoPollEventStatus::POLLEVENT_FINAL;
 }
 
-int CoPollEvent::RegistFdEvent(int fd, short events, int timeout)
+int CoPollEvent::InitFdEvent(int fd, short events, int timeout)
 {
     int ret = 0;
     if (m_run_status >= CoPollEventStatus::POLLEVENT_LISTEN || timeout < 0)
@@ -123,7 +123,7 @@ void CoPollEvent::_OnListen()
     m_run_status = CoPollEventStatus::POLLEVENT_LISTEN;
 }
 
-int CoPollEvent::UnRegistEvent()
+int CoPollEvent::UnRegist()
 {
     int ret = 0;
 

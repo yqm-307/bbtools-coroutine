@@ -23,9 +23,6 @@ class Coroutine:
     public std::enable_shared_from_this<Coroutine>
 {
 public:
-    friend class Processer;
-    friend class sync::CoCond;
-    friend int Hook_Sleep(int);
     typedef std::shared_ptr<Coroutine> SPtr;
 
     BBTATTR_FUNC_Ctor_Hidden
@@ -41,6 +38,7 @@ public:
     virtual CoroutineId             GetId() override;
     CoroutineStatus                 GetStatus();
 
+    /* 事件相关 */
     std::shared_ptr<CoPollEvent>    RegistTimeout(int ms);
     std::shared_ptr<CoPollEvent>    RegistCustom(int key);
     std::shared_ptr<CoPollEvent>    RegistCustom(int key, int timeout_ms);
@@ -50,6 +48,7 @@ public:
     std::shared_ptr<CoPollEvent>    RegistFdWriteable(int fd, int timeout_ms);
 
 protected:
+    /* 事件被触发时回调 */
     void                            OnCoPollEvent(int event, int custom_key);
 
 protected:

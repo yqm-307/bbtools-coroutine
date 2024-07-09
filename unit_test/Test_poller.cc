@@ -24,7 +24,7 @@ BOOST_AUTO_TEST_CASE(t_poller_timeout_event_single)
         end_ts = bbt::clock::now<>().time_since_epoch().count();
     });
 
-    Assert(event->RegistFdEvent(-1, bbt::pollevent::EventOpt::TIMEOUT, 1000) == 0);
+    Assert(event->InitFdEvent(-1, bbt::pollevent::EventOpt::TIMEOUT, 1000) == 0);
     Assert(event->Regist() == 0);
 
     while (count != 1)

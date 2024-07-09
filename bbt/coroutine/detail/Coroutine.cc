@@ -96,7 +96,7 @@ std::shared_ptr<CoPollEvent> Coroutine::RegistTimeout(int ms)
         OnCoPollEvent(event, custom_key);
     });
 
-    if (m_await_event->RegistFdEvent(-1, EventOpt::TIMEOUT, ms) != 0)
+    if (m_await_event->InitFdEvent(-1, EventOpt::TIMEOUT, ms) != 0)
         return nullptr;
 
     if (m_await_event->Regist() != 0)
@@ -137,7 +137,7 @@ std::shared_ptr<CoPollEvent> Coroutine::RegistCustom(int key, int timeout_ms)
     if (m_await_event->InitCustomEvent(key, NULL) != 0)
         return nullptr;
     
-    if (m_await_event->RegistFdEvent(-1, EventOpt::TIMEOUT, timeout_ms) != 0)
+    if (m_await_event->InitFdEvent(-1, EventOpt::TIMEOUT, timeout_ms) != 0)
         return nullptr;
     
     if (m_await_event->Regist() != 0)
@@ -156,7 +156,7 @@ std::shared_ptr<CoPollEvent> Coroutine::RegistFdReadable(int fd)
         OnCoPollEvent(event, custom_key);
     });
 
-    if (m_await_event->RegistFdEvent(fd, EventOpt::READABLE, 0) != 0)
+    if (m_await_event->InitFdEvent(fd, EventOpt::READABLE, 0) != 0)
         return nullptr;
     
     if (m_await_event->Regist() != 0)
@@ -175,7 +175,7 @@ std::shared_ptr<CoPollEvent> Coroutine::RegistFdReadable(int fd, int timeout_ms)
         OnCoPollEvent(event, custom_key);
     });
 
-    if (m_await_event->RegistFdEvent(fd, EventOpt::READABLE | EventOpt::TIMEOUT, timeout_ms))
+    if (m_await_event->InitFdEvent(fd, EventOpt::READABLE | EventOpt::TIMEOUT, timeout_ms))
         return nullptr;
 
     if (m_await_event->Regist() != 0)
@@ -194,7 +194,7 @@ std::shared_ptr<CoPollEvent> Coroutine::RegistFdWriteable(int fd)
         OnCoPollEvent(event, custom_key);
     });
 
-    if (m_await_event->RegistFdEvent(fd, EventOpt::WRITEABLE, 0) != 0)
+    if (m_await_event->InitFdEvent(fd, EventOpt::WRITEABLE, 0) != 0)
         return nullptr;
     
     if (m_await_event->Regist() != 0)
@@ -213,7 +213,7 @@ std::shared_ptr<CoPollEvent> Coroutine::RegistFdWriteable(int fd, int timeout_ms
         OnCoPollEvent(event, custom_key);
     });
 
-    if (m_await_event->RegistFdEvent(fd, EventOpt::WRITEABLE | EventOpt::TIMEOUT, timeout_ms) != 0)
+    if (m_await_event->InitFdEvent(fd, EventOpt::WRITEABLE | EventOpt::TIMEOUT, timeout_ms) != 0)
         return nullptr;
 
     if (m_await_event->Regist() != 0)

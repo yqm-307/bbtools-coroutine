@@ -33,13 +33,11 @@ public:
     CoPollEventStatus               GetStatus() const;
 
     void                            Trigger(short trigger_events);
-    /* 下面3个函数注册不同的事件，但是事件在第一次触发后失效 */
-
-    int                             RegistFdEvent(int fd, short events, int timeout);
+    /* 初始化后调用Regist注册事件 */
+    int                             InitFdEvent(int fd, short events, int timeout);
     int                             InitCustomEvent(int key, void* args);
     int                             Regist();
-
-    int                             UnRegistEvent();
+    int                             UnRegist();
 
 protected:
     int                             _RegistCustomEvent();

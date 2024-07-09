@@ -15,7 +15,7 @@ int main()
     });
 
     printf("[%ld]\n", bbt::clock::now<>().time_since_epoch().count());
-    Assert(event->RegistFdEvent(-1, bbt::pollevent::EventOpt::TIMEOUT, 1000) == 0);
+    Assert(event->InitFdEvent(-1, bbt::pollevent::EventOpt::TIMEOUT, 1000) == 0);
     Assert(event->Regist() == 0);
 
     for (int i = 0; i < 100; i++)
