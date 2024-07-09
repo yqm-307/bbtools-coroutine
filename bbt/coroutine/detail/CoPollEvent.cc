@@ -2,12 +2,31 @@
 #include <fcntl.h>
 #include <bbt/base/assert/Assert.hpp>
 #include <bbt/base/clock/Clock.hpp>
+#include <bbt/base/bits/BitUtil.hpp>
 #include <bbt/base/Logger/DebugPrint.hpp>
 #include <bbt/coroutine/detail/CoPoller.hpp>
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
 
 namespace bbt::coroutine::detail
 {
+
+int TransformToPollEventType(short pollevent_type, bool has_custom)
+{
+    int ret = 0x0;
+    if (pollevent_type & pollevent::EventOpt::READABLE)
+        ret |= PollEventType::POLL_EVENT_READABLE;
+    
+    if (pollevent_type & pollevent::EventOpt::WRITEABLE)
+        ret |= PollEventType::POLL_EVENT_WRITEABLE;
+
+    if (pollevent_type & pollevent::EventOpt::TIMEOUT)
+        ret |= PollEventType::POLL_EVENT_TIMEOUT;
+    
+    if (has_custom)
+        ret |= PollEventType::POLL_EVENT_CUSTOM;
+    
+    return ret;
+}
 
 CoPollEvent::SPtr CoPollEvent::Create(std::shared_ptr<Coroutine> coroutine, const CoPollEventCallback& cb)
 {
@@ -55,12 +74,6 @@ void CoPollEvent::_OnFinal()
     m_run_status = CoPollEventStatus::POLLEVENT_FINAL;
 }
 
-
-// int CoPollEvent::GetEvent() const
-// {
-//     return m_type;
-// }
-
 int CoPollEvent::RegistFdEvent(int fd, short events, int timeout)
 {
     int ret = 0;
@@ -103,21 +116,6 @@ int CoPollEvent::Regist()
     _OnListen();
     return 0;
 }
-
-// void CoPollEvent::_DestoryEpollEvent(int fd)
-// {
-//     // std::unique_lock<std::mutex> _(m_epoll_event_map_mutex);
-//     auto it = m_epoll_event_map.find(fd);
-//     if (it == m_epoll_event_map.end())
-//         return;
-//     auto event = it->second;
-
-//     if (event.data.ptr == nullptr)
-//         return;
-
-//     ((PrivData*)event.data.ptr)->event_sptr = nullptr;
-//     delete (PrivData*)event.data.ptr;
-// }
 
 void CoPollEvent::_OnListen()
 {
@@ -167,15 +165,11 @@ int CoPollEvent::_CannelAllFdEvent()
     return ret;
 }
 
-// epoll_event* CoPollEvent::GetEpollEvent(int fd)
-// {
-//     std::unique_lock<std::mutex> _(m_epoll_event_map_mutex);
-//     auto it = m_epoll_event_map.find(fd);
-//     if (it == m_epoll_event_map.end())
-//         return nullptr;
-
-//     return &(it->second);
-// }
+int CoPollEvent::GetEvent() const
+{
+    short event = m_event->GetEvents();
+    return TransformToPollEventType(event, m_has_custom_event);
+}
 
 bool CoPollEvent::IsListening() const
 {

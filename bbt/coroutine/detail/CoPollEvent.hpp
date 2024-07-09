@@ -27,8 +27,7 @@ public:
     BBTATTR_FUNC_Ctor_Hidden        CoPollEvent(std::shared_ptr<Coroutine> coroutine, const CoPollEventCallback& cb);
                                     ~CoPollEvent();
 
-    // int                             GetEvent() const;
-    // epoll_event*                    GetEpollEvent(int fd);
+    int                             GetEvent() const;
     bool                            IsListening() const;
     bool                            IsFinal() const;
     CoPollEventStatus               GetStatus() const;
@@ -42,8 +41,6 @@ public:
 
     int                             UnRegistEvent();
 
-    /* 这个类用来包裹对象的智能指针，防止事件被意外被释放 */
-    struct PrivData {std::shared_ptr<IPollEvent> event_sptr{nullptr};};
 protected:
     int                             _RegistCustomEvent();
     int                             _RegistFdEvent();
@@ -55,7 +52,6 @@ private:
     std::shared_ptr<Coroutine>      m_coroutine{nullptr};
     std::shared_ptr<bbt::pollevent::Event>
                                     m_event{nullptr};
-    // int                             m_type{PollEventType::POLL_EVENT_DEFAULT};
     int                             m_timeout{-1};
     bool                            m_has_custom_event{false};
     int                             m_custom_key{-1};
