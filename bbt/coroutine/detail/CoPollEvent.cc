@@ -55,10 +55,12 @@ void CoPollEvent::Trigger(short trigger_events)
      * 到底执行什么样的操作了，只由外部创建者定义。
      */
     /* 取消所有系统fd事件并释放资源 */
-    if (_CannelAllFdEvent() != 0) g_bbt_warn_print;
 
     if (m_run_status != CoPollEventStatus::POLLEVENT_LISTEN)
         return;
+
+    if (_CannelAllFdEvent() != 0)
+        g_bbt_warn_print;
 
     m_run_status = CoPollEventStatus::POLLEVENT_TRIGGER;
 

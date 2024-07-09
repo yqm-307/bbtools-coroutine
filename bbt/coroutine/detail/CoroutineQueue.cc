@@ -135,13 +135,4 @@ void CoroutineQueue::UnLock()
         m_mutex.unlock();
 }
 
-bool CoroutineQueue::Exist(Coroutine::SPtr co)
-{
-    for (auto&& it : m_queue)
-        if (co == it) return true;
-    
-    return false;
-}
-
-
 }

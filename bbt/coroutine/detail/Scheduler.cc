@@ -67,7 +67,6 @@ CoroutineId Scheduler::RegistCoroutineTask(const CoroutineCallback& handle)
 
 void Scheduler::OnActiveCoroutine(Coroutine::SPtr coroutine)
 {
-    Assert(!m_global_coroutine_deque.Exist(coroutine));
     m_global_coroutine_deque.PushTail(coroutine);
 }
 

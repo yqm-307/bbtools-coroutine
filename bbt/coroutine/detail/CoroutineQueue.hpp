@@ -24,7 +24,6 @@ public:
     void                            PopNHead(std::vector<Coroutine::SPtr>& out, size_t n);
     void                            PushHeadRange(std::vector<Coroutine::SPtr>::iterator begin, std::vector<Coroutine::SPtr>::iterator end);
     void                            PushTailRange(std::vector<Coroutine::SPtr>::iterator begin, std::vector<Coroutine::SPtr>::iterator end);
-    bool                            Exist(Coroutine::SPtr co);
 protected:
     void                            Lock();
     void                            UnLock();
