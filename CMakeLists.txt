@@ -4,8 +4,9 @@ project(bbtools-coroutine)
 
 option(RELEASE          "开启将开启优化并不生成debug信息，否则生成debug版本" OFF)
 option(NEED_BENCHMARK   "开启将生成Benchmark文件"        ON)
+option(NEED_EXAMPLE     "开启将生成example"              ON)              
 option(NEED_TEST        "开启将生成test文件"             ON)      
-option(PROFILE          "开启将启用profile"              ON)                     
+option(PROFILE          "开启将启用profile"              ON)       
 
 if (RELEASE)
     set(CMAKE_CXX_FALGS "${CMAKE_CXX_FLAGS} -std=c++17 -O2")
@@ -49,4 +50,6 @@ if (NEED_BENCHMARK)
     add_subdirectory(benchmark_test)
 endif()
 
-add_subdirectory(example)
+if (NEED_EXAMPLE)
+    add_subdirectory(example)
+endif()
