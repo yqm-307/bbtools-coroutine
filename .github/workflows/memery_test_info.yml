@@ -1,0 +1,35 @@
+name: 内存检测
+
+on:
+    # schedule 默认在默认分支工作
+    schedule:
+        # 每周5下午5点半
+        -   cron: "30 17 * * 5"
+
+jobs:
+    job_1:
+        name: "初始化测试环境"
+        runs-on: ["self-hosted", "linux"]
+        steps:
+            -   name: "拉取代码库"
+                uses: actions/checkout@v4
+            -   name: "编译测试文件"
+                run: echo "请编写脚本"
+
+    job_2:
+        name: "生成测试程序内存数据"
+        needs: ["job_1"]
+        runs-on: ["self-hosted", "linux"]
+        steps:
+            -   name: "运行测试程序"
+                run: echo "请编写脚本"
+            -   name: "打包测试结果"
+                run: echo "请编写脚本"
+
+    job_3:
+        name: "发送通知邮件"
+        needs: ["job_2"]
+        runs-on: ["self-hosted", "linux"]
+        steps:
+            -   name: ""
+                run: echo "请编写发送邮件的脚本"
