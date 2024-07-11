@@ -31,6 +31,7 @@ using g_bbt_sys_hook_read_fn_t      = ssize_t       (*)(int /*fd*/, void* /*buf*
 using g_bbt_sys_hook_write_fn_t     = ssize_t       (*) (int /*fd*/, const void * /*buf*/, size_t /*n*/);
 using g_bbt_sys_hook_accept_fn_t    = int           (*) (int /*fd*/, __SOCKADDR_ARG /*addr*/, socklen_t *__restrict /*addr_len*/);
 using g_bbt_sys_hook_send_fn_t      = ssize_t       (*)(int /*fd*/, const void * /*buf*/, size_t /*len*/, int /*flags*/);
+using g_bbt_sys_hook_recv_fn_t      = ssize_t       (*)(int /*fd*/, void * /*buf*/, size_t /*len*/, int /*flags*/);
 
 static auto g_bbt_sys_hook_socket_func      = (g_bbt_sys_hook_socket_fn_t)dlsym(RTLD_NEXT, "socket");
 static auto g_bbt_sys_hook_connect_func     = (g_bbt_sys_hook_connect_fn_t)dlsym(RTLD_NEXT, "connect");
@@ -40,6 +41,7 @@ static auto g_bbt_sys_hook_read_func        = (g_bbt_sys_hook_read_fn_t)dlsym(RT
 static auto g_bbt_sys_hook_write_func       = (g_bbt_sys_hook_write_fn_t)dlsym(RTLD_NEXT, "write");
 static auto g_bbt_sys_hook_accept_func      = (g_bbt_sys_hook_accept_fn_t)dlsym(RTLD_NEXT, "accept");
 static auto g_bbt_sys_hook_send_func        = (g_bbt_sys_hook_send_fn_t)dlsym(RTLD_NEXT, "send");
+static auto g_bbt_sys_hook_recv_func        = (g_bbt_sys_hook_recv_fn_t)dlsym(RTLD_NEXT, "recv");
 
 namespace bbt::coroutine
 {
