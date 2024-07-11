@@ -138,8 +138,8 @@ int Hook_Accept(int fd, struct sockaddr* addr, socklen_t* len)
 
 ssize_t Hook_Send(int fd, const void* buf, size_t n,int flags)
 {
-    ssize_t write_len;
-    while (write_len = g_bbt_sys_hook_send_func(fd, buf, n,flags)) {
+    ssize_t send_len;
+    while (send_len = g_bbt_sys_hook_send_func(fd, buf, n,flags)) {
         /* 如果write没有立即成功，判断失败原因是否为正在执行写操作 */
         if (errno != EAGAIN && errno != EINTR && errno != EWOULDBLOCK)
             return -1;
