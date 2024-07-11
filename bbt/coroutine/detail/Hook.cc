@@ -139,7 +139,7 @@ int Hook_Accept(int fd, struct sockaddr* addr, socklen_t* len)
 ssize_t Hook_Send(int fd, const void* buf, size_t n,int flags)
 {
     ssize_t send_len;
-    while (send_len = g_bbt_sys_hook_send_func(fd, buf, n,flags)) {
+    while ((send_len = g_bbt_sys_hook_send_func(fd, buf, n,flags)) < 0) {
         /* 如果write没有立即成功，判断失败原因是否为正在执行写操作 */
         if (errno != EAGAIN && errno != EINTR && errno != EWOULDBLOCK)
             return -1;
@@ -153,12 +153,13 @@ ssize_t Hook_Send(int fd, const void* buf, size_t n,int flags)
         /* 挂起直到fd可写 */
         current_run_co->Yield();
     }
+    return send_len;
 }
 
 ssize_t Hook_Recv(int fd, void* buf, size_t n,int flags)
 {
     ssize_t recv_len;
-    while (recv_len = g_bbt_sys_hook_recv_func(fd, buf, n,flags)) {
+    while ((recv_len = g_bbt_sys_hook_recv_func(fd, buf, n,flags)) <= 0) {
          /* 读到eof了 */
         if (recv_len == 0)
             return -1;
@@ -175,6 +176,8 @@ ssize_t Hook_Recv(int fd, void* buf, size_t n,int flags)
         
         current_run_co->Yield();
     }
+
+    return recv_len;
 }
 
 
@@ -234,7 +237,7 @@ int accept (int fd, __SOCKADDR_ARG addr, socklen_t *__restrict addr_len)
     return bbt::coroutine::detail::Hook_Accept(fd, addr, addr_len);
 }
 
-ssize_t send(int fd, const void *buf, size_t len, int flags) {
+ssize_t send(int fd, const void* buf, size_t len, int flags) {
     
     if (!g_bbt_tls_helper->EnableUseCo()) {
         return g_bbt_sys_hook_send_func(fd, buf, len, flags);
@@ -250,6 +253,6 @@ ssize_t recv(int fd, void* buf, size_t len, int flags) {
         return g_bbt_sys_hook_recv_func(fd, buf, len, flags);
     }
     
-    return bbt::coroutine::detail::Hook_Send(fd, buf, len,flags);
+    return bbt::coroutine::detail::Hook_Recv(fd, buf, len,flags);
    
 }
