@@ -15,5 +15,4 @@ fi
 mkdir build && cd build
 # 只生成benchmark测试文件
 cmake -DNEED_BENCHMARK=ON -DNEED_TEST=OFF -DPROFILE=OFF -DNEED_EXAMPLE=OFF ..
-
-valgrind --tool=memcheck --leak-check=yes  --read-inline-info=no  --track-origins=yes --log-file=mem_check.log ./mem_check_test 
+make

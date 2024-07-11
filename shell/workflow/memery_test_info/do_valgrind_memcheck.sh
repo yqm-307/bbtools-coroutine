@@ -1,7 +1,7 @@
 #!/bin/bash
 
-checkexec=$1
-outputfile=$2
+checkexec=$1    # 检测文件路径
+outputfile=$2   # 结果输出文件
 
 ############
 # 
