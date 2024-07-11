@@ -2,9 +2,21 @@ cmake_minimum_required(VERSION 3.1)
 
 project(bbtools-coroutine)
 
-# set(CMAKE_CXX_FALGS "${CMAKE_CXX_FLAGS} -std=c++17 -g -O2")
-set(CMAKE_CXX_FALGS "${CMAKE_CXX_FLAGS} -std=c++17 -g")
-add_definitions(-DBBT_COROUTINE_PROFILE)
+option(RELEASE          "开启将开启优化并不生成debug信息，否则生成debug版本" OFF)
+option(NEED_BENCHMARK   "开启将生成Benchmark文件"        ON)
+option(NEED_EXAMPLE     "开启将生成example"              ON)              
+option(NEED_TEST        "开启将生成test文件"             ON)      
+option(PROFILE          "开启将启用profile"              ON)       
+
+if (RELEASE)
+    set(CMAKE_CXX_FALGS "${CMAKE_CXX_FLAGS} -std=c++17 -O2")
+else()
+    set(CMAKE_CXX_FALGS "${CMAKE_CXX_FLAGS} -std=c++17 -g")
+endif()
+
+if (PROFILE)
+    add_definitions(-DBBT_COROUTINE_PROFILE)
+endif()
 
 
 set(LIBRARY_OUTPUT_PATH ${PROJECT_BINARY_DIR}/lib) 
@@ -29,6 +41,15 @@ target_link_libraries(bbt_coroutine
 )
 
 enable_testing()
-add_subdirectory(unit_test)
-add_subdirectory(benchmark_test)
-add_subdirectory(example)
+
+if (NEED_TEST)
+    add_subdirectory(unit_test)
+endif()
+
+if (NEED_BENCHMARK)
+    add_subdirectory(benchmark_test)
+endif()
+
+if (NEED_EXAMPLE)
+    add_subdirectory(example)
+endif()

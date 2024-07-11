@@ -1,0 +1,67 @@
+name: 内存检测
+
+on:
+    # schedule 默认在默认分支工作
+    schedule:
+        # 每周5下午5点半
+        -   cron: "30 17 * * 5"
+
+env:
+    MEMCHECK_EXEC_PATH: build/bin/benchmark_test/mem_check_test
+
+jobs:
+    job_1:
+        name: "初始化测试环境"
+        runs-on: ["self-hosted", "linux"]
+        steps:
+            -   name: "拉取代码库"
+                uses: actions/checkout@v4
+            -   name: "编译测试文件"
+                run: |
+                    pwd | xargs ./shell/workflow/memery_test_info/compile_testfile.sh
+                    if [ ! -f ${MEMCHECK_EXEC_PATH} ];then
+                        echo file ${MEMCHECK_EXEC_PATH} not exists
+                        exit -1
+                    fi
+
+    job_2:
+        name: "生成测试程序内存数据"
+        needs: ["job_1"]
+        env:
+            result_dir: "/benchmark_test/Default"
+        runs-on: ["self-hosted", "linux"]
+        steps:
+            -   name: "创建测试结果收集文件夹"
+                run: |
+                    dir_name=`date +%Y%m%d_%H_%M_%S`
+
+                    if [ -d ${dir_name} ];then
+                        rm -rf ${dir_name}
+                    fi
+
+                    mkdir -p ${dir_name}
+
+                    echo "RESULT_DIR=${dir_name}" >> "$GITHUB_ENV"
+
+            -   name: "运行测试程序"
+                run: |
+                    output_log=${RESULT_DIR}/memcheck_result.log
+
+                    ./shell/workflow/memery_test_info/do_valgrind_memcheck.sh ${MEMCHECK_EXEC_PATH} ${output_log}
+
+                    if [ ! -f ${output_log} ];then
+                        echo file ${output_log} not exists
+                        exit -1
+                    fi
+
+            -   name: "打包测试结果"
+                run: |
+                    tar -zcvf memcheck_result.tar.gz ${MEMCHECK_EXEC_PATH}/
+
+    job_3:
+        name: "发送通知邮件"
+        needs: ["job_2"]
+        runs-on: ["self-hosted", "linux"]
+        steps:
+            -   name: ""
+                run: echo "请编写发送邮件的脚本"
