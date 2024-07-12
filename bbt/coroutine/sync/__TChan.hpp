@@ -183,25 +183,25 @@ int Chan<TItem>::_WaitWithTimeout(int timeout_ms)
 }
 
 template<class TItem>
-bool operator<<(Chan<TItem> chan, const typename Chan<TItem>::ItemType& item)
+bool operator<<(Chan<TItem>& chan, const typename Chan<TItem>::ItemType& item)
 {
     return (chan.Write(item) == 0);
 }
 
 template<class TItem>
-bool operator>>(Chan<TItem> chan, const typename Chan<TItem>::ItemType& item)
+bool operator>>(Chan<TItem>& chan, const typename Chan<TItem>::ItemType& item)
 {
     return (chan.Read(item) == 0);
 }
 
 template<class TItem>
-bool operator>>(typename Chan<TItem>::SPtr chan, const typename Chan<TItem>::ItemType& item)
+bool operator>>(typename Chan<TItem>::SPtr& chan, const TItem& item)
 {
     return (chan->Write(item) == 0);
 }
 
 template<class TItem>
-bool operator<<(typename Chan<TItem>::SPtr chan, const typename Chan<TItem>::ItemType& item)
+bool operator<<(typename Chan<TItem>::SPtr& chan, TItem& item)
 {
     return (chan->Read(item) == 0);
 }

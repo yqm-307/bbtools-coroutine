@@ -18,7 +18,7 @@ class Chan:
 {
 public:
     typedef TItem ItemType;
-    typedef std::shared_ptr<Chan<ItemType>> SPtr;
+    typedef std::shared_ptr<Chan> SPtr;
 
     Chan(int max_queue_size = 65535);
     ~Chan();
