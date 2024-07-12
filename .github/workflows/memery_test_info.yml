@@ -1,6 +1,7 @@
 name: 内存检测
 
 on:
+    workflow_dispatch:
     # schedule 默认在默认分支工作
     schedule:
         # 每周5下午5点半
