@@ -72,21 +72,26 @@ BOOST_AUTO_TEST_CASE(t_hook_write)
 
     bbtco[&l]()
     {
+        BOOST_TEST_MESSAGE("[server] server co=" << bbt::coroutine::GetLocalCoroutineId());
         int fd = bbt::net::Util::CreateListen("", 10001, true);
         BOOST_ASSERT(fd >= 0);
+        BOOST_TEST_MESSAGE("[server] create succ listen fd=" << fd);
         sockaddr_in cli_addr;
         char *buf = new char[1024];
         memset(buf, '\0', 1024);
         socklen_t len = sizeof(cli_addr);
+
         int new_fd = ::accept(fd, (sockaddr *)(&cli_addr), &len);
         BOOST_ASSERT(new_fd >= 0);
+        BOOST_TEST_MESSAGE("[server] accept succ new_fd=" << new_fd);
         int read_len = ::read(new_fd, buf, 1024);
         BOOST_CHECK_GT(read_len, 0);
-        BOOST_CHECK_MESSAGE(std::string{msg} == std::string{buf}, "recv" << std::string{buf});
-        BOOST_TEST_MESSAGE("recv" << std::string{buf});
+        BOOST_ASSERT(std::string{msg} == std::string{buf});
+        BOOST_TEST_MESSAGE("[server] recv" << std::string{buf});
         ::close(fd);
         ::close(new_fd);
         l.Down();
+        BOOST_TEST_MESSAGE("[server] exit!");
     };
 
     bbtco[&l]()
@@ -101,10 +106,16 @@ BOOST_AUTO_TEST_CASE(t_hook_write)
         BOOST_ASSERT(fd >= 0);
         int ret = ::connect(fd, (sockaddr *)(&addr), sizeof(addr));
         BOOST_CHECK_MESSAGE(ret == 0, "[connect] errno=" << errno << "\tret=" << ret << "\tfd=" << fd);
+        BOOST_ASSERT(ret == 0);
+        BOOST_TEST_MESSAGE("[client] connect succ");
         ret = ::write(fd, msg, strlen(msg));
         BOOST_CHECK_MESSAGE(ret != -1, "[write] errno=" << errno << "\tret=" << ret << "\tfd=" << fd);
+        BOOST_ASSERT(ret != -1);
+        BOOST_TEST_MESSAGE("[client] send succ");
+        ::sleep(1);
         ::close(fd);
         l.Down();
+        BOOST_TEST_MESSAGE("[client] exit!");
     };
 
     l.Wait();

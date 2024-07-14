@@ -6,7 +6,7 @@ option(RELEASE          "开启将开启优化并不生成debug信息，否则�
 option(NEED_BENCHMARK   "开启将生成Benchmark文件"        ON)
 option(NEED_EXAMPLE     "开启将生成example"              ON)              
 option(NEED_TEST        "开启将生成test文件"             ON)      
-option(PROFILE          "开启将启用profile"              ON)       
+option(PROFILE          "开启将启用profile"              OFF)
 
 if (RELEASE)
     set(CMAKE_CXX_FALGS "${CMAKE_CXX_FLAGS} -std=c++17 -O2")

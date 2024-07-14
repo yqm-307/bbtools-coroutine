@@ -321,7 +321,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/bin/unit_test/Test_hook",
-            "args": [],
+            "args": ["--log_level=message"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/build/bin/unit_test/",
             "environment": [],
