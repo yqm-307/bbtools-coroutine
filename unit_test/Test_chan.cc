@@ -80,7 +80,7 @@ BOOST_AUTO_TEST_CASE(t_chan_operator_overload)
 
     bbtco [&count, wait_ms, &l] () {
         bool succ = false;
-        auto chan = MakeChan<int>();
+        auto chan = Chan<int>();
         int write_val = 1;
         succ = chan << write_val;
         BOOST_ASSERT(succ);

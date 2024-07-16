@@ -17,7 +17,7 @@ namespace bbt::coroutine
 detail::CoroutineId GetLocalCoroutineId();
 
 template<class TItem>
-inline typename sync::Chan<TItem>::SPtr MakeChan(size_t max = 65535)
+inline typename sync::Chan<TItem>::SPtr Chan(size_t max = 65535)
 { return std::make_shared<bbt::coroutine::sync::Chan<TItem>>(max); }
 
 }
