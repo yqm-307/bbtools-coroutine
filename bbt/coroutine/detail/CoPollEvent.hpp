@@ -31,6 +31,7 @@ public:
     bool                            IsListening() const;
     bool                            IsFinal() const;
     CoPollEventStatus               GetStatus() const;
+    int                             GetFd() const;
 
     void                            Trigger(short trigger_events);
     /* 初始化后调用Regist注册事件 */

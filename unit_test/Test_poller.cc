@@ -33,6 +33,8 @@ BOOST_AUTO_TEST_CASE(t_poller_timeout_event_single)
     while (count != 1)
     {
         CoPoller::GetInstance()->PollOnce();
+        std::this_thread::sleep_for(bbt::clock::milliseconds(1));
+        printf("poll once %ld \n", bbt::clock::gettime());
     }
 
     BOOST_CHECK_GE(end_ts - begin_ts, 995);    // 超时时间不能提前
@@ -119,10 +121,10 @@ BOOST_AUTO_TEST_CASE(t_poller_timerout_event_multi_thread)
     std::vector<CoPollEvent::SPtr>  events;
     std::mutex                      events_mutex;
 
-    for (int i = 0; i < 10; ++i)
+    for (int i = 0; i < 2; ++i)
     {
         auto t = new std::thread([&](){
-            for (int i = 0; i < 1000; ++i)
+            for (int i = 0; i < 5000; ++i)
             {
                 auto co_sptr = Coroutine::Create(4096, [](){}, false);
                 auto event = CoPollEvent::Create(co_sptr, [&count, &m_end_mutex, &m_end_time_map, co_sptr](auto, int, int){

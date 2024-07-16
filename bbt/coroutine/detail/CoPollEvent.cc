@@ -149,7 +149,7 @@ int CoPollEvent::_RegistCustomEvent()
 
 int CoPollEvent::_RegistFdEvent()
 {
-    return m_event->StartListen(m_timeout);
+    return m_event->StartListen((m_timeout < 0 ? 0 : m_timeout));
 }
 
 
@@ -187,6 +187,12 @@ CoPollEventStatus CoPollEvent::GetStatus() const
 {
     return m_run_status;
 }
+
+int CoPollEvent::GetFd() const
+{
+    return m_event->GetSocket();
+}
+
 
 
 }

@@ -2,6 +2,7 @@
 #include <queue>
 #include <mutex>
 #include <atomic>
+#include <bbt/base/templateutil/Noncopyable.hpp>
 #include <bbt/coroutine/detail/Define.hpp>
 #include <bbt/coroutine/detail/Coroutine.hpp>
 #include <bbt/coroutine/sync/interface/IChan.hpp>
@@ -12,10 +13,12 @@ namespace bbt::coroutine::sync
 
 template<class TItem>
 class Chan:
-    public IChan<TItem>
+    public IChan<TItem>,
+    bbt::templateutil::noncopyable
 {
 public:
     typedef TItem ItemType;
+    typedef std::shared_ptr<Chan> SPtr;
 
     Chan(int max_queue_size = 65535);
     ~Chan();
