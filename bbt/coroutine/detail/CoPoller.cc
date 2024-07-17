@@ -32,6 +32,7 @@ std::shared_ptr<bbt::pollevent::Event> CoPoller::CreateEvent(int fd, short event
 
 bool CoPoller::PollOnce()
 {
+    errno = 0;
     bool ret = (m_event_loop->StartLoop(bbt::pollevent::EventLoopOpt::LOOP_NONBLOCK) == 0);
 
     std::queue<std::shared_ptr<CoPollEvent>> m_swap_queue;
@@ -67,6 +68,11 @@ int CoPoller::NotifyCustomEvent(std::shared_ptr<CoPollEvent> event)
     m_custom_event_active_queue.push(event);
 
     return 0;
+}
+
+int64_t CoPoller::GetTime()
+{
+    return m_event_loop->GetTime();
 }
 
 }

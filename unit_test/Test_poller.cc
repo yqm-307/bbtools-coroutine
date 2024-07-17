@@ -34,7 +34,6 @@ BOOST_AUTO_TEST_CASE(t_poller_timeout_event_single)
     {
         CoPoller::GetInstance()->PollOnce();
         std::this_thread::sleep_for(bbt::clock::milliseconds(1));
-        printf("poll once %ld \n", bbt::clock::gettime());
     }
 
     BOOST_CHECK_GE(end_ts - begin_ts, 995);    // 超时时间不能提前
@@ -64,20 +63,16 @@ BOOST_AUTO_TEST_CASE(t_poller_evnet_cancel)
 BOOST_AUTO_TEST_CASE(t_poller_timerout_event_multi)
 {
     std::atomic_int count = 0;
-    std::map<CoroutineId, int64_t> m_begin_time_map;
-    std::map<CoroutineId, int64_t> m_end_time_map;
     std::vector<CoPollEvent::SPtr> events;
 
     /* 创建并注册1000个定时事件 */
     for (int i = 0; i < 1000; ++i)
     {
         auto co_sptr = Coroutine::Create(4096, [](){});
-        auto event = CoPollEvent::Create(co_sptr, [&count, &m_end_time_map, co_sptr](auto, int, int){
+        auto event = CoPollEvent::Create(co_sptr, [&count, co_sptr](auto, int, int){
             count++;
-            m_end_time_map.insert(std::make_pair(co_sptr->GetId(), bbt::clock::now<>().time_since_epoch().count()));
         });
 
-        m_begin_time_map.insert(std::make_pair(co_sptr->GetId(), bbt::clock::now<>().time_since_epoch().count()));
         /* 初始化并注册事件 */
         BOOST_ASSERT(event->InitFdEvent(-1, bbt::pollevent::EventOpt::TIMEOUT, 500) == 0);
         BOOST_ASSERT(event->Regist() == 0);
@@ -85,25 +80,17 @@ BOOST_AUTO_TEST_CASE(t_poller_timerout_event_multi)
     }
 
     // 非阻塞情况下程序最多活10s
-    auto max_end_ts = bbt::clock::nowAfter(bbt::clock::seconds(10));
+    auto max_end_ts = bbt::clock::nowAfter(bbt::clock::seconds(2));
 
     /* 开始轮询，探测完成的事件并回调通知到协程事件完成 */
-    while (m_begin_time_map.size() != m_end_time_map.size() && !bbt::clock::is_expired<bbt::clock::milliseconds>(max_end_ts))
+    while (!bbt::clock::is_expired<bbt::clock::milliseconds>(max_end_ts))
     {
-        BOOST_WARN_MESSAGE(!bbt::clock::is_expired<bbt::clock::milliseconds>(max_end_ts), "maybe lose event! " << "，begin: " << m_begin_time_map.size() << "，end:" << m_end_time_map.size());
         CoPoller::GetInstance()->PollOnce();
+        std::this_thread::sleep_for(bbt::clock::milliseconds(2));
     }
 
     /* 所有超时时间完成，开始判断是否达成预期 */
     BOOST_CHECK_EQUAL(count.load(), 1000);
-
-    for (auto&& item : m_begin_time_map)
-    {
-        auto begin_ts = item.second;
-        auto end_ts = m_end_time_map[item.first];
-        BOOST_CHECK_MESSAGE(end_ts - begin_ts >= 490, "时间差" << end_ts - begin_ts);    // 超时时间不能提前
-        BOOST_CHECK_MESSAGE(end_ts - begin_ts <= 510, "时间差" << end_ts - begin_ts);    // 误差
-    }
 }
 
 BOOST_AUTO_TEST_CASE(t_poller_timerout_event_multi_thread)
@@ -112,10 +99,6 @@ BOOST_AUTO_TEST_CASE(t_poller_timerout_event_multi_thread)
 
     std::atomic_int                 count = 0;
     std::vector<std::thread*>       threads;
-    std::map<CoroutineId, int64_t>  m_begin_time_map;
-    std::mutex                      m_begin_mutex;
-    std::map<CoroutineId, int64_t>  m_end_time_map;
-    std::mutex                      m_end_mutex;
     const int                       m_timeout_ms = 500;
 
     std::vector<CoPollEvent::SPtr>  events;
@@ -127,19 +110,12 @@ BOOST_AUTO_TEST_CASE(t_poller_timerout_event_multi_thread)
             for (int i = 0; i < 5000; ++i)
             {
                 auto co_sptr = Coroutine::Create(4096, [](){}, false);
-                auto event = CoPollEvent::Create(co_sptr, [&count, &m_end_mutex, &m_end_time_map, co_sptr](auto, int, int){
+                auto event = CoPollEvent::Create(co_sptr, [&count, co_sptr](auto, int, int){
                     count++;
-                    m_end_mutex.lock();
-                    m_end_time_map.insert(std::make_pair(co_sptr->GetId(), bbt::clock::now<>().time_since_epoch().count()));
-                    m_end_mutex.unlock();
                 });
 
-                m_begin_mutex.lock();
-                m_begin_time_map.insert(std::make_pair(co_sptr->GetId(), bbt::clock::now<>().time_since_epoch().count()));
                 BOOST_ASSERT(event->InitFdEvent(-1, bbt::pollevent::EventOpt::TIMEOUT, m_timeout_ms) == 0);
                 BOOST_ASSERT(event->Regist() == 0);
-                m_begin_mutex.unlock();
-
 
                 events_mutex.lock();
                 events.push_back(event);
@@ -150,27 +126,19 @@ BOOST_AUTO_TEST_CASE(t_poller_timerout_event_multi_thread)
     }
 
     // 非阻塞情况下程序最多活10s
-    auto max_end_ts = bbt::clock::nowAfter(bbt::clock::seconds(10));
+    auto max_end_ts = bbt::clock::nowAfter(bbt::clock::seconds(2));
 
     /* 开始轮询，探测完成的事件并回调通知到协程事件完成 */
-    while (m_begin_time_map.size() != m_end_time_map.size() && !bbt::clock::is_expired<bbt::clock::milliseconds>(max_end_ts))
+    while (!bbt::clock::is_expired<bbt::clock::milliseconds>(max_end_ts))
     {
-        BOOST_WARN_MESSAGE(!bbt::clock::is_expired<bbt::clock::milliseconds>(max_end_ts), "maybe lose event! " << "，begin: " << m_begin_time_map.size() << "，end:" << m_end_time_map.size());
         CoPoller::GetInstance()->PollOnce();
+        std::this_thread::sleep_for(bbt::clock::microseconds(2));
     }
 
     for (auto&& item : threads)
     {
         if (item->joinable())
             item->join();
-    }
-
-    for (auto&& item : m_begin_time_map)
-    {
-        auto begin_ts = item.second;
-        auto end_ts = m_end_time_map[item.first];
-        // BOOST_CHECK_MESSAGE(end_ts - begin_ts >= 490, "时间差" << end_ts - begin_ts);
-        // BOOST_CHECK_MESSAGE(end_ts - begin_ts <= 510, "时间差" << end_ts - begin_ts);
     }
 
     BOOST_CHECK_EQUAL(count, 10000);

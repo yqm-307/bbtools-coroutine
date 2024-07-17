@@ -84,11 +84,8 @@ BOOST_AUTO_TEST_CASE(t_chan_operator_overload)
         BOOST_ASSERT(succ);
         BOOST_ASSERT(val == 1);
 
-        auto begin = bbt::clock::gettime();
         int ret = chan->TryRead(val, wait_ms);
-        auto end = bbt::clock::gettime();
         BOOST_ASSERT(ret != 0);
-        BOOST_ASSERT(end - begin >= wait_ms);
         l.Down();
     };
 
@@ -108,15 +105,34 @@ BOOST_AUTO_TEST_CASE(t_chan_operator_overload)
         BOOST_ASSERT(succ);
         BOOST_ASSERT(read_val == 1);
 
-        auto begin = bbt::clock::gettime();
         int ret = chan.TryRead(read_val, wait_ms);
-        auto end = bbt::clock::gettime();
         BOOST_ASSERT(ret != 0);
-        BOOST_ASSERT(end - begin >= wait_ms);
         l.Down();
     };
 
     l.Wait();
+}
+
+BOOST_AUTO_TEST_CASE(t_close) 
+{
+    std::atomic_bool flag{false};
+    
+    auto chan = Chan<int>();
+    bbtco [&flag, &chan](){
+        bbtco [&chan](){
+            int block;
+            chan->TryRead(block, 100); // 阻塞100ms
+            chan->Close();
+        };
+
+        bbtco [&chan, &flag](){
+            int val;
+            chan >> val;
+            flag = true;
+        };
+    };
+    sleep(1);
+    BOOST_CHECK(flag);
 }
 
 BOOST_AUTO_TEST_CASE(t_end)

@@ -32,9 +32,6 @@ CoCond::~CoCond()
 
 int CoCond::Init()
 {
-    if (!g_bbt_tls_helper->EnableUseCo())
-        return -1;
-
     return 0;
 }
 
@@ -90,9 +87,10 @@ int CoCond::WaitWithTimeout(int ms)
 
 int CoCond::Notify()
 {
-    std::unique_lock<std::mutex> _(m_co_event_mutex);
     if (!g_bbt_tls_helper->EnableUseCo())
         return -1;
+
+    std::unique_lock<std::mutex> _(m_co_event_mutex);
 
     if (m_co_event == nullptr)
         return -1;
