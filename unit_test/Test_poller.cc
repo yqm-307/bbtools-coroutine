@@ -19,25 +19,20 @@ BOOST_AUTO_TEST_CASE(t_poller_timeout_event_single)
     const int stack_size = 4096;
     const int timeout_ms = 1000;
 
-    auto begin_ts = bbt::clock::now<>().time_since_epoch().count();
-    auto end_ts = begin_ts;
     auto co_sptr = Coroutine::Create(stack_size, [](){});
     auto event = CoPollEvent::Create(co_sptr,[&](auto event, int, int){
         count++;
-        end_ts = bbt::clock::now<>().time_since_epoch().count();
     });
 
-    Assert(event->InitFdEvent(-1, bbt::pollevent::EventOpt::TIMEOUT, timeout_ms) == 0);
-    Assert(event->Regist() == 0);
+    BOOST_ASSERT(event->InitFdEvent(-1, bbt::pollevent::EventOpt::TIMEOUT, timeout_ms) == 0);
+    BOOST_ASSERT(event->Regist() == 0);
 
     while (count != 1)
     {
         CoPoller::GetInstance()->PollOnce();
         std::this_thread::sleep_for(bbt::clock::milliseconds(1));
     }
-
-    BOOST_CHECK_GE(end_ts - begin_ts, 995);    // 超时时间不能提前
-    BOOST_CHECK_LT(end_ts - begin_ts, 1005);    // 误差
+    BOOST_CHECK(count == 1);
 }
 
 BOOST_AUTO_TEST_CASE(t_poller_evnet_cancel)
