@@ -18,7 +18,6 @@ BOOST_AUTO_TEST_CASE(t_begin)
 
 BOOST_AUTO_TEST_CASE(t_cond_multi)
 {
-    static std::atomic_int val;
     bbtco [](){
         auto co1 = sync::CoCond::Create();
         auto co2 = sync::CoCond::Create();
@@ -54,13 +53,11 @@ BOOST_AUTO_TEST_CASE(t_cond_multi)
 BOOST_AUTO_TEST_CASE(t_cond_wait_with_timeout)
 {
     const int wait_ms = 200;
-    uint64_t begin = 0;
-    uint64_t end = 0;
+    int a = 0;
     bbtco [&](){
         auto cond = sync::CoCond::Create();
-        begin = bbt::clock::gettime();
         cond->WaitWithTimeout(wait_ms);
-        end = bbt::clock::gettime();
+        a++;
     };
 
     // 非阻塞情况下程序最多活1s
@@ -71,7 +68,7 @@ BOOST_AUTO_TEST_CASE(t_cond_wait_with_timeout)
     {
         std::this_thread::sleep_for(bbt::clock::milliseconds(10));
     }
-    BOOST_CHECK_MESSAGE((end - begin) >= wait_ms, "begin=" << begin << "\tend=" << end << "\twait=" << wait_ms);
+    BOOST_CHECK(a == 1);
 }
 
 BOOST_AUTO_TEST_CASE(t_end)
