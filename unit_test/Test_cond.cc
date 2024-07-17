@@ -18,6 +18,7 @@ BOOST_AUTO_TEST_CASE(t_begin)
 
 BOOST_AUTO_TEST_CASE(t_cond_multi)
 {
+    static std::atomic_int val;
     bbtco [](){
         auto co1 = sync::CoCond::Create();
         auto co2 = sync::CoCond::Create();
