@@ -10,24 +10,24 @@
 namespace bbt::coroutine::sync
 {
 
-template<class TItem>
-Chan<TItem>::Chan(int max_queue_size):
+template<class TItem, uint32_t Max>
+Chan<TItem, Max>::Chan(int max_queue_size):
     m_max_size(max_queue_size),
-    m_cond(CoCond::Create())
+    m_enable_read_cond(CoCond::Create())
 {
     Assert(m_max_size > 0);
     m_run_status = ChanStatus::CHAN_OPEN;
 }
 
-template<class TItem>
-Chan<TItem>::~Chan()
+template<class TItem, uint32_t Max>
+Chan<TItem, Max>::~Chan()
 {
     if (!IsClosed())
         Close();
 }
 
-template<class TItem>
-int Chan<TItem>::Write(const ItemType& item)
+template<class TItem, uint32_t Max>
+int Chan<TItem, Max>::Write(const ItemType& item)
 {
     if (IsClosed())
         return -1;
@@ -42,8 +42,8 @@ int Chan<TItem>::Write(const ItemType& item)
     return 0;
 }
 
-template<class TItem>
-int Chan<TItem>::Read(ItemType& item)
+template<class TItem, uint32_t Max>
+int Chan<TItem, Max>::Read(ItemType& item)
 {
     // 如果信道关闭，不可以读了
     if (IsClosed())
@@ -70,8 +70,8 @@ int Chan<TItem>::Read(ItemType& item)
 }
 
 
-template<class TItem>
-int Chan<TItem>::ReadAll(std::vector<ItemType>& items)
+template<class TItem, uint32_t Max>
+int Chan<TItem, Max>::ReadAll(std::vector<ItemType>& items)
 {
     if (IsClosed())
         return -1;
@@ -97,8 +97,20 @@ int Chan<TItem>::ReadAll(std::vector<ItemType>& items)
     return 0;
 }
 
-template<class TItem>
-int Chan<TItem>::TryRead(ItemType& item)
+template<class TItem, uint32_t Max>
+int Chan<TItem, Max>::TryWrite(const ItemType& item)
+{
+    
+}
+
+template<class TItem, uint32_t Max>
+int Chan<TItem, Max>::TryWrite(const ItemType& item, int timeout)
+{
+
+}
+
+template<class TItem, uint32_t Max>
+int Chan<TItem, Max>::TryRead(ItemType& item)
 {
     if (IsClosed())
         return -1;
@@ -118,8 +130,8 @@ int Chan<TItem>::TryRead(ItemType& item)
     return 0;
 }
 
-template<class TItem>
-int Chan<TItem>::TryRead(ItemType& item, int timeout)
+template<class TItem, uint32_t Max>
+int Chan<TItem, Max>::TryRead(ItemType& item, int timeout)
 {
     if (IsClosed())
         return -1;
@@ -148,8 +160,8 @@ int Chan<TItem>::TryRead(ItemType& item, int timeout)
     return 0;
 }
 
-template<class TItem>
-void Chan<TItem>::Close()
+template<class TItem, uint32_t Max>
+void Chan<TItem, Max>::Close()
 {
     if (IsClosed())
         return;
@@ -158,50 +170,50 @@ void Chan<TItem>::Close()
     m_run_status = ChanStatus::CHAN_CLOSE;
 }
 
-template<class TItem>
-bool Chan<TItem>::IsClosed()
+template<class TItem, uint32_t Max>
+bool Chan<TItem, Max>::IsClosed()
 {
     return (m_run_status == ChanStatus::CHAN_CLOSE);
 }
 
-template<class TItem>
-int Chan<TItem>::_Wait()
+template<class TItem, uint32_t Max>
+int Chan<TItem, Max>::_Wait()
 {
-    return m_cond->Wait();
+    return m_enable_read_cond->Wait();
 }
 
-template<class TItem>
-int Chan<TItem>::_Notify()
+template<class TItem, uint32_t Max>
+int Chan<TItem, Max>::_Notify()
 {
-    return m_cond->Notify();
+    return m_enable_read_cond->Notify();
 }
 
-template<class TItem>
-int Chan<TItem>::_WaitWithTimeout(int timeout_ms)
+template<class TItem, uint32_t Max>
+int Chan<TItem, Max>::_WaitWithTimeout(int timeout_ms)
 {
-    return m_cond->WaitWithTimeout(timeout_ms);
+    return m_enable_read_cond->WaitWithTimeout(timeout_ms);
 }
 
-template<class TItem>
-bool operator<<(Chan<TItem>& chan, const typename Chan<TItem>::ItemType& item)
+template<class TItem, uint32_t Max>
+bool operator<<(Chan<TItem, Max>& chan, const typename Chan<TItem, Max>::ItemType& item)
 {
     return (chan.Write(item) == 0);
 }
 
-template<class TItem>
-bool operator>>(Chan<TItem>& chan, typename Chan<TItem>::ItemType& item)
+template<class TItem, uint32_t Max>
+bool operator>>(Chan<TItem, Max>& chan, typename Chan<TItem, Max>::ItemType& item)
 {
     return (chan.Read(item) == 0);
 }
 
-template<class TItem>
-bool operator<<(typename Chan<TItem>::SPtr& chan, const TItem& item)
+template<class TItem, uint32_t Max>
+bool operator<<(typename Chan<TItem, Max>::SPtr& chan, const TItem& item)
 {
     return (chan->Write(item) == 0);
 }
 
-template<class TItem>
-bool operator>>(typename Chan<TItem>::SPtr& chan, TItem& item)
+template<class TItem, uint32_t Max>
+bool operator>>(typename Chan<TItem, Max>::SPtr& chan, TItem& item)
 {
     return (chan->Read(item) == 0);
 }

@@ -11,7 +11,7 @@
 namespace bbt::coroutine::sync
 {
 
-template<class TItem>
+template<class TItem, uint32_t Max = 0>
 class Chan:
     public IChan<TItem>,
     bbt::templateutil::noncopyable
@@ -29,6 +29,8 @@ public:
 
     virtual int                             TryRead(ItemType& item) override;
     virtual int                             TryRead(ItemType& item, int timeout) override;
+    virtual int                             TryWrite(const ItemType& item) override;
+    virtual int                             TryWrite(const ItemType& item, int timeout) override;
     virtual void                            Close() override;
     virtual bool                            IsClosed() override;
 protected:
@@ -41,7 +43,9 @@ private:
     std::mutex                              m_item_queue_mutex;
     volatile ChanStatus                     m_run_status{ChanStatus::CHAN_DEFAUTL};
     std::atomic_bool                        m_is_reading{false};
-    CoCond::SPtr                            m_cond{nullptr};
+    /* 用来实现读写时挂起和可读写时唤醒协程 */
+    CoCond::SPtr                            m_enable_read_cond{nullptr};
+    CoCond::SPtr                            m_enable_write_cond{nullptr};
 };
 
 }
