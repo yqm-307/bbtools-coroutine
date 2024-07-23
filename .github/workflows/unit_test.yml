@@ -18,6 +18,10 @@ jobs:
         steps: 
             -   name: "拉取代码库"
                 uses: actions/checkout@v4
+                with:
+                    ssh-user: "yqm-307"
+                    submodules: "recursive"
+                    github-server-url: "https://github.com"
             
             -   name: "输出代码库文件tree"
                 run: |
