@@ -32,6 +32,7 @@ public:
     bool                            IsFinal() const;
     CoPollEventStatus               GetStatus() const;
     int                             GetFd() const;
+    int64_t                         GetTimeout() const;
 
     void                            Trigger(short trigger_events);
     /* 初始化后调用Regist注册事件 */

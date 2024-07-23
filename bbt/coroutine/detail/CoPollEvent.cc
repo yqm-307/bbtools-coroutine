@@ -193,6 +193,10 @@ int CoPollEvent::GetFd() const
     return m_event->GetSocket();
 }
 
+int64_t CoPollEvent::GetTimeout() const
+{
+    return m_event->GetTimeoutMs();
+}
 
 
 }

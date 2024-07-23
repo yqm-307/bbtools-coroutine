@@ -15,9 +15,16 @@ CoPoller::UPtr& CoPoller::GetInstance()
 }
 
 
-CoPoller::CoPoller():
-    m_event_loop(std::make_shared<bbt::pollevent::EventLoop>())
+CoPoller::CoPoller()
 {
+    auto* base = new bbt::pollevent::EventBase(
+        bbt::pollevent::EventBaseConfigFlag::NO_CACHE_TIME |
+        bbt::pollevent::EventBaseConfigFlag::PRECISE_TIMER);
+    
+    Assert(base != nullptr);
+
+    m_event_loop = std::make_shared<bbt::pollevent::EventLoop>(base, true);
+    Assert(m_event_loop != nullptr);
 }
 
 CoPoller::~CoPoller()
