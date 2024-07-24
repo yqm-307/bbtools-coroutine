@@ -15,6 +15,7 @@ Chan<TItem, Max>::Chan(int max_queue_size):
     m_max_size(max_queue_size),
     m_enable_read_cond(CoCond::Create())
 {
+    static_assert(Max >= 1);
     Assert(m_max_size > 0);
     m_run_status = ChanStatus::CHAN_OPEN;
 }
@@ -32,12 +33,15 @@ int Chan<TItem, Max>::Write(const ItemType& item)
     if (IsClosed())
         return -1;
 
-    std::unique_lock<std::mutex> _(m_item_queue_mutex);
-    if (m_item_queue.size() >= m_max_size)
-        return -1;
+    // std::unique_lock<std::mutex> _(m_item_queue_mutex);
+    m_item_queue_mutex.lock();
+    if (m_item_queue.size() >= m_max_size) {
+        m_item_queue_mutex.unlock();
+        _WaitUntilEnableWrite();
+    }
     
     m_item_queue.push(item);
-    if (m_is_reading) _Notify();
+    if (m_is_reading) _OnEnableRead();
 
     return 0;
 }
@@ -57,7 +61,7 @@ int Chan<TItem, Max>::Read(ItemType& item)
     if (m_item_queue.empty()) {
         m_item_queue_mutex.unlock();
         // 这里释放锁是因为协程会挂起，如果不释放其他做写操作的协程没法写
-        _Wait();    // 挂起，直到其他协程写
+        _WaitUntilEnableRead();    // 挂起，直到其他协程写
         m_item_queue_mutex.lock();
     }
     
@@ -83,7 +87,7 @@ int Chan<TItem, Max>::ReadAll(std::vector<ItemType>& items)
     m_item_queue_mutex.lock();
     if (m_item_queue.empty()) {
         m_item_queue_mutex.unlock();
-        _Wait();
+        _WaitUntilEnableRead();
         m_item_queue_mutex.lock();
     }
 
@@ -100,13 +104,34 @@ int Chan<TItem, Max>::ReadAll(std::vector<ItemType>& items)
 template<class TItem, uint32_t Max>
 int Chan<TItem, Max>::TryWrite(const ItemType& item)
 {
+    if (IsClosed())
+        return -1;
+
+    std::unique_lock<std::mutex> _(m_item_queue_mutex);
+    if (m_item_queue.size() >= m_max_size)
+        return -1;
     
+    m_item_queue.push(item);
+    if (m_is_reading) _OnEnableRead();
+
+    return 0;
 }
 
 template<class TItem, uint32_t Max>
 int Chan<TItem, Max>::TryWrite(const ItemType& item, int timeout)
 {
+    if (IsClosed())
+        return -1;
 
+    std::unique_lock<std::mutex> _(m_item_queue_mutex);
+    if (m_item_queue.size() >= Max) {
+
+    }
+    
+    m_item_queue.push(item);
+    if (m_is_reading) _OnEnableRead();
+
+    return 0;
 }
 
 template<class TItem, uint32_t Max>
@@ -143,7 +168,7 @@ int Chan<TItem, Max>::TryRead(ItemType& item, int timeout)
     m_item_queue_mutex.lock();
     if (m_item_queue.empty()) {
         m_item_queue_mutex.unlock();
-        _WaitWithTimeout(timeout);
+        _WaitUntilEnableReadOrTimeout(timeout);
         m_item_queue_mutex.lock();
     }
 
@@ -165,9 +190,18 @@ void Chan<TItem, Max>::Close()
 {
     if (IsClosed())
         return;
-    
-    if (m_is_reading) _Notify();
+
     m_run_status = ChanStatus::CHAN_CLOSE;
+
+    std::unique_lock<std::mutex> _(m_item_queue_mutex);
+    /* 唤醒所有阻塞在Channel上的协程 */
+    if (m_is_reading) _OnEnableRead();
+
+    while (!m_enable_write_conds.empty()) {
+        auto enable_write_cond = m_enable_write_conds.front();
+        m_enable_write_conds.pop();
+        enable_write_cond->Notify();
+    }
 }
 
 template<class TItem, uint32_t Max>
@@ -177,19 +211,51 @@ bool Chan<TItem, Max>::IsClosed()
 }
 
 template<class TItem, uint32_t Max>
-int Chan<TItem, Max>::_Wait()
+int Chan<TItem, Max>::_WaitUntilEnableRead()
 {
     return m_enable_read_cond->Wait();
 }
 
 template<class TItem, uint32_t Max>
-int Chan<TItem, Max>::_Notify()
+int Chan<TItem, Max>::_WaitUntilEnableWrite()
+{
+    auto enable_write_cond = CoCond::Create();
+    Assert(enable_write_cond != nullptr);
+    m_enable_write_conds.push(enable_write_cond);
+
+    return enable_write_cond->Wait();
+}
+
+template<class TItem, uint32_t Max>
+int Chan<TItem, Max>::_WaitUntilEnableWriteOrTimeout(int timeout_ms)
+{
+    auto enable_write_or_timeout_cond = CoCond::Create();
+    Assert(enable_write_or_timeout_cond != nullptr);
+    m_enable_write_conds.push(enable_write_or_timeout_cond);
+
+    return enable_write_or_timeout_cond->WaitWithTimeout(timeout_ms);
+}
+
+template<class TItem, uint32_t Max>
+int Chan<TItem, Max>::_OnEnableRead()
 {
     return m_enable_read_cond->Notify();
 }
 
 template<class TItem, uint32_t Max>
-int Chan<TItem, Max>::_WaitWithTimeout(int timeout_ms)
+int Chan<TItem, Max>::_OnEnableWrite()
+{
+    if (m_enable_write_conds.empty())
+        return 0;
+
+    auto enable_write_cond = m_enable_write_conds.back();
+    m_enable_write_conds.pop();
+
+    return enable_write_cond->Notify();
+}
+
+template<class TItem, uint32_t Max>
+int Chan<TItem, Max>::_WaitUntilEnableReadOrTimeout(int timeout_ms)
 {
     return m_enable_read_cond->WaitWithTimeout(timeout_ms);
 }

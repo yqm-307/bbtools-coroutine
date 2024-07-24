@@ -11,7 +11,7 @@
 namespace bbt::coroutine::sync
 {
 
-template<class TItem, uint32_t Max = 0>
+template<class TItem, uint32_t Max>
 class Chan:
     public IChan<TItem>,
     bbt::templateutil::noncopyable
@@ -34,9 +34,17 @@ public:
     virtual void                            Close() override;
     virtual bool                            IsClosed() override;
 protected:
-    int                                     _Wait();
-    int                                     _WaitWithTimeout(int timeout_ms);
-    int                                     _Notify();
+    /* 挂起协程直到可读或者eof */
+    int                                     _WaitUntilEnableRead();
+    /* 挂起协程知道可读或者超时 */
+    int                                     _WaitUntilEnableReadOrTimeout(int timeout_ms);
+    int                                     _WaitUntilEnableWrite();
+    int                                     _WaitUntilEnableWriteOrTimeout(int timeout_ms);
+    /* 可读 */
+    int                                     _OnEnableRead();
+    /* 可写 */
+    int                                     _OnEnableWrite();
+    
 private:
     const int                               m_max_size{-1};
     std::queue<ItemType>                    m_item_queue;
@@ -45,9 +53,17 @@ private:
     std::atomic_bool                        m_is_reading{false};
     /* 用来实现读写时挂起和可读写时唤醒协程 */
     CoCond::SPtr                            m_enable_read_cond{nullptr};
-    CoCond::SPtr                            m_enable_write_cond{nullptr};
+    std::queue<CoCond::SPtr>                m_enable_write_conds;
 };
 
+template<class TItem, uint32_t Max = 0>
+class Chan:
+    public: Chan<class TItem, 1>
+{
+public:
+    virtual int Write(const ItemType& item) override;
+
+};
 }
 
 #include <bbt/coroutine/sync/__TChan.hpp>
