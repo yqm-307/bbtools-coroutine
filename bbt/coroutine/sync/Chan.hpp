@@ -2,6 +2,7 @@
 #include <queue>
 #include <mutex>
 #include <atomic>
+#include <array>
 #include <bbt/base/templateutil/Noncopyable.hpp>
 #include <bbt/coroutine/detail/Define.hpp>
 #include <bbt/coroutine/detail/Coroutine.hpp>
@@ -11,7 +12,7 @@
 namespace bbt::coroutine::sync
 {
 
-template<class TItem, uint32_t Max>
+template<class TItem, int Max>
 class Chan:
     public IChan<TItem>,
     bbt::templateutil::noncopyable
@@ -20,7 +21,7 @@ public:
     typedef TItem ItemType;
     typedef std::shared_ptr<Chan> SPtr;
 
-    Chan(int max_queue_size = 65535);
+    Chan();
     ~Chan();
 
     virtual int                             Write(const ItemType& item) override;
@@ -34,16 +35,43 @@ public:
     virtual void                            Close() override;
     virtual bool                            IsClosed() override;
 protected:
-    /* 挂起协程直到可读或者eof */
+    /**
+     * @brief 挂起协程直到可读或者eof
+     * @return 0表示可读，-1表示失败 
+     */
     int                                     _WaitUntilEnableRead();
-    /* 挂起协程知道可读或者超时 */
+
+    /**
+     * @brief 挂起协程直到可读或超时
+     * @param timeout_ms 最大等待的超时时间，超过此时间后即使没有可读数据，阻塞协程也会被唤醒
+     * @return 0表示可读，-1表示失败，1表示超时
+     */
     int                                     _WaitUntilEnableReadOrTimeout(int timeout_ms);
-    int                                     _WaitUntilEnableWrite();
-    int                                     _WaitUntilEnableWriteOrTimeout(int timeout_ms);
-    /* 可读 */
+
+    /**
+     * @brief 挂起协程直到可写
+     * @param cond 挂起事件
+     * @return 0表示可写，-1表示失败
+     */
+    int                                     _WaitUntilEnableWrite(CoCond::SPtr cond);
+
+    /**
+     * @brief 挂起协程直到可写或超时
+     * @param cond 挂起事件
+     * @param timeout_ms 最大等待的超时时间，超过此时间后即使没有可写数据，阻塞协程也会被唤醒
+     * @return 0表示可写，-1表示失败，1表示超时
+     */
+    int                                     _WaitUntilEnableWriteOrTimeout(CoCond::SPtr cond, int timeout_ms);
+
+    /* 可读事件 */
     int                                     _OnEnableRead();
-    /* 可写 */
+    /**
+     * @brief 
+     * @return 0表示成功触发一个可写事件或没有可写事件需要触发，-1表示触发失败 
+     */
     int                                     _OnEnableWrite();
+    /* 创建一个可写事件 */
+    CoCond::SPtr                            _CreateAndPushEnableWriteCond();
     
 private:
     const int                               m_max_size{-1};
@@ -56,14 +84,14 @@ private:
     std::queue<CoCond::SPtr>                m_enable_write_conds;
 };
 
-template<class TItem, uint32_t Max = 0>
-class Chan:
-    public: Chan<class TItem, 1>
-{
-public:
-    virtual int Write(const ItemType& item) override;
+// template<class TItem, uint32_t Max = 0>
+// class Chan:
+//     public: Chan<class TItem, 1>
+// {
+// public:
+//     virtual int Write(const ItemType& item) override;
 
-};
+// };
 }
 
 #include <bbt/coroutine/sync/__TChan.hpp>

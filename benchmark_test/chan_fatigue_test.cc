@@ -13,7 +13,7 @@ int main()
     for (int i = 0; i < 100; ++i) {
         // chan读写协程
         bbtco [&read_count, &write_count, &write_failed](){
-            sync::Chan<int> chan;
+            sync::Chan<int, 65535> chan;
             for (int i = 0; i < 100; ++i) {
                 bbtco [&chan, &write_count, &write_failed](){
                     while (true) {

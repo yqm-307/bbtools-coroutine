@@ -21,7 +21,7 @@ BOOST_AUTO_TEST_CASE(t_chan_1_vs_1)
 {
     std::atomic_int count = 0;
     bbtco [&count](){
-        sync::Chan<int> c;
+        sync::Chan<int, 65535> c;
         
         bbtco [&c](){
             for (int i = 0; i < 100; ++i)
@@ -44,7 +44,7 @@ BOOST_AUTO_TEST_CASE(t_chan_1_vs_n)
 {
     std::atomic_int count = 0;
     bbtco [&count](){
-        sync::Chan<int> c{100*1000};
+        sync::Chan<int, 65535> c;
         
         for (int i = 0; i < 1000; ++i)
         {
@@ -74,7 +74,7 @@ BOOST_AUTO_TEST_CASE(t_chan_operator_overload)
 
     bbtco [&count, wait_ms, &l] () {
         bool succ = false;
-        auto chan = Chan<int>();
+        auto chan = Chan<int, 65535>();
         int write_val = 1;
         succ = chan << write_val;
         BOOST_ASSERT(succ);
@@ -95,7 +95,7 @@ BOOST_AUTO_TEST_CASE(t_chan_operator_overload)
 
     bbtco [&count, wait_ms, &l](){
         bool succ = false;
-        auto chan = sync::Chan<int>();
+        auto chan = sync::Chan<int, 65535>();
         int write_val = 1;
         succ = chan << write_val;
         BOOST_ASSERT(succ);
@@ -117,7 +117,7 @@ BOOST_AUTO_TEST_CASE(t_close)
 {
     std::atomic_bool flag{false};
     
-    auto chan = Chan<int>();
+    auto chan = Chan<int, 65535>();
     bbtco [&flag, &chan](){
         bbtco [&chan](){
             int block;

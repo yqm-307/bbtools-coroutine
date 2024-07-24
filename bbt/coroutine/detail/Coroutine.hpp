@@ -37,6 +37,7 @@ public:
     virtual void                    Yield() override;
     virtual CoroutineId             GetId() override;
     CoroutineStatus                 GetStatus();
+    int                             GetLastResumeEvent();
 
     /* 事件相关 */
     std::shared_ptr<CoPollEvent>    RegistTimeout(int ms);
@@ -65,6 +66,8 @@ private:
     std::mutex                      m_await_event_mutex;
 
     CoroutineFinalCallback          m_co_final_callback{nullptr};
+
+    int                             m_last_resume_event{-1}; //最后一次导致此协程唤醒的事件
 };
 
 }

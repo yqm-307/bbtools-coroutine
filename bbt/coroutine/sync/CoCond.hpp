@@ -21,14 +21,14 @@ public:
      * @brief 等待并伴随一个超时时间
      * 
      * @param ms 
-     * @return int 
+     * @return int 0表示触发事件，-1表示失败，1表示超时
      */
     int                                 WaitWithTimeout(int ms);
 
     /**
      * @brief 唤醒一个Wait中的协程
      * 
-     * @return  0表示成功，-1表示失败
+     * @return  0表示成功，-1表示事件已经触发
      */
     int                                 Notify();
 protected:

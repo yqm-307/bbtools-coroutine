@@ -227,10 +227,16 @@ void Coroutine::OnCoPollEvent(int event, int custom_key)
     std::unique_lock<std::mutex> _(m_await_event_mutex);
     Assert(m_await_event != nullptr);
 
+    m_last_resume_event = event;
+
     g_scheduler->OnActiveCoroutine(shared_from_this());
 
     m_await_event = nullptr;
 }
 
+int Coroutine::GetLastResumeEvent()
+{
+    return m_last_resume_event;
+}
 
 }

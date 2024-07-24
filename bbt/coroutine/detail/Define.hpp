@@ -40,7 +40,7 @@
 namespace bbt::coroutine::sync
 {
 
-template<class TItem, uint32_t Max> class Chan;
+template<class TItem, int Max> class Chan;
 class CoCond;
 
 
@@ -82,7 +82,12 @@ typedef uint64_t ProcesserId;
 
 typedef std::function<void()> CoroutineCallback;        // 协程处理主函数
 typedef std::function<void()> CoroutineFinalCallback;
-typedef std::function<void(std::shared_ptr<CoPollEvent>, int, int)> CoPollEventCallback;      // Poller监听事件完成回调
+/**
+ * @param 触发的事件
+ * @param 事件类型
+ * @param 仅当事件类型为POLL_EVENT_CUSTOM时，表示枚举类型CoPollEventCustom中的值
+ */
+typedef std::function<void(std::shared_ptr<CoPollEvent>, int /*events*/, int)> CoPollEventCallback;      // Poller监听事件完成回调
 
 /**
 @startuml
@@ -163,7 +168,7 @@ enum CoPollEventStatus : int32_t
     POLLEVENT_CANNEL  = 5, // 取消事件
 };
 
-
+/* PollEventType表示触发的事件类型 */
 enum PollEventType
 {
     POLL_EVENT_DEFAULT      = 0,
@@ -173,6 +178,7 @@ enum PollEventType
     POLL_EVENT_CUSTOM       = 1 << 3,
 };
 
+/* CoPollEvent的自定义事件key，用来表示触发时是那个自定义事件 */
 enum CoPollEventCustom
 {
     POLL_EVENT_CUSTOM_COND  = 1,    // co cond

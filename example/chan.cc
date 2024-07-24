@@ -9,7 +9,7 @@ void ReadOnce()
     // 注册一个协程
     bbtco [](){
         // 创建一个Chan
-        sync::Chan<int> a;
+        sync::Chan<int, 65535> a;
         // 创建一个协程向chan中写入
         bbtco [&a](){
             a.Write(1);
@@ -29,7 +29,7 @@ void MultiWrite()
 {
     // 创建一个协程
     bbtco [](){
-        sync::Chan<int> c;
+        sync::Chan<int, 65535> c;
 
         // 创建10个协程去写chan
         for (int i = 0; i<10; ++i) {
@@ -53,7 +53,7 @@ void CloseNotify()
 
     // 创建一个协程
     bbtco [](){
-        sync::Chan<char> c;
+        sync::Chan<char, 65535> c;
         // 创建协程写入并关闭，此时会唤醒阻塞在Read操作上的协程
         bbtco [&c](){
             printf("co2 beg %ld\n", bbt::clock::gettime<>());

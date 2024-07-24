@@ -10,7 +10,7 @@ void ReadOnce()
     g_scheduler->Start(true);
 
     bbtco [](){
-        sync::Chan<int> a;
+        sync::Chan<int, 65535> a;
         bbtco [&a](){
             a.Write(1);
         };
@@ -37,7 +37,7 @@ void ReadMulti()
     for (int i = 0; i < 1000; ++i) {
         // 注册一个协程
         bbtco [&count, &cond, &mutex](){
-            sync::Chan<int> c{1000*1000};
+            sync::Chan<int, 65535> c;
 
             // 注册1000个写chan写成
             for (int i = 0; i < 10000; ++i) {

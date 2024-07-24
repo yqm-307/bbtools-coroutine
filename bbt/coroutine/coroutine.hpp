@@ -16,8 +16,8 @@ namespace bbt::coroutine
 /* 获取当前运行的协程id，0为main线程中获取的id */
 detail::CoroutineId GetLocalCoroutineId();
 
-template<class TItem>
-inline typename sync::Chan<TItem>::SPtr Chan(size_t max = 65535)
-{ return std::make_shared<bbt::coroutine::sync::Chan<TItem>>(max); }
+template<class TItem, int ItemMax>
+inline typename sync::Chan<TItem, ItemMax>::SPtr Chan()
+{ return std::make_shared<bbt::coroutine::sync::Chan<TItem, ItemMax>>(); }
 
 }
