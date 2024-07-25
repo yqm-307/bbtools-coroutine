@@ -59,6 +59,23 @@ enum ChanStatus : int32_t
     CHAN_CLOSE          = 2,
 };
 
+/*
+@startuml
+[*] --> COND_DEFAULT
+COND_DEFAULT    --> COND_FREE
+COND_FREE       --> COND_WAIT
+COND_WAIT       --> COND_ACTIVE
+COND_ACTIVE     --> COND_FREE
+@enduml
+*/
+enum CoCondStatus : int32_t
+{
+    COND_DEFAULT        = 0,
+    COND_FREE           = 1,
+    COND_WAIT           = 2,
+    COND_ACTIVE         = 3,
+};
+
 }
 
 namespace bbt::coroutine::detail

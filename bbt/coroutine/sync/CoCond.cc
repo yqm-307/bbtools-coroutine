@@ -76,6 +76,8 @@ int CoCond::WaitWithTimeout(int ms)
         m_co_event = current_co->RegistCustom(detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND, ms);
         if (m_co_event == nullptr)
             return -1;
+        
+        m_run_status = COND_WAIT;
     }
 
     current_co->Yield();
@@ -85,6 +87,7 @@ int CoCond::WaitWithTimeout(int ms)
 
     std::unique_lock<std::mutex> _(m_co_event_mutex);
     m_co_event = nullptr;
+    m_run_status = COND_FREE;
     return ret;
 }
 
@@ -94,9 +97,10 @@ int CoCond::Notify()
 
     std::unique_lock<std::mutex> _(m_co_event_mutex);
 
-    if (m_co_event == nullptr)
+    if (m_co_event == nullptr || m_run_status != COND_WAIT)
         return -1;
     
+    m_run_status = COND_ACTIVE;
     g_bbt_poller->NotifyCustomEvent(m_co_event);
 
     return 0;

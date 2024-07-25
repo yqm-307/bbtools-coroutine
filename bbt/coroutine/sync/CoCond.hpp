@@ -37,6 +37,7 @@ protected:
     std::shared_ptr<detail::CoPollEvent> m_co_event{nullptr};
     int                                 m_await_co_num{};
     std::mutex                          m_co_event_mutex;
+    CoCondStatus                        m_run_status{COND_DEFAULT};
 };
 
 }

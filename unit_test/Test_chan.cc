@@ -16,6 +16,26 @@ BOOST_AUTO_TEST_CASE(t_begin)
     g_scheduler->Start(true);
 }
 
+BOOST_AUTO_TEST_CASE(t_chan_block)
+{
+    bbtco [](){
+        auto c = Chan<int, 1>();
+        bbtco [&c](){ c << 12; };
+
+        int val;
+        c >> val;
+        BOOST_CHECK_EQUAL(val, 12);
+
+        bbtco [&c](){ c << 14; };
+        c >> val;
+        BOOST_CHECK_EQUAL(val, 14);
+
+            bbtco [&c](){ c << 42; };
+        c >> val;
+        BOOST_CHECK_EQUAL(val, 42);
+    };
+}
+
 /* 单读单写 */
 BOOST_AUTO_TEST_CASE(t_chan_1_vs_1)
 {
