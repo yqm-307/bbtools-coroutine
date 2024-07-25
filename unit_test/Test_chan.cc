@@ -39,8 +39,10 @@ BOOST_AUTO_TEST_CASE(t_chan_block)
 /* 单读单写 */
 BOOST_AUTO_TEST_CASE(t_chan_1_vs_1)
 {
+    BOOST_TEST_MESSAGE("enter t_chan_1_vs_1");
     std::atomic_int count = 0;
-    bbtco [&count](){
+    bbt::thread::CountDownLatch l{1};
+    bbtco [&count, &l](){
         sync::Chan<int, 65535> c;
         
         bbtco [&c](){
@@ -53,15 +55,19 @@ BOOST_AUTO_TEST_CASE(t_chan_1_vs_1)
             BOOST_ASSERT(c.Read(val) == 0);
             count++;
         }
+
+        l.Down();
     };
 
-    sleep(1);
+    // sleep(1);
+    l.Wait();
     BOOST_CHECK_EQUAL(count.load(), 100);
 }
 
 /* 单读多写 */
 BOOST_AUTO_TEST_CASE(t_chan_1_vs_n)
 {
+    BOOST_TEST_MESSAGE("enter t_chan_1_vs_n");
     std::atomic_int count = 0;
     bbtco [&count](){
         sync::Chan<int, 65535> c;

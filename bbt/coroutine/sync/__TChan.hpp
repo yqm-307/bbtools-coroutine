@@ -32,7 +32,7 @@ int Chan<TItem, Max>::Write(const ItemType& item)
     if (IsClosed())
         return -1;
 
-    std::unique_lock<std::mutex> lock(m_item_queue_mutex);
+    std::unique_lock<std::mutex> lock{m_item_queue_mutex};
 
     /* 如果无法写入，协程挂起直到可写 */
     if (m_item_queue.size() >= m_max_size) {
@@ -63,7 +63,7 @@ int Chan<TItem, Max>::Read(ItemType& item)
     if (!m_is_reading.compare_exchange_strong(expect, true))
         return -1;
 
-    std::unique_lock<std::mutex> lock(m_item_queue_mutex);
+    std::unique_lock<std::mutex> lock{m_item_queue_mutex};
     if (m_item_queue.empty()) {
         lock.unlock();
 
@@ -75,8 +75,8 @@ int Chan<TItem, Max>::Read(ItemType& item)
     
     item = m_item_queue.front();
     m_item_queue.pop();
-    /* 尝试触发可写事件，直到成功、没有等待的可写事件 */
-    while (_OnEnableWrite() != 0);
+    /* 抛出队列可写 */
+    Assert(_OnEnableWrite() == 0);
 
     m_is_reading = false;
 
@@ -94,7 +94,7 @@ int Chan<TItem, Max>::ReadAll(std::vector<ItemType>& items)
     if (!m_is_reading.compare_exchange_strong(expect, true))
         return -1;
 
-    std::unique_lock<std::mutex> lock(m_item_queue_mutex);
+    std::unique_lock<std::mutex> lock{m_item_queue_mutex};
     if (m_item_queue.empty()) {
         lock.unlock();
 
@@ -106,7 +106,7 @@ int Chan<TItem, Max>::ReadAll(std::vector<ItemType>& items)
     while (!m_item_queue.empty()) {
         items.push_back(m_item_queue.front());
         m_item_queue.pop();
-        while (_OnEnableWrite() != 0);
+        Assert(_OnEnableWrite() == 0);
     }
     m_is_reading = false;
 
@@ -119,7 +119,7 @@ int Chan<TItem, Max>::TryWrite(const ItemType& item)
     if (IsClosed())
         return -1;
 
-    std::unique_lock<std::mutex> _(m_item_queue_mutex);
+    std::unique_lock<std::mutex> _{m_item_queue_mutex};
     if (m_item_queue.size() >= m_max_size)
         return -1;
     
@@ -135,7 +135,7 @@ int Chan<TItem, Max>::TryWrite(const ItemType& item, int timeout)
     if (IsClosed())
         return -1;
 
-    std::unique_lock<std::mutex> lock(m_item_queue_mutex);
+    std::unique_lock<std::mutex> lock{m_item_queue_mutex};
     if (m_item_queue.size() >= m_max_size) {
         auto enable_write_cond = _CreateAndPushEnableWriteCond();
         lock.unlock();
@@ -168,14 +168,14 @@ int Chan<TItem, Max>::TryRead(ItemType& item)
     if (!m_is_reading.compare_exchange_strong(expect, true))
         return -1;
 
-    std::unique_lock<std::mutex> _(m_item_queue_mutex);
+    std::unique_lock<std::mutex> _{m_item_queue_mutex};
 
     if (m_item_queue.empty())
         return -1;
     
     item = m_item_queue.front();
     m_item_queue.pop();
-    while (_OnEnableWrite() != 0);
+    Assert(_OnEnableWrite() == 0);
 
     return 0;
 }
@@ -190,7 +190,7 @@ int Chan<TItem, Max>::TryRead(ItemType& item, int timeout)
     if (!m_is_reading.compare_exchange_strong(expect, true))
         return -1;
 
-    std::unique_lock<std::mutex> lock(m_item_queue_mutex);
+    std::unique_lock<std::mutex> lock{m_item_queue_mutex};
     if (m_item_queue.empty()) {
         lock.unlock();
 
@@ -207,7 +207,7 @@ int Chan<TItem, Max>::TryRead(ItemType& item, int timeout)
 
     item = m_item_queue.front();
     m_item_queue.pop();
-    while (_OnEnableWrite() != 0);
+    Assert(_OnEnableWrite() == 0);
 
     m_is_reading = false;
 
@@ -222,7 +222,7 @@ void Chan<TItem, Max>::Close()
 
     m_run_status = ChanStatus::CHAN_CLOSE;
 
-    std::unique_lock<std::mutex> _(m_item_queue_mutex);
+    std::unique_lock<std::mutex> _{m_item_queue_mutex};
     /* 唤醒所有阻塞在Channel上的协程 */
     if (m_is_reading) _OnEnableRead();
 
@@ -269,9 +269,8 @@ int Chan<TItem, Max>::_OnEnableWrite()
     if (m_enable_write_conds.empty())
         return 0;
 
-    auto enable_write_cond = m_enable_write_conds.back();
+    auto enable_write_cond = m_enable_write_conds.front();
     m_enable_write_conds.pop();
-
     return enable_write_cond->Notify();
 }
 
