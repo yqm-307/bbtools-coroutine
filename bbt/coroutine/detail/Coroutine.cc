@@ -69,6 +69,12 @@ void Coroutine::Yield()
     m_context.Yield();
 }
 
+void Coroutine::YieldWithCallback(const CoroutineOnYieldCallback& cb)
+{
+    m_run_status = CoroutineStatus::CO_SUSPEND;
+    m_context.YieldWithCallback(cb);
+}
+
 CoroutineId Coroutine::GetId()
 {
     return m_id;
@@ -84,6 +90,12 @@ void Coroutine::_OnCoroutineFinal()
     m_run_status = CoroutineStatus::CO_FINAL;
     if (m_co_final_callback)
         m_co_final_callback();
+}
+
+void Coroutine::_OnYield()
+{
+    if (m_co_onyield_callback)
+        m_co_onyield_callback();
 }
 
 std::shared_ptr<CoPollEvent> Coroutine::RegistTimeout(int ms)

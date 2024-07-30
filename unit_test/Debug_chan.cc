@@ -71,8 +71,48 @@ void ReadMulti()
     g_scheduler->Stop();
 }
 
+void DebugWriteBlock()
+{
+
+    g_scheduler->Start(true);
+
+    bbt::thread::CountDownLatch l{1};
+    const int nwrite = 100;
+    std::atomic_int n_read_succ_num{0};
+    std::set<int> results;
+
+    bbtco [&](){
+        auto chan = Chan<int, 1>();
+
+        for (int i = 0; i < nwrite; ++i) {
+            bbtco [&chan, &n_read_succ_num, i](){
+                chan << i;
+                n_read_succ_num++;
+            };
+        }
+
+        bbt::coroutine::detail::Hook_Sleep(100);
+
+        int val;
+        for (int i = 0; i < nwrite; ++i) {
+            while (!(chan >> val))
+                detail::Hook_Sleep(1);
+            results.insert(val);
+        }
+
+        l.Down();
+    };
+
+    l.Wait();
+
+    Assert(nwrite == n_read_succ_num.load());
+
+    g_scheduler->Stop();
+}
+
 int main()
 {
     // ReadOnce();
-    ReadMulti();
+    // ReadMulti();
+    DebugWriteBlock();
 }

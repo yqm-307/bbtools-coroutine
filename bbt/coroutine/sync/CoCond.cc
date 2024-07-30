@@ -22,7 +22,8 @@ CoCond::SPtr CoCond::Create()
 }
 
 
-CoCond::CoCond()
+CoCond::CoCond():
+    m_run_status(COND_FREE)
 {
 }
 
@@ -55,6 +56,33 @@ int CoCond::Wait()
     }
 
     current_co->Yield();
+    
+    std::unique_lock<std::mutex> _(m_co_event_mutex);
+    m_co_event = nullptr;
+    m_run_status = COND_FREE;
+    return 0;
+}
+
+int CoCond::WaitWithCallback(const detail::CoroutineOnYieldCallback& cb)
+{
+    AssertWithInfo(g_bbt_tls_helper->EnableUseCo(), "please use CoCond in coroutine!");
+
+    auto current_co = g_bbt_tls_coroutine_co;
+    if (current_co == nullptr)
+        return -1;
+    {
+        std::unique_lock<std::mutex> _(m_co_event_mutex);
+        if (m_co_event != nullptr)
+            return -1;
+        
+        m_co_event = current_co->RegistCustom(detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND);
+        if (m_co_event == nullptr)
+            return -1;
+        
+        m_run_status = COND_WAIT;
+    }
+
+    current_co->YieldWithCallback(cb);
     
     std::unique_lock<std::mutex> _(m_co_event_mutex);
     m_co_event = nullptr;

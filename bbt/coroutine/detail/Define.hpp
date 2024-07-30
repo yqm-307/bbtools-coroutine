@@ -98,7 +98,9 @@ typedef uint64_t ProcesserId;
 
 
 typedef std::function<void()> CoroutineCallback;        // 协程处理主函数
-typedef std::function<void()> CoroutineFinalCallback;
+typedef std::function<void()> CoroutineFinalCallback;   // 协程主函数执行完毕回调
+typedef std::function<void()> CoroutineOnYieldCallback; // 协程挂起后执行回调
+
 /**
  * @param 触发的事件
  * @param 事件类型

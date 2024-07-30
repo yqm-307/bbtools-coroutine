@@ -16,11 +16,20 @@ public:
                                         ~CoCond();
 
     /**
-     * @brief 挂起当前协程，直到被唤醒。如果有多个协程调用Wait只有第一个成功
+     * @brief 挂起当前协程，直到被唤醒。如果有多个协程调用Wait族函数只有第一个成功
      *  其余调用者会失败。
      * @return 0表示被唤醒，-1表示失败
      */
     int                                 Wait();
+
+    /**
+     * @brief 挂起当前协程，知道被唤醒。如果有多个协程调用Wait族函数只有第一个成功
+     *  其余调用者会失败。
+     *  当参数cb为nullptr时，行为和Wait一致。和Wait同属Wait族函数
+     * @param cb 当协程完成后调用此函数
+     * @return 0表示被唤醒，-1表示失败
+     */
+    int                                 WaitWithCallback(const detail::CoroutineOnYieldCallback& cb);
 
     /**
      * @brief 挂起当前协程，直到被唤醒或者超时。如果有多个
