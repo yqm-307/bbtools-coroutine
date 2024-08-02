@@ -33,10 +33,14 @@ public:
     
     static SPtr                     Create(int stack_size, const CoroutineCallback& co_func, bool need_protect = true);
     static SPtr                     Create(int stack_size, const CoroutineCallback& co_func, const CoroutineFinalCallback& co_final_cb, bool need_protect = true);
+
     virtual void                    Resume() override;
     virtual void                    Yield() override;
+    virtual void                    YieldWithCallback(const CoroutineOnYieldCallback& cb) override;
+
     virtual CoroutineId             GetId() override;
     CoroutineStatus                 GetStatus();
+    int                             GetLastResumeEvent();
 
     /* 事件相关 */
     std::shared_ptr<CoPollEvent>    RegistTimeout(int ms);
@@ -54,6 +58,7 @@ protected:
 protected:
     static CoroutineId              GenCoroutineId();
     void                            _OnCoroutineFinal();
+    void                            _OnYield();
 private:
     Context                         m_context;
     const CoroutineId               m_id{BBT_COROUTINE_INVALID_COROUTINE_ID};
@@ -65,6 +70,9 @@ private:
     std::mutex                      m_await_event_mutex;
 
     CoroutineFinalCallback          m_co_final_callback{nullptr};
+    CoroutineOnYieldCallback        m_co_onyield_callback{nullptr};
+
+    int                             m_last_resume_event{-1}; //最后一次导致此协程唤醒的事件
 };
 
 }

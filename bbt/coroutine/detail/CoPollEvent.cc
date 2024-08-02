@@ -65,6 +65,8 @@ void CoPollEvent::Trigger(short trigger_events)
     m_run_status = CoPollEventStatus::POLLEVENT_TRIGGER;
 
     if (m_onevent_callback != nullptr) {
+        int event = TransformToPollEventType(trigger_events, trigger_events & POLL_EVENT_CUSTOM);
+        AssertWithInfo(event > 0, "may be has a bug! trigger event must greater then 0!"); // 事件触发必须有原因
         m_onevent_callback(shared_from_this(), trigger_events, m_custom_key);
     }
 

@@ -40,7 +40,7 @@ void ChanRW()
 
     for (int i = 0; i < reader_num; ++i) {
         bbtco [&l]() {
-            auto chan = std::make_shared<bbt::coroutine::sync::Chan<int>>();
+            auto chan = std::make_shared<bbt::coroutine::sync::Chan<int, 65535>>();
             for (int j = 0; j < writer_num; ++j) {
                 bbtco [=](){
                     for (int k = 0; k < write_times; ++k) {

@@ -44,6 +44,31 @@ Context::~Context()
 
 void Context::Yield()
 {
+    _Yield();
+}
+
+void Context::YieldWithCallback(const CoroutineOnYieldCallback& cb)
+{
+    Assert(m_onyield_callback == nullptr);
+    m_onyield_callback = cb;
+    _Yield();
+}
+
+
+void Context::Resume()
+{
+    _Resume();
+
+    // 执行on yield success，然后清除掉
+    if (m_onyield_callback)
+        m_onyield_callback();
+    
+    m_onyield_callback = nullptr;
+}
+
+
+void Context::_Yield()
+{
     /**
      * 调用jump后，切换回调度线程
      * 
@@ -55,7 +80,7 @@ void Context::Yield()
     GetCurThreadContext() = trf.fctx;
 }
 
-void Context::Resume()
+void Context::_Resume()
 {
     /**
      * 调用jump后，将切换到当前协程

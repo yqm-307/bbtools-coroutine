@@ -22,7 +22,8 @@ CoCond::SPtr CoCond::Create()
 }
 
 
-CoCond::CoCond()
+CoCond::CoCond():
+    m_run_status(COND_FREE)
 {
 }
 
@@ -37,9 +38,8 @@ int CoCond::Init()
 
 int CoCond::Wait()
 {
-    if (!g_bbt_tls_helper->EnableUseCo())
-        return -1;
-    
+    AssertWithInfo(g_bbt_tls_helper->EnableUseCo(), "please use CoCond in coroutine!");
+
     auto current_co = g_bbt_tls_coroutine_co;
     if (current_co == nullptr)
         return -1;
@@ -51,19 +51,50 @@ int CoCond::Wait()
         m_co_event = current_co->RegistCustom(detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND);
         if (m_co_event == nullptr)
             return -1;
+        
+        m_run_status = COND_WAIT;
     }
 
     current_co->Yield();
     
     std::unique_lock<std::mutex> _(m_co_event_mutex);
     m_co_event = nullptr;
+    m_run_status = COND_FREE;
+    return 0;
+}
+
+int CoCond::WaitWithCallback(const detail::CoroutineOnYieldCallback& cb)
+{
+    AssertWithInfo(g_bbt_tls_helper->EnableUseCo(), "please use CoCond in coroutine!");
+
+    auto current_co = g_bbt_tls_coroutine_co;
+    if (current_co == nullptr)
+        return -1;
+    {
+        std::unique_lock<std::mutex> _(m_co_event_mutex);
+        if (m_co_event != nullptr)
+            return -1;
+        
+        m_co_event = current_co->RegistCustom(detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND);
+        if (m_co_event == nullptr)
+            return -1;
+        
+        m_run_status = COND_WAIT;
+    }
+
+    current_co->YieldWithCallback(cb);
+    
+    std::unique_lock<std::mutex> _(m_co_event_mutex);
+    m_co_event = nullptr;
+    m_run_status = COND_FREE;
     return 0;
 }
 
 int CoCond::WaitWithTimeout(int ms)
 {
-    if (!g_bbt_tls_helper->EnableUseCo())
-        return -1;
+    int ret = 0;
+
+    AssertWithInfo(g_bbt_tls_helper->EnableUseCo(), "please use CoCond in coroutine!");
     
     auto current_co = g_bbt_tls_coroutine_co;
     if (current_co == nullptr)
@@ -76,27 +107,33 @@ int CoCond::WaitWithTimeout(int ms)
         m_co_event = current_co->RegistCustom(detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND, ms);
         if (m_co_event == nullptr)
             return -1;
+        
+        m_run_status = COND_WAIT;
     }
 
     current_co->Yield();
-    
+
+    if (current_co->GetLastResumeEvent() & POLL_EVENT_TIMEOUT)
+        ret = 1;
+
     std::unique_lock<std::mutex> _(m_co_event_mutex);
     m_co_event = nullptr;
-    return 0;
+    m_run_status = COND_FREE;
+    return ret;
 }
 
 int CoCond::Notify()
 {
-    if (!g_bbt_tls_helper->EnableUseCo())
-        return -1;
+    AssertWithInfo(g_bbt_tls_helper->EnableUseCo(), "please use CoCond in coroutine!");
 
     std::unique_lock<std::mutex> _(m_co_event_mutex);
 
-    if (m_co_event == nullptr)
+    Assert(m_run_status != COND_DEFAULT);;
+    if (m_co_event == nullptr || m_run_status != COND_WAIT)
         return -1;
     
-    if (g_bbt_poller->NotifyCustomEvent(m_co_event) != 0)
-        return -1;
+    m_run_status = COND_ACTIVE;
+    g_bbt_poller->NotifyCustomEvent(m_co_event);
 
     return 0;
 }

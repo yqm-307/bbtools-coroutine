@@ -64,17 +64,13 @@ bool CoPoller::PollOnce()
     return ret;
 }
 
-int CoPoller::NotifyCustomEvent(std::shared_ptr<CoPollEvent> event)
+void CoPoller::NotifyCustomEvent(std::shared_ptr<CoPollEvent> event)
 {
     std::unique_lock<std::mutex> _(m_custom_event_active_queue_mutex);
-    // AssertWithInfo(m_safe_active_set.find(event) != m_safe_active_set.end(), "有bug，这里不应该有重复的事件");
-    if (m_safe_active_set.find(event) != m_safe_active_set.end())
-        return -1;
+    AssertWithInfo(m_safe_active_set.find(event) == m_safe_active_set.end(), "duplicate registration events! please submit issue!");
 
     m_safe_active_set.insert(event);
     m_custom_event_active_queue.push(event);
-
-    return 0;
 }
 
 int64_t CoPoller::GetTime()
