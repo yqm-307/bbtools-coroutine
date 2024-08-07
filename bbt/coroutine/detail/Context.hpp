@@ -47,7 +47,7 @@ protected:
     void                        _Yield();
     void                        _Resume();
 private:
-    fcontext_t                  m_context;
+    fcontext_t                  m_context{nullptr};
     CoroutineCallback           m_user_main{nullptr};
     CoroutineFinalCallback      m_final_handle{nullptr};
     CoroutineOnYieldCallback    m_onyield_callback{nullptr};
