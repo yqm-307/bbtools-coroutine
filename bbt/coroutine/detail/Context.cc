@@ -6,7 +6,7 @@ namespace bbt::coroutine::detail
 
 fcontext_t& Context::GetCurThreadContext()
 {
-    static thread_local fcontext_t _context;
+    static thread_local fcontext_t _context = nullptr;
     return _context;
 }
 
@@ -74,10 +74,11 @@ void Context::_Yield()
      * 
      * 当jump返回时，说明调度线程通过 Resume 返回了。trf中保存了调度协程的上下文
      */
-    boost::context::detail::transfer_t trf;
-    trf = boost::context::detail::jump_fcontext(GetCurThreadContext(), &m_context);
 
-    GetCurThreadContext() = trf.fctx;
+    boost::context::detail::transfer_t transfer{fctx: nullptr, data: nullptr};
+    transfer = boost::context::detail::jump_fcontext(GetCurThreadContext(), &m_context);
+
+    GetCurThreadContext() = transfer.fctx;
 }
 
 void Context::_Resume()
@@ -85,7 +86,7 @@ void Context::_Resume()
     /**
      * 调用jump后，将切换到当前协程
      */
-    boost::context::detail::transfer_t transfer;
+    boost::context::detail::transfer_t transfer{fctx: nullptr, data: nullptr};
     transfer = boost::context::detail::jump_fcontext(m_context, reinterpret_cast<void*>(this));
 
     // 保存来源协程，因为可能因为yield让出cpu，没有执行完
