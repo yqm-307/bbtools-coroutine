@@ -32,6 +32,7 @@ public:
     bool                            IsFinal() const;
     CoPollEventStatus               GetStatus() const;
     int                             GetFd() const;
+    bbt::pollevent::EventId         GetEventId() const;
     int64_t                         GetTimeout() const;
 
     void                            Trigger(short trigger_events);

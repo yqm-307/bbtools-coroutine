@@ -242,6 +242,10 @@ void Coroutine::OnCoPollEvent(int event, int custom_key)
     m_last_resume_event = event;
 
     g_scheduler->OnActiveCoroutine(shared_from_this());
+    g_bbt_debug_print_with_lib_flag(
+        ("[CoPoller:Trigger] coroutine: " + std::to_string(GetId()) +
+        "  event: " + std::to_string(event) +
+        "  custom key: " + std::to_string(custom_key)).c_str());
 
     m_await_event = nullptr;
 }
