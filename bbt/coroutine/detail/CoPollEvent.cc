@@ -37,7 +37,8 @@ CoPollEvent::SPtr CoPollEvent::Create(std::shared_ptr<Coroutine> coroutine, cons
 
 CoPollEvent::CoPollEvent(std::shared_ptr<Coroutine> coroutine, const CoPollEventCallback& cb):
     m_coroutine(coroutine),
-    m_onevent_callback(cb)
+    m_onevent_callback(cb),
+    m_event_id(_GenerateId())
 {
     Assert(m_coroutine != nullptr);
     Assert(m_onevent_callback != nullptr);
@@ -80,6 +81,12 @@ void CoPollEvent::_OnFinal()
     m_run_status = CoPollEventStatus::POLLEVENT_FINAL;
 }
 
+CoPollEventId CoPollEvent::_GenerateId()
+{
+    static std::atomic_uint64_t _id{0};
+    return ++_id;
+}
+
 int CoPollEvent::InitFdEvent(int fd, short events, int timeout)
 {
     int ret = 0;
@@ -93,6 +100,7 @@ int CoPollEvent::InitFdEvent(int fd, short events, int timeout)
 
     g_bbt_debug_print_with_lib_flag(
         ("[CoPollEvent:InitFdEvent] coroutine: "   + std::to_string(g_bbt_tls_coroutine_co->GetId()) +
+        "  eventid: "   + std::to_string(GetEventId()) +
         "  fd: "        + std::to_string(fd) +
         "  event: "     + std::to_string(events)).c_str());
 
@@ -110,6 +118,7 @@ int CoPollEvent::InitCustomEvent(int key, void* args)
 
     g_bbt_debug_print_with_lib_flag(
         ("[CoPollEvent:InitCustomEvent] coroutine: "   + std::to_string(g_bbt_tls_coroutine_co->GetId()) +
+        "  eventid: "   + std::to_string(GetEventId()) +
         "  custom key: "     + std::to_string(key)).c_str());
     return 0;
 }
@@ -208,7 +217,7 @@ int CoPollEvent::GetFd() const
 
 bbt::pollevent::EventId CoPollEvent::GetEventId() const
 {
-    return m_event->GetEventId();
+    return m_event_id;
 }
 
 int64_t CoPollEvent::GetTimeout() const

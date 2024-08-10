@@ -30,6 +30,7 @@ void test()
         int new_fd = ::accept(fd, (sockaddr *)(&cli_addr), &len);
         Assert(new_fd >= 0);
 
+        Assert(bbt::net::Util::SetFdNoBlock(new_fd) == 0);
         print("[server] read msg! fd=" << new_fd);
         int read_len = ::read(new_fd, buf, 1024);
         Assert(read_len != 0);
@@ -45,7 +46,8 @@ void test()
 
     bbtco[&l]()
     {
-        ::sleep(1);
+        print("[client] client co=" << bbt::coroutine::GetLocalCoroutineId());
+        ::sleep(1); 
         sockaddr_in addr;
         addr.sin_addr.s_addr = inet_addr("127.0.0.1");
         addr.sin_port = htons(10001);

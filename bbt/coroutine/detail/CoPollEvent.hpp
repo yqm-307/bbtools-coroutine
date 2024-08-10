@@ -49,6 +49,7 @@ protected:
 
     void                            _OnListen();
     void                            _OnFinal();
+    static CoPollEventId            _GenerateId();
 private:
     std::shared_ptr<Coroutine>      m_coroutine{nullptr};
     std::shared_ptr<bbt::pollevent::Event>
@@ -56,6 +57,7 @@ private:
     int                             m_timeout{-1};
     bool                            m_has_custom_event{false};
     int                             m_custom_key{-1};
+    CoPollEventId                   m_event_id{BBT_COROUTINE_INVALID_COPOLLEVENT_ID};
 
     CoPollEventCallback             m_onevent_callback{nullptr};
     volatile CoPollEventStatus      m_run_status{CoPollEventStatus::POLLEVENT_DEFAULT};
