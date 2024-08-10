@@ -42,7 +42,7 @@ target_link_libraries(bbt_coroutine
 )
 
 ## 创建debug动态库
-add_definitions(-DBBT_COROUTINE_ENABLE_DEBUG_PRINT)
+# add_definitions(-DBBT_COROUTINE_ENABLE_DEBUG_PRINT)
 add_library(bbt_coroutine_dbg SHARED ${SRCS})
 target_link_libraries(bbt_coroutine_dbg
     boost_context

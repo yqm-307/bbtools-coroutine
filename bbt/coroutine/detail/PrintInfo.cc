@@ -7,11 +7,11 @@ namespace bbt::coroutine::detail
 
 void VPrintln(const char* fmt, const char* msg)
 {
-    char *buf = (char*)malloc(BBT_COROUTINE_PRINTINFO_OUTPUT_MAX_SIZE + 10);
+    char *buf = new char[BBT_COROUTINE_PRINTINFO_OUTPUT_MAX_SIZE + 10];
     snprintf(buf, BBT_COROUTINE_PRINTINFO_OUTPUT_MAX_SIZE, fmt, msg);
     printf("%s\n", buf);
     fflush(stdout);
-    free(buf);
+    delete[] buf;
 }
 
 void __DebugPrint(const char* fmt, ...)
@@ -20,11 +20,12 @@ void __DebugPrint(const char* fmt, ...)
     va_list ap;
     va_start(ap, fmt);
     char *msg = new char[BBT_COROUTINE_PRINTINFO_OUTPUT_MAX_SIZE];
+    memset(msg, '\0', BBT_COROUTINE_PRINTINFO_OUTPUT_MAX_SIZE);
     vsnprintf(msg, BBT_COROUTINE_PRINTINFO_OUTPUT_MAX_SIZE, fmt, ap);
     va_end(ap);
 
     VPrintln("[DEBUG] %s", msg);
-    delete(msg);
+    delete[] msg;
 #endif
 }
 
@@ -34,11 +35,12 @@ void __WarnPrint(const char* fmt, ...)
     va_list ap;
     va_start(ap, fmt);
     char *msg = new char[BBT_COROUTINE_PRINTINFO_OUTPUT_MAX_SIZE];
+    memset(msg, '\0', BBT_COROUTINE_PRINTINFO_OUTPUT_MAX_SIZE);
     vsnprintf(msg, BBT_COROUTINE_PRINTINFO_OUTPUT_MAX_SIZE, fmt, ap);
     va_end(ap);
 
     VPrintln("[WARN] %s", msg);
-    delete(msg);
+    delete[] msg;
 #endif
 }
 
