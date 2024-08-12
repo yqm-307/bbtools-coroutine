@@ -4,8 +4,6 @@
 #include <bbt/base/clock/Clock.hpp>
 #include <bbt/base/bits/BitUtil.hpp>
 #include <bbt/base/Logger/DebugPrint.hpp>
-#include <bbt/coroutine/detail/LocalThread.hpp>
-#include <bbt/coroutine/detail/Processer.hpp>
 #include <bbt/coroutine/detail/CoPoller.hpp>
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
 
@@ -101,12 +99,6 @@ int CoPollEvent::InitFdEvent(int fd, short events, int timeout)
         pthis->Trigger(events);
     });
 
-    g_bbt_debug_print_with_lib_flag(
-        ("[CoPollEvent:InitFdEvent] coroutine: "   + std::to_string(g_bbt_tls_coroutine_co->GetId()) +
-        "  eventid: "   + std::to_string(GetEventId()) +
-        "  fd: "        + std::to_string(fd) +
-        "  event: "     + std::to_string(events)).c_str());
-
     return ret;
 }
 
@@ -118,11 +110,6 @@ int CoPollEvent::InitCustomEvent(int key, void* args)
     m_has_custom_event = true;
     m_custom_key = key;
     // m_type |= PollEventType::POLL_EVENT_CUSTOM;
-
-    g_bbt_debug_print_with_lib_flag(
-        ("[CoPollEvent:InitCustomEvent] coroutine: "   + std::to_string(g_bbt_tls_coroutine_co->GetId()) +
-        "  eventid: "   + std::to_string(GetEventId()) +
-        "  custom key: "     + std::to_string(key)).c_str());
     return 0;
 }
 
@@ -216,11 +203,6 @@ CoPollEventStatus CoPollEvent::GetStatus() const
 int CoPollEvent::GetFd() const
 {
     return m_event->GetSocket();
-}
-
-bbt::pollevent::EventId CoPollEvent::GetEventId() const
-{
-    return m_event_id;
 }
 
 int64_t CoPollEvent::GetTimeout() const

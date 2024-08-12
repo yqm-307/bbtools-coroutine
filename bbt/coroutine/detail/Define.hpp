@@ -12,11 +12,10 @@
 #include <cstdint>
 #include <sys/timerfd.h>
 #include <sys/epoll.h>
+#include <bbt/base/Logger/DebugPrint.hpp>
 #include <bbt/base/clock/Clock.hpp>
-#include <bbt/coroutine/detail/PrintInfo.hpp>
 
 // #define BBT_COROUTINE_PROFILE
-// #define BBT_COROUTINE_ENABLE_DEBUG_PRINT
 
 #define g_scheduler bbt::coroutine::detail::Scheduler::GetInstance()
 
@@ -35,6 +34,8 @@
 
 #define g_bbt_stackpoll             (bbt::coroutine::detail::StackPool::GetInstance())
 
+#define g_bbt_sys_warn_print        (bbt::log::WarnPrint("%s, errno : %d %s", __FUNCTION__, errno, strerror(errno)))
+#define g_bbt_warn_print(msg)       (bbt::log::WarnPrint("%s, errno : %d %s, %s", __FUNCTION__, errno, strerror(errno), msg))
 
 namespace bbt::coroutine::sync
 {

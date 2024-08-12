@@ -5,8 +5,7 @@ project(bbtools-coroutine)
 option(RELEASE          "开启将开启优化并不生成debug信息，否则生成debug版本" OFF)
 option(NEED_BENCHMARK   "开启将生成Benchmark文件"        ON)
 option(NEED_EXAMPLE     "开启将生成example"              ON)              
-option(NEED_TEST        "开启将生成test文件"             ON)     
-option(NEED_DEBUG       "开启将生成debug文件"            ON)
+option(NEED_TEST        "开启将生成test文件"             ON)      
 option(PROFILE          "开启将启用profile"              OFF)
 
 if (RELEASE)
@@ -30,8 +29,8 @@ file(GLOB_RECURSE SRCS
     ${PROJECT_SOURCE_DIR}/bbt/*.cc
 )
 
-# 创建动态库
 add_library(bbt_coroutine SHARED ${SRCS})
+
 target_link_libraries(bbt_coroutine
     boost_context
     event_core
@@ -39,17 +38,6 @@ target_link_libraries(bbt_coroutine
     bbt_pollevent
     ybbt
     # tcmalloc
-)
-
-## 创建debug动态库
-# add_definitions(-DBBT_COROUTINE_ENABLE_DEBUG_PRINT)
-add_library(bbt_coroutine_dbg SHARED ${SRCS})
-target_link_libraries(bbt_coroutine_dbg
-    boost_context
-    event_core
-    event_pthreads
-    bbt_pollevent
-    ybbt
 )
 
 enable_testing()
@@ -64,8 +52,4 @@ endif()
 
 if (NEED_EXAMPLE)
     add_subdirectory(example)
-endif()
-
-if (NEED_DEBUG)
-    add_subdirectory(debug)
 endif()
