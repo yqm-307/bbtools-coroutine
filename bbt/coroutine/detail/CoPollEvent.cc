@@ -6,6 +6,9 @@
 #include <bbt/base/Logger/DebugPrint.hpp>
 #include <bbt/coroutine/detail/CoPoller.hpp>
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
+#include <bbt/coroutine/utils/DebugPrint.hpp>
+#include <bbt/coroutine/detail/Processer.hpp>
+#include <bbt/coroutine/detail/LocalThread.hpp>
 
 namespace bbt::coroutine::detail
 {
@@ -126,6 +129,9 @@ int CoPollEvent::Regist()
     /* 自定义事件 */
     if (m_has_custom_event && (_RegistCustomEvent() != 0))
         return -1;
+
+    std::string event = m_event == nullptr ? "-1" : std::to_string(GetEvent());
+    g_bbt_dbgp_full(("[CoEvent:Regist] co=" + std::to_string(m_coroutine->GetId()) + " event=" + event + " id=" + std::to_string(GetId()) + " customkey=" + std::to_string(m_custom_key)).c_str());
 
     _OnListen();
     return 0;

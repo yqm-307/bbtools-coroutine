@@ -5,6 +5,7 @@
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
 #include <bbt/coroutine/detail/CoPoller.hpp>
 #include <bbt/coroutine/detail/Profiler.hpp>
+#include <bbt/coroutine/utils/DebugPrint.hpp>
 
 namespace bbt::coroutine::detail
 {
@@ -242,6 +243,7 @@ void Coroutine::OnCoPollEvent(int event, int custom_key)
     m_last_resume_event = event;
 
     g_scheduler->OnActiveCoroutine(shared_from_this());
+    g_bbt_dbgp_full(("[CoEvent:Trigger] trigger_event=" + std::to_string(event) + " id=" + std::to_string(m_await_event->GetId()) + " customkey=" + std::to_string(custom_key)).c_str());
 
     m_await_event = nullptr;
 }
