@@ -30,15 +30,18 @@ namespace bbt::coroutine::detail
     int Hook_Connect(int socket, const struct sockaddr *address, socklen_t address_len)
     {
         int ret;
-
+        errno = 0;
+        auto current_run_co = g_bbt_tls_coroutine_co;
         while (g_bbt_sys_hook_connect_func(socket, address, address_len) != 0)
         {
+            // sleep(1);
+            // g_bbt_sys_hook_sleep_func(1);
             // 是否因为非阻塞导致没法立即完成
             if (errno != EAGAIN && errno != EINPROGRESS && errno != EINTR)
                 return -1;
 
             auto current_run_co = g_bbt_tls_coroutine_co;
-            auto event = current_run_co->RegistFdWriteable(socket);
+            auto event = current_run_co->RegistFdWriteable(socket, 10);
             if (event == nullptr)
                 return -1;
 

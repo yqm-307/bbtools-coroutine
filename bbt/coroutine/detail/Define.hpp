@@ -96,6 +96,9 @@ typedef uint64_t CoroutineId;
 typedef uint64_t ProcesserId;
 #define BBT_COROUTINE_INVALID_PROCESSER_ID 0
 
+typedef uint64_t CoPollEventId;
+#define BBT_COROUTINE_INVALID_COPOLLEVENT_ID 0
+
 
 typedef std::function<void()> CoroutineCallback;        // 协程处理主函数
 typedef std::function<void()> CoroutineFinalCallback;   // 协程主函数执行完毕回调

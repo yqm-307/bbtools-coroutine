@@ -30,7 +30,6 @@ file(GLOB_RECURSE SRCS
 )
 
 add_library(bbt_coroutine SHARED ${SRCS})
-
 target_link_libraries(bbt_coroutine
     boost_context
     event_core
@@ -38,6 +37,16 @@ target_link_libraries(bbt_coroutine
     bbt_pollevent
     ybbt
     # tcmalloc
+)
+
+add_definitions(-DBBT_COROUTINE_DEBUG_PRINT)
+add_library(bbt_coroutine_dbg SHARED ${SRCS})
+target_link_libraries(bbt_coroutine_dbg
+    boost_context
+    event_core
+    event_pthreads
+    bbt_pollevent
+    ybbt
 )
 
 enable_testing()

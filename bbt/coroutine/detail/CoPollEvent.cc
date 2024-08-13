@@ -6,6 +6,9 @@
 #include <bbt/base/Logger/DebugPrint.hpp>
 #include <bbt/coroutine/detail/CoPoller.hpp>
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
+#include <bbt/coroutine/utils/DebugPrint.hpp>
+#include <bbt/coroutine/detail/Processer.hpp>
+#include <bbt/coroutine/detail/LocalThread.hpp>
 
 namespace bbt::coroutine::detail
 {
@@ -35,7 +38,8 @@ CoPollEvent::SPtr CoPollEvent::Create(std::shared_ptr<Coroutine> coroutine, cons
 
 CoPollEvent::CoPollEvent(std::shared_ptr<Coroutine> coroutine, const CoPollEventCallback& cb):
     m_coroutine(coroutine),
-    m_onevent_callback(cb)
+    m_onevent_callback(cb),
+    m_event_id(_GenerateId())
 {
     Assert(m_coroutine != nullptr);
     Assert(m_onevent_callback != nullptr);
@@ -78,6 +82,12 @@ void CoPollEvent::_OnFinal()
     m_run_status = CoPollEventStatus::POLLEVENT_FINAL;
 }
 
+CoPollEventId CoPollEvent::_GenerateId()
+{
+    static std::atomic_uint64_t _id{0};
+    return ++_id;
+}
+
 int CoPollEvent::InitFdEvent(int fd, short events, int timeout)
 {
     int ret = 0;
@@ -85,8 +95,11 @@ int CoPollEvent::InitFdEvent(int fd, short events, int timeout)
         return -1;
     
     m_timeout = timeout;
-    m_event = g_bbt_poller->CreateEvent(fd, events, [this](std::shared_ptr<bbt::pollevent::Event>, short events){
-        Trigger(events);
+    auto weakthis = weak_from_this();
+    m_event = g_bbt_poller->CreateEvent(fd, events, [weakthis](std::shared_ptr<bbt::pollevent::Event>, short events){
+        Assert(!weakthis.expired());
+        auto pthis = weakthis.lock();
+        pthis->Trigger(events);
     });
 
     return ret;
@@ -116,6 +129,9 @@ int CoPollEvent::Regist()
     /* 自定义事件 */
     if (m_has_custom_event && (_RegistCustomEvent() != 0))
         return -1;
+
+    std::string event = m_event == nullptr ? "-1" : std::to_string(GetEvent());
+    g_bbt_dbgp_full(("[CoEvent:Regist] co=" + std::to_string(m_coroutine->GetId()) + " event=" + event + " id=" + std::to_string(GetId()) + " customkey=" + std::to_string(m_custom_key)).c_str());
 
     _OnListen();
     return 0;
@@ -188,6 +204,11 @@ bool CoPollEvent::IsFinal() const
 CoPollEventStatus CoPollEvent::GetStatus() const
 {
     return m_run_status;
+}
+
+CoPollEventId CoPollEvent::GetId() const
+{
+    return m_event_id;
 }
 
 int CoPollEvent::GetFd() const
