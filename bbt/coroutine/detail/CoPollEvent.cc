@@ -200,6 +200,11 @@ CoPollEventStatus CoPollEvent::GetStatus() const
     return m_run_status;
 }
 
+CoPollEventId CoPollEvent::GetId() const
+{
+    return m_event_id;
+}
+
 int CoPollEvent::GetFd() const
 {
     return m_event->GetSocket();

@@ -31,6 +31,7 @@ public:
     bool                            IsListening() const;
     bool                            IsFinal() const;
     CoPollEventStatus               GetStatus() const;
+    CoPollEventId                   GetId() const;
     int                             GetFd() const;
     int64_t                         GetTimeout() const;
 
