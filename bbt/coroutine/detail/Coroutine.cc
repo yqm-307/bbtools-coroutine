@@ -14,7 +14,7 @@ typedef bbt::pollevent::EventOpt EventOpt;
 
 CoroutineId Coroutine::GenCoroutineId()
 {
-    static std::atomic_int _generate_id{BBT_COROUTINE_INVALID_COROUTINE_ID};
+    static std::atomic_uint64_t _generate_id{BBT_COROUTINE_INVALID_COROUTINE_ID};
     return (++_generate_id);
 }
 
