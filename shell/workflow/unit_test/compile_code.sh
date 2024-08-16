@@ -17,7 +17,7 @@ fi
 
 mkdir build && cd build
 
-cmake ..
+cmake -DNEED_TEST=ON ..
 if [ $? != 0 ];then
     echo ERROR cmake error
     exit -1

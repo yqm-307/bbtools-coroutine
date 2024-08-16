@@ -2,11 +2,40 @@ cmake_minimum_required(VERSION 3.1)
 
 project(bbtools-coroutine)
 
-option(RELEASE          "开启将开启优化并不生成debug信息，否则生成debug版本" OFF)
-option(NEED_BENCHMARK   "开启将生成Benchmark文件"        ON)
-option(NEED_EXAMPLE     "开启将生成example"              ON)              
-option(NEED_TEST        "开启将生成test文件"             ON)      
-option(PROFILE          "开启将启用profile"              OFF)
+################################################################
+############## options
+################################################################
+option(RELEASE
+    "启用编译优化" OFF)
+
+option(NEED_BENCHMARK
+    "编译benchmark文件" OFF)
+
+option(NEED_EXAMPLE
+    "编译example文件" OFF)
+
+option(NEED_TEST
+    "编译unit test文件" OFF)
+
+option(NEED_DEBUG
+    "编译debug文件" OFF)
+
+option(PROFILE
+    "开启将启用profile" OFF)
+
+option(DEBUG_INFO
+    "启用debug info，输出库debug信息" OFF)
+
+message(
+    "RELEASE: "         ${RELEASE}
+    "\nNEED_BENCHMARK: "  ${NEED_BENCHMARK}
+    "\nNEED_EXAMPLE: "    ${NEED_EXAMPLE}
+    "\nNEED_TEST: "       ${NEED_TEST}
+    "\nNEED_DEBUG: "      ${NEED_DEBUG}
+    "\nPROFILE: "         ${PROFILE}
+    "\nDEBUG_INFO: "      ${DEBUG_INFO}
+)
+################################################################
 
 if (RELEASE)
     set(CMAKE_CXX_FALGS "${CMAKE_CXX_FLAGS} -std=c++17 -O2")
@@ -39,19 +68,8 @@ target_link_libraries(bbt_coroutine
     # tcmalloc
 )
 
-add_definitions(-DBBT_COROUTINE_DEBUG_PRINT)
-add_library(bbt_coroutine_dbg SHARED ${SRCS})
-target_link_libraries(bbt_coroutine_dbg
-    boost_context
-    event_core
-    event_pthreads
-    bbt_pollevent
-    ybbt
-)
-
-enable_testing()
-
 if (NEED_TEST)
+    enable_testing()
     add_subdirectory(unit_test)
 endif()
 
@@ -61,4 +79,8 @@ endif()
 
 if (NEED_EXAMPLE)
     add_subdirectory(example)
+endif()
+
+if (NEED_DEBUG)
+    add_subdirectory(debug)
 endif()
