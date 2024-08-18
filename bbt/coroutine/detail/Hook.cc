@@ -37,7 +37,7 @@ namespace bbt::coroutine::detail
             // sleep(1);
             // g_bbt_sys_hook_sleep_func(1);
             // 是否因为非阻塞导致没法立即完成
-            if (errno != EAGAIN && errno != EINPROGRESS && errno != EINTR)
+            if (errno != EAGAIN && errno != EINPROGRESS && errno != EINTR && errno != EALREADY)
                 return -1;
 
             auto current_run_co = g_bbt_tls_coroutine_co;
