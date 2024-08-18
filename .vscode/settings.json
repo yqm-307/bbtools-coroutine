@@ -86,7 +86,7 @@
         "-DNEED_EXAMPLE=ON",
         "-DNEED_TEST=OFF",
         "-DNEED_DEBUG=OFF",
-        "-DPROFILE=OFF",
+        "-DPROFILE=ON",
         "-DRELEASE=OFF",
         "-DDEBUG_INFO=ON",
     ]

@@ -30,6 +30,9 @@ public:
     void                        OnEvent_CreateCoroutine();
     void                        OnEvent_DestoryCoroutine();
 
+    void                        OnEvent_RegistCoPollEvent();
+    void                        OnEvent_TriggerCoPollEvent();
+
     void                        OnEvent_StealSucc(int num);
 
     void                        ProfileInfo(std::string& info);
@@ -56,6 +59,10 @@ private:
     std::map<ProcesserId, Processer::SPtr>
                                 m_processer_map;
     std::mutex                  m_processer_map_mutex;
+
+    /* CoEvent 相关指标 */
+    std::atomic_uint64_t        m_regist_event_count{0};
+    std::atomic_uint64_t        m_trigger_event_count{0};
 };
 
 }

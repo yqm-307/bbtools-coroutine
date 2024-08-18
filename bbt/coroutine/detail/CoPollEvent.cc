@@ -9,6 +9,7 @@
 #include <bbt/coroutine/utils/DebugPrint.hpp>
 #include <bbt/coroutine/detail/Processer.hpp>
 #include <bbt/coroutine/detail/LocalThread.hpp>
+#include <bbt/coroutine/detail/Profiler.hpp>
 
 namespace bbt::coroutine::detail
 {
@@ -67,6 +68,10 @@ void CoPollEvent::Trigger(short trigger_events)
         g_bbt_sys_warn_print;
 
     m_run_status = CoPollEventStatus::POLLEVENT_TRIGGER;
+
+#ifdef BBT_COROUTINE_PROFILE
+    g_bbt_profiler->OnEvent_TriggerCoPollEvent();
+#endif
 
     if (m_onevent_callback != nullptr) {
         int event = TransformToPollEventType(trigger_events, trigger_events & POLL_EVENT_CUSTOM);
@@ -130,8 +135,12 @@ int CoPollEvent::Regist()
     if (m_has_custom_event && (_RegistCustomEvent() != 0))
         return -1;
 
-    std::string event = m_event == nullptr ? "-1" : std::to_string(GetEvent());
+    std::string event = m_event == nullptr ? "-1" : std::to_string(m_event->GetEvents());
     g_bbt_dbgp_full(("[CoEvent:Regist] co=" + std::to_string(m_coroutine->GetId()) + " event=" + event + " id=" + std::to_string(GetId()) + " customkey=" + std::to_string(m_custom_key)).c_str());
+
+#ifdef BBT_COROUTINE_PROFILE
+    g_bbt_profiler->OnEvent_RegistCoPollEvent();
+#endif
 
     _OnListen();
     return 0;
@@ -178,7 +187,6 @@ int CoPollEvent::_CannelAllFdEvent()
         return -1;
     
     if (m_event != nullptr) {
-        ret = m_event->CancelListen();
         m_event = nullptr;
     }
 
@@ -203,7 +211,7 @@ bool CoPollEvent::IsFinal() const
 
 CoPollEventStatus CoPollEvent::GetStatus() const
 {
-    return m_run_status;
+    return (CoPollEventStatus)m_run_status.load();
 }
 
 CoPollEventId CoPollEvent::GetId() const
