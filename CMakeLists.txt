@@ -47,6 +47,9 @@ if (PROFILE)
     add_definitions(-DBBT_COROUTINE_PROFILE)
 endif()
 
+if (DEBUG_INFO)
+    add_definitions(-DBBT_COROUTINE_DEBUG_PRINT)
+endif()
 
 set(LIBRARY_OUTPUT_PATH ${PROJECT_BINARY_DIR}/lib) 
 set(EXECUTABLE_OUTPUT_PATH ${PROJECT_BINARY_DIR}/bin)
