@@ -29,19 +29,15 @@ namespace bbt::coroutine::detail
 
     int Hook_Connect(int socket, const struct sockaddr *address, socklen_t address_len)
     {
-        int ret;
-        errno = 0;
-        auto current_run_co = g_bbt_tls_coroutine_co;
+
         while (g_bbt_sys_hook_connect_func(socket, address, address_len) != 0)
         {
-            // sleep(1);
-            // g_bbt_sys_hook_sleep_func(1);
             // 是否因为非阻塞导致没法立即完成
-            if (errno != EAGAIN && errno != EINPROGRESS && errno != EINTR && errno != EALREADY)
+            if (errno != EINTR && errno != EINPROGRESS && errno != EALREADY)
                 return -1;
 
             auto current_run_co = g_bbt_tls_coroutine_co;
-            auto event = current_run_co->RegistFdWriteable(socket, 10);
+            auto event = current_run_co->RegistFdWriteable(socket);
             if (event == nullptr)
                 return -1;
 
@@ -77,7 +73,6 @@ namespace bbt::coroutine::detail
     ssize_t Hook_Read(int fd, void *buf, size_t nbytes)
     {
         ssize_t read_len;
-
         while ((read_len = g_bbt_sys_hook_read_func(fd, buf, nbytes)) <= 0)
         {
             /* 读到eof了 */
@@ -129,7 +124,7 @@ namespace bbt::coroutine::detail
         while ((ret = g_bbt_sys_hook_accept_func(fd, addr, len)) < 0)
         {
             /* 如果accept没有立即成功，判断失败原因是否为设置非阻塞 */
-            if (errno != EAGAIN && errno != EWOULDBLOCK)
+            if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)
                 return -1;
 
             /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读 */
