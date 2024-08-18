@@ -18,3 +18,6 @@ target_link_libraries(echo_client ${MY_LIBS})
 
 add_executable(echo_server echoserver/EchoServer.cc)
 target_link_libraries(echo_server ${MY_LIBS})
+
+add_executable(echo_client_multi echoserver/EchoClientMulti.cc)
+target_link_libraries(echo_client_multi ${MY_LIBS})
