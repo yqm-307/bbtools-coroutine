@@ -6,8 +6,6 @@
 
 using namespace bbt::coroutine;
 
-const char msg[] = "1";
-
 class Client
 {
 public:
@@ -38,15 +36,17 @@ protected:
         int ret = ::connect(fd, (sockaddr *)(&addr), sizeof(addr));
         Assert(ret == 0);
         for (int i = 0; i<10000; ++i) {
-            ret = ::write(fd, msg, sizeof(msg));
+            std::string msg = std::to_string(i);
+            ret = ::write(fd, msg.c_str(), sizeof(msg));
+            printf("write\n");
             Assert(ret != -1);
 
             ret = ::read(fd, read_buf, sizeof(read_buf));
+            printf("echo: %s\n", read_buf);
             Assert(ret != -1);
             Assert(ret == sizeof(msg));
         }
 
-        ::sleep(1);
         ::close(fd);
     }
 private:

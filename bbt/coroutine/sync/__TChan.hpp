@@ -38,7 +38,7 @@ int Chan<TItem, Max>::Write(const ItemType& item)
     if (m_item_queue.size() >= m_max_size) {
         auto enable_write_cond = _CreateAndPushEnableWriteCond();
 
-        if (_WaitUntilEnableWrite(enable_write_cond, [&](){ lock.unlock(); }) != 0)
+        if (_WaitUntilEnableWrite(enable_write_cond, [&](){ lock.unlock(); return true; }) != 0)
             return -1;
 
         lock.lock();
@@ -336,7 +336,7 @@ int Chan<TItem, 0>::Write(const ItemType& item)
 
     auto enable_write_cond = BaseType::_CreateAndPushEnableWriteCond();
 
-    if (BaseType::_WaitUntilEnableWrite(enable_write_cond, [&](){ lock.unlock(); }) != 0)
+    if (BaseType::_WaitUntilEnableWrite(enable_write_cond, [&](){ lock.unlock(); return true; }) != 0)
         return -1;
     
     return 0;

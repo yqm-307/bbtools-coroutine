@@ -13,10 +13,10 @@ public:
     ~Server(){}
 
     void Start(){
-        // bbtco [this](){
+        bbtco [this](){
             _Run();
             m_cdl.Down();
-        // };
+        };
 
         m_cdl.Wait();
     }
@@ -32,31 +32,29 @@ protected:
 
         while (1)
         {
-            char buf[2];
             int new_fd = ::accept(listen_fd, (sockaddr *)(&cli_addr), &len);
-            // bbtco [new_fd](){
-            Assert(new_fd >= 0);
+            bbtco [new_fd](){
+                char buf[32];
+                Assert(new_fd >= 0);
 
-            // Assert(bbt::net::Util::SetFdNoBlock(new_fd) == 0);
+                // Assert(bbt::net::Util::SetFdNoBlock(new_fd) == 0);
 
-            bool noclose = true;
-            while (noclose) {
-                int read_len = ::read(new_fd, buf, 2);
+                bool close = false;
+                while (!close) {
+                    int read_len = ::read(new_fd, buf, sizeof(buf));
+                    
+                    int write_len = ::write(new_fd, buf, read_len);
 
-                if (read_len == 0)
-                    noclose = false;
-                
-                int write_len = ::write(new_fd, buf, read_len);
-                printf("echo: %s\n", buf);
-                Assert(read_len == write_len);
+                    if (read_len <= 0 or write_len <= 0)
+                        close = true;
 
+                    printf("echo: %s\n", buf);
+                }
 
-            }
-
-            ::close(new_fd);
-            printf("echo done!\n");
-            // };
-            fflush(stdout);
+                ::close(new_fd);
+                printf("echo done!\n");
+                fflush(stdout);
+            };
         }
         ::close(listen_fd);
     }

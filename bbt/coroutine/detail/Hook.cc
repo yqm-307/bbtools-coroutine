@@ -36,12 +36,8 @@ namespace bbt::coroutine::detail
             if (errno != EINTR && errno != EINPROGRESS && errno != EALREADY)
                 return -1;
 
-            auto current_run_co = g_bbt_tls_coroutine_co;
-            auto event = current_run_co->RegistFdWriteable(socket);
-            if (event == nullptr)
+            if (g_bbt_tls_coroutine_co->YieldUntilFdWriteable(socket) != 0)
                 return -1;
-
-            current_run_co->Yield();
         }
 
         return 0;
@@ -57,17 +53,7 @@ namespace bbt::coroutine::detail
         if (ms <= 0)
             return -1;
 
-        errno = EINVAL;
-
-        /* 注册到全局轮询器中监听，并挂起协程 */
-        auto current_run_co = g_bbt_tls_coroutine_co;
-        auto &poller = g_bbt_poller;
-        auto event = current_run_co->RegistTimeout(ms);
-        if (event == nullptr)
-            return -1;
-
-        current_run_co->Yield();
-        return 0;
+        return g_bbt_tls_coroutine_co->YieldUntilTimeout(ms);
     }
 
     ssize_t Hook_Read(int fd, void *buf, size_t nbytes)
@@ -84,12 +70,10 @@ namespace bbt::coroutine::detail
                 return -1;
 
             /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读 */
-            auto current_run_co = g_bbt_tls_coroutine_co;
-            auto event = current_run_co->RegistFdReadable(fd);
-            if (event == nullptr)
+            if (g_bbt_tls_coroutine_co->YieldUntilFdReadable(fd) != 0)
                 return -1;
 
-            current_run_co->Yield();
+            printf("hook read break point\n");
         }
 
         return read_len;
@@ -105,13 +89,8 @@ namespace bbt::coroutine::detail
                 return -1;
 
             /* 对当前协程注册fd可写事件，挂起当前协程直到fd可写 */
-            auto current_run_co = g_bbt_tls_coroutine_co;
-            auto event = current_run_co->RegistFdWriteable(fd);
-            if (event == nullptr)
+            if (g_bbt_tls_coroutine_co->YieldUntilFdWriteable(fd) != 0)
                 return -1;
-
-            /* 挂起直到fd可写 */
-            current_run_co->Yield();
         }
 
         return write_len;
@@ -119,24 +98,20 @@ namespace bbt::coroutine::detail
 
     int Hook_Accept(int fd, struct sockaddr *addr, socklen_t *len)
     {
-        int ret;
+        int new_cli_fd;
 
-        while ((ret = g_bbt_sys_hook_accept_func(fd, addr, len)) < 0)
+        while ((new_cli_fd = g_bbt_sys_hook_accept_func(fd, addr, len)) < 0)
         {
             /* 如果accept没有立即成功，判断失败原因是否为设置非阻塞 */
             if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)
                 return -1;
 
             /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读 */
-            auto current_run_co = g_bbt_tls_coroutine_co;
-            auto event = current_run_co->RegistFdReadable(fd);
-            if (event == nullptr)
+            if (g_bbt_tls_coroutine_co->YieldUntilFdReadable(fd) != 0)
                 return -1;
-
-            current_run_co->Yield();
         }
 
-        return ret;
+        return new_cli_fd;
     }
 
     ssize_t Hook_Send(int fd, const void *buf, size_t n, int flags)
@@ -149,14 +124,10 @@ namespace bbt::coroutine::detail
                 return -1;
 
             /* 对当前协程注册fd可写事件，挂起当前协程直到fd可写 */
-            auto current_run_co = g_bbt_tls_coroutine_co;
-            auto event = current_run_co->RegistFdWriteable(fd);
-            if (event == nullptr)
+            if (g_bbt_tls_coroutine_co->YieldUntilFdWriteable(fd) != 0)
                 return -1;
-
-            /* 挂起直到fd可写 */
-            current_run_co->Yield();
         }
+
         return send_len;
     }
 
@@ -174,12 +145,8 @@ namespace bbt::coroutine::detail
                 return -1;
 
             /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读 */
-            auto current_run_co = g_bbt_tls_coroutine_co;
-            auto event = current_run_co->RegistFdReadable(fd);
-            if (event == nullptr)
+            if (g_bbt_tls_coroutine_co->YieldUntilFdReadable(fd) != 0)
                 return -1;
-
-            current_run_co->Yield();
         }
 
         return recv_len;

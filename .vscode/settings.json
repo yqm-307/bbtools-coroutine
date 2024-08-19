@@ -82,9 +82,9 @@
         ".github/workflows/unit_test.yml"
     ],
     "cmake.configureArgs": [
-        "-DNEED_BENCHMARK=OFF",
+        "-DNEED_BENCHMARK=ON",
         "-DNEED_EXAMPLE=ON",
-        "-DNEED_TEST=OFF",
+        "-DNEED_TEST=ON",
         "-DNEED_DEBUG=OFF",
         "-DPROFILE=ON",
         "-DRELEASE=OFF",

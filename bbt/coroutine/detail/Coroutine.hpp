@@ -36,20 +36,20 @@ public:
 
     virtual void                    Resume() override;
     virtual void                    Yield() override;
-    virtual void                    YieldWithCallback(const CoroutineOnYieldCallback& cb) override;
+    virtual int                     YieldWithCallback(const CoroutineOnYieldCallback& cb) override;
 
     virtual CoroutineId             GetId() override;
     CoroutineStatus                 GetStatus();
     int                             GetLastResumeEvent();
 
     /* 事件相关 */
-    std::shared_ptr<CoPollEvent>    RegistTimeout(int ms);
+    int                             YieldUntilTimeout(int ms);
     std::shared_ptr<CoPollEvent>    RegistCustom(int key);
     std::shared_ptr<CoPollEvent>    RegistCustom(int key, int timeout_ms);
-    std::shared_ptr<CoPollEvent>    RegistFdReadable(int fd);
-    std::shared_ptr<CoPollEvent>    RegistFdReadable(int fd, int timeout_ms);
-    std::shared_ptr<CoPollEvent>    RegistFdWriteable(int fd);
-    std::shared_ptr<CoPollEvent>    RegistFdWriteable(int fd, int timeout_ms);
+    int                             YieldUntilFdReadable(int fd);
+    int                             YieldUntilFdReadable(int fd, int timeout_ms);
+    int                             YieldUntilFdWriteable(int fd);
+    int                             YieldUntilFdWriteable(int fd, int timeout_ms);
 
 protected:
     /* 事件被触发时回调 */

@@ -102,7 +102,7 @@ typedef uint64_t CoPollEventId;
 
 typedef std::function<void()> CoroutineCallback;        // 协程处理主函数
 typedef std::function<void()> CoroutineFinalCallback;   // 协程主函数执行完毕回调
-typedef std::function<void()> CoroutineOnYieldCallback; // 协程挂起后执行回调
+typedef std::function<bool()> CoroutineOnYieldCallback; // 协程挂起后执行回调
 
 /**
  * @param 触发的事件

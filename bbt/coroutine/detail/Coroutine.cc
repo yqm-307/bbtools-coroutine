@@ -70,10 +70,10 @@ void Coroutine::Yield()
     m_context.Yield();
 }
 
-void Coroutine::YieldWithCallback(const CoroutineOnYieldCallback& cb)
+int Coroutine::YieldWithCallback(const CoroutineOnYieldCallback& cb)
 {
     m_run_status = CoroutineStatus::CO_SUSPEND;
-    m_context.YieldWithCallback(cb);
+    return m_context.YieldWithCallback(cb);
 }
 
 CoroutineId Coroutine::GetId()
@@ -99,23 +99,22 @@ void Coroutine::_OnYield()
         m_co_onyield_callback();
 }
 
-std::shared_ptr<CoPollEvent> Coroutine::RegistTimeout(int ms)
+int Coroutine::YieldUntilTimeout(int ms)
 {
-    std::unique_lock<std::mutex> _(m_await_event_mutex);
-    if (m_await_event != nullptr)
-        return nullptr;
+    {
+        std::unique_lock<std::mutex> _(m_await_event_mutex);
+        if (m_await_event != nullptr)
+            return -1;
 
-    m_await_event = CoPollEvent::Create(shared_from_this(), [this](auto, int event, int custom_key){
-        OnCoPollEvent(event, custom_key);
-    });
+        m_await_event = CoPollEvent::Create(shared_from_this(), [this](auto, int event, int custom_key){
+            OnCoPollEvent(event, custom_key);
+        });
 
-    if (m_await_event->InitFdEvent(-1, EventOpt::TIMEOUT, ms) != 0)
-        return nullptr;
+        if (m_await_event->InitFdEvent(-1, EventOpt::TIMEOUT, ms) != 0)
+            return -1;
+    }
 
-    if (m_await_event->Regist() != 0)
-        return nullptr;
-
-    return m_await_event;
+    return YieldWithCallback([this](){ return (m_await_event->Regist() == 0); });
 }
 
 std::shared_ptr<CoPollEvent> Coroutine::RegistCustom(int key)
@@ -159,80 +158,76 @@ std::shared_ptr<CoPollEvent> Coroutine::RegistCustom(int key, int timeout_ms)
     return m_await_event;
 }
 
-std::shared_ptr<CoPollEvent> Coroutine::RegistFdReadable(int fd)
+int Coroutine::YieldUntilFdReadable(int fd)
 {
-    std::unique_lock<std::mutex> _(m_await_event_mutex);
-    if (m_await_event != nullptr)
-        return nullptr;
-    
-    m_await_event = CoPollEvent::Create(shared_from_this(), [this](auto, int event, int custom_key){
-        OnCoPollEvent(event, custom_key);
-    });
+    {
+        std::unique_lock<std::mutex> _(m_await_event_mutex);
+        if (m_await_event != nullptr)
+            return -1;
+        
+        m_await_event = CoPollEvent::Create(shared_from_this(), [this](auto, int event, int custom_key){
+            OnCoPollEvent(event, custom_key);
+        });
 
-    if (m_await_event->InitFdEvent(fd, EventOpt::READABLE | EventOpt::FINALIZE, 0) != 0)
-        return nullptr;
+        if (m_await_event->InitFdEvent(fd, EventOpt::READABLE | EventOpt::FINALIZE, 0) != 0)
+            return -1;
+    }
     
-    if (m_await_event->Regist() != 0)
-        return nullptr;
-    
-    return m_await_event;
+    return YieldWithCallback([this](){ return (m_await_event->Regist() == 0); });
 }
 
-std::shared_ptr<CoPollEvent> Coroutine::RegistFdReadable(int fd, int timeout_ms)
+int Coroutine::YieldUntilFdReadable(int fd, int timeout_ms)
 {
-    std::unique_lock<std::mutex> _(m_await_event_mutex);
-    if (m_await_event != nullptr)
-        return nullptr;
-    
-    m_await_event = CoPollEvent::Create(shared_from_this(), [this](auto, int event, int custom_key){
-        OnCoPollEvent(event, custom_key);
-    });
+    {
+        std::unique_lock<std::mutex> _(m_await_event_mutex);
+        if (m_await_event != nullptr)
+            return -1;
+        
+        m_await_event = CoPollEvent::Create(shared_from_this(), [this](auto, int event, int custom_key){
+            OnCoPollEvent(event, custom_key);
+        });
 
-    if (m_await_event->InitFdEvent(fd, EventOpt::READABLE | EventOpt::TIMEOUT | EventOpt::FINALIZE, timeout_ms))
-        return nullptr;
+        if (m_await_event->InitFdEvent(fd, EventOpt::READABLE | EventOpt::TIMEOUT | EventOpt::FINALIZE, timeout_ms))
+            return -1;
+    }
 
-    if (m_await_event->Regist() != 0)
-        return nullptr;
-    
-    return m_await_event;
+    return YieldWithCallback([this](){ return (m_await_event->Regist() == 0); });
 }
 
-std::shared_ptr<CoPollEvent> Coroutine::RegistFdWriteable(int fd)
+int Coroutine::YieldUntilFdWriteable(int fd)
 {
-    std::unique_lock<std::mutex> _(m_await_event_mutex);
-    if (m_await_event != nullptr)
-        return nullptr;
-    
-    m_await_event = CoPollEvent::Create(shared_from_this(), [this](auto, int event, int custom_key){
-        OnCoPollEvent(event, custom_key);
-    });
+    {
+        std::unique_lock<std::mutex> _(m_await_event_mutex);
+        if (m_await_event != nullptr)
+            return -1;
+        
+        m_await_event = CoPollEvent::Create(shared_from_this(), [this](auto, int event, int custom_key){
+            OnCoPollEvent(event, custom_key);
+        });
 
-    if (m_await_event->InitFdEvent(fd, EventOpt::WRITEABLE | EventOpt::FINALIZE, 0) != 0)
-        return nullptr;
+        if (m_await_event->InitFdEvent(fd, EventOpt::WRITEABLE | EventOpt::FINALIZE, 0) != 0)
+            return -1;
+    }
     
-    if (m_await_event->Regist() != 0)
-        return nullptr;
-    
-    return m_await_event;
+    return YieldWithCallback([this](){ return (m_await_event->Regist() == 0); });
 }
 
-std::shared_ptr<CoPollEvent> Coroutine::RegistFdWriteable(int fd, int timeout_ms)
+int Coroutine::YieldUntilFdWriteable(int fd, int timeout_ms)
 {
-    std::unique_lock<std::mutex> _(m_await_event_mutex);
-    if (m_await_event != nullptr)
-        return nullptr;
-    
-    m_await_event = CoPollEvent::Create(shared_from_this(), [this](auto, int event, int custom_key){
-        OnCoPollEvent(event, custom_key);
-    });
+    {
+        std::unique_lock<std::mutex> _(m_await_event_mutex);
+        if (m_await_event != nullptr)
+            return -1;
+        
+        m_await_event = CoPollEvent::Create(shared_from_this(), [this](auto, int event, int custom_key){
+            OnCoPollEvent(event, custom_key);
+        });
 
-    if (m_await_event->InitFdEvent(fd, EventOpt::WRITEABLE | EventOpt::TIMEOUT | EventOpt::FINALIZE, timeout_ms) != 0)
-        return nullptr;
+        if (m_await_event->InitFdEvent(fd, EventOpt::WRITEABLE | EventOpt::TIMEOUT | EventOpt::FINALIZE, timeout_ms) != 0)
+            return -1;
+    }
 
-    if (m_await_event->Regist() != 0)
-        return nullptr;
-    
-    return m_await_event;
+    return YieldWithCallback([this](){ return (m_await_event->Regist() == 0); });
 }
 
 void Coroutine::OnCoPollEvent(int event, int custom_key)

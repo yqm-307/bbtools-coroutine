@@ -1,5 +1,7 @@
 #include <bbt/coroutine/detail/Context.hpp>
 #include <bbt/coroutine/detail/StackPool.hpp>
+#include <bbt/coroutine/detail/Processer.hpp>
+#include <bbt/coroutine/detail/LocalThread.hpp>
 
 namespace bbt::coroutine::detail
 {
@@ -47,51 +49,72 @@ void Context::Yield()
     _Yield();
 }
 
-void Context::YieldWithCallback(const CoroutineOnYieldCallback& cb)
+int Context::YieldWithCallback(const CoroutineOnYieldCallback& cb)
 {
+    int ret = 0;
+
     Assert(m_onyield_callback == nullptr);
+    m_onyield_callback_result = YieldCheckStatus::NO_CHECK;
     m_onyield_callback = cb;
+
     _Yield();
+
+    ret = m_onyield_callback_result == YieldCheckStatus::CHECK_FAILED ? -1 : ret;
+
+    m_onyield_callback = nullptr;
+    m_onyield_callback_result = YieldCheckStatus::NO_CHECK;
+
+    return 0;
 }
 
 
 void Context::Resume()
 {
+    bool check_succ = true;
+
     _Resume();
 
     // 执行on yield success，然后清除掉
-    if (m_onyield_callback)
-        m_onyield_callback();
-    
-    m_onyield_callback = nullptr;
+    if (m_onyield_callback) {
+        check_succ = m_onyield_callback();
+        m_onyield_callback_result = check_succ ? YieldCheckStatus::CHECK_SUCCESS : YieldCheckStatus::CHECK_FAILED;
+    }
+
+    // check失败就回到原本协程通知一下check失败了
+    if (!check_succ)
+        _Resume();
 }
 
 
-void Context::_Yield()
+int Context::_Yield()
 {
     /**
      * 调用jump后，切换回调度线程
      * 
      * 当jump返回时，说明调度线程通过 Resume 返回了。trf中保存了调度协程的上下文
      */
-
     boost::context::detail::transfer_t transfer{fctx: nullptr, data: nullptr};
     transfer = boost::context::detail::jump_fcontext(GetCurThreadContext(), &m_context);
 
     GetCurThreadContext() = transfer.fctx;
+
+    return 0;
 }
 
-void Context::_Resume()
+int Context::_Resume()
 {
     /**
      * 调用jump后，将切换到当前协程
      */
     boost::context::detail::transfer_t transfer{fctx: nullptr, data: nullptr};
+
     transfer = boost::context::detail::jump_fcontext(m_context, reinterpret_cast<void*>(this));
 
     // 保存来源协程，因为可能因为yield让出cpu，没有执行完
     auto context = transfer.data;
     *(void**)context = transfer.fctx;
+
+    return 0;
 }
 
 }
