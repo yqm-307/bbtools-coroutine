@@ -64,7 +64,8 @@ void CoPollEvent::Trigger(short trigger_events)
         return;
 
     if (_CannelAllFdEvent() != 0)
-        g_bbt_sys_warn_print;
+        // g_bbt_sys_warn_print;
+        g_bbt_dbgp_full("");
 
     m_run_status = CoPollEventStatus::POLLEVENT_TRIGGER;
 

@@ -73,7 +73,6 @@ namespace bbt::coroutine::detail
             if (g_bbt_tls_coroutine_co->YieldUntilFdReadable(fd) != 0)
                 return -1;
 
-            printf("hook read break point\n");
         }
 
         return read_len;
