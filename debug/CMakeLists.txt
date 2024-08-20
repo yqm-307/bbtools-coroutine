@@ -36,3 +36,6 @@ target_link_libraries(Debug_steal ${MY_DBG_LIBS})
 
 add_executable(Debug_dbgprintf Debug_dbgprintf.cc)
 target_link_libraries(Debug_dbgprintf ${MY_DBG_LIBS})
+
+add_executable(Debug_hook_connect Debug_hook_connect.cc)
+target_link_libraries(Debug_hook_connect ${MY_DBG_LIBS})

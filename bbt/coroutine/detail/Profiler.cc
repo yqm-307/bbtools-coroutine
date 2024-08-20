@@ -40,6 +40,16 @@ void Profiler::OnEvent_StartScheudler()
     m_scheduler_begin_timestamp = bbt::clock::now<>();
 }
 
+void Profiler::OnEvent_RegistCoPollEvent()
+{
+    m_regist_event_count++;
+}
+
+void Profiler::OnEvent_TriggerCoPollEvent()
+{
+    m_trigger_event_count++;
+}
+
 void Profiler::OnEvent_StartProcesser(Processer::SPtr proc)
 {
     std::unique_lock<std::mutex> _(m_processer_map_mutex);
@@ -76,6 +86,8 @@ void Profiler::ProfileInfo(std::string& info)
     info += "Steal数量："       + std::to_string(m_total_steal_count.load()) + '\n';
     info += "StackPool大小："   + std::to_string(g_bbt_stackpoll->AllocSize()) + '\n';
     info += "StackPool Rtts："  + std::to_string(g_bbt_stackpoll->GetRtts()) + '\n';
+    info += "CoEvent 注册数量"  + std::to_string(m_regist_event_count.load()) + '\n';
+    info += "CoEvent 触发数量"  + std::to_string(m_trigger_event_count.load()) + '\n';
     for (auto&& processer : m_processer_map)
     {
         info += "\tPID："                    + std::to_string(processer.second->GetId()) +

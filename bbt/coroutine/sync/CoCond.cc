@@ -51,12 +51,12 @@ int CoCond::Wait()
         m_co_event = current_co->RegistCustom(detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND);
         if (m_co_event == nullptr)
             return -1;
-        
+
         m_run_status = COND_WAIT;
     }
 
     current_co->Yield();
-    
+
     std::unique_lock<std::mutex> _(m_co_event_mutex);
     m_co_event = nullptr;
     m_run_status = COND_FREE;
@@ -82,12 +82,12 @@ int CoCond::WaitWithCallback(const detail::CoroutineOnYieldCallback& cb)
         m_run_status = COND_WAIT;
     }
 
-    current_co->YieldWithCallback(cb);
+    int ret = current_co->YieldWithCallback(cb);
     
     std::unique_lock<std::mutex> _(m_co_event_mutex);
     m_co_event = nullptr;
     m_run_status = COND_FREE;
-    return 0;
+    return ret;
 }
 
 int CoCond::WaitWithTimeout(int ms)

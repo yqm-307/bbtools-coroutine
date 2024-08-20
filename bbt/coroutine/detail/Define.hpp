@@ -34,9 +34,6 @@
 
 #define g_bbt_stackpoll             (bbt::coroutine::detail::StackPool::GetInstance())
 
-#define g_bbt_sys_warn_print        (bbt::log::WarnPrint("%s, errno : %d %s", __FUNCTION__, errno, strerror(errno)))
-#define g_bbt_warn_print(msg)       (bbt::log::WarnPrint("%s, errno : %d %s, %s", __FUNCTION__, errno, strerror(errno), msg))
-
 namespace bbt::coroutine::sync
 {
 
@@ -102,7 +99,7 @@ typedef uint64_t CoPollEventId;
 
 typedef std::function<void()> CoroutineCallback;        // 协程处理主函数
 typedef std::function<void()> CoroutineFinalCallback;   // 协程主函数执行完毕回调
-typedef std::function<void()> CoroutineOnYieldCallback; // 协程挂起后执行回调
+typedef std::function<bool()> CoroutineOnYieldCallback; // 协程挂起后执行回调
 
 /**
  * @param 触发的事件

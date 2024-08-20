@@ -9,6 +9,12 @@ namespace bbt::coroutine::detail
 
 using fcontext_t = boost::context::detail::fcontext_t;
 
+enum YieldCheckStatus {
+    NO_CHECK = 0,
+    CHECK_SUCCESS = 1,
+    CHECK_FAILED = 2,
+};
+
 /**
  * @brief 协程上下文。提供了对栈可切换的上下文操作
  * 
@@ -24,7 +30,12 @@ public:
      */
     void                        Yield();
 
-    void                        YieldWithCallback(const CoroutineOnYieldCallback& cb);
+    /**
+     * @brief 挂起并在挂起成功后执行检查函数，如果回调返回false，则返回到调用协程
+     * @param cb 
+     * @return 0成功，-1表示失败
+     */
+    int                         YieldWithCallback(const CoroutineOnYieldCallback& cb);
 
     /**
      * @brief 唤醒（切换到当前协程，给与CPU控制权）
@@ -44,14 +55,16 @@ protected:
      */
     static void                 _CoroutineMain(boost::context::detail::transfer_t transfer);
 
-    void                        _Yield();
-    void                        _Resume();
+    int                         _Yield();
+    int                         _Resume();
 private:
     fcontext_t                  m_context{nullptr};
     CoroutineCallback           m_user_main{nullptr};
     CoroutineFinalCallback      m_final_handle{nullptr};
+    Stack*                      m_stack{nullptr};
+
     CoroutineOnYieldCallback    m_onyield_callback{nullptr};
-    Stack*                      m_stack{nullptr};                    
+    YieldCheckStatus            m_onyield_callback_result{YieldCheckStatus::NO_CHECK};
 
 };
 

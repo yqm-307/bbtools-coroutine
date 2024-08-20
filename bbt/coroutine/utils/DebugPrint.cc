@@ -12,6 +12,7 @@ void VPrint(const char* fmt, ...)
     va_start(args, fmt);
     vfprintf(stdout, fmt, args);
     va_end(args);
+    fflush(stdout);
 #endif
 }
 
