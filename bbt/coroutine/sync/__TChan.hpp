@@ -64,9 +64,8 @@ int Chan<TItem, Max>::Read(ItemType& item)
 
     std::unique_lock<std::mutex> lock{m_item_queue_mutex};
     if (m_item_queue.empty()) {
-        lock.unlock();
 
-        if (_WaitUntilEnableRead() != 0)
+        if (_WaitUntilEnableWrite(m_enable_read_cond, [&](){ lock.unlock(); return true; }) != 0)
             return -1;
 
         lock.lock();
