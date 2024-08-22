@@ -235,19 +235,23 @@ bool Scheduler::_LoadBlance2Proc(Coroutine::SPtr co)
 int Scheduler::TryWorkSteal(Processer::SPtr thief)
 {
     uint32_t index = m_steal_idx;
-    m_steal_idx++;
+    int steal_num = 0;
+    int max_processer_num = m_processer_map.size();
 
-    index %= m_processer_map.size();
-    auto proc = m_load_blance_vec[index];
-    Assert(proc != nullptr);
-    std::vector<Coroutine::SPtr> works;
-    proc->_Steal(works);
+    for (int i = 0; i < max_processer_num; i++) {
+        m_steal_idx++;
+        index %= max_processer_num;
+        auto proc = m_load_blance_vec[index];
+        Assert(proc != nullptr);
+        std::vector<Coroutine::SPtr> works;
+        proc->_Steal(works);
 
-    if (works.empty())
-        return 0;
-    
-    int steal_num = works.size();
-    thief->AddCoroutineTaskRange(works.begin(), works.end());
+        if (!works.empty()) {
+            steal_num = works.size();
+            thief->AddCoroutineTaskRange(works.begin(), works.end());
+            break;
+        }
+    }
 
     return steal_num;
 }
