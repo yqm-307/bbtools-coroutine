@@ -60,14 +60,12 @@ void CoPollEvent::Trigger(short trigger_events)
      * 到底执行什么样的操作了，只由外部创建者定义。
      */
 
-    if (m_run_status != CoPollEventStatus::POLLEVENT_LISTEN)
+    int expect = CoPollEventStatus::POLLEVENT_LISTEN;
+    if (!m_run_status.compare_exchange_strong(expect, CoPollEventStatus::POLLEVENT_TRIGGER))
         return;
 
     if (_CannelAllFdEvent() != 0)
-        // g_bbt_sys_warn_print;
         g_bbt_dbgp_full("");
-
-    m_run_status = CoPollEventStatus::POLLEVENT_TRIGGER;
 
 #ifdef BBT_COROUTINE_PROFILE
     g_bbt_profiler->OnEvent_TriggerCoPollEvent();
@@ -183,8 +181,8 @@ int CoPollEvent::_RegistFdEvent()
 int CoPollEvent::_CannelAllFdEvent()
 {
     int ret = 0;
-    if (m_run_status != CoPollEventStatus::POLLEVENT_LISTEN)
-        return -1;
+    // if (m_run_status != CoPollEventStatus::POLLEVENT_LISTEN)
+        // return -1;
     
     if (m_event != nullptr) {
         m_event = nullptr;

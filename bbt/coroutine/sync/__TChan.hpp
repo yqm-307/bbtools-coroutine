@@ -62,16 +62,14 @@ int Chan<TItem, Max>::Read(ItemType& item)
     if (!m_is_reading.compare_exchange_strong(expect, true))
         return -1;
 
-    std::unique_lock<std::mutex> lock{m_item_queue_mutex};
+    m_item_queue_mutex.lock();
     if (m_item_queue.empty()) {
-        std::atomic_bool a = true;
         if (_WaitUntilEnableRead([&](){
-            a.exchange(false);
-            lock.unlock(); return true; }) != 0)
+            m_item_queue_mutex.unlock();
+            return true; }) != 0)
             return -1;
 
-        Assert(!a);
-        lock.lock();
+        m_item_queue_mutex.lock();
     }
     
     item = m_item_queue.front();
@@ -79,8 +77,24 @@ int Chan<TItem, Max>::Read(ItemType& item)
     /* 抛出队列可写 */
     Assert(_OnEnableWrite() == 0);
 
-    m_is_reading = false;
+    m_is_reading.exchange(false);
+    m_item_queue_mutex.unlock();
 
+    // std::unique_lock<std::mutex> lock{m_item_queue_mutex};
+
+    // if (m_item_queue.empty()) {
+    //     if (_WaitUntilEnableRead([&](){ lock.unlock(); return true; }) != 0)
+    //         return -1;
+
+    //     lock.lock();
+    // }
+    
+    // item = m_item_queue.front();
+    // m_item_queue.pop();
+    // /* 抛出队列可写 */
+    // Assert(_OnEnableWrite() == 0);
+
+    // m_is_reading.exchange(false);
     return 0;
 }
 
