@@ -188,8 +188,8 @@ BOOST_AUTO_TEST_CASE(t_block_write_n)
 
         int val;
         for (int i = 0; i < nwrite; ++i) {
-            while (!(chan >> val))
-                detail::Hook_Sleep(1);
+            while (!(chan >> val));
+                // detail::Hook_Sleep(1);
             results.insert(val);
         }
 
@@ -235,22 +235,26 @@ BOOST_AUTO_TEST_CASE(t_close)
 {
     BOOST_TEST_MESSAGE("enter t_close");
     std::atomic_bool flag{false};
+    bbt::thread::CountDownLatch l{2};
     
     auto chan = Chan<int, 65535>();
-    bbtco [&flag, &chan](){
-        bbtco [&chan](){
+    bbtco [&flag, &chan, &l](){
+        bbtco [&chan, &l](){
             int block;
             chan->TryRead(block, 100); // 阻塞100ms
             chan->Close();
+            l.Down();
         };
 
-        bbtco [&chan, &flag](){
+        bbtco [&chan, &flag, &l](){
             int val;
             chan >> val;
             flag = true;
+            l.Down();
         };
     };
-    sleep(1);
+
+    l.Wait();
     BOOST_CHECK(flag);
 }
 
