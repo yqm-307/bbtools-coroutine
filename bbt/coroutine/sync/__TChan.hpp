@@ -64,10 +64,13 @@ int Chan<TItem, Max>::Read(ItemType& item)
 
     std::unique_lock<std::mutex> lock{m_item_queue_mutex};
     if (m_item_queue.empty()) {
-
-        if (_WaitUntilEnableWrite(m_enable_read_cond, [&](){ lock.unlock(); return true; }) != 0)
+        std::atomic_bool a = true;
+        if (_WaitUntilEnableRead([&](){
+            a.exchange(false);
+            lock.unlock(); return true; }) != 0)
             return -1;
 
+        Assert(!a);
         lock.lock();
     }
     
@@ -94,9 +97,9 @@ int Chan<TItem, Max>::ReadAll(std::vector<ItemType>& items)
 
     std::unique_lock<std::mutex> lock{m_item_queue_mutex};
     if (m_item_queue.empty()) {
-        lock.unlock();
 
-        _WaitUntilEnableRead();
+        if (_WaitUntilEnableRead([&](){ lock.unlock(); return true; }) != 0)
+            return -1;
 
         lock.lock();
     }
@@ -190,16 +193,14 @@ int Chan<TItem, Max>::TryRead(ItemType& item, int timeout)
 
     std::unique_lock<std::mutex> lock{m_item_queue_mutex};
     if (m_item_queue.empty()) {
-        lock.unlock();
 
-        if (_WaitUntilEnableReadOrTimeout(timeout) != 0)
+        if (_WaitUntilEnableReadOrTimeout(timeout, [&](){ lock.unlock(); return true; }) != 0)
             return -1;
 
         lock.lock();
     }
 
     if (m_item_queue.empty()) {
-        m_item_queue_mutex.unlock();
         return -1;
     }
 
@@ -238,9 +239,9 @@ bool Chan<TItem, Max>::IsClosed()
 }
 
 template<class TItem, int Max>
-int Chan<TItem, Max>::_WaitUntilEnableRead()
+int Chan<TItem, Max>::_WaitUntilEnableRead(const detail::CoroutineOnYieldCallback& cb)
 {
-    return m_enable_read_cond->Wait();
+    return m_enable_read_cond->WaitWithCallback(cb);
 }
 
 template<class TItem, int Max>
@@ -283,9 +284,9 @@ CoCond::SPtr Chan<TItem, Max>::_CreateAndPushEnableWriteCond()
 }
 
 template<class TItem, int Max>
-int Chan<TItem, Max>::_WaitUntilEnableReadOrTimeout(int timeout_ms)
+int Chan<TItem, Max>::_WaitUntilEnableReadOrTimeout(int timeout_ms, const detail::CoroutineOnYieldCallback& cb)
 {
-    return m_enable_read_cond->WaitWithTimeout(timeout_ms);
+    return m_enable_read_cond->WaitWithTimeoutAndCallback(timeout_ms, cb);
 }
 
 template<class TItem, int Max>
@@ -355,9 +356,8 @@ int Chan<TItem, 0>::Read(ItemType& item)
     std::unique_lock<std::mutex> lock{BaseType::m_item_queue_mutex};
 
     if (m_write_idx <= m_read_idx) {
-        lock.unlock();
 
-        if (BaseType::_WaitUntilEnableRead() != 0)
+        if (BaseType::_WaitUntilEnableRead([&](){ lock.unlock(); return true; }) != 0)
             return -1;
 
         lock.lock();

@@ -40,6 +40,15 @@ public:
     int                                 WaitWithTimeout(int ms);
 
     /**
+     * @brief 挂起当前协程，直到被唤醒或者超时。如果有多个
+     * 调用，只有第一个成功，其余调用者失败
+     * @param ms 
+     * @param cb 
+     * @return int 
+     */
+    int                                 WaitWithTimeoutAndCallback(int ms, const detail::CoroutineOnYieldCallback& cb);
+
+    /**
      * @brief 唤醒一个因为调用Wait、WaitWithTimeout而挂起的协程
      *  ，如果没有携程因为Wait相关调用挂起，则Notify会失败
      * @return  0表示成功，-1表示事件已经触发
