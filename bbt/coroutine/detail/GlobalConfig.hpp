@@ -32,6 +32,7 @@ public:
     const size_t                                m_cfg_processer_get_co_from_g_count{256};   // 每次从g队列获取任务数量
     const size_t                                m_cfg_processer_steal_once_min_task_num{64};// 如果有任务，最少偷64个
     const size_t                                m_cfg_processer_do_task_once_task_num{128}; // 每次执行coroutine，取出128个执行
+    const size_t                                m_cfg_processer_worksteal_timeout_ms{5};   // work steal 认为任务饿死的超时时间
 
     /* 栈池配置 */
     const size_t                                m_cfg_stackpool_max_alloc_size{1024 * 100}; // 栈池中分配最大栈数量

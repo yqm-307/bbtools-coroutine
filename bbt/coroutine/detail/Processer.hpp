@@ -58,6 +58,9 @@ private:
     volatile bool                   m_is_running{true};
 
     Coroutine::SPtr                 m_running_coroutine{nullptr};   // processer当前运行中的协程
+    std::atomic_uint64_t            m_running_coroutine_begin;      // 当前运行协程开始执行的时间 
+
+    // XXX 可以优化到profiler中
     uint64_t                        m_co_swap_times{0};
     bbt::clock::us                  m_suspend_cost_times;
 };

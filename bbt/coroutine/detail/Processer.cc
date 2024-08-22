@@ -113,7 +113,9 @@ void Processer::_Run()
                 if (coroutine->GetStatus() == CO_RUNNING || coroutine->GetStatus() == CO_FINAL)
                     continue;
 
+                // 执行前设置当前协程
                 m_running_coroutine = coroutine;
+                m_running_coroutine_begin.exchange( bbt::clock::gettime_mono<>());
                 AssertWithInfo(m_running_coroutine != nullptr, "maybe coroutine queue has bug!");
                 AssertWithInfo(m_running_coroutine->GetStatus() != CoroutineStatus::CO_RUNNING, "error, try to resume a already running coroutine!");
                 m_co_swap_times++;
@@ -187,6 +189,11 @@ void Processer::_Steal(std::vector<Coroutine::SPtr>& works)
 {
     auto size = m_coroutine_queue.Size();
     if (size <= 0)
+        return;
+    
+    uint64_t prev_run = m_running_coroutine_begin.load();
+    auto already_run_time = bbt::clock::gettime_mono() - prev_run;
+    if (already_run_time < g_bbt_coroutine_config->m_cfg_processer_worksteal_timeout_ms)
         return;
 
     int steal_num = g_bbt_coroutine_config->m_cfg_processer_steal_once_min_task_num > size ? g_bbt_coroutine_config->m_cfg_processer_steal_once_min_task_num : size / 2;
