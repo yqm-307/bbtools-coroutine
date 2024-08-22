@@ -10,9 +10,15 @@ class CoCond:
 {
 public:
     typedef std::shared_ptr<CoCond> SPtr;
-    static SPtr                         Create();
+    static SPtr                         Create(bool nolock = false);
 
-    BBTATTR_FUNC_Ctor_Hidden            CoCond();
+    /**
+     * @brief 
+     * 
+     * @param nolock 如果使用无锁版本，请使用WaitWithCallback系列函数，由外部加锁，通过callback解锁
+     * @return BBTATTR_FUNC_Ctor_Hidden 
+     */
+    BBTATTR_FUNC_Ctor_Hidden            CoCond(bool nolock);
                                         ~CoCond();
 
     /**
@@ -55,11 +61,11 @@ public:
      */
     int                                 Notify();
 protected:
-    int                                 Init();
+    void                                _Lock();
+    void                                _UnLock();
 protected:
     std::shared_ptr<detail::CoPollEvent> m_co_event{nullptr};
-    int                                 m_await_co_num{};
-    std::mutex                          m_co_event_mutex;
+    std::mutex*                         m_co_event_mutex{nullptr};
     volatile CoCondStatus               m_run_status{COND_DEFAULT};
 };
 

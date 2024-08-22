@@ -13,7 +13,7 @@ namespace bbt::coroutine::sync
 template<class TItem, int Max>
 Chan<TItem, Max>::Chan():
     m_max_size(Max),
-    m_enable_read_cond(CoCond::Create())
+    m_enable_read_cond(CoCond::Create(true))
 {
     Assert(m_max_size >= 0);
     m_run_status = ChanStatus::CHAN_OPEN;
@@ -32,22 +32,23 @@ int Chan<TItem, Max>::Write(const ItemType& item)
     if (IsClosed())
         return -1;
 
-    std::unique_lock<std::mutex> lock{m_item_queue_mutex};
+    _Lock();
 
     /* 如果无法写入，协程挂起直到可写 */
     if (m_item_queue.size() >= m_max_size) {
         auto enable_write_cond = _CreateAndPushEnableWriteCond();
 
-        if (_WaitUntilEnableWrite(enable_write_cond, [&](){ lock.unlock(); return true; }) != 0)
+        if (_WaitUntilEnableWrite(enable_write_cond, [this](){ _UnLock(); return true; }) != 0)
             return -1;
 
-        lock.lock();
+        _Lock();
     }
     
     m_item_queue.push(item);
     if (m_is_reading)
         _OnEnableRead();
 
+    _UnLock();
     return 0;
 }
 
@@ -62,39 +63,21 @@ int Chan<TItem, Max>::Read(ItemType& item)
     if (!m_is_reading.compare_exchange_strong(expect, true))
         return -1;
 
-    m_item_queue_mutex.lock();
+    _Lock();
+
     if (m_item_queue.empty()) {
-        if (_WaitUntilEnableRead([&](){
-            m_item_queue_mutex.unlock();
-            return true; }) != 0)
+        if (_WaitUntilEnableRead([this](){ _UnLock(); return true; }) != 0)
             return -1;
 
-        m_item_queue_mutex.lock();
+        _Lock();
     }
     
     item = m_item_queue.front();
     m_item_queue.pop();
     /* 抛出队列可写 */
     Assert(_OnEnableWrite() == 0);
-
     m_is_reading.exchange(false);
-    m_item_queue_mutex.unlock();
-
-    // std::unique_lock<std::mutex> lock{m_item_queue_mutex};
-
-    // if (m_item_queue.empty()) {
-    //     if (_WaitUntilEnableRead([&](){ lock.unlock(); return true; }) != 0)
-    //         return -1;
-
-    //     lock.lock();
-    // }
-    
-    // item = m_item_queue.front();
-    // m_item_queue.pop();
-    // /* 抛出队列可写 */
-    // Assert(_OnEnableWrite() == 0);
-
-    // m_is_reading.exchange(false);
+    _UnLock();
     return 0;
 }
 
@@ -109,13 +92,13 @@ int Chan<TItem, Max>::ReadAll(std::vector<ItemType>& items)
     if (!m_is_reading.compare_exchange_strong(expect, true))
         return -1;
 
-    std::unique_lock<std::mutex> lock{m_item_queue_mutex};
+    _Lock();
     if (m_item_queue.empty()) {
 
-        if (_WaitUntilEnableRead([&](){ lock.unlock(); return true; }) != 0)
+        if (_WaitUntilEnableRead([this](){ _UnLock(); return true; }) != 0)
             return -1;
 
-        lock.lock();
+        _Lock();
     }
 
     while (!m_item_queue.empty()) {
@@ -125,6 +108,7 @@ int Chan<TItem, Max>::ReadAll(std::vector<ItemType>& items)
     }
     m_is_reading = false;
 
+    _UnLock();
     return 0;
 }
 
@@ -134,43 +118,41 @@ int Chan<TItem, Max>::TryWrite(const ItemType& item)
     if (IsClosed())
         return -1;
 
-    std::unique_lock<std::mutex> _{m_item_queue_mutex};
-    if (m_item_queue.size() >= m_max_size)
+    _Lock();
+    if (m_item_queue.size() >= m_max_size) {
+        _UnLock();
         return -1;
+    }
     
     m_item_queue.push(item);
     if (m_is_reading) _OnEnableRead();
 
+    _UnLock();
     return 0;
 }
 
 template<class TItem, int Max>
 int Chan<TItem, Max>::TryWrite(const ItemType& item, int timeout)
 {
+    int ret = 0;
+
     if (IsClosed())
         return -1;
 
-    std::unique_lock<std::mutex> lock{m_item_queue_mutex};
+    _Lock();
     if (m_item_queue.size() >= m_max_size) {
         auto enable_write_cond = _CreateAndPushEnableWriteCond();
-        lock.unlock();
+        ret = _WaitUntilEnableWriteOrTimeout(enable_write_cond, timeout, [this](){ _UnLock(); return true; });
 
-        int ret = _WaitUntilEnableWriteOrTimeout(enable_write_cond, timeout);
-
-        
-        lock.lock();
-        if (ret == 1) {
-
-        } else if (ret != 0) {
-            return -1;
-        }
+        _Lock();
     }
-    
+
     m_item_queue.push(item);
     if (m_is_reading)
         _OnEnableRead();
 
-    return 0;
+    _UnLock();
+    return ret;
 }
 
 template<class TItem, int Max>
@@ -183,7 +165,7 @@ int Chan<TItem, Max>::TryRead(ItemType& item)
     if (!m_is_reading.compare_exchange_strong(expect, true))
         return -1;
 
-    std::unique_lock<std::mutex> _{m_item_queue_mutex};
+    _Lock();
 
     if (m_item_queue.empty())
         return -1;
@@ -191,6 +173,8 @@ int Chan<TItem, Max>::TryRead(ItemType& item)
     item = m_item_queue.front();
     m_item_queue.pop();
     Assert(_OnEnableWrite() == 0);
+
+    _UnLock();
 
     return 0;
 }
@@ -205,13 +189,13 @@ int Chan<TItem, Max>::TryRead(ItemType& item, int timeout)
     if (!m_is_reading.compare_exchange_strong(expect, true))
         return -1;
 
-    std::unique_lock<std::mutex> lock{m_item_queue_mutex};
+    _Lock();
     if (m_item_queue.empty()) {
 
-        if (_WaitUntilEnableReadOrTimeout(timeout, [&](){ lock.unlock(); return true; }) != 0)
+        if (_WaitUntilEnableReadOrTimeout(timeout, [this](){ _UnLock(); return true; }) != 0)
             return -1;
 
-        lock.lock();
+        _Lock();
     }
 
     if (m_item_queue.empty()) {
@@ -223,6 +207,7 @@ int Chan<TItem, Max>::TryRead(ItemType& item, int timeout)
     Assert(_OnEnableWrite() == 0);
 
     m_is_reading = false;
+    _UnLock();
 
     return 0;
 }
@@ -235,7 +220,7 @@ void Chan<TItem, Max>::Close()
 
     m_run_status = ChanStatus::CHAN_CLOSE;
 
-    std::unique_lock<std::mutex> _{m_item_queue_mutex};
+    _Lock();
     /* 唤醒所有阻塞在Channel上的协程 */
     if (m_is_reading) _OnEnableRead();
 
@@ -244,6 +229,8 @@ void Chan<TItem, Max>::Close()
         m_enable_write_conds.pop();
         enable_write_cond->Notify();
     }
+
+    _UnLock();
 }
 
 template<class TItem, int Max>
@@ -265,9 +252,9 @@ int Chan<TItem, Max>::_WaitUntilEnableWrite(CoCond::SPtr cond, const detail::Cor
 }
 
 template<class TItem, int Max>
-int Chan<TItem, Max>::_WaitUntilEnableWriteOrTimeout(CoCond::SPtr cond, int timeout_ms)
+int Chan<TItem, Max>::_WaitUntilEnableWriteOrTimeout(CoCond::SPtr cond, int timeout_ms, const detail::CoroutineOnYieldCallback& cb)
 {
-    return cond->WaitWithTimeout(timeout_ms);
+    return cond->WaitWithTimeoutAndCallback(timeout_ms, cb);
 }
 
 template<class TItem, int Max>
@@ -290,7 +277,7 @@ int Chan<TItem, Max>::_OnEnableWrite()
 template<class TItem, int Max>
 CoCond::SPtr Chan<TItem, Max>::_CreateAndPushEnableWriteCond()
 {
-    auto enable_write_cond = CoCond::Create();
+    auto enable_write_cond = CoCond::Create(true);
     Assert(enable_write_cond != nullptr);
     m_enable_write_conds.push(enable_write_cond);
 
@@ -301,6 +288,18 @@ template<class TItem, int Max>
 int Chan<TItem, Max>::_WaitUntilEnableReadOrTimeout(int timeout_ms, const detail::CoroutineOnYieldCallback& cb)
 {
     return m_enable_read_cond->WaitWithTimeoutAndCallback(timeout_ms, cb);
+}
+
+template<class TItem, int Max>
+void Chan<TItem, Max>::_Lock()
+{
+    m_item_queue_mutex.lock();
+}
+
+template<class TItem, int Max>
+void Chan<TItem, Max>::_UnLock()
+{
+    m_item_queue_mutex.unlock();
 }
 
 template<class TItem, int Max>
@@ -336,7 +335,7 @@ int Chan<TItem, 0>::Write(const ItemType& item)
     if (BaseType::IsClosed())
         return -1;
 
-    std::unique_lock<std::mutex> lock{BaseType::m_item_queue_mutex};
+    BaseType::_Lock();
 
     /* 加入引用队列，并尝试唤醒挂起的读端，如果没有正在读的协程挂起等待 */
     m_item_cache_ref.push(item);
@@ -345,14 +344,16 @@ int Chan<TItem, 0>::Write(const ItemType& item)
 
     if (BaseType::m_is_reading && (is_writing_idx == m_read_idx)) {
         BaseType::_OnEnableRead();
+        BaseType::_UnLock();
         return 0;
     }
 
     auto enable_write_cond = BaseType::_CreateAndPushEnableWriteCond();
 
-    if (BaseType::_WaitUntilEnableWrite(enable_write_cond, [&](){ lock.unlock(); return true; }) != 0)
+    if (BaseType::_WaitUntilEnableWrite(enable_write_cond, [this](){ BaseType::_UnLock(); return true; }) != 0)
         return -1;
     
+    BaseType::_UnLock();
     return 0;
 }
 
@@ -367,14 +368,13 @@ int Chan<TItem, 0>::Read(ItemType& item)
     if (!BaseType::m_is_reading.compare_exchange_strong(expect, true))
         return -1;
 
-    std::unique_lock<std::mutex> lock{BaseType::m_item_queue_mutex};
+    BaseType::_Lock();
 
     if (m_write_idx <= m_read_idx) {
-
-        if (BaseType::_WaitUntilEnableRead([&](){ lock.unlock(); return true; }) != 0)
+        if (BaseType::_WaitUntilEnableRead([this](){ BaseType::_UnLock(); return true; }) != 0)
             return -1;
 
-        lock.lock();
+        BaseType::_Lock();
     }
     
     item = m_item_cache_ref.front();
@@ -384,6 +384,7 @@ int Chan<TItem, 0>::Read(ItemType& item)
     Assert(BaseType::_OnEnableWrite() == 0);
 
     BaseType::m_is_reading = false;
+    BaseType::_UnLock();
 
     return 0;
 }

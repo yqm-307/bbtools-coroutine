@@ -124,9 +124,10 @@ protected:
      * @brief 挂起协程直到可写或超时
      * @param cond 挂起事件
      * @param timeout_ms 最大等待的超时时间，超过此时间后即使没有可写数据，阻塞协程也会被唤醒
+     * @param cb 协程挂起后回调
      * @return 0表示可写，-1表示失败，1表示超时
      */
-    int                                     _WaitUntilEnableWriteOrTimeout(CoCond::SPtr cond, int timeout_ms);
+    int                                     _WaitUntilEnableWriteOrTimeout(CoCond::SPtr cond, int timeout_ms, const detail::CoroutineOnYieldCallback& cb = nullptr);
 
     /* 可读事件 */
     int                                     _OnEnableRead();
@@ -139,7 +140,9 @@ protected:
 
     /* 创建一个可写事件 */
     CoCond::SPtr                            _CreateAndPushEnableWriteCond();
-    
+
+    void                                    _Lock();
+    void                                    _UnLock();
 protected:
     const int                               m_max_size{-1};
     std::queue<ItemType>                    m_item_queue;
