@@ -23,8 +23,14 @@ public:
     void                        Lock();
     void                        UnLock();
     int                         TryLock(int ms);
+    int                         TryLock();
 
 protected:
+    int                         _WaitUnLockUnitlTimeout(int timeout, const detail::CoroutineOnYieldCallback& cb);
+    int                         _WaitUnLock(const detail::CoroutineOnYieldCallback& cb);
+
+    int                         _NotifyOne();
+
     void                        _Lock();
     void                        _UnLock();
 private:
