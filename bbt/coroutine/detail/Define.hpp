@@ -73,6 +73,12 @@ enum CoCondStatus : int32_t
     COND_ACTIVE         = 3,
 };
 
+enum CoMutexStatus
+{
+    COMUTEX_LOCKED      = 0,
+    COMUTEX_FREE        = 1,
+};
+
 }
 
 namespace bbt::coroutine::detail
