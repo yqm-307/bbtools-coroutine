@@ -18,3 +18,6 @@ target_link_libraries(chan_fatigue_test ${MY_LIBS})
 
 add_executable(mem_check_test mem_check_test.cc)
 target_link_libraries(mem_check_test ${MY_LIBS})
+
+add_executable(fatigue_comutex fatigue_comutex.cc)
+target_link_libraries(fatigue_comutex ${MY_LIBS})

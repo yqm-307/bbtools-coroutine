@@ -37,3 +37,7 @@ add_test(NAME Test_g_co COMMAND Test_g_co)
 add_executable(Test_chan Test_chan.cc)
 target_link_libraries(Test_chan ${MY_LIBS})
 add_test(NAME Test_chan COMMAND Test_chan)
+
+add_executable(Test_comutex Test_comutex.cc)
+target_link_libraries(Test_comutex ${MY_LIBS})
+add_test(NAME Test_comutex COMMAND Test_comutex)

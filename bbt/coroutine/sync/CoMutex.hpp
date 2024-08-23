@@ -22,21 +22,32 @@ public:
 
     void                        Lock();
     void                        UnLock();
+
+    /**
+     * @brief 获取锁，如果无法立即获取挂起协程直到超时
+     * @param ms 
+     * @return int 0成功，-1发生错误，1表示超时
+     */
     int                         TryLock(int ms);
+
+    /**
+     * @brief 尝试获取锁，立即返回
+     * @return int 0成功，-1表示失败
+     */
     int                         TryLock();
 
 protected:
     int                         _WaitUnLockUnitlTimeout(int timeout, const detail::CoroutineOnYieldCallback& cb);
     int                         _WaitUnLock(const detail::CoroutineOnYieldCallback& cb);
 
-    int                         _NotifyOne();
+    void                        _NotifyOne();
 
-    void                        _Lock();
-    void                        _UnLock();
+    void                        _SysLock();
+    void                        _SysUnLock();
 private:
     std::queue<CoCond::SPtr>    m_wait_lock_queue;
     std::mutex                  m_mutex;
-    CoMutexStatus               m_status{CoMutexStatus::COMUTEX_FREE};
+    volatile CoMutexStatus      m_status{CoMutexStatus::COMUTEX_FREE};
 };
 
 } // bbt::coroutine::sync

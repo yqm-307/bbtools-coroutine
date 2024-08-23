@@ -16,66 +16,78 @@ CoMutex::~CoMutex()
 
 void CoMutex::Lock()
 {
-    _Lock();
+    _SysLock();
 
     /* 如果已经上锁了，挂起并加入到等待队列中 */
-    if (m_status == CoMutexStatus::COMUTEX_LOCKED) {
-        Assert(_WaitUnLock([this](){ _UnLock(); return true; }) == 0);
+    while (m_status == CoMutexStatus::COMUTEX_LOCKED) {
+        Assert(_WaitUnLock([this](){ _SysUnLock(); return true; }) == 0);
 
-        _Lock();
+        _SysLock();
     }
 
+    Assert(m_status == CoMutexStatus::COMUTEX_FREE);
+
     m_status = CoMutexStatus::COMUTEX_LOCKED;
-    _UnLock();
+    _SysUnLock();
 }
 
 void CoMutex::UnLock()
 {
-    _Lock();
+    _SysLock();
 
+    m_status = CoMutexStatus::COMUTEX_FREE;
     _NotifyOne();
 
-    _UnLock();
+    _SysUnLock();
 }
 
 int CoMutex::TryLock()
 {
 
     int ret = 0;
-    _Lock();
+    _SysLock();
 
     if (m_status == CoMutexStatus::COMUTEX_FREE)
-        m_status == CoMutexStatus::COMUTEX_LOCKED;
+        m_status = CoMutexStatus::COMUTEX_LOCKED;
     else
         ret = -1;
 
-    _UnLock();
+    _SysUnLock();
     return ret;
 }
 
 int CoMutex::TryLock(int ms)
 {
     int ret = 0;
-    _Lock();
+    _SysLock();
 
     if (m_status == CoMutexStatus::COMUTEX_LOCKED) {
-        ret = _WaitUnLockUnitlTimeout(ms, [this](){ _UnLock(); return true; });
+        ret = _WaitUnLockUnitlTimeout(ms, [this](){ _SysUnLock(); return true; });
 
-        _Lock();
+        _SysLock();
+    }
+
+    if (ret != 0) {
+        _SysUnLock();
+        return ret;
+    }
+
+    if (m_status != CoMutexStatus::COMUTEX_FREE) {
+        _SysUnLock();
+        return -1;
     }
 
     m_status = CoMutexStatus::COMUTEX_LOCKED;
-    _UnLock();
-
-    return ret;
+    _SysUnLock();
+    return 0;
 }
 
-void CoMutex::_Lock()
+void CoMutex::_SysLock()
 {
     m_mutex.lock();
 }
 
-void CoMutex::_UnLock()
+void CoMutex::_SysUnLock()
 {
     m_mutex.unlock();
 }
@@ -83,20 +95,20 @@ void CoMutex::_UnLock()
 int CoMutex::_WaitUnLockUnitlTimeout(int timeout, const detail::CoroutineOnYieldCallback& cb)
 {
     auto co_ptr = CoCond::Create(true);
-    m_wait_lock_queue.push(std::move(co_ptr));
+    m_wait_lock_queue.push(co_ptr);
     return co_ptr->WaitWithTimeoutAndCallback(timeout, std::forward<const detail::CoroutineOnYieldCallback&>(cb));
 }
 
 int CoMutex::_WaitUnLock(const detail::CoroutineOnYieldCallback& cb)
 {
     auto co_ptr = CoCond::Create(true);
-    m_wait_lock_queue.push(std::move(co_ptr));
+    m_wait_lock_queue.push(co_ptr);
     return co_ptr->WaitWithCallback(std::forward<const detail::CoroutineOnYieldCallback&>(cb));
 }
 
-int CoMutex::_NotifyOne()
+void CoMutex::_NotifyOne()
 {
-    while (true) {
+    while (!m_wait_lock_queue.empty()) {
         auto co_sptr = m_wait_lock_queue.front();
         m_wait_lock_queue.pop();
 
