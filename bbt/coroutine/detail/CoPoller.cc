@@ -68,6 +68,7 @@ void CoPoller::NotifyCustomEvent(std::shared_ptr<CoPollEvent> event)
 {
     std::unique_lock<std::mutex> _(m_custom_event_active_queue_mutex);
     AssertWithInfo(m_safe_active_set.find(event) == m_safe_active_set.end(), "duplicate registration events! please submit issue!");
+    Assert(event != nullptr);
 
     m_safe_active_set.insert(event);
     m_custom_event_active_queue.push(event);

@@ -58,7 +58,6 @@ protected:
 protected:
     static CoroutineId              GenCoroutineId();
     void                            _OnCoroutineFinal();
-    void                            _OnYield();
 private:
     Context                         m_context;
     const CoroutineId               m_id{BBT_COROUTINE_INVALID_COROUTINE_ID};

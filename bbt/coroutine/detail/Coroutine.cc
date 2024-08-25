@@ -60,18 +60,21 @@ Coroutine::~Coroutine()
 
 void Coroutine::Resume()
 {
+    Assert(m_run_status == CoroutineStatus::CO_PENDING || m_run_status == CoroutineStatus::CO_SUSPEND);
     m_run_status = CoroutineStatus::CO_RUNNING;
     m_context.Resume();
 }
 
 void Coroutine::Yield()
 {
+    Assert(m_run_status == CoroutineStatus::CO_RUNNING);
     m_run_status = CoroutineStatus::CO_SUSPEND;
     m_context.Yield();
 }
 
 int Coroutine::YieldWithCallback(const CoroutineOnYieldCallback& cb)
 {
+    Assert(m_run_status == CoroutineStatus::CO_RUNNING);
     m_run_status = CoroutineStatus::CO_SUSPEND;
     return m_context.YieldWithCallback(cb);
 }
@@ -91,12 +94,6 @@ void Coroutine::_OnCoroutineFinal()
     m_run_status = CoroutineStatus::CO_FINAL;
     if (m_co_final_callback)
         m_co_final_callback();
-}
-
-void Coroutine::_OnYield()
-{
-    if (m_co_onyield_callback)
-        m_co_onyield_callback();
 }
 
 int Coroutine::YieldUntilTimeout(int ms)
