@@ -111,7 +111,7 @@ void CoMutex::_NotifyOne()
     while (!m_wait_lock_queue.empty()) {
         auto co_sptr = m_wait_lock_queue.front();
         m_wait_lock_queue.pop();
-
+        Assert(co_sptr != nullptr);
         if (co_sptr->Notify() == 0)
             break;
     }
