@@ -13,6 +13,10 @@ namespace bbt::coroutine::sync
  * 协程。
  * 
  * 使用此锁是为了防止阻塞系统线程
+ * 
+ * XXX
+ * 目前实现为使用CoCond来实现。CoCond内部需要加锁导致部
+ * 分锁是重叠的，最好的做法是像CoCond一样控制CoPollEvent
  */
 class CoMutex
 {

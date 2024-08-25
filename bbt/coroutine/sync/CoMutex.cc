@@ -94,14 +94,14 @@ void CoMutex::_SysUnLock()
 
 int CoMutex::_WaitUnLockUnitlTimeout(int timeout, const detail::CoroutineOnYieldCallback& cb)
 {
-    auto co_ptr = CoCond::Create(true);
+    auto co_ptr = CoCond::Create();
     m_wait_lock_queue.push(co_ptr);
     return co_ptr->WaitWithTimeoutAndCallback(timeout, std::forward<const detail::CoroutineOnYieldCallback&>(cb));
 }
 
 int CoMutex::_WaitUnLock(const detail::CoroutineOnYieldCallback& cb)
 {
-    auto co_ptr = CoCond::Create(true);
+    auto co_ptr = CoCond::Create();
     m_wait_lock_queue.push(co_ptr);
     return co_ptr->WaitWithCallback(std::forward<const detail::CoroutineOnYieldCallback&>(cb));
 }
