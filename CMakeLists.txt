@@ -26,6 +26,9 @@ option(PROFILE
 option(DEBUG_INFO
     "启用debug info，输出库debug信息" OFF)
 
+option(STRINGENT_DEBUG
+    "启动严格dbg模式，带来性能开销极大" OFF)
+
 message(
     "RELEASE: "         ${RELEASE}
     "\nNEED_BENCHMARK: "  ${NEED_BENCHMARK}
@@ -49,6 +52,10 @@ endif()
 
 if (DEBUG_INFO)
     add_definitions(-DBBT_COROUTINE_DEBUG_PRINT)
+endif()
+
+if (STRINGENT_DEBUG)
+    add_definitions(-DBBT_COROUTINE_STRINGENT_DEBUG)
 endif()
 
 set(LIBRARY_OUTPUT_PATH ${PROJECT_BINARY_DIR}/lib) 

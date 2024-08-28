@@ -9,6 +9,7 @@
 #include <bbt/coroutine/detail/LocalThread.hpp>
 #include <bbt/coroutine/detail/StackPool.hpp>
 #include <bbt/coroutine/detail/CoPoller.hpp>
+#include <bbt/coroutine/detail/debug/DebugMgr.hpp>
 
 namespace bbt::coroutine::detail
 {
@@ -68,6 +69,9 @@ CoroutineId Scheduler::RegistCoroutineTask(const CoroutineCallback& handle)
 
 void Scheduler::OnActiveCoroutine(Coroutine::SPtr coroutine)
 {
+#ifdef BBT_COROUTINE_STRINGENT_DEBUG
+    g_bbt_dbgmgr->Check_IsResumedCo(coroutine->GetId());
+#endif
     m_global_coroutine_spinlock.Lock();
     m_global_coroutine_deque.PushTail(coroutine);
     m_global_coroutine_spinlock.UnLock();

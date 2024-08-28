@@ -14,6 +14,8 @@
 #include <sys/epoll.h>
 #include <bbt/base/Logger/DebugPrint.hpp>
 #include <bbt/base/clock/Clock.hpp>
+#include <bbt/base/Attribute.hpp>
+#include <bbt/base/assert/Assert.hpp>
 
 // #define BBT_COROUTINE_PROFILE
 
@@ -33,6 +35,8 @@
 #define g_bbt_profiler              (bbt::coroutine::detail::Profiler::GetInstance())
 
 #define g_bbt_stackpoll             (bbt::coroutine::detail::StackPool::GetInstance())
+
+#define g_bbt_dbgmgr                (bbt::coroutine::detail::DebugMgr::GetInstance())
 
 namespace bbt::coroutine::sync
 {
@@ -91,6 +95,7 @@ class CoPollEvent;  // 协程事件
 class CoPoller;     // 事件轮询器
 class GlobalConfig; // 全局配置
 class LocalThread;  // 线程局部数据辅助类
+class DebugMgr;     // dbg管理器
 
 
 typedef uint64_t CoroutineId;

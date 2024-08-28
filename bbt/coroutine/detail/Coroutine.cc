@@ -6,6 +6,7 @@
 #include <bbt/coroutine/detail/CoPoller.hpp>
 #include <bbt/coroutine/detail/Profiler.hpp>
 #include <bbt/coroutine/utils/DebugPrint.hpp>
+#include <bbt/coroutine/detail/debug/DebugMgr.hpp>
 
 namespace bbt::coroutine::detail
 {
@@ -62,6 +63,9 @@ void Coroutine::Resume()
 {
     Assert(m_run_status == CoroutineStatus::CO_PENDING || m_run_status == CoroutineStatus::CO_SUSPEND);
     m_run_status = CoroutineStatus::CO_RUNNING;
+#ifdef BBT_COROUTINE_STRINGENT_DEBUG
+    g_bbt_dbgmgr->OnEvent_ResumeCo(shared_from_this());
+#endif
     m_context.Resume();
 }
 
@@ -69,6 +73,9 @@ void Coroutine::Yield()
 {
     Assert(m_run_status == CoroutineStatus::CO_RUNNING);
     m_run_status = CoroutineStatus::CO_SUSPEND;
+#ifdef BBT_COROUTINE_STRINGENT_DEBUG
+    g_bbt_dbgmgr->OnEvent_YieldCo(shared_from_this());
+#endif
     m_context.Yield();
 }
 
@@ -76,6 +83,9 @@ int Coroutine::YieldWithCallback(const CoroutineOnYieldCallback& cb)
 {
     Assert(m_run_status == CoroutineStatus::CO_RUNNING);
     m_run_status = CoroutineStatus::CO_SUSPEND;
+#ifdef BBT_COROUTINE_STRINGENT_DEBUG
+    g_bbt_dbgmgr->OnEvent_YieldCo(shared_from_this());
+#endif
     return m_context.YieldWithCallback(cb);
 }
 
