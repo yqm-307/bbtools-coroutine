@@ -4,7 +4,7 @@
 namespace bbt::coroutine::detail
 {
 
-CoroutineQueue::CoroutineQueue(bool use_spinlock)
+CoroutineQueue::CoroutineQueue()
 {
 }
 

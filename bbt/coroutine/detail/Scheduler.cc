@@ -23,8 +23,7 @@ Scheduler::UPtr& Scheduler::GetInstance()
 }
 
 Scheduler::Scheduler():
-    m_down_latch(g_bbt_coroutine_config->m_cfg_static_thread_num),
-    m_global_coroutine_deque(true)
+    m_down_latch(g_bbt_coroutine_config->m_cfg_static_thread_num)
 {
 }
 

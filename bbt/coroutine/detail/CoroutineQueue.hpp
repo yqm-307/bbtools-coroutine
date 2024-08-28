@@ -9,7 +9,7 @@ namespace bbt::coroutine::detail
 class CoroutineQueue
 {
 public:
-    CoroutineQueue(bool use_spinlock = false);
+    CoroutineQueue();
     ~CoroutineQueue();
 
     void                            Clear();

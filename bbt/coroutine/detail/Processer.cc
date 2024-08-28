@@ -33,8 +33,7 @@ ProcesserId Processer::_GenProcesserId()
 }
 
 Processer::Processer():
-    m_id(_GenProcesserId()),
-    m_coroutine_queue(true)
+    m_id(_GenProcesserId())
 {
     m_run_status = ProcesserStatus::PROC_SUSPEND;
 }
