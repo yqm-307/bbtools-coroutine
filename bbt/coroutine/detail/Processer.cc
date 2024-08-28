@@ -50,13 +50,15 @@ ProcesserStatus Processer::GetStatus()
 
 int Processer::GetLoadValue()
 {
-    Assert(m_coroutine_queue.Size() >= 0);
-    return m_coroutine_queue.Size();
+    return GetExecutableNum();
 }
 
 int Processer::GetExecutableNum()
 {
-    return m_coroutine_queue.Size();
+    m_coroutine_queue_spinlock.Lock();
+    int size = m_coroutine_queue.Size();
+    m_coroutine_queue_spinlock.UnLock();
+    return size;
 }
 
 
@@ -67,13 +69,17 @@ ProcesserId Processer::GetId()
 
 void Processer::AddCoroutineTask(Coroutine::SPtr coroutine)
 {
+    m_coroutine_queue_spinlock.Lock();
     m_coroutine_queue.PushTail(coroutine);
+    m_coroutine_queue_spinlock.UnLock();
     _OnAddCorotinue();
 }
 
 void Processer::AddCoroutineTaskRange(std::vector<Coroutine::SPtr>::iterator begin, std::vector<Coroutine::SPtr>::iterator end)
 {
+    m_coroutine_queue_spinlock.Lock();
     m_coroutine_queue.PushTailRange(begin, end);
+    m_coroutine_queue_spinlock.UnLock();
     _OnAddCorotinue();
 }
 
@@ -103,11 +109,17 @@ void Processer::_Run()
     {
         m_run_status = ProcesserStatus::PROC_RUNNING;
         // 执行本地任务
-        while (m_coroutine_queue.Size() > 0 || _TryGetCoroutineFromGlobal() > 0 )
+        while (true)
         {
             std::vector<Coroutine::SPtr> pending_coroutines;
-            // m_coroutine_queue.PopAll(pending_coroutines);
+            m_coroutine_queue_spinlock.Lock();
+            if (m_coroutine_queue.Size() <= 0 && _TryGetCoroutineFromGlobal() <= 0) {
+                m_coroutine_queue_spinlock.UnLock();
+                break;
+            }
+
             m_coroutine_queue.PopNHead(pending_coroutines, g_bbt_coroutine_config->m_cfg_processer_do_task_once_task_num);
+            m_coroutine_queue_spinlock.UnLock();
 
             for (auto&& coroutine : pending_coroutines) {
                 if (coroutine->GetStatus() == CO_RUNNING || coroutine->GetStatus() == CO_FINAL)
@@ -144,7 +156,10 @@ void Processer::Stop()
         std::this_thread::sleep_for(bbt::clock::milliseconds(50));
         m_run_cond.notify_one();
     } while (m_run_status != ProcesserStatus::PROC_EXIT);
+
+    m_coroutine_queue_spinlock.Lock();
     m_coroutine_queue.Clear();
+    m_coroutine_queue_spinlock.UnLock();
 }
 
 void Processer::_OnAddCorotinue()
@@ -185,19 +200,25 @@ uint64_t Processer::GetSuspendCostTime()
     return m_suspend_cost_times.count();
 }
 
-void Processer::_Steal(std::vector<Coroutine::SPtr>& works)
+void Processer::Steal(std::vector<Coroutine::SPtr>& works)
 {
+    m_coroutine_queue_spinlock.Lock();
     auto size = m_coroutine_queue.Size();
-    if (size <= 0)
+    if (size <= 0) {
+        m_coroutine_queue_spinlock.UnLock();
         return;
+    }
     
     uint64_t prev_run = m_running_coroutine_begin.load();
     auto already_run_time = bbt::clock::gettime_mono() - prev_run;
-    if (already_run_time < g_bbt_coroutine_config->m_cfg_processer_worksteal_timeout_ms)
+    if (already_run_time < g_bbt_coroutine_config->m_cfg_processer_worksteal_timeout_ms) {
+        m_coroutine_queue_spinlock.UnLock();
         return;
+    }
 
     int steal_num = g_bbt_coroutine_config->m_cfg_processer_steal_once_min_task_num > size ? g_bbt_coroutine_config->m_cfg_processer_steal_once_min_task_num : size / 2;
     m_coroutine_queue.PopNTail(works, steal_num);
+    m_coroutine_queue_spinlock.UnLock();
 
 #ifdef BBT_COROUTINE_PROFILE
     g_bbt_profiler->OnEvent_StealSucc(steal_num);
