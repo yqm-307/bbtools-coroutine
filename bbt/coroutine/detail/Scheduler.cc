@@ -23,8 +23,7 @@ Scheduler::UPtr& Scheduler::GetInstance()
 }
 
 Scheduler::Scheduler():
-    m_down_latch(g_bbt_coroutine_config->m_cfg_static_thread_num),
-    m_global_coroutine_deque(true)
+    m_down_latch(g_bbt_coroutine_config->m_cfg_static_thread_num)
 {
 }
 
@@ -59,7 +58,9 @@ CoroutineId Scheduler::RegistCoroutineTask(const CoroutineCallback& handle)
 #endif
     /* 尝试先找个Processer放进执行队列，失败放入全局队列 */
     if (!_LoadBlance2Proc(coroutine_sptr)) {
+        m_global_coroutine_spinlock.Lock();
         m_global_coroutine_deque.PushTail(coroutine_sptr);
+        m_global_coroutine_spinlock.UnLock();
     }
     
     return coroutine_sptr->GetId();
@@ -67,18 +68,23 @@ CoroutineId Scheduler::RegistCoroutineTask(const CoroutineCallback& handle)
 
 void Scheduler::OnActiveCoroutine(Coroutine::SPtr coroutine)
 {
+    m_global_coroutine_spinlock.Lock();
     m_global_coroutine_deque.PushTail(coroutine);
+    m_global_coroutine_spinlock.UnLock();
 }
 
 void Scheduler::_SampleSchuduleAlgorithm()
 {
-    if (!m_global_coroutine_deque.Empty())
+    m_global_coroutine_spinlock.Lock();
+    bool has_co = !m_global_coroutine_deque.Empty();
+    m_global_coroutine_spinlock.UnLock();
+    if (!has_co)
+        return;
+
+    for (auto&& item : m_processer_map)
     {
-        for (auto&& item : m_processer_map)
-        {
-            auto processer = item.second;
-            processer->Notify();
-        }
+        auto processer = item.second;
+        processer->Notify();
     }
 }
 
@@ -158,7 +164,9 @@ void Scheduler::Stop()
     }
 
     m_thread = nullptr;
+    m_global_coroutine_spinlock.Lock();
     m_global_coroutine_deque.Clear();
+    m_global_coroutine_spinlock.UnLock();
     m_run_status = ScheudlerStatus::SCHE_EXIT;
 #ifdef BBT_COROUTINE_PROFILE
     std::string profileinfo;
@@ -171,7 +179,9 @@ void Scheduler::Stop()
 size_t Scheduler::GetGlobalCoroutine(std::vector<Coroutine::SPtr>& coroutines, size_t size)
 {
     coroutines.clear();
+    m_global_coroutine_spinlock.Lock();
     m_global_coroutine_deque.PopNTail(coroutines, size);
+    m_global_coroutine_spinlock.UnLock();
     return coroutines.size();
 }
 
@@ -244,7 +254,7 @@ int Scheduler::TryWorkSteal(Processer::SPtr thief)
         auto proc = m_load_blance_vec[index];
         Assert(proc != nullptr);
         std::vector<Coroutine::SPtr> works;
-        proc->_Steal(works);
+        proc->Steal(works);
 
         if (!works.empty()) {
             steal_num = works.size();

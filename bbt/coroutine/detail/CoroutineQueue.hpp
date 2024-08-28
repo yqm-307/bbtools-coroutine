@@ -9,7 +9,7 @@ namespace bbt::coroutine::detail
 class CoroutineQueue
 {
 public:
-    CoroutineQueue(bool use_spinlock = false);
+    CoroutineQueue();
     ~CoroutineQueue();
 
     void                            Clear();
@@ -24,14 +24,8 @@ public:
     void                            PopNHead(std::vector<Coroutine::SPtr>& out, size_t n);
     void                            PushHeadRange(std::vector<Coroutine::SPtr>::iterator begin, std::vector<Coroutine::SPtr>::iterator end);
     void                            PushTailRange(std::vector<Coroutine::SPtr>::iterator begin, std::vector<Coroutine::SPtr>::iterator end);
-protected:
-    void                            Lock();
-    void                            UnLock();
 private:
     std::deque<Coroutine::SPtr>     m_queue;
-    std::mutex                      m_mutex;
-    bbt::thread::Spinlock           m_spinlock;
-    const bool                      m_use_spinlock{false};
 };
 
 }

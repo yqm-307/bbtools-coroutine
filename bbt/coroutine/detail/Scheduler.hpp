@@ -63,6 +63,7 @@ private:
 
     /* coroutine全局队列 */
     CoroutineQueue                              m_global_coroutine_deque;
+    bbt::thread::Spinlock                       m_global_coroutine_spinlock;
     volatile bool                               m_is_running{true};
     volatile ScheudlerStatus                    m_run_status{ScheudlerStatus::SCHE_DEFAULT};
 

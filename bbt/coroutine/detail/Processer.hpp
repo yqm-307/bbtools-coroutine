@@ -40,17 +40,18 @@ protected:
 
     uint64_t                        GetContextSwapTimes();  /* 协程上下文换出次数 */
     uint64_t                        GetSuspendCostTime();     /* 任务执行耗时，返回微秒 */
+    void                            Steal(std::vector<Coroutine::SPtr>& works); /* 偷取任务 */
 protected:
     void                            _Init();
     static ProcesserId              _GenProcesserId();
     void                            _OnAddCorotinue();
     size_t                          _TryGetCoroutineFromGlobal();
-    void                            _Steal(std::vector<Coroutine::SPtr>& works); /* 偷取任务 */
     void                            _Run();
 private:
     const ProcesserId               m_id{BBT_COROUTINE_INVALID_PROCESSER_ID};
     volatile ProcesserStatus        m_run_status{ProcesserStatus::PROC_DEFAULT};
     CoroutineQueue                  m_coroutine_queue;
+    bbt::thread::Spinlock           m_coroutine_queue_spinlock;
 
     std::condition_variable         m_run_cond;
     std::mutex                      m_run_cond_mutex;
