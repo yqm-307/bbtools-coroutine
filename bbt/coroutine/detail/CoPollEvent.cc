@@ -10,6 +10,7 @@
 #include <bbt/coroutine/detail/Processer.hpp>
 #include <bbt/coroutine/detail/LocalThread.hpp>
 #include <bbt/coroutine/detail/Profiler.hpp>
+#include <bbt/coroutine/detail/debug/DebugMgr.hpp>
 
 namespace bbt::coroutine::detail
 {
@@ -64,11 +65,16 @@ void CoPollEvent::Trigger(short trigger_events)
     if (!m_run_status.compare_exchange_strong(expect, CoPollEventStatus::POLLEVENT_TRIGGER))
         return;
 
+
     if (_CannelAllFdEvent() != 0)
         g_bbt_dbgp_full("");
 
 #ifdef BBT_COROUTINE_PROFILE
     g_bbt_profiler->OnEvent_TriggerCoPollEvent();
+#endif
+#ifdef BBT_COROUTINE_STRINGENT_DEBUG
+    // g_bbt_dbgmgr->Check_Trigger(GetId());
+    g_bbt_dbgmgr->OnEvent_TriggerEvent(shared_from_this());
 #endif
 
     if (m_onevent_callback != nullptr) {
@@ -121,24 +127,20 @@ int CoPollEvent::InitCustomEvent(int key, void* args)
 
 int CoPollEvent::Regist()
 {
-    m_run_status = CoPollEventStatus::POLLEVENT_LISTEN;
+    _OnListen();
 
     if (m_event != nullptr && (_RegistFdEvent() != 0)) {
         m_run_status = CoPollEventStatus::POLLEVENT_INITED;
         return -1;
     }
 
-    /* 自定义事件 */
-    if (m_has_custom_event && (_RegistCustomEvent() != 0)) {
-        m_run_status = CoPollEventStatus::POLLEVENT_INITED;
-        return -1;
-    }
-
     std::string event = m_event == nullptr ? "-1" : std::to_string(m_event->GetEvents());
     g_bbt_dbgp_full(("[CoEvent:Regist] co=" + std::to_string(m_coroutine->GetId()) + " event=" + event + " id=" + std::to_string(GetId()) + " customkey=" + std::to_string(m_custom_key)).c_str());
-
 #ifdef BBT_COROUTINE_PROFILE
     g_bbt_profiler->OnEvent_RegistCoPollEvent();
+#endif
+#ifdef BBT_COROUTINE_STRINGENT_DEBUG
+    g_bbt_dbgmgr->OnEvent_RegistEvent(shared_from_this());
 #endif
 
     return 0;
@@ -167,10 +169,10 @@ int CoPollEvent::UnRegist()
     return ret;
 }
 
-int CoPollEvent::_RegistCustomEvent()
-{
-    return 0;
-}
+// int CoPollEvent::_RegistCustomEvent()
+// {
+    // return 0;
+// }
 
 int CoPollEvent::_RegistFdEvent()
 {
@@ -181,8 +183,6 @@ int CoPollEvent::_RegistFdEvent()
 int CoPollEvent::_CannelAllFdEvent()
 {
     int ret = 0;
-    // if (m_run_status != CoPollEventStatus::POLLEVENT_LISTEN)
-        // return -1;
     
     if (m_event != nullptr) {
         m_event = nullptr;

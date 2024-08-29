@@ -1,5 +1,6 @@
 #include <bbt/coroutine/detail/debug/DebugMgr.hpp>
 #include <bbt/coroutine/detail/Coroutine.hpp>
+#include <bbt/coroutine/detail/CoPollEvent.hpp>
 
 
 namespace bbt::coroutine::detail
@@ -27,10 +28,29 @@ void DebugMgr::OnEvent_YieldCo(std::shared_ptr<Coroutine> co)
     AssertWithInfo(m_co_map.erase(co->GetId()) > 0, "[error] repeat yield coroutine!");
 }
 
-bool DebugMgr::Check_IsResumedCo(CoroutineId id)
+void DebugMgr::Check_IsResumedCo(CoroutineId id)
 {
     std::lock_guard<std::mutex> _(m_co_map_mtx);
-    return (m_co_map.find(id) != m_co_map.end());
+    Assert(m_co_map.find(id) == m_co_map.end());
+}
+
+void DebugMgr::OnEvent_RegistEvent(std::shared_ptr<CoPollEvent> event)
+{
+    std::lock_guard<std::mutex> _(m_co_map_mtx);
+    AssertWithInfo(m_event_map.find(event->GetId()) == m_event_map.end(), "[error] repeat regist event!");
+    m_event_map.insert(std::make_pair(event->GetId(), event));
+}
+
+void DebugMgr::OnEvent_TriggerEvent(std::shared_ptr<CoPollEvent> event)
+{
+    std::lock_guard<std::mutex> _(m_co_map_mtx);
+    AssertWithInfo(m_event_map.erase(event->GetId()) > 0, "[error] trigger event no registed or triggered!");
+}
+
+void DebugMgr::Check_Trigger(CoPollEventId id)
+{
+    std::lock_guard<std::mutex> _(m_co_map_mtx);
+    Assert(m_event_map.find(id) != m_event_map.end());
 }
 
 } // namespace bbt::coroutine::detail
