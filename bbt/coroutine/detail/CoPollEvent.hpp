@@ -10,12 +10,11 @@ namespace bbt::coroutine::detail
 
 
 /**
- * @brief 协程轮询事件
+ * @brief 协程轮询事件（无锁）
  * 
  * 辅助协程实现挂起和唤醒
  */
 class CoPollEvent:
-    // public IPollEvent,
     public std::enable_shared_from_this<CoPollEvent>
 {
 public:
@@ -43,7 +42,7 @@ public:
     int                             UnRegist();
 
 protected:
-    int                             _RegistCustomEvent();
+    // int                             _RegistCustomEvent();
     int                             _RegistFdEvent();
     int                             _CannelAllFdEvent();
 
