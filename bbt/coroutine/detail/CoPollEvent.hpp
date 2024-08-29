@@ -34,7 +34,7 @@ public:
     int                             GetFd() const;
     int64_t                         GetTimeout() const;
 
-    void                            Trigger(short trigger_events);
+    int                             Trigger(short trigger_events);
     /* 初始化后调用Regist注册事件 */
     int                             InitFdEvent(int fd, short events, int timeout);
     int                             InitCustomEvent(int key, void* args);

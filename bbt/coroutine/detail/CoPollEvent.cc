@@ -52,7 +52,7 @@ CoPollEvent::~CoPollEvent()
 {
 }
 
-void CoPollEvent::Trigger(short trigger_events)
+int CoPollEvent::Trigger(short trigger_events)
 {
     /**
      * 触发事件实际操作由创建者定义，实现完全解耦。
@@ -63,7 +63,7 @@ void CoPollEvent::Trigger(short trigger_events)
 
     int expect = CoPollEventStatus::POLLEVENT_LISTEN;
     if (!m_run_status.compare_exchange_strong(expect, CoPollEventStatus::POLLEVENT_TRIGGER))
-        return;
+        return -1;
 
 
     if (_CannelAllFdEvent() != 0)
@@ -84,6 +84,7 @@ void CoPollEvent::Trigger(short trigger_events)
     }
 
     _OnFinal();
+    return 0;
 }
 
 void CoPollEvent::_OnFinal()

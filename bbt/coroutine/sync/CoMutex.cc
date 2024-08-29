@@ -1,5 +1,9 @@
-#include <bbt/coroutine/sync/CoMutex.hpp>
 #include <bbt/base/assert/Assert.hpp>
+#include <bbt/coroutine/sync/CoMutex.hpp>
+#include <bbt/coroutine/detail/LocalThread.hpp>
+#include <bbt/coroutine/detail/Coroutine.hpp>
+#include <bbt/coroutine/detail/CoPollEvent.hpp>
+#include <bbt/coroutine/detail/Processer.hpp>
 
 namespace bbt::coroutine::sync
 {
@@ -18,7 +22,6 @@ void CoMutex::Lock()
 {
     _SysLock();
 
-    /* 如果已经上锁了，挂起并加入到等待队列中 */
     while (m_status == CoMutexStatus::COMUTEX_LOCKED) {
         Assert(_WaitUnLock([this](){ _SysUnLock(); return true; }) == 0);
 
@@ -94,25 +97,31 @@ void CoMutex::_SysUnLock()
 
 int CoMutex::_WaitUnLockUnitlTimeout(int timeout, const detail::CoroutineOnYieldCallback& cb)
 {
-    auto co_ptr = CoCond::Create();
-    m_wait_lock_queue.push(co_ptr);
-    return co_ptr->WaitWithTimeoutAndCallback(timeout, std::forward<const detail::CoroutineOnYieldCallback&>(cb));
+    auto event = g_bbt_tls_coroutine_co->RegistCustom(detail::POLL_EVENT_CUSTOM_COMUTEX);
+    m_wait_event_queue.push(event);
+    return g_bbt_tls_coroutine_co->YieldWithCallback([this, event, cb](){
+        event->Regist();
+        return cb();
+    });
 }
 
 int CoMutex::_WaitUnLock(const detail::CoroutineOnYieldCallback& cb)
 {
-    auto co_ptr = CoCond::Create();
-    m_wait_lock_queue.push(co_ptr);
-    return co_ptr->WaitWithCallback(std::forward<const detail::CoroutineOnYieldCallback&>(cb));
+    auto event = g_bbt_tls_coroutine_co->RegistCustom(detail::POLL_EVENT_CUSTOM_COMUTEX);
+    m_wait_event_queue.push(event);
+    return g_bbt_tls_coroutine_co->YieldWithCallback([this, event, cb](){
+        event->Regist();
+        return cb();
+    });
 }
 
 void CoMutex::_NotifyOne()
 {
-    while (!m_wait_lock_queue.empty()) {
-        auto co_sptr = m_wait_lock_queue.front();
-        m_wait_lock_queue.pop();
+    while (!m_wait_event_queue.empty()) {
+        auto co_sptr = m_wait_event_queue.front();
+        m_wait_event_queue.pop();
         Assert(co_sptr != nullptr);
-        if (co_sptr->Notify() == 0)
+        if (co_sptr->Trigger(detail::POLL_EVENT_CUSTOM) == 0)
             break;
     }
 }
