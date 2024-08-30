@@ -19,7 +19,8 @@ namespace bbt::coroutine::detail
  *     目前只有timerfd，后续添加更多对系统操作的hook
  * 
  */
-class CoPoller
+class CoPoller:
+    public IPoller
 {
 public:
     typedef std::unique_ptr<CoPoller> UPtr;
@@ -34,29 +35,33 @@ public:
     std::shared_ptr<bbt::pollevent::Event> 
                                     CreateEvent(int fd, short events, const bbt::pollevent::OnEventCallback& onevent_cb);
 
-    void                            NotifyCustomEvent(std::shared_ptr<CoPollEvent> event);
-    /* 获取CoPoller缓存的UTC时间戳 */
-    int64_t                         GetTime();
+    template<class TPollEvent>
+    std::pair<int, CoPollEventId>   Regist(int ms);
+    template<class TPollEvent>
+    std::pair<int, CoPollEventId>   RegistCustom(CoPollEventCustom custom_key, int ms = -1);
+    template<class TPollEvent>
+    std::pair<int, CoPollEventId>   RegistFdReadable(int fd, int ms = -1);
+    template<class TPollEvent>
+    std::pair<int, CoPollEventId>   RegistFdWriteable(int fd, int ms = -1);
 
-    std::pair<int, CoPollEventId>   Regist(int timeout_ms);
-    std::pair<int, CoPollEventId>   RegistRD(int fd, int timeout_ms);
-    std::pair<int, CoPollEventId>   RegistWR(int fd, int timeout_ms);
-    std::pair<int, CoPollEventId>   RegistCustom(CoPollEventCustom custom_event, int timeout);
-    int                             UnRegist(CoPollEventId event);
-    int                             Notify(CoPollEventId event);
+    int                             UnRegist(CoPollEventId event) override;
+    int                             Notify(CoPollEventId eventid, short trigger_event, CoPollEventCustom custom_key) override;
 protected:
+    template<class TPollEvent>
+    std::pair<int, CoPollEventId>   _RegistEvent(int fd, int ms, short events, CoPollEventCustom custom_key);
+    virtual std::pair<int, CoPollEventId>   Regist(std::shared_ptr<IPollEvent> event) override;
 private:
     std::shared_ptr<bbt::pollevent::EventLoop> m_event_loop{nullptr};
 
-    std::unordered_map<CoPollEventId, IPollEvent*>
+    std::unordered_map<CoPollEventId, std::shared_ptr<IPollEvent>>
                                     m_event_map;
     std::mutex                      m_event_map_mtx;
 
-    std::unordered_set<std::shared_ptr<CoPollEvent>>
-                                    m_safe_active_set;              // 保证不重复的事件
     std::queue<std::shared_ptr<CoPollEvent>>
                                     m_custom_event_active_queue;    // 自定义事件活跃队列
     std::mutex                      m_custom_event_active_queue_mutex;
 };
 
 }
+
+#include <bbt/coroutine/detail/__TCoPoller.hpp>

@@ -115,7 +115,7 @@ int CoPollEvent::InitFdEvent(int fd, short events, int timeout)
     return ret;
 }
 
-int CoPollEvent::InitCustomEvent(int key, void* args)
+int CoPollEvent::InitCustomEvent(CoPollEventCustom key, void* args)
 {
     if (m_run_status >= CoPollEventStatus::POLLEVENT_LISTEN || m_has_custom_event)
         return -1;

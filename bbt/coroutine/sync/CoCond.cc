@@ -203,5 +203,10 @@ void CoCond::_UnLock()
         m_co_event_mutex->unlock();
 }
 
+int  CoCond::Trigger(short trigger_event, int custom_key)
+{
+    
+}
+
 
 }

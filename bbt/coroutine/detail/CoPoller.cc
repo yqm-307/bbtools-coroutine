@@ -1,6 +1,9 @@
 #include <bbt/base/assert/Assert.hpp>
 #include <bbt/coroutine/detail/CoPoller.hpp>
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
+#include <bbt/coroutine/detail/Processer.hpp>
+#include <bbt/coroutine/detail/LocalThread.hpp>
+#include <bbt/coroutine/detail/interface/IPollEvent.hpp>
 
 namespace bbt::coroutine::detail
 {
@@ -40,46 +43,11 @@ std::shared_ptr<bbt::pollevent::Event> CoPoller::CreateEvent(int fd, short event
 bool CoPoller::PollOnce()
 {
     errno = 0;
-    bool ret = (m_event_loop->StartLoop(bbt::pollevent::EventLoopOpt::LOOP_NONBLOCK) == 0);
-
-    std::queue<std::shared_ptr<CoPollEvent>> m_swap_queue;
-    {
-        std::unique_lock<std::mutex> _(m_custom_event_active_queue_mutex);
-        m_swap_queue.swap(m_custom_event_active_queue);
-    }
-
-    if (!m_swap_queue.empty())
-        ret = true;
-
-    /* 通知触发的自定义事件 */
-    while (!m_swap_queue.empty())
-    {
-        auto item = m_swap_queue.front();
-        item->Trigger(POLL_EVENT_CUSTOM);
-        m_swap_queue.pop();
-        std::unique_lock<std::mutex> _(m_custom_event_active_queue_mutex);
-        Assert(m_safe_active_set.erase(item) > 0);
-    }
-
-    return ret;
-}
-
-void CoPoller::NotifyCustomEvent(std::shared_ptr<CoPollEvent> event)
-{
-    std::unique_lock<std::mutex> _(m_custom_event_active_queue_mutex);
-    AssertWithInfo(m_safe_active_set.find(event) == m_safe_active_set.end(), "duplicate registration events! please submit issue!");
-    Assert(event != nullptr);
-
-    m_safe_active_set.insert(event);
-    m_custom_event_active_queue.push(event);
-}
-
-int64_t CoPoller::GetTime()
-{
-    return m_event_loop->GetTime();
+    return (m_event_loop->StartLoop(bbt::pollevent::EventLoopOpt::LOOP_NONBLOCK) == 0);
 }
 
 ////////////////////////////////////////////////////// new api ///////////////////////////////////////////////
+
 
 int CoPoller::UnRegist(CoPollEventId id)
 {
@@ -88,10 +56,33 @@ int CoPoller::UnRegist(CoPollEventId id)
     return ((earse_num > 0) ? 0 : -1);
 }
 
-std::pair<int, CoPollEventId>   Regist(int timeout_ms);
-std::pair<int, CoPollEventId>   RegistRD(int fd, int timeout_ms);
-std::pair<int, CoPollEventId>   RegistWR(int fd, int timeout_ms);
-std::pair<int, CoPollEventId>   RegistCustom(CoPollEventCustom custom_event, int timeout);
-int                             UnRegist(CoPollEventId event);
-int                             Notify(CoPollEventId event);
+std::pair<int, CoPollEventId> CoPoller::Regist(std::shared_ptr<IPollEvent> event)
+{
+    CoroutineId eventid = 0;
+
+    if (event == nullptr)
+        return {-1, eventid};
+    
+    eventid = event->GetId();
+    auto [_, succ] = m_event_map.insert(std::make_pair(eventid, event));
+
+    return {(succ ? 0 : -1), eventid};
+}
+
+int CoPoller::Notify(CoPollEventId eventid, short trigger_event, CoPollEventCustom custom_key)
+{
+    /* 保证了CoPollEvent触发是唯一的 */
+    std::lock_guard<std::mutex> _(m_event_map_mtx);
+
+    auto it = m_event_map.find(eventid);
+    if (it == m_event_map.end())
+        return -1;
+    
+    it = m_event_map.erase(it);
+    if (it->second->Trigger(trigger_event, custom_key) != 0)
+        return -1;
+    
+    return 0;
+}
+
 }

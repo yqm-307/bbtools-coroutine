@@ -38,7 +38,7 @@ public:
     int                             Trigger(short trigger_events);
     /* 初始化后调用Regist注册事件 */
     int                             InitFdEvent(int fd, short events, int timeout);
-    int                             InitCustomEvent(int key, void* args);
+    int                             InitCustomEvent(CoPollEventCustom key, void* args = nullptr);
     int                             Regist();
     int                             UnRegist();
 
@@ -56,7 +56,7 @@ private:
                                     m_event{nullptr};
     int                             m_timeout{-1};
     bool                            m_has_custom_event{false};
-    int                             m_custom_key{-1};
+    CoPollEventCustom               m_custom_key{POLL_EVENT_CUSTOM_DEFAULT};
     CoPollEventId                   m_event_id{BBT_COROUTINE_INVALID_COPOLLEVENT_ID};
 
     CoPollEventCallback             m_onevent_callback{nullptr};

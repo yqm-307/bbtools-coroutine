@@ -9,9 +9,9 @@ class IPoller
 {
 public:
 
-    virtual int Regist(std::shared_ptr<IPollEvent> event) = 0;
+    virtual std::pair<int, CoPollEventId> Regist(std::shared_ptr<IPollEvent> event) = 0;
     virtual int UnRegist(CoPollEventId id) = 0;
-    virtual int OnTrigger(CoPollEventId id) = 0;
+    virtual int Notify(CoPollEventId id, short trigger_event, CoPollEventCustom custom_key) = 0;
 
     /**
      * @brief 执行一次轮询，触发所有完成的事件

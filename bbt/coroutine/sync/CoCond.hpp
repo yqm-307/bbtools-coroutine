@@ -1,14 +1,17 @@
 #pragma once
 #include <bbt/coroutine/detail/Define.hpp>
-#include <bbt/base/Attribute.hpp>
+#include <bbt/coroutine/detail/CoEventBase.hpp>
 
 namespace bbt::coroutine::sync
 {
 
 class CoCond:
+    public bbt::coroutine::detail::CoEventBase,
     public std::enable_shared_from_this<CoCond>
 {
 public:
+    friend class CoPoller;
+
     typedef std::shared_ptr<CoCond> SPtr;
     static SPtr                         Create(bool nolock = false);
 
@@ -60,9 +63,12 @@ public:
      * @return  0表示成功，-1表示事件已经触发
      */
     int                                 Notify();
+
 protected:
     void                                _Lock();
     void                                _UnLock();
+    virtual int                         Trigger(short trigger_event, int custom_key) override;
+
 protected:
     std::shared_ptr<detail::CoPollEvent> m_co_event{nullptr};
     std::mutex*                         m_co_event_mutex{nullptr};

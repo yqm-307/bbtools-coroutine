@@ -12,9 +12,9 @@
 #include <cstdint>
 #include <sys/timerfd.h>
 #include <sys/epoll.h>
+#include <bbt/base/Attribute.hpp>
 #include <bbt/base/Logger/DebugPrint.hpp>
 #include <bbt/base/clock/Clock.hpp>
-#include <bbt/base/Attribute.hpp>
 #include <bbt/base/assert/Assert.hpp>
 
 // #define BBT_COROUTINE_PROFILE
@@ -88,6 +88,11 @@ enum CoMutexStatus
 namespace bbt::coroutine::detail
 {
 
+class IPoller;
+class IPollEvent;
+
+class CoEventBase;
+
 class Coroutine;    // 协程
 class Scheduler;    // 调度器
 class Processer;    // 执行器
@@ -111,13 +116,6 @@ typedef uint64_t CoPollEventId;
 typedef std::function<void()> CoroutineCallback;        // 协程处理主函数
 typedef std::function<void()> CoroutineFinalCallback;   // 协程主函数执行完毕回调
 typedef std::function<bool()> CoroutineOnYieldCallback; // 协程挂起后执行回调
-
-/**
- * @param 触发的事件
- * @param 事件类型
- * @param 仅当事件类型为POLL_EVENT_CUSTOM时，表示枚举类型CoPollEventCustom中的值
- */
-typedef std::function<void(std::shared_ptr<CoPollEvent>, int /*events*/, int)> CoPollEventCallback;      // Poller监听事件完成回调
 
 /**
 @startuml
@@ -211,9 +209,18 @@ enum PollEventType
 /* CoPollEvent的自定义事件key，用来表示触发时是那个自定义事件 */
 enum CoPollEventCustom
 {
+    POLL_EVENT_CUSTOM_DEFAULT = 0,
     POLL_EVENT_CUSTOM_COND  = 1,    // co cond
     POLL_EVENT_CUSTOM_CHAN  = 2,    // chan
     POLL_EVENT_CUSTOM_COMUTEX = 3,  // co mutex
 };
+
+
+/**
+ * @param 触发的事件
+ * @param 事件类型
+ * @param 仅当事件类型为POLL_EVENT_CUSTOM时，表示枚举类型CoPollEventCustom中的值
+ */
+typedef std::function<void(std::shared_ptr<IPollEvent>, int /*events*/, CoPollEventCustom)> CoPollEventCallback;      // Poller监听事件完成回调
 
 } // namespace bbt::coroutine::detail
