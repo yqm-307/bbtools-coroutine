@@ -79,4 +79,19 @@ int64_t CoPoller::GetTime()
     return m_event_loop->GetTime();
 }
 
+////////////////////////////////////////////////////// new api ///////////////////////////////////////////////
+
+int CoPoller::UnRegist(CoPollEventId id)
+{
+    std::lock_guard<std::mutex> _(m_event_map_mtx);
+    auto earse_num = m_event_map.erase(id);
+    return ((earse_num > 0) ? 0 : -1);
+}
+
+std::pair<int, CoPollEventId>   Regist(int timeout_ms);
+std::pair<int, CoPollEventId>   RegistRD(int fd, int timeout_ms);
+std::pair<int, CoPollEventId>   RegistWR(int fd, int timeout_ms);
+std::pair<int, CoPollEventId>   RegistCustom(CoPollEventCustom custom_event, int timeout);
+int                             UnRegist(CoPollEventId event);
+int                             Notify(CoPollEventId event);
 }

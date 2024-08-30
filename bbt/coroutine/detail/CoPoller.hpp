@@ -37,10 +37,20 @@ public:
     void                            NotifyCustomEvent(std::shared_ptr<CoPollEvent> event);
     /* 获取CoPoller缓存的UTC时间戳 */
     int64_t                         GetTime();
+
+    std::pair<int, CoPollEventId>   Regist(int timeout_ms);
+    std::pair<int, CoPollEventId>   RegistRD(int fd, int timeout_ms);
+    std::pair<int, CoPollEventId>   RegistWR(int fd, int timeout_ms);
+    std::pair<int, CoPollEventId>   RegistCustom(CoPollEventCustom custom_event, int timeout);
+    int                             UnRegist(CoPollEventId event);
+    int                             Notify(CoPollEventId event);
 protected:
 private:
     std::shared_ptr<bbt::pollevent::EventLoop> m_event_loop{nullptr};
-    // int                             m_epoll_fd{-1};
+
+    std::unordered_map<CoPollEventId, IPollEvent*>
+                                    m_event_map;
+    std::mutex                      m_event_map_mtx;
 
     std::unordered_set<std::shared_ptr<CoPollEvent>>
                                     m_safe_active_set;              // 保证不重复的事件

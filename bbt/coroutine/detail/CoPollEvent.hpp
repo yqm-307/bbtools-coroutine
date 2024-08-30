@@ -15,6 +15,7 @@ namespace bbt::coroutine::detail
  * 辅助协程实现挂起和唤醒
  */
 class CoPollEvent:
+    public IPollEvent,
     public std::enable_shared_from_this<CoPollEvent>
 {
 public:
@@ -34,7 +35,7 @@ public:
     int                             GetFd() const;
     int64_t                         GetTimeout() const;
 
-    void                            Trigger(short trigger_events);
+    int                             Trigger(short trigger_events);
     /* 初始化后调用Regist注册事件 */
     int                             InitFdEvent(int fd, short events, int timeout);
     int                             InitCustomEvent(int key, void* args);
