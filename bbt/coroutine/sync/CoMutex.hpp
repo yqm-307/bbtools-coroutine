@@ -49,7 +49,9 @@ protected:
     void                        _SysLock();
     void                        _SysUnLock();
 private:
-    std::queue<CoCond::SPtr>    m_wait_lock_queue;
+    std::queue<std::shared_ptr<detail::CoPollEvent>> 
+                                m_wait_event_queue;
+    // std::queue<CoCond::SPtr>    m_wait_lock_queue;
     std::mutex                  m_mutex;
     volatile CoMutexStatus      m_status{CoMutexStatus::COMUTEX_FREE};
 };

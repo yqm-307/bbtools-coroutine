@@ -101,6 +101,9 @@ CoroutineStatus Coroutine::GetStatus()
 
 void Coroutine::_OnCoroutineFinal()
 {
+#ifdef BBT_COROUTINE_STRINGENT_DEBUG
+    g_bbt_dbgmgr->OnEvent_YieldCo(shared_from_this());
+#endif
     m_run_status = CoroutineStatus::CO_FINAL;
     if (m_co_final_callback)
         m_co_final_callback();
@@ -137,8 +140,8 @@ std::shared_ptr<CoPollEvent> Coroutine::RegistCustom(int key)
     if (m_await_event->InitCustomEvent(key, NULL) != 0)
         return nullptr;
     
-    if (m_await_event->Regist() != 0)
-        return nullptr;
+    // if (m_await_event->Regist() != 0)
+        // return nullptr;
     
     return m_await_event;
 }
@@ -159,8 +162,8 @@ std::shared_ptr<CoPollEvent> Coroutine::RegistCustom(int key, int timeout_ms)
     if (m_await_event->InitFdEvent(-1, EventOpt::TIMEOUT, timeout_ms) != 0)
         return nullptr;
     
-    if (m_await_event->Regist() != 0)
-        return nullptr;
+    // if (m_await_event->Regist() != 0)
+        // return nullptr;
     
     return m_await_event;
 }

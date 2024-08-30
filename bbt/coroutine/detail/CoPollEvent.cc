@@ -84,7 +84,6 @@ int CoPollEvent::Trigger(short trigger_events)
     }
 
     _OnFinal();
-
     return 0;
 }
 

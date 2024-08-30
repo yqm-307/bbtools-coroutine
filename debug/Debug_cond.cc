@@ -68,8 +68,33 @@ void debug_notify()
     g_scheduler->Stop();
 }
 
+// 协程挂起功能是否有问题
+void dbg_coroutine_wait()
+{
+    g_scheduler->Start(true);
+    auto cond = sync::CoCond::Create();
+    for (int i = 0; i < 10; ++i)
+        bbtco [&](){
+            while (true)
+                cond->WaitWithTimeout(1);
+        };
+    ::sleep(1);
+    
+    bbtco [&](){
+        while (1) {
+            cond->Notify();
+        }
+    };
+
+    while (true) sleep(1);
+    
+
+    g_scheduler->Stop();
+}
+
 int main()
 {
-    debug_notify();
+    // debug_notify();
+    dbg_coroutine_wait();
     return 0;
 }

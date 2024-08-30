@@ -213,6 +213,7 @@ enum CoPollEventCustom
 {
     POLL_EVENT_CUSTOM_COND  = 1,    // co cond
     POLL_EVENT_CUSTOM_CHAN  = 2,    // chan
+    POLL_EVENT_CUSTOM_COMUTEX = 3,  // co mutex
 };
 
 } // namespace bbt::coroutine::detail
