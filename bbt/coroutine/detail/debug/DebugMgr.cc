@@ -36,20 +36,20 @@ void DebugMgr::Check_IsResumedCo(CoroutineId id)
 
 void DebugMgr::OnEvent_RegistEvent(std::shared_ptr<CoPollEvent> event)
 {
-    std::lock_guard<std::mutex> _(m_co_map_mtx);
+    std::lock_guard<std::mutex> _(m_event_map_mtx);
     AssertWithInfo(m_event_map.find(event->GetId()) == m_event_map.end(), "[error] repeat regist event!");
     m_event_map.insert(std::make_pair(event->GetId(), event));
 }
 
 void DebugMgr::OnEvent_TriggerEvent(std::shared_ptr<CoPollEvent> event)
 {
-    std::lock_guard<std::mutex> _(m_co_map_mtx);
+    std::lock_guard<std::mutex> _(m_event_map_mtx);
     AssertWithInfo(m_event_map.erase(event->GetId()) > 0, "[error] trigger event no registed or triggered!");
 }
 
 void DebugMgr::Check_Trigger(CoPollEventId id)
 {
-    std::lock_guard<std::mutex> _(m_co_map_mtx);
+    std::lock_guard<std::mutex> _(m_event_map_mtx);
     Assert(m_event_map.find(id) != m_event_map.end());
 }
 

@@ -51,7 +51,11 @@ int CoCond::Wait()
 
     m_run_status = COND_WAIT;
 
-    g_bbt_tls_coroutine_co->YieldWithCallback([this](){ _UnLock(); return true; });
+    g_bbt_tls_coroutine_co->YieldWithCallback([this](){ 
+        Assert(m_co_event->Regist() == 0);
+        _UnLock();
+        return true; 
+    });
 
     _Lock();
     m_co_event = nullptr;
@@ -80,7 +84,12 @@ int CoCond::WaitWithCallback(const detail::CoroutineOnYieldCallback& cb)
         
     m_run_status = COND_WAIT;
 
-    int ret = g_bbt_tls_coroutine_co->YieldWithCallback([this, cb](){ _UnLock(); cb(); return true; });
+    int ret = g_bbt_tls_coroutine_co->YieldWithCallback([this, cb](){
+        Assert(m_co_event->Regist() == 0);
+        _UnLock();
+        cb();
+        return true; 
+    });
 
     _Lock();
     m_co_event = nullptr;
@@ -110,7 +119,11 @@ int CoCond::WaitWithTimeout(int ms)
     
     m_run_status = COND_WAIT;
 
-    ret = g_bbt_tls_coroutine_co->YieldWithCallback([this](){ _UnLock(); return true; });
+    ret = g_bbt_tls_coroutine_co->YieldWithCallback([this](){
+        Assert(m_co_event->Regist() == 0);
+        _UnLock();
+        return true; 
+    });
 
     if (g_bbt_tls_coroutine_co->GetLastResumeEvent() & POLL_EVENT_TIMEOUT)
         ret = 1;
@@ -143,7 +156,12 @@ int CoCond::WaitWithTimeoutAndCallback(int ms, const detail::CoroutineOnYieldCal
 
     m_run_status = COND_WAIT;
 
-    ret = g_bbt_tls_coroutine_co->YieldWithCallback([this, cb](){ _UnLock(); cb(); return true; });
+    ret = g_bbt_tls_coroutine_co->YieldWithCallback([this, cb](){
+        Assert(m_co_event->Regist() == 0);
+        _UnLock();
+        cb();
+        return true;
+    });
 
     if (ret == 0 && g_bbt_tls_coroutine_co->GetLastResumeEvent() & POLL_EVENT_TIMEOUT)
         ret = 1;
