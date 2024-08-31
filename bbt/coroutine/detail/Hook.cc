@@ -6,6 +6,8 @@
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
 #include <bbt/coroutine/detail/LocalThread.hpp>
 #include <bbt/coroutine/detail/Coroutine.hpp>
+#include <bbt/coroutine/sync/FdEvent.hpp>
+#include <bbt/coroutine/sync/CoCond.hpp>
 
 namespace bbt::coroutine::detail
 {
@@ -35,8 +37,8 @@ namespace bbt::coroutine::detail
             // 是否因为非阻塞导致没法立即完成
             if (errno != EINTR && errno != EINPROGRESS && errno != EALREADY)
                 return -1;
-
-            if (g_bbt_tls_coroutine_co->YieldUntilFdWriteable(socket) != 0)
+            
+            if (sync::FdEvent::Create()->WaitUntilWriteable(socket) != 0)
                 return -1;
         }
 
@@ -53,7 +55,7 @@ namespace bbt::coroutine::detail
         if (ms <= 0)
             return -1;
 
-        return g_bbt_tls_coroutine_co->YieldUntilTimeout(ms);
+        return sync::CoCond::Create()->WaitWithTimeout(ms);
     }
 
     ssize_t Hook_Read(int fd, void *buf, size_t nbytes)
@@ -70,7 +72,7 @@ namespace bbt::coroutine::detail
                 return -1;
 
             /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读 */
-            if (g_bbt_tls_coroutine_co->YieldUntilFdReadable(fd) != 0)
+            if (sync::FdEvent::Create()->WaitUntilReadable(fd) != 0)
                 return -1;
 
         }
@@ -88,7 +90,7 @@ namespace bbt::coroutine::detail
                 return -1;
 
             /* 对当前协程注册fd可写事件，挂起当前协程直到fd可写 */
-            if (g_bbt_tls_coroutine_co->YieldUntilFdWriteable(fd) != 0)
+            if (sync::FdEvent::Create()->WaitUntilWriteable(fd) != 0)
                 return -1;
         }
 
@@ -106,7 +108,7 @@ namespace bbt::coroutine::detail
                 return -1;
 
             /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读 */
-            if (g_bbt_tls_coroutine_co->YieldUntilFdReadable(fd) != 0)
+            if (sync::FdEvent::Create()->WaitUntilReadable(fd) != 0)
                 return -1;
         }
 
@@ -123,7 +125,7 @@ namespace bbt::coroutine::detail
                 return -1;
 
             /* 对当前协程注册fd可写事件，挂起当前协程直到fd可写 */
-            if (g_bbt_tls_coroutine_co->YieldUntilFdWriteable(fd) != 0)
+            if (sync::FdEvent::Create()->WaitUntilWriteable(fd) != 0)
                 return -1;
         }
 
@@ -144,7 +146,7 @@ namespace bbt::coroutine::detail
                 return -1;
 
             /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读 */
-            if (g_bbt_tls_coroutine_co->YieldUntilFdReadable(fd) != 0)
+            if (sync::FdEvent::Create()->WaitUntilReadable(fd) != 0)
                 return -1;
         }
 

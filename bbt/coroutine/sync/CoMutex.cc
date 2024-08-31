@@ -4,6 +4,7 @@
 #include <bbt/coroutine/detail/Coroutine.hpp>
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
 #include <bbt/coroutine/detail/Processer.hpp>
+#include <bbt/coroutine/detail/CoPoller.hpp>
 
 namespace bbt::coroutine::sync
 {
@@ -85,20 +86,12 @@ int CoMutex::TryLock(int ms)
     return 0;
 }
 
-void CoMutex::_SysLock()
-{
-    m_mutex.lock();
-}
-
-void CoMutex::_SysUnLock()
-{
-    m_mutex.unlock();
-}
-
 int CoMutex::_WaitUnLockUnitlTimeout(int timeout, const detail::CoroutineOnYieldCallback& cb)
 {
-    auto event = g_bbt_tls_coroutine_co->RegistCustom(detail::POLL_EVENT_CUSTOM_COMUTEX);
-    m_wait_event_queue.push(event);
+    auto [ret, id] = g_bbt_poller->RegistCustom(detail::POLL_EVENT_CUSTOM_COMUTEX);
+    if (ret != 0) return -1;
+
+    m_wait_event_queue.push(id);
     return g_bbt_tls_coroutine_co->YieldWithCallback([this, event, cb](){
         event->Regist();
         return cb();

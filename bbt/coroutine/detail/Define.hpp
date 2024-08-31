@@ -63,10 +63,10 @@ enum ChanStatus : int32_t
 /*
 @startuml
 [*] --> COND_DEFAULT
-COND_DEFAULT    --> COND_FREE
-COND_FREE       --> COND_WAIT
-COND_WAIT       --> COND_ACTIVE
-COND_ACTIVE     --> COND_FREE
+COND_DEFAULT    --> COND_FREE : 初始化
+COND_FREE       --> COND_WAIT : 协程挂起
+COND_WAIT       --> COND_ACTIVE : 协程被唤醒
+COND_ACTIVE     --> COND_FREE : 唤醒后触发
 @enduml
 */
 enum CoCondStatus : int32_t

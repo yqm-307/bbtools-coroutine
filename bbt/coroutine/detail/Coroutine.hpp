@@ -7,13 +7,6 @@
 namespace bbt::coroutine::detail
 {
 
-enum FollowEventStatus
-{
-    DEFAULT = 0,
-    TIMEOUT = 1,
-    READABLE = 2,
-};
-
 /**
  * @brief 协程对象
  * 
@@ -42,18 +35,9 @@ public:
     CoroutineStatus                 GetStatus();
     int                             GetLastResumeEvent();
 
-    /* 事件相关 */
-    int                             YieldUntilTimeout(int ms);
-    std::shared_ptr<CoPollEvent>    RegistCustom(int key);
-    std::shared_ptr<CoPollEvent>    RegistCustom(int key, int timeout_ms);
-    int                             YieldUntilFdReadable(int fd);
-    int                             YieldUntilFdReadable(int fd, int timeout_ms);
-    int                             YieldUntilFdWriteable(int fd);
-    int                             YieldUntilFdWriteable(int fd, int timeout_ms);
-
 protected:
     /* 事件被触发时回调 */
-    void                            OnCoPollEvent(int event, int custom_key);
+    // void                            OnCoPollEvent(int event, int custom_key);
 
 protected:
     static CoroutineId              GenCoroutineId();
@@ -63,14 +47,7 @@ private:
     const CoroutineId               m_id{BBT_COROUTINE_INVALID_COROUTINE_ID};
     volatile CoroutineStatus        m_run_status{CoroutineStatus::CO_DEFAULT};
 
-    FollowEventStatus               m_actived_event{DEFAULT}; // 触发的事件
-
-    std::shared_ptr<CoPollEvent>    m_await_event{nullptr};
-    std::mutex                      m_await_event_mutex;
-
     CoroutineFinalCallback          m_co_final_callback{nullptr};
-    CoroutineOnYieldCallback        m_co_onyield_callback{nullptr};
-
     int                             m_last_resume_event{-1}; //最后一次导致此协程唤醒的事件
 };
 

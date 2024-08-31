@@ -6,28 +6,26 @@
 #include <bbt/coroutine/detail/Scheduler.hpp>
 #include <bbt/coroutine/detail/Coroutine.hpp>
 #include <bbt/coroutine/detail/LocalThread.hpp>
+#include <bbt/coroutine/utils/DebugPrint.hpp>
 
 namespace bbt::coroutine::sync
 {
 
 using namespace bbt::coroutine::detail;
 
-CoCond::SPtr CoCond::Create(bool nolock)
+CoCond::SPtr CoCond::Create()
 {
-    return std::make_shared<CoCond>(nolock);
+    return std::make_shared<CoCond>();
 }
 
 
-CoCond::CoCond(bool nolock):
-    m_co_event_mutex(nolock ? nullptr : new std::mutex()),
+CoCond::CoCond():
     m_run_status(COND_FREE)
 {
 }
 
 CoCond::~CoCond()
 {
-    if (m_co_event_mutex != nullptr)
-        delete m_co_event_mutex;
 }
 
 int CoCond::Wait()
@@ -35,67 +33,30 @@ int CoCond::Wait()
     AssertWithInfo(g_bbt_tls_helper->EnableUseCo(), "please use CoCond in coroutine!"); // 请在协程中使用CoCond
     AssertWithInfo(g_bbt_tls_coroutine_co != nullptr, "running a non-corourine!");      // 当前运行的非协程
 
-    _Lock();
+    std::unique_lock<std::mutex> lock(m_co_event_mutex);
 
     /* 保证只有一个协程可以成功挂起 */
-    if (m_co_event != nullptr) {
-        _UnLock();
+    if (m_run_status != COND_FREE)
         return -1;
-    }
 
-    m_co_event = g_bbt_tls_coroutine_co->RegistCustom(detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND);
-    if (m_co_event == nullptr) {
-        _UnLock();
+    auto [regist_ret, id] = g_bbt_poller->RegistCustom<CoCond>(detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND);
+    if (regist_ret != 0)
         return -1;
-    }
 
+    m_co_event_id = id;
     m_run_status = COND_WAIT;
 
-    g_bbt_tls_coroutine_co->YieldWithCallback([this](){ 
-        Assert(m_co_event->Regist() == 0);
-        _UnLock();
-        return true; 
+    /* 挂起当前协程并在挂起后解锁，保证事件触发在挂起协程后发生 */
+    g_bbt_tls_coroutine_co->YieldWithCallback([&lock](){ 
+        lock.unlock();
+        return true;
     });
 
-    _Lock();
-    m_co_event = nullptr;
+    /* 必须等待协程返回才可以释放cond */
+    lock.lock();
     m_run_status = COND_FREE;
-    _UnLock();
+    m_co_event_id = 0;
     return 0;
-}
-
-int CoCond::WaitWithCallback(const detail::CoroutineOnYieldCallback& cb)
-{
-    AssertWithInfo(g_bbt_tls_helper->EnableUseCo(), "please use CoCond in coroutine!"); // 请在协程中使用CoCond
-    AssertWithInfo(g_bbt_tls_coroutine_co != nullptr, "running a non-corourine!");      // 当前运行的非协程
-    Assert(cb != nullptr);
-
-    _Lock();
-    if (m_co_event != nullptr) {
-        _UnLock();
-        return -1;
-    }
-        
-    m_co_event = g_bbt_tls_coroutine_co->RegistCustom(detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND);
-    if (m_co_event == nullptr) {
-        _UnLock();
-        return -1;
-    }
-        
-    m_run_status = COND_WAIT;
-
-    int ret = g_bbt_tls_coroutine_co->YieldWithCallback([this, cb](){
-        Assert(m_co_event->Regist() == 0);
-        _UnLock();
-        cb();
-        return true; 
-    });
-
-    _Lock();
-    m_co_event = nullptr;
-    m_run_status = COND_FREE;
-    _UnLock();
-    return ret;
 }
 
 int CoCond::WaitWithTimeout(int ms)
@@ -105,107 +66,64 @@ int CoCond::WaitWithTimeout(int ms)
     AssertWithInfo(g_bbt_tls_helper->EnableUseCo(), "please use CoCond in coroutine!"); // 请在协程中使用CoCond
     AssertWithInfo(g_bbt_tls_coroutine_co != nullptr, "running a non-corourine!");      // 当前运行的非协程
 
-    _Lock();
-    if (m_co_event != nullptr) {
-        _UnLock();
-        return -1;
-    }
+    std::unique_lock<std::mutex> lock(m_co_event_mutex);
 
-    m_co_event = g_bbt_tls_coroutine_co->RegistCustom(detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND, ms);
-    if (m_co_event == nullptr) {
-        _UnLock();
+    /* 保证只有一个协程可以成功挂起 */
+    if (m_run_status != COND_FREE)
         return -1;
-    }
-    
+
+    auto [regist_ret, id] = g_bbt_poller->RegistCustom<CoCond>(detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND, ms);
+    if (regist_ret != 0)
+        return -1;
+
+    m_co_event_id = id;
     m_run_status = COND_WAIT;
 
-    ret = g_bbt_tls_coroutine_co->YieldWithCallback([this](){
-        Assert(m_co_event->Regist() == 0);
-        _UnLock();
-        return true; 
-    });
-
-    if (g_bbt_tls_coroutine_co->GetLastResumeEvent() & POLL_EVENT_TIMEOUT)
-        ret = 1;
-
-    _Lock();
-    m_co_event = nullptr;
-    m_run_status = COND_FREE;
-    _UnLock();
-    return ret;
-}
-
-int CoCond::WaitWithTimeoutAndCallback(int ms, const detail::CoroutineOnYieldCallback& cb)
-{
-    int ret = 0;
-
-    AssertWithInfo(g_bbt_tls_helper->EnableUseCo(), "please use CoCond in coroutine!"); // 请在协程中使用CoCond
-    AssertWithInfo(g_bbt_tls_coroutine_co != nullptr, "running a non-corourine!");      // 当前运行的非协程
-
-    _Lock();
-    if (m_co_event != nullptr) {
-        _UnLock();
-        return -1;
-    }
-
-    m_co_event = g_bbt_tls_coroutine_co->RegistCustom(detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND, ms);
-    if (m_co_event == nullptr) {
-        _UnLock();
-        return -1;
-    }
-
-    m_run_status = COND_WAIT;
-
-    ret = g_bbt_tls_coroutine_co->YieldWithCallback([this, cb](){
-        Assert(m_co_event->Regist() == 0);
-        _UnLock();
-        cb();
+    /* 挂起当前协程并在挂起后解锁，保证事件触发在挂起协程后发生 */
+    g_bbt_tls_coroutine_co->YieldWithCallback([&lock](){ 
+        lock.unlock();
         return true;
     });
 
-    if (ret == 0 && g_bbt_tls_coroutine_co->GetLastResumeEvent() & POLL_EVENT_TIMEOUT)
-        ret = 1;
-    
-    _Lock();
-    m_co_event = nullptr;
+    /* 必须等待协程返回才可以释放cond */
+    lock.lock();
     m_run_status = COND_FREE;
-    _UnLock();
-    return ret;
+    m_co_event_id = 0;
+    return 0;
 }
 
 int CoCond::Notify()
 {
     AssertWithInfo(g_bbt_tls_helper->EnableUseCo(), "please use CoCond in coroutine!");
+    AssertWithInfo(g_bbt_tls_coroutine_co != nullptr, "running a non-corourine!");      // 当前运行的非协程
 
-    _Lock();
-    Assert(m_run_status != COND_DEFAULT);;
-    if (m_co_event == nullptr || m_run_status != COND_WAIT) {
-        _UnLock();
+    std::unique_lock<std::mutex> lock(m_co_event_mutex);
+
+    if (m_co_event_id == 0 || m_run_status != COND_WAIT)
         return -1;
-    }
 
     m_run_status = COND_ACTIVE;
-    g_bbt_poller->NotifyCustomEvent(m_co_event);
+    if (g_bbt_poller->Notify(m_co_event_id, PollEventType::POLL_EVENT_CUSTOM, CoPollEventCustom::POLL_EVENT_CUSTOM_COND) != 0)
+        return -1;
 
-    _UnLock();
     return 0;
 }
 
-void CoCond::_Lock()
+int CoCond::Trigger(short trigger_event, int custom_key)
 {
-    if (m_co_event_mutex != nullptr)
-        m_co_event_mutex->lock();
-}
+    auto wait_co = GetWaitCo();
+    Assert(wait_co != nullptr);
 
-void CoCond::_UnLock()
-{
-    if (m_co_event_mutex != nullptr)
-        m_co_event_mutex->unlock();
-}
+    std::lock_guard<std::mutex> _(m_co_event_mutex);
 
-int  CoCond::Trigger(short trigger_event, int custom_key)
-{
-    
+    Assert(m_run_status == COND_ACTIVE);
+    g_scheduler->OnActiveCoroutine(wait_co);
+    // g_bbt_dbgp_full(("[CoEvent:Trigger] co=" + std::to_string(wait_co->GetId()) +
+    //                                   " trigger_event=" + std::to_string(trigger_event) +
+    //                                   " id=" + std::to_string(GetId()) +
+    //                                   " customkey=" + std::to_string(custom_key)).c_str());
+
+    return 0;
 }
 
 
