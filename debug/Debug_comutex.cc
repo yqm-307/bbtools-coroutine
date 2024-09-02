@@ -17,12 +17,11 @@ void RunOnce()
     for (int i = 0; i < nco_num; ++i) {
         bbtco [&mutex, &a, &b, begin, &l]() {
             while ((bbt::clock::gettime_mono() - begin) < nsec) {
-                if (mutex.TryLock(1) == 0) {
-                    Assert(a == b);
-                    a++;
-                    b++;
-                    mutex.UnLock();
-                }
+                mutex.Lock();
+                Assert(a == b);
+                a++;
+                b++;
+                mutex.UnLock();
             }
             l.Down();
         };

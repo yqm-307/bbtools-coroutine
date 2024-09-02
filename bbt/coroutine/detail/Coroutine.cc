@@ -114,4 +114,9 @@ int Coroutine::GetLastResumeEvent()
     return m_last_resume_event;
 }
 
+void Coroutine::Active()
+{
+    g_scheduler->OnActiveCoroutine(shared_from_this());
+}
+
 }

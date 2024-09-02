@@ -6,7 +6,7 @@ namespace bbt::coroutine::sync
 
 std::shared_ptr<FdEvent> FdEvent::Create()
 {
-    return std::shared_ptr<FdEvent>();
+    return std::make_shared<FdEvent>();
 }
 
 
@@ -23,7 +23,7 @@ FdEvent::~FdEvent()
 int FdEvent::WaitUntilReadable(int fd, int ms)
 {
     std::unique_lock<std::mutex> lock(m_mutex);
-    auto [ret, id] = g_bbt_poller->RegistFdReadable<FdEvent>(fd, ms);
+    auto [ret, id] = g_bbt_poller->RegistFdReadable<FdEvent>(shared_from_this(), fd, ms);
 
     if (ret != 0)
         return ret;
@@ -40,7 +40,7 @@ int FdEvent::WaitUntilReadable(int fd, int ms)
 int FdEvent::WaitUntilWriteable(int fd, int ms)
 {
     std::unique_lock<std::mutex> lock(m_mutex);
-    auto [ret, id] = g_bbt_poller->RegistFdWriteable<FdEvent>(fd, ms);
+    auto [ret, id] = g_bbt_poller->RegistFdWriteable<FdEvent>(shared_from_this(), fd, ms);
 
     if (ret != 0) return ret;
 
@@ -53,13 +53,13 @@ int FdEvent::WaitUntilWriteable(int fd, int ms)
     return ret;
 }
 
-int FdEvent::Trigger(short trigger_events, int customkey)
+int FdEvent::OnNotify(short trigger_events, int customkey)
 {
     std::lock_guard<std::mutex> _(m_mutex);
     auto wait_co = GetWaitCo();
     Assert(wait_co != nullptr);
 
-    g_scheduler->OnActiveCoroutine(wait_co);
+    wait_co->Active();
 
     return 0;
 }

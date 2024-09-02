@@ -4,6 +4,7 @@
 #include <bbt/coroutine/detail/Processer.hpp>
 #include <bbt/coroutine/detail/LocalThread.hpp>
 #include <bbt/coroutine/detail/interface/IPollEvent.hpp>
+#include <bbt/coroutine/detail/debug/DebugMgr.hpp>
 
 namespace bbt::coroutine::detail
 {
@@ -35,15 +36,20 @@ CoPoller::~CoPoller()
 }
 
 
-std::shared_ptr<bbt::pollevent::Event> CoPoller::CreateEvent(int fd, short events, const bbt::pollevent::OnEventCallback& onevent_cb)
+std::shared_ptr<bbt::pollevent::Event> CoPoller::CreateEvent(CoPollEventId event_id, int fd, short events)
 {
-    return m_event_loop->CreateEvent(fd, events, onevent_cb);
+    return m_event_loop->CreateEvent(fd, events, [=](auto _, short events){
+        g_bbt_poller->Notify(event_id, events, POLL_EVENT_CUSTOM_DEFAULT);
+    });
 }
 
 bool CoPoller::PollOnce()
 {
     errno = 0;
-    return (m_event_loop->StartLoop(bbt::pollevent::EventLoopOpt::LOOP_NONBLOCK) == 0);
+    auto event_num = m_event_loop->GetEventNum();
+    m_event_loop->StartLoop(bbt::pollevent::EventLoopOpt::LOOP_NONBLOCK);
+
+    return (event_num != m_event_loop->GetEventNum());
 }
 
 ////////////////////////////////////////////////////// new api ///////////////////////////////////////////////
@@ -62,9 +68,13 @@ std::pair<int, CoPollEventId> CoPoller::Regist(std::shared_ptr<IPollEvent> event
 
     if (event == nullptr)
         return {-1, eventid};
+
     
     eventid = event->GetId();
     auto [_, succ] = m_event_map.insert(std::make_pair(eventid, event));
+#ifdef BBT_COROUTINE_STRINGENT_DEBUG
+    g_bbt_dbgmgr->OnEvent_RegistEvent(event);
+#endif
 
     return {(succ ? 0 : -1), eventid};
 }
@@ -78,8 +88,10 @@ int CoPoller::Notify(CoPollEventId eventid, short trigger_event, CoPollEventCust
     if (it == m_event_map.end())
         return -1;
     
-    it = m_event_map.erase(it);
-    if (it->second->Trigger(trigger_event, custom_key) != 0)
+    auto event = it->second;
+    m_event_map.erase(it);
+
+    if (event->Trigger(trigger_event, custom_key) != 0)
         return -1;
     
     return 0;

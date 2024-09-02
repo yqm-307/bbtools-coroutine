@@ -47,36 +47,36 @@ BOOST_AUTO_TEST_CASE(t_lock_unlock)
 }
 
 // 尝试加解锁
-BOOST_AUTO_TEST_CASE(t_try_lock)
-{
-    CoMutex mutex;
-    const int nco_num = 100;
-    const int nsec = 2000;
-    int a = 0;
-    int b = 0;
+// BOOST_AUTO_TEST_CASE(t_try_lock)
+// {
+//     CoMutex mutex;
+//     const int nco_num = 100;
+//     const int nsec = 2000;
+//     int a = 0;
+//     int b = 0;
 
-    const uint64_t begin = bbt::clock::gettime_mono();
-    bbt::thread::CountDownLatch l{nco_num};
+//     const uint64_t begin = bbt::clock::gettime_mono();
+//     bbt::thread::CountDownLatch l{nco_num};
 
-    for (int i = 0; i < nco_num; ++i) {
-        bbtco [&mutex, &a, &b, begin, &l]()
-        {
-            while ((bbt::clock::gettime_mono() - begin) < nsec)
-            {
-                if (mutex.TryLock(1) == 0) {
-                    BOOST_ASSERT(a == b);
-                    a++;
-                    b++;
-                    mutex.UnLock();
-                }
-            }
+//     for (int i = 0; i < nco_num; ++i) {
+//         bbtco [&mutex, &a, &b, begin, &l]()
+//         {
+//             while ((bbt::clock::gettime_mono() - begin) < nsec)
+//             {
+//                 if (mutex.TryLock(1) == 0) {
+//                     BOOST_ASSERT(a == b);
+//                     a++;
+//                     b++;
+//                     mutex.UnLock();
+//                 }
+//             }
 
-            l.Down();
-        };
-    }
+//             l.Down();
+//         };
+//     }
 
-    l.Wait();
-}
+//     l.Wait();
+// }
 
 BOOST_AUTO_TEST_CASE(t_scheudler_end)
 {

@@ -19,36 +19,25 @@ namespace bbt::coroutine::sync
  * 分锁是重叠的，最好的做法是像CoCond一样控制CoPollEvent
  */
 class CoMutex:
-    public bbt::coroutine::detail::CoEventBase
+    public bbt::coroutine::detail::CoEventBase,
+    public std::enable_shared_from_this<CoMutex>
 {
 public:
+    static std::shared_ptr<CoMutex> Create();
     CoMutex();
     ~CoMutex();
 
     void                        Lock();
     void                        UnLock();
-
-    /**
-     * @brief 获取锁，如果无法立即获取挂起协程直到超时
-     * @param ms 
-     * @return int 0成功，-1发生错误，1表示超时
-     */
-    int                         TryLock(int ms);
-
-    /**
-     * @brief 尝试获取锁，立即返回
-     * @return int 0成功，-1表示失败
-     */
     int                         TryLock();
 
 protected:
-    int                         _WaitUnLockUnitlTimeout(int timeout, const detail::CoroutineOnYieldCallback& cb);
-    int                         _WaitUnLock(const detail::CoroutineOnYieldCallback& cb);
-
+    virtual int                 OnNotify(short trigger_events, int customkey) override;
+    int                         _RegistEvent();
     void                        _NotifyOne();
 
 private:
-    std::queue<detail::CoPollEventId> 
+    std::queue<std::pair<detail::CoPollEventId, std::shared_ptr<detail::Coroutine>>>
                                 m_wait_event_queue;
     std::mutex                  m_mutex;
     volatile CoMutexStatus      m_status{CoMutexStatus::COMUTEX_FREE};

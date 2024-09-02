@@ -14,7 +14,6 @@ public:
     friend class Profiler;
     typedef std::shared_ptr<Processer> SPtr;
 
-    static SPtr Create();
     /* 获取当前线程Processer */
     static SPtr GetLocalProcesser();
 

@@ -39,7 +39,7 @@ int CoCond::Wait()
     if (m_run_status != COND_FREE)
         return -1;
 
-    auto [regist_ret, id] = g_bbt_poller->RegistCustom<CoCond>(detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND);
+    auto [regist_ret, id] = g_bbt_poller->RegistCustom<CoCond>(shared_from_this(), detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND);
     if (regist_ret != 0)
         return -1;
 
@@ -72,7 +72,7 @@ int CoCond::WaitWithTimeout(int ms)
     if (m_run_status != COND_FREE)
         return -1;
 
-    auto [regist_ret, id] = g_bbt_poller->RegistCustom<CoCond>(detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND, ms);
+    auto [regist_ret, id] = g_bbt_poller->RegistCustom<CoCond>(shared_from_this(), detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND, ms);
     if (regist_ret != 0)
         return -1;
 
@@ -109,15 +109,16 @@ int CoCond::Notify()
     return 0;
 }
 
-int CoCond::Trigger(short trigger_event, int custom_key)
+int CoCond::OnNotify(short trigger_event, int custom_key)
 {
     auto wait_co = GetWaitCo();
     Assert(wait_co != nullptr);
 
     std::lock_guard<std::mutex> _(m_co_event_mutex);
 
-    Assert(m_run_status == COND_ACTIVE);
-    g_scheduler->OnActiveCoroutine(wait_co);
+    Assert(m_run_status == COND_ACTIVE || m_run_status == COND_WAIT);
+    if (m_run_status != COND_ACTIVE || m_run_status != COND_WAIT)
+    wait_co->Active();    
     // g_bbt_dbgp_full(("[CoEvent:Trigger] co=" + std::to_string(wait_co->GetId()) +
     //                                   " trigger_event=" + std::to_string(trigger_event) +
     //                                   " id=" + std::to_string(GetId()) +

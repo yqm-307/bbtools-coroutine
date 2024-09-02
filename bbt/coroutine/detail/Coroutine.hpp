@@ -34,6 +34,7 @@ public:
     virtual CoroutineId             GetId() override;
     CoroutineStatus                 GetStatus();
     int                             GetLastResumeEvent();
+    void                            Active();
 
 protected:
     /* 事件被触发时回调 */

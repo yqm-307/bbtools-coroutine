@@ -47,7 +47,7 @@ public:
     int                                 Notify();
 
 protected:
-    virtual int                         Trigger(short trigger_event, int custom_key) override;
+    virtual int                         OnNotify(short trigger_event, int custom_key) override;
 
 protected:
     detail::CoPollEventId               m_co_event_id{0};

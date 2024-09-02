@@ -7,7 +7,8 @@ namespace bbt::coroutine::sync
 
 class FdEvent:
     public bbt::coroutine::detail::CoEventBase,
-    public bbt::templateutil::noncopyable
+    public bbt::templateutil::noncopyable,
+    public std::enable_shared_from_this<FdEvent>
 {
 public:
     friend class detail::CoPoller;
@@ -21,7 +22,7 @@ public:
     int                         WaitUntilReadable(int fd, int ms = -1);
     int                         WaitUntilWriteable(int fd, int ms = -1);
 private:
-    virtual int                 Trigger(short trigger_events, int customkey) override;
+    virtual int                 OnNotify(short trigger_events, int customkey) override;
 
     detail::CoPollEventId       m_id{0};
     std::mutex                  m_mutex;

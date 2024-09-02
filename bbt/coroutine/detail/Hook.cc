@@ -37,8 +37,9 @@ namespace bbt::coroutine::detail
             // 是否因为非阻塞导致没法立即完成
             if (errno != EINTR && errno != EINPROGRESS && errno != EALREADY)
                 return -1;
-            
-            if (sync::FdEvent::Create()->WaitUntilWriteable(socket) != 0)
+
+            auto event = sync::FdEvent::Create();
+            if (event->WaitUntilWriteable(socket) != 0)
                 return -1;
         }
 
@@ -72,7 +73,8 @@ namespace bbt::coroutine::detail
                 return -1;
 
             /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读 */
-            if (sync::FdEvent::Create()->WaitUntilReadable(fd) != 0)
+            auto event = sync::FdEvent::Create();
+            if (event->WaitUntilReadable(fd) != 0)
                 return -1;
 
         }
@@ -90,7 +92,8 @@ namespace bbt::coroutine::detail
                 return -1;
 
             /* 对当前协程注册fd可写事件，挂起当前协程直到fd可写 */
-            if (sync::FdEvent::Create()->WaitUntilWriteable(fd) != 0)
+            auto event = sync::FdEvent::Create();
+            if (event->WaitUntilWriteable(fd) != 0)
                 return -1;
         }
 
@@ -108,7 +111,8 @@ namespace bbt::coroutine::detail
                 return -1;
 
             /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读 */
-            if (sync::FdEvent::Create()->WaitUntilReadable(fd) != 0)
+            auto event = sync::FdEvent::Create();
+            if (event->WaitUntilReadable(fd) != 0)
                 return -1;
         }
 
@@ -125,7 +129,8 @@ namespace bbt::coroutine::detail
                 return -1;
 
             /* 对当前协程注册fd可写事件，挂起当前协程直到fd可写 */
-            if (sync::FdEvent::Create()->WaitUntilWriteable(fd) != 0)
+            auto event = sync::FdEvent::Create();
+            if (event->WaitUntilWriteable(fd) != 0)
                 return -1;
         }
 
@@ -146,7 +151,8 @@ namespace bbt::coroutine::detail
                 return -1;
 
             /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读 */
-            if (sync::FdEvent::Create()->WaitUntilReadable(fd) != 0)
+            auto event = sync::FdEvent::Create();
+            if (event->WaitUntilReadable(fd) != 0)
                 return -1;
         }
 

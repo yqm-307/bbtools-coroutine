@@ -96,7 +96,7 @@ class CoEventBase;
 class Coroutine;    // 协程
 class Scheduler;    // 调度器
 class Processer;    // 执行器
-class CoPollEvent;  // 协程事件
+// class CoPollEvent;  // 协程事件
 class CoPoller;     // 事件轮询器
 class GlobalConfig; // 全局配置
 class LocalThread;  // 线程局部数据辅助类

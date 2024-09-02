@@ -33,22 +33,22 @@ public:
     bool                            PollOnce();
 
     std::shared_ptr<bbt::pollevent::Event> 
-                                    CreateEvent(int fd, short events, const bbt::pollevent::OnEventCallback& onevent_cb);
+                                    CreateEvent(CoPollEventId event_id, int fd, short events);
 
     template<class TPollEvent>
-    std::pair<int, CoPollEventId>   Regist(int ms);
+    std::pair<int, CoPollEventId>   Regist(std::shared_ptr<IPollEvent> event, int ms);
     template<class TPollEvent>
-    std::pair<int, CoPollEventId>   RegistCustom(CoPollEventCustom custom_key, int ms = -1);
+    std::pair<int, CoPollEventId>   RegistCustom(std::shared_ptr<IPollEvent> event, CoPollEventCustom custom_key, int ms = -1);
     template<class TPollEvent>
-    std::pair<int, CoPollEventId>   RegistFdReadable(int fd, int ms = -1);
+    std::pair<int, CoPollEventId>   RegistFdReadable(std::shared_ptr<IPollEvent> event, int fd, int ms = -1);
     template<class TPollEvent>
-    std::pair<int, CoPollEventId>   RegistFdWriteable(int fd, int ms = -1);
+    std::pair<int, CoPollEventId>   RegistFdWriteable(std::shared_ptr<IPollEvent> event, int fd, int ms = -1);
 
     int                             UnRegist(CoPollEventId event) override;
     int                             Notify(CoPollEventId eventid, short trigger_event, CoPollEventCustom custom_key) override;
 protected:
     template<class TPollEvent>
-    std::pair<int, CoPollEventId>   _RegistEvent(int fd, int ms, short events, CoPollEventCustom custom_key);
+    std::pair<int, CoPollEventId>   _RegistEvent(std::shared_ptr<IPollEvent> event, int fd, int ms, short events, CoPollEventCustom custom_key);
     virtual std::pair<int, CoPollEventId>   Regist(std::shared_ptr<IPollEvent> event) override;
 private:
     std::shared_ptr<bbt::pollevent::EventLoop> m_event_loop{nullptr};
@@ -56,10 +56,6 @@ private:
     std::unordered_map<CoPollEventId, std::shared_ptr<IPollEvent>>
                                     m_event_map;
     std::mutex                      m_event_map_mtx;
-
-    std::queue<std::shared_ptr<CoPollEvent>>
-                                    m_custom_event_active_queue;    // 自定义事件活跃队列
-    std::mutex                      m_custom_event_active_queue_mutex;
 };
 
 }

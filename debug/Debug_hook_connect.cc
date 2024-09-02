@@ -93,6 +93,7 @@ void test()
         print("[server] exit!");
         ::close(fd);
         ::close(new_fd);
+        delete[] buf;
         l.Down();
     };
 
@@ -137,13 +138,38 @@ void recurrent()
     }    
 }
 
+void BadMem() 
+{
+    bbt::thread::CountDownLatch l{1};
+
+    bbtco[&l]()
+    {
+        sockaddr_in addr;
+        addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+        addr.sin_port = htons(22);
+        addr.sin_family = AF_INET;
+
+        int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+        int ret = ::connect(fd, (sockaddr *)(&addr), sizeof(addr));
+        Assert(ret == 0);
+        l.Down();
+    };
+
+    l.Wait();
+    std::vector<int*> vec;
+    while(1)
+        vec.push_back(new int());
+}
+
 int main()
 {
     g_scheduler->Start(true);
-    for (int i = 0;;i++) {
-        printf("================== turn %d ==============\n", i);
-        test();
-    }
+    // for (int i = 0; i < 5; i++) {
+    //     printf("================== turn %d ==============\n", i);
+    //     test();
+    // }
+
+    BadMem();
 
     // recurrent();
     g_scheduler->Stop();

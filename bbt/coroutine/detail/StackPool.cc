@@ -77,6 +77,7 @@ void StackPool::OnUpdate()
         m_prev_adjust_pool_ts = bbt::clock::now<>();
         if (m_alloc_obj_count > allowable_stack_num)
         {
+            std::queue<ItemType*> m_swap_queue_1;
             std::queue<ItemType*> m_swap_queue;
             {
                 bbt::thread::lock_guard _(m_pool_lock);

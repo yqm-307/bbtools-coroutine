@@ -8,16 +8,11 @@
 namespace bbt::coroutine::detail
 {
 
-Processer::SPtr Processer::Create()
-{
-    return std::make_shared<Processer>();
-}
-
 Processer::SPtr Processer::GetLocalProcesser()
 {
     static thread_local Processer::SPtr tl_processer = nullptr;
     if (tl_processer == nullptr) {
-        tl_processer = Create();
+        tl_processer = std::make_shared<Processer>();
 #ifdef BBT_COROUTINE_PROFILE
         g_bbt_profiler->OnEvent_StartProcesser(tl_processer);
 #endif
@@ -131,6 +126,7 @@ void Processer::_Run()
                 AssertWithInfo(m_running_coroutine->GetStatus() != CoroutineStatus::CO_RUNNING, "error, try to resume a already running coroutine!");
                 m_co_swap_times++;
                 m_running_coroutine->Resume();
+                m_running_coroutine = nullptr;
             }
         }
 
@@ -201,6 +197,7 @@ uint64_t Processer::GetSuspendCostTime()
 
 void Processer::Steal(std::vector<Coroutine::SPtr>& works)
 {
+    uint64_t already_run_time = 0;
     m_coroutine_queue_spinlock.Lock();
     auto size = m_coroutine_queue.Size();
     if (size <= 0) {
@@ -209,7 +206,7 @@ void Processer::Steal(std::vector<Coroutine::SPtr>& works)
     }
     
     uint64_t prev_run = m_running_coroutine_begin.load();
-    auto already_run_time = bbt::clock::gettime_mono() - prev_run;
+    already_run_time = bbt::clock::gettime_mono() - prev_run;
     if (already_run_time < g_bbt_coroutine_config->m_cfg_processer_worksteal_timeout_ms) {
         m_coroutine_queue_spinlock.UnLock();
         return;

@@ -5,6 +5,7 @@
 #include <bbt/coroutine/detail/CoPoller.hpp>
 #include <bbt/coroutine/detail/Coroutine.hpp>
 #include <bbt/coroutine/utils/DebugPrint.hpp>
+#include <bbt/coroutine/detail/debug/DebugMgr.hpp>
 
 namespace bbt::coroutine::detail
 {
@@ -40,9 +41,9 @@ CoEventBase::~CoEventBase()
 
 int CoEventBase::InitFdEvent(int fd, short events, int ms)
 {
-    m_event = g_bbt_poller->CreateEvent(fd, events, [=](std::shared_ptr<bbt::pollevent::Event>, short events){
-        Trigger(events, POLL_EVENT_CUSTOM_DEFAULT);
-    });
+    m_event = g_bbt_poller->CreateEvent(GetId(), fd, events);
+
+    m_timeout = ms;
 
     return 0;
 }
@@ -65,5 +66,16 @@ int CoEventBase::Regist()
 
     return 0;
 }
+
+int CoEventBase::Trigger(short trigger_events, int customkey)
+{
+
+#ifdef BBT_COROUTINE_STRINGENT_DEBUG
+    g_bbt_dbgmgr->OnEvent_TriggerEvent(GetId());
+#endif
+    // 调用实例的具体实现
+    return OnNotify(trigger_events, customkey);
+}
+
 
 }
