@@ -7,17 +7,17 @@ set(MY_LIBS
     bbt_coroutine
 )
 
-add_executable(coroutine_fatigue_test coroutine_fatigue_test.cc)
-target_link_libraries(coroutine_fatigue_test ${MY_LIBS})
+add_executable(fatigue_coroutine fatigue_coroutine.cc)
+target_link_libraries(fatigue_coroutine ${MY_LIBS})
 
-add_executable(coroutine_bench_test coroutine_bench_test.cc)
-target_link_libraries(coroutine_bench_test ${MY_LIBS})
+add_executable(benchmark_coroutine benchmark_coroutine.cc)
+target_link_libraries(benchmark_coroutine ${MY_LIBS})
 
-add_executable(chan_fatigue_test chan_fatigue_test.cc)
-target_link_libraries(chan_fatigue_test ${MY_LIBS})
-
-add_executable(mem_check_test mem_check_test.cc)
-target_link_libraries(mem_check_test ${MY_LIBS})
+add_executable(fatigue_chan fatigue_chan.cc)
+target_link_libraries(fatigue_chan ${MY_LIBS})
 
 add_executable(fatigue_comutex fatigue_comutex.cc)
 target_link_libraries(fatigue_comutex ${MY_LIBS})
+
+add_executable(mem_check_test mem_check_test.cc)
+target_link_libraries(mem_check_test ${MY_LIBS})

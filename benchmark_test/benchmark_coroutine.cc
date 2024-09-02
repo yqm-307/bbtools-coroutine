@@ -20,7 +20,6 @@ int main()
         });
     }
     
-    while(true) 
-        sleep(1);
+    sleep(120);
     g_scheduler->Stop();
 }
