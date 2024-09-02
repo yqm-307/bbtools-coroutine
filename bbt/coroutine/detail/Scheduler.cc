@@ -233,6 +233,9 @@ void Scheduler::_DestoryProcessers()
 
 bool Scheduler::_LoadBlance2Proc(Coroutine::SPtr co)
 {
+    if (m_load_blance_vec.empty())
+        return false;
+
     uint32_t index = m_load_idx;
     m_load_idx++;
 
