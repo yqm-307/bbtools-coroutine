@@ -3,31 +3,23 @@
 #include <bbt/base/clock/Clock.hpp>
 #include <bbt/coroutine/sync/CoCond.hpp>
 
-int arithmetic()
-{
-    int a = 0;
-    // for (int i = 0; i < 1000; ++i) {
-    //     a = rand() % 1000;
-    //     a = sqrt(a);
-    // }
-
-    return a;
-}
-
 int main()
 {
-    int val = 0;
+    /* 执行1000w个协程耗时 */
     const int nsum_co = 10000000;
     bbt::thread::CountDownLatch l{nsum_co};
+    auto begin = bbt::clock::gettime();
 
     bbtco [&](){
 
         for (int i = 0; i < nsum_co; ++i)
-            bbtco [&](){ val = arithmetic(); l.Down(); };
+            bbtco [&](){ l.Down(); };
         
         l.Wait();
         g_scheduler->Stop();
     };
 
     g_scheduler->Start();
+
+    printf("time cost: %ldms\n", bbt::clock::gettime() - begin);
 }
