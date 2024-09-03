@@ -7,7 +7,6 @@ using namespace bbt::coroutine;
 
 void ReadOnce()
 {
-    g_scheduler->Start(true);
 
     bbtco [](){
         sync::Chan<int, 65535> a;
@@ -22,7 +21,6 @@ void ReadOnce()
 
     sleep(1);
 
-    g_scheduler->Stop();
 }
 
 void ReadMulti()
@@ -31,51 +29,42 @@ void ReadMulti()
     std::mutex              mutex;
     std::atomic_int         count = 0;
 
-    // 启动调度器
-    g_scheduler->Start(true);
-    
-    for (int i = 0; i < 1000; ++i) {
-        // 注册一个协程
-        bbtco [&count, &cond, &mutex](){
-            sync::Chan<int, 65535> c;
+    // 注册一个协程
+    bbtco [&count, &cond, &mutex](){
+        sync::Chan<int, 65535> c;
 
-            // 注册1000个写chan写成
-            for (int i = 0; i < 10000; ++i) {
-                bbtco [&c, i](){
-                    for (int i = 0; i < 1000; ++i) {
-                        while(c.Write(i));
-                        // int ret = ;
-                        // Assert(ret == 0);
-                    }
-                };
-            }
+        // 注册1000个写chan写成
+        for (int i = 0; i < 1000; ++i) {
+            bbtco [&c, i](){
+                for (int i = 0; i < 1000; ++i) {
+                    while(c.Write(i));
+                    // int ret = ;
+                    // Assert(ret == 0);
+                }
+            };
+        }
 
 
-            // 等待
-            for (;count.load() < 1000*10000;) {
-                std::vector<int> val;
-                Assert(c.ReadAll(val) == 0);
-                count += val.size();
-            }
-            
-            cond.notify_one();
-        };
+        // 等待
+        for (;count.load() < 1000*1000;) {
+            std::vector<int> val;
+            Assert(c.ReadAll(val) == 0);
+            count += val.size();
+        }
+        
+        cond.notify_one();
+    };
 
-        std::unique_lock<std::mutex> lock(mutex);
-        auto begin = bbt::clock::now<>();
-        cond.wait(lock);
-        printf("chan写10000000次耗时：%ldms  count: %d\n", (bbt::clock::now<>() - begin).count(), count.load());
-        count.exchange(0);
-    }
+    std::unique_lock<std::mutex> lock(mutex);
+    auto begin = bbt::clock::now<>();
+    cond.wait(lock);
+    printf("chan写n次耗时：%ldms  count: %d\n", (bbt::clock::now<>() - begin).count(), count.load());
+    count.exchange(0);
 
-    g_scheduler->Stop();
 }
 
 void DebugWriteBlock()
 {
-
-    g_scheduler->Start(true);
-
     bbt::thread::CountDownLatch l{1};
     const int nwrite = 100;
     std::atomic_int n_read_succ_num{0};
@@ -107,12 +96,13 @@ void DebugWriteBlock()
 
     Assert(nwrite == n_read_succ_num.load());
 
-    g_scheduler->Stop();
 }
 
 int main()
 {
-    // ReadOnce();
-    // ReadMulti();
+    g_scheduler->Start(true);
+    ReadOnce();
+    ReadMulti();
     DebugWriteBlock();
+    g_scheduler->Stop();
 }

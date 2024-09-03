@@ -19,7 +19,7 @@
 
 // #define BBT_COROUTINE_PROFILE
 
-#define g_scheduler bbt::coroutine::detail::Scheduler::GetInstance()
+#define g_scheduler                 (bbt::coroutine::detail::Scheduler::GetInstance())
 
 #define g_bbt_tls_helper            (bbt::coroutine::detail::LocalThread::GetTLSInst())
 

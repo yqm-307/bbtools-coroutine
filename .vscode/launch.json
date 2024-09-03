@@ -281,10 +281,10 @@
             "__desc__": "benchmark 程序",
         },
         {
-            "name": "chan fatigue test",
+            "name": "fatigue test chan",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/bin/benchmark_test/chan_fatigue_test",
+            "program": "${workspaceFolder}/build/bin/benchmark_test/fatigue_chan",
             "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/build/bin/benchmark_test",
@@ -305,10 +305,58 @@
             ]
         },
         {
-            "name": "fatigue_comutex",
+            "name": "fatigue test comutex",
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/bin/benchmark_test/fatigue_comutex",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/build/bin/benchmark_test",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "为 gdb 启用整齐打印",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "将反汇编风格设置为 Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "fatigue test coroutine",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/bin/benchmark_test/fatigue_coroutine",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/build/bin/benchmark_test",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "为 gdb 启用整齐打印",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "将反汇编风格设置为 Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "benchmark coroutine",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/bin/benchmark_test/benchmark_coroutine",
             "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/build/bin/benchmark_test",

@@ -332,7 +332,7 @@ bool operator>>(std::shared_ptr<Chan<TItem, Max>> chan, TItem& item)
 template<class TItem>
 int Chan<TItem, 0>::Write(const ItemType& item)
 {
-    if (BaseType::IsClosed())
+    if (IsClosed())
         return -1;
 
     BaseType::_Lock();
@@ -361,7 +361,7 @@ template<class TItem>
 int Chan<TItem, 0>::Read(ItemType& item)
 {
     // 如果信道关闭，不可以读了
-    if (BaseType::IsClosed())
+    if (IsClosed())
         return -1;
 
     bool expect = false;
@@ -387,6 +387,33 @@ int Chan<TItem, 0>::Read(ItemType& item)
     BaseType::_UnLock();
 
     return 0;
+}
+
+template<class TItem>
+void Chan<TItem, 0>::Close()
+{
+    if (IsClosed())
+        return;
+
+    BaseType::m_run_status = ChanStatus::CHAN_CLOSE;
+
+    BaseType::_Lock();
+    /* 唤醒所有阻塞在Channel上的协程 */
+    if (BaseType::m_is_reading) BaseType::_OnEnableRead();
+
+    while (!BaseType::m_enable_write_conds.empty()) {
+        auto enable_write_cond = BaseType::m_enable_write_conds.front();
+        BaseType::m_enable_write_conds.pop();
+        enable_write_cond->Notify();
+    }
+
+    BaseType::_UnLock();
+}
+
+template<class TItem>
+bool Chan<TItem, 0>::IsClosed()
+{
+    return (BaseType::m_run_status == ChanStatus::CHAN_CLOSE);
 }
 
 }

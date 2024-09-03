@@ -41,7 +41,7 @@ message(
 ################################################################
 
 if (RELEASE)
-    set(CMAKE_CXX_FALGS "${CMAKE_CXX_FLAGS} -std=c++17 -O2")
+    set(CMAKE_CXX_FALGS "${CMAKE_CXX_FLAGS} -fPIC -std=c++17 -O3")
 else()
     set(CMAKE_CXX_FALGS "${CMAKE_CXX_FLAGS} -std=c++17 -g")
 endif()

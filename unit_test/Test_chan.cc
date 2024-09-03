@@ -231,6 +231,39 @@ BOOST_AUTO_TEST_CASE(t_nocache_chan_1v1)
     l.Wait();
 }
 
+/* 无缓冲单读多写 */
+BOOST_AUTO_TEST_CASE(t_nocache_chan_1vn)
+{
+    BOOST_TEST_MESSAGE("enter t_nocache_chan_1vn");
+
+    const int nwrite_co_num = 100;
+    int ncount = 0;
+    bbt::thread::CountDownLatch l{nwrite_co_num + 1};
+
+    bbtco [&](){
+        auto chan = Chan<int, 0>();
+        for (int i = 0; i < nwrite_co_num; ++i)
+            bbtco [&](){
+                chan << 1;
+                l.Down();
+            };
+
+
+        sleep(1);
+        int val;
+        while (chan >> val) {
+            ncount++;
+            if (ncount >= nwrite_co_num) 
+                chan->Close();
+        }
+        l.Down();
+    };
+
+    l.Wait();
+
+    BOOST_ASSERT(ncount == nwrite_co_num);
+}
+
 BOOST_AUTO_TEST_CASE(t_close) 
 {
     BOOST_TEST_MESSAGE("enter t_close");

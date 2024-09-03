@@ -115,7 +115,7 @@ void Scheduler::_Run()
         if (g_bbt_coroutine_config->m_cfg_profile_printf_ms > 0 &&
             bbt::clock::is_expired<bbt::clock::milliseconds>((prev_profile_timepoint + bbt::clock::milliseconds(g_bbt_coroutine_config->m_cfg_profile_printf_ms))))
         {
-            std::string info;
+            std::string info = "";
             g_bbt_profiler->ProfileInfo(info);
             bbt::log::DebugPrint(info.c_str());
             prev_profile_timepoint = bbt::clock::now<>();
@@ -233,6 +233,9 @@ void Scheduler::_DestoryProcessers()
 
 bool Scheduler::_LoadBlance2Proc(Coroutine::SPtr co)
 {
+    if (m_load_blance_vec.empty())
+        return false;
+
     uint32_t index = m_load_idx;
     m_load_idx++;
 
