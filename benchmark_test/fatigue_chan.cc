@@ -10,6 +10,8 @@ int main()
     std::atomic_uint64_t write_failed{0};
     g_scheduler->Start(true);
 
+    /* 开启100个单读多写协程 */
+
     for (int i = 0; i < 100; ++i) {
         // chan读写协程
         bbtco [&read_count, &write_count, &write_failed](){
