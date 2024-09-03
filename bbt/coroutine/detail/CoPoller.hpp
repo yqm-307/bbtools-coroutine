@@ -40,13 +40,6 @@ public:
 protected:
 private:
     std::shared_ptr<bbt::pollevent::EventLoop> m_event_loop{nullptr};
-    // int                             m_epoll_fd{-1};
-
-    std::unordered_set<std::shared_ptr<CoPollEvent>>
-                                    m_safe_active_set;              // 保证不重复的事件
-    std::queue<std::shared_ptr<CoPollEvent>>
-                                    m_custom_event_active_queue;    // 自定义事件活跃队列
-    std::mutex                      m_custom_event_active_queue_mutex;
 };
 
 }

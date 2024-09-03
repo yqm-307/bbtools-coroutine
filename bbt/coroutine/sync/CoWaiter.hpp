@@ -1,6 +1,5 @@
 #pragma once
 #include <bbt/coroutine/detail/Define.hpp>
-#include <bbt/base/Attribute.hpp>
 
 namespace bbt::coroutine::sync
 {
