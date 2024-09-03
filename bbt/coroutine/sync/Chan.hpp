@@ -192,6 +192,9 @@ public:
      * @return 始终返回0
      */
     virtual int                             Read(ItemType& item) override;
+
+    virtual void                            Close() override;
+    virtual bool                            IsClosed() override;
 private:
     std::queue<ItemType>                    m_item_cache_ref;
     uint64_t                                m_read_idx{0};
