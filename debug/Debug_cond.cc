@@ -2,6 +2,7 @@
 #include <bbt/coroutine/coroutine.hpp>
 #include <bbt/base/clock/Clock.hpp>
 #include <bbt/coroutine/sync/CoWaiter.hpp>
+#include <bbt/coroutine/sync/CoCond.hpp>
 using namespace bbt::coroutine;
 
 
@@ -71,7 +72,6 @@ void debug_notify()
 // 协程挂起功能是否有问题
 void dbg_coroutine_wait()
 {
-    g_scheduler->Start(true);
     auto cond = sync::CoWaiter::Create();
     for (int i = 0; i < 10; ++i)
         bbtco [&](){
@@ -89,12 +89,39 @@ void dbg_coroutine_wait()
     while (true) sleep(1);
     
 
-    g_scheduler->Stop();
+}
+
+void cocond()
+{
+    std::mutex lock;
+    bbt::thread::CountDownLatch l{1};
+    bbt::thread::CountDownLatch l2{1};
+
+    bbtco [&](){
+        auto cond = sync::CoCond::Create(lock);
+
+        bbtco [&](){
+            cond->Wait();
+            l.Down();
+        };
+
+        sleep(1);
+        cond->NotifyOne();
+        l.Wait();
+
+        l2.Down();
+    };
+
+    l2.Wait();
 }
 
 int main()
 {
+    g_scheduler->Start(true);
+
     // debug_notify();
-    dbg_coroutine_wait();
-    return 0;
+    // dbg_coroutine_wait();
+    cocond();
+
+    g_scheduler->Stop();
 }

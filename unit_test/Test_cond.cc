@@ -5,6 +5,7 @@
 #include <bbt/coroutine/coroutine.hpp>
 #include <bbt/base/clock/Clock.hpp>
 #include <bbt/coroutine/sync/CoWaiter.hpp>
+#include <bbt/coroutine/sync/CoCond.hpp>
 using namespace bbt::coroutine;
 
 #define PrintTime(flag) printf("标记点=[%s]   协程id=[%ld] 时间戳=[%ld]\n", flag, GetLocalCoroutineId(), bbt::clock::now<>().time_since_epoch().count());
@@ -80,6 +81,32 @@ BOOST_AUTO_TEST_CASE(t_cond_wait_with_timeout)
         std::this_thread::sleep_for(bbt::clock::milliseconds(10));
 
     BOOST_CHECK(a == 1);
+}
+
+BOOST_AUTO_TEST_CASE(t_cond_wait)
+{
+    std::mutex lock;
+    const int nmax_co = 1000;
+    std::atomic_int ncount{0};
+    bbt::thread::CountDownLatch l2{nmax_co};
+
+    bbtco [&](){
+        auto cond = sync::CoCond::Create(lock);
+
+        for (int i = 0; i < nmax_co; ++i) {
+            bbtco [&](){
+                cond->Wait();
+                ncount++;
+                l2.Down();
+            };
+        }
+
+        sleep(1);
+        cond->NotifyAll();
+    };
+
+    l2.Wait();
+    BOOST_CHECK(ncount == nmax_co);
 }
 
 BOOST_AUTO_TEST_CASE(t_end)

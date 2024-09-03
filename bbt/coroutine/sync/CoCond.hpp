@@ -7,20 +7,24 @@ namespace bbt::coroutine::sync
 class CoCond
 {
 public:
-    CoCond();
+    typedef std::shared_ptr<CoCond> SPtr;
+
+    static SPtr Create(std::mutex& lock);
+
+    BBTATTR_FUNC_Ctor_Hidden
+    CoCond(std::mutex& lock);
     virtual ~CoCond();
 
-    int                         Wait(std::unique_lock<std::mutex> lock);
-
-    int                         WaitFor(std::unique_lock<std::mutex> lock, int ms);
+    int                         Wait();
+    int                         WaitFor(int ms);
 
     void                        NotifyOne();
     void                        NotifyAll();
 protected:
     int                         _NotifyOne();
 private:
-    std::queue<CoWaiter>        m_waiter_queue;
-    std::mutex                  m_waiter_queue_mtx;
+    std::queue<std::shared_ptr<CoWaiter>>       m_waiter_queue;
+    std::mutex&                                 m_lock_ref; 
 };
 
 } // namespace bbt::coroutine::sync
