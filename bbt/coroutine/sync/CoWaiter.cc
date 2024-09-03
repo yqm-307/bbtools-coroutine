@@ -1,6 +1,6 @@
 #include <unistd.h>
 #include <fcntl.h>
-#include <bbt/coroutine/sync/CoCond.hpp>
+#include <bbt/coroutine/sync/CoWaiter.hpp>
 #include <bbt/coroutine/detail/CoPoller.hpp>
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
 #include <bbt/coroutine/detail/Scheduler.hpp>
@@ -12,25 +12,25 @@ namespace bbt::coroutine::sync
 
 using namespace bbt::coroutine::detail;
 
-CoCond::SPtr CoCond::Create(bool nolock)
+CoWaiter::SPtr CoWaiter::Create(bool nolock)
 {
-    return std::make_shared<CoCond>(nolock);
+    return std::make_shared<CoWaiter>(nolock);
 }
 
 
-CoCond::CoCond(bool nolock):
+CoWaiter::CoWaiter(bool nolock):
     m_co_event_mutex(nolock ? nullptr : new std::mutex()),
     m_run_status(COND_FREE)
 {
 }
 
-CoCond::~CoCond()
+CoWaiter::~CoWaiter()
 {
     if (m_co_event_mutex != nullptr)
         delete m_co_event_mutex;
 }
 
-int CoCond::Wait()
+int CoWaiter::Wait()
 {
     AssertWithInfo(g_bbt_tls_helper->EnableUseCo(), "please use CoCond in coroutine!"); // 请在协程中使用CoCond
     AssertWithInfo(g_bbt_tls_coroutine_co != nullptr, "running a non-corourine!");      // 当前运行的非协程
@@ -64,7 +64,7 @@ int CoCond::Wait()
     return 0;
 }
 
-int CoCond::WaitWithCallback(const detail::CoroutineOnYieldCallback& cb)
+int CoWaiter::WaitWithCallback(const detail::CoroutineOnYieldCallback& cb)
 {
     AssertWithInfo(g_bbt_tls_helper->EnableUseCo(), "please use CoCond in coroutine!"); // 请在协程中使用CoCond
     AssertWithInfo(g_bbt_tls_coroutine_co != nullptr, "running a non-corourine!");      // 当前运行的非协程
@@ -98,7 +98,7 @@ int CoCond::WaitWithCallback(const detail::CoroutineOnYieldCallback& cb)
     return ret;
 }
 
-int CoCond::WaitWithTimeout(int ms)
+int CoWaiter::WaitWithTimeout(int ms)
 {
     int ret = 0;
 
@@ -135,7 +135,7 @@ int CoCond::WaitWithTimeout(int ms)
     return ret;
 }
 
-int CoCond::WaitWithTimeoutAndCallback(int ms, const detail::CoroutineOnYieldCallback& cb)
+int CoWaiter::WaitWithTimeoutAndCallback(int ms, const detail::CoroutineOnYieldCallback& cb)
 {
     int ret = 0;
 
@@ -173,7 +173,7 @@ int CoCond::WaitWithTimeoutAndCallback(int ms, const detail::CoroutineOnYieldCal
     return ret;
 }
 
-int CoCond::Notify()
+int CoWaiter::Notify()
 {
     AssertWithInfo(g_bbt_tls_helper->EnableUseCo(), "please use CoCond in coroutine!");
 
@@ -191,13 +191,13 @@ int CoCond::Notify()
     return 0;
 }
 
-void CoCond::_Lock()
+void CoWaiter::_Lock()
 {
     if (m_co_event_mutex != nullptr)
         m_co_event_mutex->lock();
 }
 
-void CoCond::_UnLock()
+void CoWaiter::_UnLock()
 {
     if (m_co_event_mutex != nullptr)
         m_co_event_mutex->unlock();

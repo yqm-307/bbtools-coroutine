@@ -42,7 +42,7 @@ namespace bbt::coroutine::sync
 {
 
 template<class TItem, int Max> class Chan;
-class CoCond;
+class CoWaiter;
 
 
 /*

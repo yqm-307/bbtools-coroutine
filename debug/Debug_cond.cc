@@ -1,7 +1,7 @@
 #include <atomic>
 #include <bbt/coroutine/coroutine.hpp>
 #include <bbt/base/clock/Clock.hpp>
-#include <bbt/coroutine/sync/CoCond.hpp>
+#include <bbt/coroutine/sync/CoWaiter.hpp>
 using namespace bbt::coroutine;
 
 
@@ -21,7 +21,7 @@ void debug_notify()
     bbtco [](){
         PrintTime("t2");
         /* 创建条件变量 */
-        auto cond = sync::CoCond::Create();
+        auto cond = sync::CoWaiter::Create();
         Assert(cond != nullptr);
 
         /* 注册一个coroutine */
@@ -56,7 +56,7 @@ void debug_notify()
 
     bbtco [](){
         PrintTime("p1");
-        auto cond = sync::CoCond::Create();
+        auto cond = sync::CoWaiter::Create();
         Assert(cond != nullptr);
         int ret = cond->WaitWithTimeout(1000);
         PrintTime("p2");
@@ -72,7 +72,7 @@ void debug_notify()
 void dbg_coroutine_wait()
 {
     g_scheduler->Start(true);
-    auto cond = sync::CoCond::Create();
+    auto cond = sync::CoWaiter::Create();
     for (int i = 0; i < 10; ++i)
         bbtco [&](){
             while (true)

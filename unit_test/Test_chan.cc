@@ -215,7 +215,7 @@ BOOST_AUTO_TEST_CASE(t_nocache_chan_1v1)
 
     bbtco [&](){
         auto chan = Chan<int, 0>();
-        auto cond = sync::CoCond::Create();
+        auto cond = sync::CoWaiter::Create();
         bbtco [&](){
             detail::Hook_Sleep(100);
             cond->Notify();

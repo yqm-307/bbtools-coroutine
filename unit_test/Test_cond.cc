@@ -4,7 +4,7 @@
 
 #include <bbt/coroutine/coroutine.hpp>
 #include <bbt/base/clock/Clock.hpp>
-#include <bbt/coroutine/sync/CoCond.hpp>
+#include <bbt/coroutine/sync/CoWaiter.hpp>
 using namespace bbt::coroutine;
 
 #define PrintTime(flag) printf("标记点=[%s]   协程id=[%ld] 时间戳=[%ld]\n", flag, GetLocalCoroutineId(), bbt::clock::now<>().time_since_epoch().count());
@@ -21,8 +21,8 @@ BOOST_AUTO_TEST_CASE(t_cond_multi)
     std::atomic_bool run_in_co{false};
 
     bbtco [&run_in_co](){
-        auto co1 = sync::CoCond::Create();
-        auto co2 = sync::CoCond::Create();
+        auto co1 = sync::CoWaiter::Create();
+        auto co2 = sync::CoWaiter::Create();
         Assert(co1 != nullptr && co2 != nullptr);
 
         bbtco [&run_in_co, co1, co2](){
@@ -63,7 +63,7 @@ BOOST_AUTO_TEST_CASE(t_cond_wait_with_timeout)
     const int wait_ms = 200;
     int a = 0;
     bbtco [&](){
-        auto cond = sync::CoCond::Create();
+        auto cond = sync::CoWaiter::Create();
         auto begin = bbt::clock::gettime();
         cond->WaitWithTimeout(wait_ms);
         auto end = bbt::clock::gettime();
