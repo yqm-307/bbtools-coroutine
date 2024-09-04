@@ -41,3 +41,7 @@ add_test(NAME Test_chan COMMAND Test_chan)
 add_executable(Test_comutex Test_comutex.cc)
 target_link_libraries(Test_comutex ${MY_LIBS})
 add_test(NAME Test_comutex COMMAND Test_comutex)
+
+add_executable(Test_defer Test_defer.cc)
+target_link_libraries(Test_defer ${MY_LIBS})
+add_test(NAME Test_defer COMMAND Test_defer)

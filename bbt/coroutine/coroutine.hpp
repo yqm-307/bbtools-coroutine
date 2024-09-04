@@ -4,13 +4,24 @@
 #include <bbt/coroutine/detail/Hook.hpp>
 #include <bbt/coroutine/sync/Chan.hpp>
 #include <bbt/coroutine/_CoHelper.hpp>
+#include <bbt/coroutine/_DeferHelper.hpp>
 
 
 #define bbtco bbt::coroutine::_CoHelper()-
 #define bbtco_desc(desc) bbtco
+
 #define bbtco_sleep(ms) bbt::coroutine::detail::Hook_Sleep(ms)
 #define co_desc(desc_msg)
 
+#define bbtco_concat_impl(x, y) x##y
+#define bbtco_concat(x, y) bbtco_concat_impl(x, y)
+#define bbtco_joint_suffix(name, suffix) bbtco_concat(name, suffix)
+
+#define bbtco_defer_ex \
+    bbt::coroutine::detail::Defer bbtco_joint_suffix(bbtco_defer_, __COUNTER__) = bbt::coroutine::_DeferHelper()-
+
+#define bbtco_defer \
+    bbtco_defer_ex [&]()
 
 namespace bbt::coroutine
 {
