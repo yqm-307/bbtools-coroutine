@@ -130,6 +130,10 @@ int CoPollEvent::Regist()
 {
     _OnListen();
 
+#ifdef BBT_COROUTINE_STRINGENT_DEBUG
+    g_bbt_dbgmgr->OnEvent_RegistEvent(shared_from_this());
+#endif
+
     if (m_event != nullptr && (_RegistFdEvent() != 0)) {
         m_run_status = CoPollEventStatus::POLLEVENT_INITED;
         return -1;
@@ -140,9 +144,7 @@ int CoPollEvent::Regist()
 #ifdef BBT_COROUTINE_PROFILE
     g_bbt_profiler->OnEvent_RegistCoPollEvent();
 #endif
-#ifdef BBT_COROUTINE_STRINGENT_DEBUG
-    g_bbt_dbgmgr->OnEvent_RegistEvent(shared_from_this());
-#endif
+
 
     return 0;
 }

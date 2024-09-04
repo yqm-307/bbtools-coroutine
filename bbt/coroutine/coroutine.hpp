@@ -6,6 +6,11 @@
 #include <bbt/coroutine/_CoHelper.hpp>
 #include <bbt/coroutine/_DeferHelper.hpp>
 
+#include <bbt/coroutine/sync/Chan.hpp>
+#include <bbt/coroutine/sync/CoCond.hpp>
+#include <bbt/coroutine/sync/CoMutex.hpp>
+#include <bbt/coroutine/sync/CoRWMutex.hpp>
+
 
 #define bbtco bbt::coroutine::_CoHelper()-
 #define bbtco_desc(desc) bbtco

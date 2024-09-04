@@ -83,6 +83,13 @@ enum CoMutexStatus
     COMUTEX_FREE        = 1,
 };
 
+enum CoRWMutexStatus
+{
+    CORWMUTEX_RLOCKED   = 0,
+    CORWMUTEX_WLOCKED   = 1,
+    CORWMUTEX_FREE      = 2,
+};
+
 }
 
 namespace bbt::coroutine::detail
