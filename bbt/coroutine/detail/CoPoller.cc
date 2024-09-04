@@ -42,36 +42,13 @@ bool CoPoller::PollOnce()
     errno = 0;
     bool ret = (m_event_loop->StartLoop(bbt::pollevent::EventLoopOpt::LOOP_NONBLOCK) == 0);
 
-    std::queue<std::shared_ptr<CoPollEvent>> m_swap_queue;
-    {
-        std::unique_lock<std::mutex> _(m_custom_event_active_queue_mutex);
-        m_swap_queue.swap(m_custom_event_active_queue);
-    }
-
-    if (!m_swap_queue.empty())
-        ret = true;
-
-    /* 通知触发的自定义事件 */
-    while (!m_swap_queue.empty())
-    {
-        auto item = m_swap_queue.front();
-        item->Trigger(POLL_EVENT_CUSTOM);
-        m_swap_queue.pop();
-        std::unique_lock<std::mutex> _(m_custom_event_active_queue_mutex);
-        Assert(m_safe_active_set.erase(item) > 0);
-    }
-
     return ret;
 }
 
 void CoPoller::NotifyCustomEvent(std::shared_ptr<CoPollEvent> event)
 {
-    std::unique_lock<std::mutex> _(m_custom_event_active_queue_mutex);
-    AssertWithInfo(m_safe_active_set.find(event) == m_safe_active_set.end(), "duplicate registration events! please submit issue!");
     Assert(event != nullptr);
-
-    m_safe_active_set.insert(event);
-    m_custom_event_active_queue.push(event);
+    event->Trigger(POLL_EVENT_CUSTOM);
 }
 
 int64_t CoPoller::GetTime()

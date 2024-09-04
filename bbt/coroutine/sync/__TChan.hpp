@@ -13,7 +13,7 @@ namespace bbt::coroutine::sync
 template<class TItem, int Max>
 Chan<TItem, Max>::Chan():
     m_max_size(Max),
-    m_enable_read_cond(CoCond::Create(true))
+    m_enable_read_cond(CoWaiter::Create(true))
 {
     Assert(m_max_size >= 0);
     m_run_status = ChanStatus::CHAN_OPEN;
@@ -246,13 +246,13 @@ int Chan<TItem, Max>::_WaitUntilEnableRead(const detail::CoroutineOnYieldCallbac
 }
 
 template<class TItem, int Max>
-int Chan<TItem, Max>::_WaitUntilEnableWrite(CoCond::SPtr cond, const detail::CoroutineOnYieldCallback& cb)
+int Chan<TItem, Max>::_WaitUntilEnableWrite(CoWaiter::SPtr cond, const detail::CoroutineOnYieldCallback& cb)
 {
     return cond->WaitWithCallback(std::forward<const detail::CoroutineOnYieldCallback&>(cb));
 }
 
 template<class TItem, int Max>
-int Chan<TItem, Max>::_WaitUntilEnableWriteOrTimeout(CoCond::SPtr cond, int timeout_ms, const detail::CoroutineOnYieldCallback& cb)
+int Chan<TItem, Max>::_WaitUntilEnableWriteOrTimeout(CoWaiter::SPtr cond, int timeout_ms, const detail::CoroutineOnYieldCallback& cb)
 {
     return cond->WaitWithTimeoutAndCallback(timeout_ms, cb);
 }
@@ -275,9 +275,9 @@ int Chan<TItem, Max>::_OnEnableWrite()
 }
 
 template<class TItem, int Max>
-CoCond::SPtr Chan<TItem, Max>::_CreateAndPushEnableWriteCond()
+CoWaiter::SPtr Chan<TItem, Max>::_CreateAndPushEnableWriteCond()
 {
-    auto enable_write_cond = CoCond::Create(true);
+    auto enable_write_cond = CoWaiter::Create(true);
     Assert(enable_write_cond != nullptr);
     m_enable_write_conds.push(enable_write_cond);
 

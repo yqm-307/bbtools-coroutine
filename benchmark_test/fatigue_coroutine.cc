@@ -1,6 +1,6 @@
 #include <bbt/coroutine/coroutine.hpp>
 #include <bbt/base/clock/Clock.hpp>
-#include <bbt/coroutine/sync/CoCond.hpp>
+#include <bbt/coroutine/sync/CoWaiter.hpp>
 
 int main()
 {

@@ -7,7 +7,7 @@
 #include <bbt/coroutine/detail/Define.hpp>
 #include <bbt/coroutine/detail/Coroutine.hpp>
 #include <bbt/coroutine/sync/interface/IChan.hpp>
-#include <bbt/coroutine/sync/CoCond.hpp>
+#include <bbt/coroutine/sync/CoWaiter.hpp>
 
 namespace bbt::coroutine::sync
 {
@@ -118,7 +118,7 @@ protected:
      * @param cb   当协程挂起成功后执行的回调事件
      * @return 0表示可写，-1表示失败
      */
-    int                                     _WaitUntilEnableWrite(CoCond::SPtr cond, const detail::CoroutineOnYieldCallback& cb = nullptr);
+    int                                     _WaitUntilEnableWrite(CoWaiter::SPtr cond, const detail::CoroutineOnYieldCallback& cb = nullptr);
 
     /**
      * @brief 挂起协程直到可写或超时
@@ -127,7 +127,7 @@ protected:
      * @param cb 协程挂起后回调
      * @return 0表示可写，-1表示失败，1表示超时
      */
-    int                                     _WaitUntilEnableWriteOrTimeout(CoCond::SPtr cond, int timeout_ms, const detail::CoroutineOnYieldCallback& cb = nullptr);
+    int                                     _WaitUntilEnableWriteOrTimeout(CoWaiter::SPtr cond, int timeout_ms, const detail::CoroutineOnYieldCallback& cb = nullptr);
 
     /* 可读事件 */
     int                                     _OnEnableRead();
@@ -139,7 +139,7 @@ protected:
     int                                     _OnEnableWrite();
 
     /* 创建一个可写事件 */
-    CoCond::SPtr                            _CreateAndPushEnableWriteCond();
+    CoWaiter::SPtr                            _CreateAndPushEnableWriteCond();
 
     void                                    _Lock();
     void                                    _UnLock();
@@ -151,8 +151,8 @@ protected:
     std::atomic_bool                        m_is_reading{false};
 
     /* 用来实现读写时挂起和可读写时唤醒协程 */
-    CoCond::SPtr                            m_enable_read_cond{nullptr};
-    std::queue<CoCond::SPtr>                m_enable_write_conds;
+    CoWaiter::SPtr                            m_enable_read_cond{nullptr};
+    std::queue<CoWaiter::SPtr>                m_enable_write_conds;
 };
 
 

@@ -5,7 +5,7 @@ using namespace bbt::coroutine;
 // 协程挂起功能是否有问题
 void dbg_coroutine_wait()
 {
-    auto cond = sync::CoCond::Create();
+    auto cond = sync::CoWaiter::Create();
     while (true) {
         for (int i = 0; i < 10000; ++i)
             bbtco [&](){

@@ -1,5 +1,5 @@
 #pragma once
-#include <bbt/coroutine/sync/CoCond.hpp>
+#include <bbt/coroutine/sync/CoWaiter.hpp>
 
 namespace bbt::coroutine::sync
 {

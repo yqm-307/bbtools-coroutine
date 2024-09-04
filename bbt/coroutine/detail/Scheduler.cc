@@ -111,19 +111,20 @@ void Scheduler::_Run()
     while(m_is_running)
     {
         
-#ifdef BBT_COROUTINE_PROFILE
-        if (g_bbt_coroutine_config->m_cfg_profile_printf_ms > 0 &&
-            bbt::clock::is_expired<bbt::clock::milliseconds>((prev_profile_timepoint + bbt::clock::milliseconds(g_bbt_coroutine_config->m_cfg_profile_printf_ms))))
-        {
-            std::string info = "";
-            g_bbt_profiler->ProfileInfo(info);
-            bbt::log::DebugPrint(info.c_str());
-            prev_profile_timepoint = bbt::clock::now<>();
-        }
-#endif
-
         bool actived = false;
         do {
+
+#ifdef BBT_COROUTINE_PROFILE
+            if (g_bbt_coroutine_config->m_cfg_profile_printf_ms > 0 &&
+                bbt::clock::is_expired<bbt::clock::milliseconds>((prev_profile_timepoint + bbt::clock::milliseconds(g_bbt_coroutine_config->m_cfg_profile_printf_ms))))
+            {
+                std::string info = "";
+                g_bbt_profiler->ProfileInfo(info);
+                bbt::log::DebugPrint(info.c_str());
+                prev_profile_timepoint = bbt::clock::now<>();
+            }
+#endif
+
             actived = g_bbt_poller->PollOnce();
             _FixTimingScan();
             g_bbt_stackpoll->OnUpdate();
