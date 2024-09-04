@@ -88,37 +88,6 @@ enum CoMutexStatus
 namespace bbt::coroutine::detail
 {
 
-class Coroutine;    // 协程
-class Scheduler;    // 调度器
-class Processer;    // 执行器
-class CoPollEvent;  // 协程事件
-class CoPoller;     // 事件轮询器
-class GlobalConfig; // 全局配置
-class LocalThread;  // 线程局部数据辅助类
-class DebugMgr;     // dbg管理器
-
-
-typedef uint64_t CoroutineId;
-#define BBT_COROUTINE_INVALID_COROUTINE_ID 0
-
-typedef uint64_t ProcesserId;
-#define BBT_COROUTINE_INVALID_PROCESSER_ID 0
-
-typedef uint64_t CoPollEventId;
-#define BBT_COROUTINE_INVALID_COPOLLEVENT_ID 0
-
-
-typedef std::function<void()> CoroutineCallback;        // 协程处理主函数
-typedef std::function<void()> CoroutineFinalCallback;   // 协程主函数执行完毕回调
-typedef std::function<bool()> CoroutineOnYieldCallback; // 协程挂起后执行回调
-
-/**
- * @param 触发的事件
- * @param 事件类型
- * @param 仅当事件类型为POLL_EVENT_CUSTOM时，表示枚举类型CoPollEventCustom中的值
- */
-typedef std::function<void(std::shared_ptr<CoPollEvent>, int /*events*/, int)> CoPollEventCallback;      // Poller监听事件完成回调
-
 /**
 @startuml
 [*] --> Default
@@ -215,5 +184,40 @@ enum CoPollEventCustom
     POLL_EVENT_CUSTOM_CHAN  = 2,    // chan
     POLL_EVENT_CUSTOM_COMUTEX = 3,  // co mutex
 };
+
+
+
+class Coroutine;    // 协程
+class Scheduler;    // 调度器
+class Processer;    // 执行器
+class CoPollEvent;  // 协程事件
+class CoPoller;     // 事件轮询器
+class GlobalConfig; // 全局配置
+class LocalThread;  // 线程局部数据辅助类
+class DebugMgr;     // dbg管理器
+class Defer;        // Defer helper
+
+
+typedef uint64_t CoroutineId;
+#define BBT_COROUTINE_INVALID_COROUTINE_ID 0
+
+typedef uint64_t ProcesserId;
+#define BBT_COROUTINE_INVALID_PROCESSER_ID 0
+
+typedef uint64_t CoPollEventId;
+#define BBT_COROUTINE_INVALID_COPOLLEVENT_ID 0
+
+
+typedef std::function<void()> CoroutineCallback;        // 协程处理主函数
+typedef std::function<void()> CoroutineFinalCallback;   // 协程主函数执行完毕回调
+typedef std::function<bool()> CoroutineOnYieldCallback; // 协程挂起后执行回调
+typedef std::function<void()> DeferCallback;            // defer 执行函数
+
+/**
+ * @param 触发的事件
+ * @param 事件类型
+ * @param 仅当事件类型为POLL_EVENT_CUSTOM时，表示枚举类型CoPollEventCustom中的值
+ */
+typedef std::function<void(std::shared_ptr<CoPollEvent>, int /*events*/, int)> CoPollEventCallback;      // Poller监听事件完成回调
 
 } // namespace bbt::coroutine::detail
