@@ -7,7 +7,9 @@
 
 
 #define bbtco bbt::coroutine::_CoHelper()-
+#define bbtco_desc(desc) bbtco
 #define bbtco_sleep(ms) bbt::coroutine::detail::Hook_Sleep(ms)
+#define co_desc(desc_msg)
 
 
 namespace bbt::coroutine
