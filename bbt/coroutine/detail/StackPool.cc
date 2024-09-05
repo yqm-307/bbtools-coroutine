@@ -23,7 +23,6 @@ StackPool::StackPool():
 
 StackPool::~StackPool()
 {
-    // std::lock_guard<std::mutex> _(m_pool_mutex);
     bbt::thread::lock_guard _(m_pool_lock);
     while (!m_pool.empty()) {
         auto item = m_pool.front();
@@ -41,8 +40,12 @@ void StackPool::Release(ItemType* item)
 StackPool::ItemType* StackPool::Apply()
 {
     bbt::thread::lock_guard _(m_pool_lock);
-    if (m_alloc_obj_count >= g_bbt_coroutine_config->m_cfg_stackpool_max_alloc_size)
+    AssertWithInfo(m_alloc_obj_count < g_bbt_coroutine_config->m_cfg_stackpool_max_alloc_size,
+        "coroutine stack not enough! please try adjust the globalconfig 'm_cfg_stackpool_max_alloc_size'");
+
+    if (m_alloc_obj_count >= g_bbt_coroutine_config->m_cfg_stackpool_max_alloc_size) {
         return nullptr;
+    }
 
     if (m_pool.empty()) {
         m_alloc_obj_count++;
@@ -70,12 +73,15 @@ void StackPool::OnUpdate()
         m_rtts = ::floor(0.875 * m_rtts + 0.125 * GetCurCoNum());
     }
 
+    /* 通过算法计算的程序应该存在栈数量 */
     int allowable_stack_num = ::floor((m_rate + 1) * m_rtts);
 
     if ( bbt::clock::is_expired<bbt::clock::milliseconds>((m_prev_adjust_pool_ts + bbt::clock::milliseconds(500))))
     {
         m_prev_adjust_pool_ts = bbt::clock::now<>();
-        if (m_alloc_obj_count > allowable_stack_num)
+        /* 除了配置保证最低限度的栈数量，其余超过的栈都释放掉 */
+        if (allowable_stack_num >= g_bbt_coroutine_config->m_cfg_stackpool_min_alloc_size &&
+            m_alloc_obj_count > allowable_stack_num)
         {
             std::queue<ItemType*> m_swap_queue;
             {
