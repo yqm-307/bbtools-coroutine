@@ -131,6 +131,7 @@ void Processer::_Run()
                 AssertWithInfo(m_running_coroutine->GetStatus() != CoroutineStatus::CO_RUNNING, "error, try to resume a already running coroutine!");
                 m_co_swap_times++;
                 m_running_coroutine->Resume();
+                m_running_coroutine = nullptr;
             }
         }
 
