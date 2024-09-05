@@ -25,7 +25,7 @@ CoCond::~CoCond()
 int CoCond::Wait()
 {
     std::unique_lock<std::mutex> lock{m_lock_ref};
-    auto waiter = CoWaiter::Create();
+    auto waiter = CoWaiter::Create(true);
     m_waiter_queue.push(waiter);
 
     int ret = waiter->WaitWithCallback([&lock](){
@@ -39,7 +39,7 @@ int CoCond::Wait()
 int CoCond::WaitFor(int ms)
 {
     std::unique_lock<std::mutex> lock{m_lock_ref};
-    auto waiter = CoWaiter::Create();
+    auto waiter = CoWaiter::Create(true);
     m_waiter_queue.push(waiter);
 
     int ret = waiter->WaitWithTimeoutAndCallback(ms, [&lock](){

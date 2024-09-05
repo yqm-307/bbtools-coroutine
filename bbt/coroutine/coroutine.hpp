@@ -6,6 +6,11 @@
 #include <bbt/coroutine/_CoHelper.hpp>
 #include <bbt/coroutine/_DeferHelper.hpp>
 
+#include <bbt/coroutine/sync/Chan.hpp>
+#include <bbt/coroutine/sync/CoCond.hpp>
+#include <bbt/coroutine/sync/CoMutex.hpp>
+#include <bbt/coroutine/sync/CoRWMutex.hpp>
+
 
 #define bbtco bbt::coroutine::_CoHelper()-
 #define bbtco_desc(desc) bbtco
@@ -22,6 +27,14 @@
 
 #define bbtco_defer \
     bbtco_defer_ex [&]()
+
+#define bbtco_yield \
+do \
+{ \
+    if (g_bbt_tls_coroutine_co == nullptr) \
+        break; \
+    g_bbt_tls_coroutine_co->YieldAndPushGCoQueue(); \
+} while(0);
 
 namespace bbt::coroutine
 {

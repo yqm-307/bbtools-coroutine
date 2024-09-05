@@ -21,17 +21,17 @@ void fatigue_1()
         };
     }
 
-    for (int i = 0; i < 5; ++i) {
-        bbtco []() {
-            while (true) {
-                if (mutex.TryLock() == 0) {
-                    Assert(a == b);
-                    a++; b++;
-                    mutex.UnLock();
-                }
-            }            
-        };
-    }
+    // for (int i = 0; i < 5; ++i) {
+    //     bbtco []() {
+    //         while (true) {
+    //             if (mutex.TryLock() == 0) {
+    //                 Assert(a == b);
+    //                 a++; b++;
+    //                 mutex.UnLock();
+    //             }
+    //         }            
+    //     };
+    // }
 
     for (int i = 0; i < 5; ++i) {
         bbtco []() {

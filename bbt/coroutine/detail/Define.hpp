@@ -26,7 +26,7 @@
 #define g_bbt_tls_processer         (g_bbt_tls_helper->GetProcesser())
 
 /* 当前线程正在运行的 coroutine */
-#define g_bbt_tls_coroutine_co      (g_bbt_tls_processer->GetCurrentCoroutine())
+#define g_bbt_tls_coroutine_co      (g_bbt_tls_processer ? g_bbt_tls_processer->GetCurrentCoroutine() : nullptr)
 
 #define g_bbt_poller                (bbt::coroutine::detail::CoPoller::GetInstance())
 
@@ -81,6 +81,13 @@ enum CoMutexStatus
 {
     COMUTEX_LOCKED      = 0,
     COMUTEX_FREE        = 1,
+};
+
+enum CoRWMutexStatus
+{
+    CORWMUTEX_RLOCKED   = 0,
+    CORWMUTEX_WLOCKED   = 1,
+    CORWMUTEX_FREE      = 2,
 };
 
 }

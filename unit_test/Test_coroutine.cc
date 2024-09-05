@@ -2,7 +2,7 @@
 #define BOOST_TEST_MAIN
 #include <boost/test/included/unit_test.hpp>
 
-#include <bbt/coroutine/detail/Coroutine.hpp>
+#include <bbt/coroutine/coroutine.hpp>
 
 using namespace bbt::coroutine;
 detail::Coroutine::SPtr current_coroutine = nullptr;

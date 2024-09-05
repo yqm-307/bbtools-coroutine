@@ -42,3 +42,6 @@ target_link_libraries(Debug_hook_connect ${MY_DBG_LIBS})
 
 add_executable(Debug_comutex Debug_comutex.cc)
 target_link_libraries(Debug_comutex ${MY_DBG_LIBS})
+
+add_executable(Debug_co_rwmutex Debug_co_rwmutex.cc)
+target_link_libraries(Debug_co_rwmutex ${MY_DBG_LIBS})

@@ -131,6 +131,7 @@ void Processer::_Run()
                 AssertWithInfo(m_running_coroutine->GetStatus() != CoroutineStatus::CO_RUNNING, "error, try to resume a already running coroutine!");
                 m_co_swap_times++;
                 m_running_coroutine->Resume();
+                m_running_coroutine = nullptr;
             }
         }
 
@@ -140,7 +141,7 @@ void Processer::_Run()
             auto begin = bbt::clock::now<bbt::clock::microseconds>();
             std::unique_lock<std::mutex> lock_uptr(m_run_cond_mutex);
             m_run_status = ProcesserStatus::PROC_SUSPEND;
-            m_run_cond.wait_for(lock_uptr, bbt::clock::milliseconds(1));
+            m_run_cond.wait_for(lock_uptr, bbt::clock::milliseconds(5));
             m_suspend_cost_times += std::chrono::duration_cast<decltype(m_suspend_cost_times)>(bbt::clock::now<bbt::clock::microseconds>() - begin);
         }
     }
