@@ -89,6 +89,15 @@ int Coroutine::YieldWithCallback(const CoroutineOnYieldCallback& cb)
     return m_context.YieldWithCallback(cb);
 }
 
+void Coroutine::YieldAndPushGCoQueue()
+{
+    Assert(YieldWithCallback([this](){
+        g_scheduler->OnActiveCoroutine(shared_from_this());
+        return true;
+    }) == 0);
+}
+
+
 CoroutineId Coroutine::GetId()
 {
     return m_id;

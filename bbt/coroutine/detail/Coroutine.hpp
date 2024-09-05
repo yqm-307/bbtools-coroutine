@@ -17,6 +17,9 @@ enum FollowEventStatus
 /**
  * @brief 协程对象
  * 
+ * 原则上协程对象不允许多线程共享，目前协程对象只能通过全局队列来
+ * 在多线程之间传递，这一方式是为了提高访问协程的效率。
+ * 
  */
 class Coroutine:
     public ICoroutine,
@@ -37,6 +40,8 @@ public:
     virtual void                    Resume() override;
     virtual void                    Yield() override;
     virtual int                     YieldWithCallback(const CoroutineOnYieldCallback& cb) override;
+    /* 手动挂起co并加入到全局队列中，和事件触发挂起无冲突，因为一个协程内逻辑串行 */
+    virtual void                    YieldAndPushGCoQueue();
 
     virtual CoroutineId             GetId() override;
     CoroutineStatus                 GetStatus();

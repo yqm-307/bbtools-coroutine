@@ -28,6 +28,14 @@
 #define bbtco_defer \
     bbtco_defer_ex [&]()
 
+#define bbtco_yield \
+do \
+{ \
+    if (g_bbt_tls_coroutine_co == nullptr) \
+        break; \
+    g_bbt_tls_coroutine_co->YieldAndPushGCoQueue(); \
+} while(0);
+
 namespace bbt::coroutine
 {
 
