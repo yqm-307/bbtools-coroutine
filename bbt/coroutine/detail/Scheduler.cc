@@ -72,10 +72,10 @@ void Scheduler::OnActiveCoroutine(Coroutine::SPtr coroutine)
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
     g_bbt_dbgmgr->Check_IsResumedCo(coroutine->GetId());
 #endif
-    m_global_coroutine_spinlock.Lock();
-    m_global_coroutine_deque.PushTail(coroutine);
-    m_global_coroutine_spinlock.UnLock();
-}
+        m_global_coroutine_spinlock.Lock();
+        m_global_coroutine_deque.PushTail(coroutine);
+        m_global_coroutine_spinlock.UnLock();
+    }
 
 void Scheduler::_SampleSchuduleAlgorithm()
 {
@@ -85,11 +85,6 @@ void Scheduler::_SampleSchuduleAlgorithm()
     if (!has_co)
         return;
 
-    for (auto&& item : m_processer_map)
-    {
-        auto processer = item.second;
-        processer->Notify();
-    }
 }
 
 

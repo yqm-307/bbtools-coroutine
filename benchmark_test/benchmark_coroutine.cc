@@ -10,16 +10,14 @@ int main()
     bbt::thread::CountDownLatch l{nsum_co};
     auto begin = bbt::clock::gettime();
 
-    bbtco [&](){
+    g_scheduler->Start(true);
 
+    bbtco [&](){
         for (int i = 0; i < nsum_co; ++i)
-            bbtco [&](){ l.Down(); };
-        
-        l.Wait();
-        g_scheduler->Stop();
+            bbtco [&](){ l.Down(); };  
     };
 
-    g_scheduler->Start();
-
+    l.Wait();
+    g_scheduler->Stop();
     printf("time cost: %ldms\n", bbt::clock::gettime() - begin);
 }

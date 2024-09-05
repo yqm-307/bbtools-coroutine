@@ -67,7 +67,7 @@ BOOST_AUTO_TEST_CASE(t_rlock_wlock_block)
             n++;
         };
 
-        bbtco_sleep(1);
+        bbtco_sleep(100);
         BOOST_ASSERT(n == m && n == 1);
         l.Down();
     };

@@ -13,6 +13,12 @@ target_link_libraries(coroutine ${MY_LIBS})
 add_executable(chan chan.cc)
 target_link_libraries(chan ${MY_LIBS})
 
+add_executable(cocond cocond.cc)
+target_link_libraries(cocond ${MY_LIBS})
+
+add_executable(comutex comutex.cc)
+target_link_libraries(comutex ${MY_LIBS})
+
 add_executable(echo_client echoserver/EchoClient.cc)
 target_link_libraries(echo_client ${MY_LIBS})
 

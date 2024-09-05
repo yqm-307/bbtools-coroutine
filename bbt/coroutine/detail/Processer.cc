@@ -71,7 +71,6 @@ void Processer::AddCoroutineTask(Coroutine::SPtr coroutine)
     m_coroutine_queue_spinlock.Lock();
     m_coroutine_queue.PushTail(coroutine);
     m_coroutine_queue_spinlock.UnLock();
-    _OnAddCorotinue();
 }
 
 void Processer::AddCoroutineTaskRange(std::vector<Coroutine::SPtr>::iterator begin, std::vector<Coroutine::SPtr>::iterator end)
@@ -79,7 +78,6 @@ void Processer::AddCoroutineTaskRange(std::vector<Coroutine::SPtr>::iterator beg
     m_coroutine_queue_spinlock.Lock();
     m_coroutine_queue.PushTailRange(begin, end);
     m_coroutine_queue_spinlock.UnLock();
-    _OnAddCorotinue();
 }
 
 void Processer::_Init()
@@ -141,7 +139,7 @@ void Processer::_Run()
             auto begin = bbt::clock::now<bbt::clock::microseconds>();
             std::unique_lock<std::mutex> lock_uptr(m_run_cond_mutex);
             m_run_status = ProcesserStatus::PROC_SUSPEND;
-            m_run_cond.wait_for(lock_uptr, bbt::clock::milliseconds(5));
+            m_run_cond.wait_for(lock_uptr, bbt::clock::milliseconds(1));
             m_suspend_cost_times += std::chrono::duration_cast<decltype(m_suspend_cost_times)>(bbt::clock::now<bbt::clock::microseconds>() - begin);
         }
     }
@@ -162,27 +160,12 @@ void Processer::Stop()
     m_coroutine_queue_spinlock.UnLock();
 }
 
-void Processer::_OnAddCorotinue()
-{
-    // if (!m_is_running || !(m_run_status == ProcesserStatus::PROC_Suspend))
-    if (!m_is_running)
-        return;
-
-    m_run_cond.notify_one();
-}
-
 size_t Processer::_TryGetCoroutineFromGlobal()
 {
     std::vector<Coroutine::SPtr> vec;
     g_scheduler->GetGlobalCoroutine(vec, g_bbt_coroutine_config->m_cfg_processer_get_co_from_g_count);
     m_coroutine_queue.PushTailRange(vec.begin(), vec.end());
     return vec.size();
-}
-
-
-void Processer::Notify()
-{
-    m_run_cond.notify_one();
 }
 
 Coroutine::SPtr Processer::GetCurrentCoroutine()

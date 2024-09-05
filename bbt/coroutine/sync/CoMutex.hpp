@@ -21,6 +21,10 @@ namespace bbt::coroutine::sync
 class CoMutex
 {
 public:
+    typedef std::shared_ptr<CoMutex> SPtr;
+    static SPtr Create();
+
+    BBTATTR_FUNC_Ctor_Hidden
     CoMutex();
     ~CoMutex();
 
