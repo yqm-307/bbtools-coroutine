@@ -60,10 +60,15 @@ int CoRWMutex::UnLock()
     _NotifyOne();
 
     /* 如果解锁前是被读锁持有，则根据读锁持有数量判断锁状态；如果解锁前是写锁被持有，则释放时是空闲状态 */
-    if (m_status == CORWMUTEX_RLOCKED)
+    if (m_status == CORWMUTEX_RLOCKED) {
+        /* 如果被读锁持有，那么就减少持有数，并根据以持有读锁的协程数来判断状态 */
+        m_rlock_hold_num--;
         m_status = (m_rlock_hold_num == 0) ? CORWMUTEX_FREE : CORWMUTEX_RLOCKED;
-    else if (m_status == CORWMUTEX_WLOCKED)
+    }
+    else if (m_status == CORWMUTEX_WLOCKED) {
+        /* 如果此锁被写锁持有，写锁只能有一个协程持有，所以锁状态直接进入free */
         m_status = CORWMUTEX_FREE;
+    }
 
     _SysUnLock();
     return 0;
@@ -92,7 +97,6 @@ int CoRWMutex::_NotifyOne()
         auto waiter = m_wait_readlock_queue.front();
         m_wait_readlock_queue.pop();
         waiter->Notify();
-        m_rlock_hold_num--;
         return 0;
     }
 

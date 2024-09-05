@@ -6,7 +6,7 @@ using namespace bbt::coroutine;
 
 void rwlock_test()
 {
-    const int nread_co = 4;
+    const int nread_co = 200;
     const int nwrite_co = 2;
     std::array<int, nread_co> vec;
     int n = 0;
@@ -22,7 +22,8 @@ void rwlock_test()
                     Assert(n == m);
                     vec[i]++;
                     rwlock->UnLock();
-                    bbtco_sleep(1);
+                    // bbtco_sleep(1);
+                    bbtco_yield;
                 }    
             };
         }
@@ -35,7 +36,7 @@ void rwlock_test()
                     n++;
                     m++;
                     rwlock->UnLock();
-                    bbtco_sleep(5);
+                    bbtco_yield;
                 }
             };
         }
