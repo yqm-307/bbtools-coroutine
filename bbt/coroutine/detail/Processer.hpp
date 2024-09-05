@@ -32,7 +32,6 @@ protected:
     /* 非公开库内部接口 */
     void                            Start(bool background_thread = true);
     void                            Stop();
-    void                            Notify();
     int                             GetLoadValue();
     int                             GetExecutableNum(); /* 可执行协程数 */
     void                            AddCoroutineTask(Coroutine::SPtr coroutine);
@@ -44,7 +43,6 @@ protected:
 protected:
     void                            _Init();
     static ProcesserId              _GenProcesserId();
-    void                            _OnAddCorotinue();
     size_t                          _TryGetCoroutineFromGlobal();
     void                            _Run();
 private:
