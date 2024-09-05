@@ -1,0 +1,48 @@
+#include <bbt/coroutine/coroutine.hpp>
+
+int main()
+{
+    const int sec = 5;
+    auto end = bbt::clock::nowAfter<>(bbt::clock::ms(sec * 1000));
+    bbt::thread::CountDownLatch l{1};
+
+    g_scheduler->Start(true);
+
+    bbtco_desc("main") [end, &l](){
+
+        auto comutex = bbtco_make_comutex();
+        int a=0, b=0;
+
+        bbtco_desc("productor") [&, comutex, end](){
+            while (!bbt::clock::is_expired<bbt::clock::ms>(end)) {
+                comutex->Lock();
+                a++;
+                b++;
+                comutex->UnLock();
+            }
+        };
+
+
+        bbtco_desc("consumer") [&, comutex, end](){
+            while (!bbt::clock::is_expired<bbt::clock::ms>(end)) {
+                comutex->Lock();
+                Assert(a == b);
+                comutex->UnLock();
+            }
+        };
+        
+
+        while (!bbt::clock::is_expired<bbt::clock::ms>(end)) {
+            comutex->Lock();
+            printf("current a=%d b=%d\n", a, b);
+            comutex->UnLock();
+
+            bbtco_sleep(500);
+        }
+
+        l.Down();
+    };
+
+    l.Wait();
+    g_scheduler->Stop();
+}
