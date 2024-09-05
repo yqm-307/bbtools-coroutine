@@ -11,12 +11,11 @@
 #include <bbt/coroutine/sync/CoMutex.hpp>
 #include <bbt/coroutine/sync/CoRWMutex.hpp>
 
-
+/* 辅助宏 */
 #define bbtco bbt::coroutine::_CoHelper()-
 #define bbtco_desc(desc) bbtco
 
 #define bbtco_sleep(ms) bbt::coroutine::detail::Hook_Sleep(ms)
-#define co_desc(desc_msg)
 
 #define bbtco_concat_impl(x, y) x##y
 #define bbtco_concat(x, y) bbtco_concat_impl(x, y)
@@ -35,6 +34,11 @@ do \
         break; \
     g_bbt_tls_coroutine_co->YieldAndPushGCoQueue(); \
 } while(0);
+
+/* sync */
+#define bbtco_make_cocond(mtx)     bbt::coroutine::sync::CoCond::Create(mtx)
+#define bbtco_make_comutex()    bbt::coroutine::sync::CoMutex::Create()
+#define bbtco_make_corwmutex()  bbt::coroutine::sync::CoRWMutex::Create()
 
 namespace bbt::coroutine
 {

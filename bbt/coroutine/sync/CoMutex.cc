@@ -8,6 +8,11 @@
 namespace bbt::coroutine::sync
 {
 
+CoMutex::SPtr CoMutex::Create()
+{
+    return std::make_shared<CoMutex>();
+}
+
 CoMutex::CoMutex()
 {
 

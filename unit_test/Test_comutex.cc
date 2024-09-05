@@ -17,7 +17,7 @@ BOOST_AUTO_TEST_CASE(t_scheduler_start)
 // 普通加解锁
 BOOST_AUTO_TEST_CASE(t_lock_unlock)
 {
-    CoMutex mutex;
+    auto mutex = bbtco_make_comutex();
     const int nco_num = 100;
     const int nsec = 2000;
     int a = 0;
@@ -28,15 +28,15 @@ BOOST_AUTO_TEST_CASE(t_lock_unlock)
     bbt::thread::CountDownLatch l{nco_num};
 
     for (int i = 0; i < nco_num; ++i) {
-        bbtco [&mutex, &a, &b, begin, &l]()
+        bbtco [mutex, &a, &b, begin, &l]()
         {
             while ((bbt::clock::gettime_mono() - begin) < nsec)
             {
-                mutex.Lock();
+                mutex->Lock();
                 BOOST_ASSERT(a == b);
                 a++;
                 b++;
-                mutex.UnLock();
+                mutex->UnLock();
             }
 
             l.Down();
@@ -49,7 +49,7 @@ BOOST_AUTO_TEST_CASE(t_lock_unlock)
 // 尝试加解锁
 BOOST_AUTO_TEST_CASE(t_try_lock)
 {
-    CoMutex mutex;
+    auto mutex = bbtco_make_comutex();
     const int nco_num = 100;
     const int nsec = 2000;
     int a = 0;
@@ -59,15 +59,15 @@ BOOST_AUTO_TEST_CASE(t_try_lock)
     bbt::thread::CountDownLatch l{nco_num};
 
     for (int i = 0; i < nco_num; ++i) {
-        bbtco [&mutex, &a, &b, begin, &l]()
+        bbtco [mutex, &a, &b, begin, &l]()
         {
             while ((bbt::clock::gettime_mono() - begin) < nsec)
             {
-                if (mutex.TryLock(1) == 0) {
+                if (mutex->TryLock(1) == 0) {
                     BOOST_ASSERT(a == b);
                     a++;
                     b++;
-                    mutex.UnLock();
+                    mutex->UnLock();
                 }
             }
 

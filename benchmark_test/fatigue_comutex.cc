@@ -4,7 +4,7 @@
 using namespace bbt::coroutine::sync;
 
 const int nco_num = 100;
-CoMutex mutex;
+auto mutex = bbtco_make_comutex();
 volatile int a = 0;
 volatile int b = 0;
 
@@ -13,10 +13,10 @@ void fatigue_1()
     for (int i = 0; i < nco_num; ++i) {
         bbtco []() {
             while (true) {
-                mutex.Lock();
+                mutex->Lock();
                 Assert(a == b);
                 a++; b++;
-                mutex.UnLock();
+                mutex->UnLock();
             }
         };
     }
@@ -36,10 +36,10 @@ void fatigue_1()
     for (int i = 0; i < 5; ++i) {
         bbtco []() {
             while (true) {
-                if (mutex.TryLock(10) == 0) {
+                if (mutex->TryLock(10) == 0) {
                     Assert(a == b);
                     a++; b++;
-                    mutex.UnLock();
+                    mutex->UnLock();
                 }
             }
         };
