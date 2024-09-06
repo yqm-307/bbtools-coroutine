@@ -102,10 +102,18 @@ void Processer::Start(bool background_thread)
 
 void Processer::_Run()
 {
+    /**
+     * Processer主循环逻辑
+     * 
+     * 尝试从全局队列或者本地队列取协程对象，如果取不到就挂起P
+     * 如果取到就在本地线程处理协程执行；
+     * 
+     * 处理完本地的协程后，尝试取窃取其他P的协程，如果窃取不到
+     * 就挂起当前线程。
+     */
     while (m_is_running)
     {
         m_run_status = ProcesserStatus::PROC_RUNNING;
-        // 执行本地任务
         while (true)
         {
             std::vector<Coroutine::SPtr> pending_coroutines;
@@ -122,7 +130,7 @@ void Processer::_Run()
                 if (coroutine->GetStatus() == CO_RUNNING || coroutine->GetStatus() == CO_FINAL)
                     continue;
 
-                // 执行前设置当前协程
+                // 执行前设置当前协程缓存
                 m_running_coroutine = coroutine;
                 m_running_coroutine_begin.exchange( bbt::clock::gettime_mono<>());
                 AssertWithInfo(m_running_coroutine != nullptr, "maybe coroutine queue has bug!");
@@ -133,7 +141,6 @@ void Processer::_Run()
             }
         }
 
-        // 尝试窃取其他Processer任务，失败挂起
         if (g_scheduler->TryWorkSteal(shared_from_this()) <= 0)
         {
             auto begin = bbt::clock::now<bbt::clock::microseconds>();

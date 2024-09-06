@@ -68,7 +68,7 @@ void ChanRW()
 
 int main()
 {
-    g_scheduler->Start(true);
+    g_scheduler->Start();
     // 协程执行测试
     CoTask();
     // Chan执行测试

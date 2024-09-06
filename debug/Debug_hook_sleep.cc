@@ -8,7 +8,7 @@ using namespace bbt::coroutine;
 int main()
 {
     std::atomic_int exit_value = 0;
-    g_scheduler->Start(true);
+    g_scheduler->Start();
     const int ncount = 1000;
 
     /* 两个协程注册时间相同。都执行休眠操作，唤醒事件相同，证明函数在sleep处无阻塞 */

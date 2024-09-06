@@ -6,7 +6,7 @@ int main()
     auto end = bbt::clock::nowAfter<>(bbt::clock::ms(sec * 1000));
     bbt::thread::CountDownLatch l{1};
 
-    g_scheduler->Start(true);
+    g_scheduler->Start();
 
     bbtco_desc("main") [end, &l](){
 

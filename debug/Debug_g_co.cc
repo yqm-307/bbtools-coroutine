@@ -40,7 +40,7 @@ void dbg_bbtco_yield()
 
 int main()
 {
-    g_scheduler->Start(true);
+    g_scheduler->Start();
 
     dbg_bbtco_yield();
 

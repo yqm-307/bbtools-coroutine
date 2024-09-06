@@ -57,7 +57,7 @@ private:
 
 int main()
 {
-    g_scheduler->Start(true);
+    g_scheduler->Start();
     Client c{"127.0.0.1", 10010};
     c.Start();
 

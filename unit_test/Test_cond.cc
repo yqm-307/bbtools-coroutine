@@ -14,7 +14,7 @@ BOOST_AUTO_TEST_SUITE(CoCondTest)
 
 BOOST_AUTO_TEST_CASE(t_begin)
 {
-    g_scheduler->Start(true);
+    g_scheduler->Start();
 }
 
 BOOST_AUTO_TEST_CASE(t_cond_multi)

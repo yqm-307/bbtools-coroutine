@@ -10,7 +10,7 @@ int main()
     bbt::thread::CountDownLatch l{nsum_co};
     auto begin = bbt::clock::gettime();
 
-    g_scheduler->Start(true);
+    g_scheduler->Start();
 
     bbtco [&](){
         for (int i = 0; i < nsum_co; ++i)

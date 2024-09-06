@@ -57,4 +57,9 @@ int64_t CoPoller::GetTime()
     return m_event_loop->GetTime();
 }
 
+std::shared_ptr<bbt::pollevent::EventLoop> CoPoller::GetEventLoop() const
+{
+    return m_event_loop;
+}
+
 }

@@ -11,7 +11,7 @@ using namespace bbt::coroutine;
 void debug_notify()
 {
     /* 启动调度线程、Processer线程 */
-    g_scheduler->Start(true);
+    g_scheduler->Start();
 
     printf("=============================================================\n");
     printf("======================    notify    ========================\n");
@@ -184,7 +184,7 @@ void consumer_producer()
 
 int main()
 {
-    g_scheduler->Start(true);
+    g_scheduler->Start();
 
     // debug_notify();
     // dbg_coroutine_wait();

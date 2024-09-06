@@ -5,7 +5,7 @@ using namespace bbt::coroutine::sync;
 
 void RunOnce()
 {
-    CoMutex mutex;
+    auto mutex = bbtco_make_comutex();
     const int nco_num = 100;
     const int nsec = 2000;
     int a = 0;
@@ -17,11 +17,11 @@ void RunOnce()
     for (int i = 0; i < nco_num; ++i) {
         bbtco [&mutex, &a, &b, begin, &l]() {
             while ((bbt::clock::gettime_mono() - begin) < nsec) {
-                if (mutex.TryLock(1) == 0) {
+                if (mutex->TryLock(1) == 0) {
                     Assert(a == b);
                     a++;
                     b++;
-                    mutex.UnLock();
+                    mutex->UnLock();
                 }
             }
             l.Down();
@@ -33,7 +33,7 @@ void RunOnce()
 
 int main()
 {
-    g_scheduler->Start(true);
+    g_scheduler->Start();
 
     for (int i = 0; i < 100; ++i)
         RunOnce();

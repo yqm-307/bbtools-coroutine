@@ -5,9 +5,9 @@ using namespace bbt::coroutine;
 
 std::atomic_int g_count = 0;
 
-int main()
+void SchedulerThread()
 {
-    g_scheduler->Start(true);
+    g_scheduler->Start();
 
 
     for (int i = 0; i < 10; ++i)
@@ -27,9 +27,36 @@ int main()
     if (g_count != 50000) {
         printf("final count: %d\n", g_count.load());
         g_scheduler->Stop();
-        return -1;
+        return;
     }
 
     g_scheduler->Stop();
+}
+
+void LoopOnce()
+{
+    g_scheduler->Start(bbt::coroutine::SCHE_START_OPT_SCHE_NO_LOOP);
+
+    bbtco [](){
+        printf("i can print!\n");
+    };
+
+    bbtco [](){
+        printf("i can print!\n");
+        bbtco_sleep(10);
+        printf("can`t go there!\n");
+    };
+
+    // LoopOnce驱动CoPoller处理事件
+    // sleep(1);
+    // g_scheduler->LoopOnce();
+    sleep(1);
+
+    g_scheduler->Stop();
+}
+
+int main()
+{
+    LoopOnce();
     return 0;
 }

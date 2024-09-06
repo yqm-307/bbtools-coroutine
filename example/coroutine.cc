@@ -39,7 +39,7 @@ void SleepHook()
 
 int main()
 {
-    g_scheduler->Start(true);
+    g_scheduler->Start();
 
     Normal();
 
