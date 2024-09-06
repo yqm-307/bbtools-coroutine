@@ -5,7 +5,7 @@
 int main()
 {
     std::atomic_uint64_t ncount = 0;
-    g_scheduler->Start(true);
+    g_scheduler->Start();
 
     while (true) {
         for (int i = 0; i < 100000; ++i) {

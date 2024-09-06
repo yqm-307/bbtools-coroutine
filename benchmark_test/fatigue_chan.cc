@@ -8,7 +8,7 @@ int main()
     std::atomic_uint64_t read_count{0};
     std::atomic_uint64_t write_count{0};
     std::atomic_uint64_t write_failed{0};
-    g_scheduler->Start(true);
+    g_scheduler->Start();
 
     /* 开启100个单读多写协程 */
 

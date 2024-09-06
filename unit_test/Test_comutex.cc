@@ -11,7 +11,7 @@ BOOST_AUTO_TEST_SUITE(CoMutexTest)
 
 BOOST_AUTO_TEST_CASE(t_scheduler_start)
 {
-    g_scheduler->Start(true);
+    g_scheduler->Start();
 }
 
 // 普通加解锁

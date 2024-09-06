@@ -59,7 +59,7 @@ void rwlock_test()
 
 int main()
 {
-    g_scheduler->Start(true);
+    g_scheduler->Start();
 
     rwlock_test();
 

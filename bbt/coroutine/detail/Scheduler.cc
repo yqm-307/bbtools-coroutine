@@ -34,7 +34,7 @@ Scheduler::~Scheduler()
 
 void Scheduler::_Init()
 {
-    m_thread = nullptr;
+    m_sche_thread = nullptr;
     m_is_running = true;
     m_run_status = SCHE_DEFAULT;
     m_regist_coroutine_count = 0;
@@ -129,27 +129,46 @@ void Scheduler::_Run()
     }
 }
 
-void Scheduler::Start(bool background_thread)
+void Scheduler::Start(SchedulerStartOpt opt)
 {
     _InitGlobalUniqInstance();
     _Init();
-    bbt::thread::CountDownLatch latch{1};
-    if (background_thread)
-    {
-        Assert(m_thread == nullptr);
-        m_thread = new std::thread([this, &latch](){
+    bbt::thread::CountDownLatch wg{1};
+
+    switch (opt) {
+
+    case SCHE_START_OPT_SCHE_THREAD:
+        Assert(m_sche_thread == nullptr);
+        m_sche_thread = new std::thread([this, &wg](){
             _CreateProcessers();
-            latch.Down();
+            wg.Down();
             _Run();
         });
+        wg.Wait();
+        break;
 
-        latch.Wait();
-    } else {
+    case SCHE_START_OPT_SCHE_NO_LOOP:
+        _CreateProcessers();
+        break;
+
+    case SCHE_START_OPT_SCHE_LOOP:
         _CreateProcessers();
         _Run();
-    }
+        break;
+
+    default:
+        break;
+    };
 
 }
+
+void Scheduler::LoopOnce()
+{
+    // 使用单独的调度线程，就不可以调用LoopOnce来手动驱动了
+    AssertWithInfo(m_sche_thread == nullptr, "the sche-thread has been started!");
+
+}
+
 
 void Scheduler::Stop()
 {
@@ -157,13 +176,13 @@ void Scheduler::Stop()
 
     _DestoryProcessers();
     
-    if (m_thread != nullptr) {
-        if (m_thread->joinable())
-            m_thread->join();
-        delete m_thread;
+    if (m_sche_thread != nullptr) {
+        if (m_sche_thread->joinable())
+            m_sche_thread->join();
+        delete m_sche_thread;
     }
 
-    m_thread = nullptr;
+    m_sche_thread = nullptr;
     m_global_coroutine_spinlock.Lock();
     m_global_coroutine_deque.Clear();
     m_global_coroutine_spinlock.UnLock();

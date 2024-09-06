@@ -5,7 +5,7 @@ using namespace bbt::coroutine;
 int main()
 {
     int ncount;
-    g_scheduler->Start(true);
+    g_scheduler->Start();
 
     for (int i = 0; i<2; ++i)
     {

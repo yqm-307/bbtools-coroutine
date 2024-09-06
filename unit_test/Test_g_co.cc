@@ -10,7 +10,7 @@ BOOST_AUTO_TEST_SUITE(CoroutineTest)
 BOOST_AUTO_TEST_CASE(t_multi_coroutine)
 {
     std::atomic_int ncount = 0;
-    g_scheduler->Start(true);
+    g_scheduler->Start();
 
     for (int i = 0; i < 100000; ++i)
     {

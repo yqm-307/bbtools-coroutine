@@ -139,7 +139,7 @@ void recurrent()
 
 int main()
 {
-    g_scheduler->Start(true);
+    g_scheduler->Start();
     for (int i = 0;;i++) {
         printf("================== turn %d ==============\n", i);
         test();

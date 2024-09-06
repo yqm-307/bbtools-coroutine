@@ -6,6 +6,10 @@
 namespace bbt::coroutine::detail
 {
 
+/**
+ * @brief 调度器
+ * 
+ */
 class Scheduler
 {
 public:
@@ -16,8 +20,9 @@ public:
     static UPtr& GetInstance();
 
     /* 显示指定运行线程 */
-    void Start(bool background_thread = false);
-    void Stop();
+    void                                        Start(SchedulerStartOpt opt = SCHE_START_OPT_SCHE_THREAD);
+    void                                        Stop();
+    void                                        LoopOnce();
 
     CoroutineId                                 RegistCoroutineTask(const CoroutineCallback& handle);
     /* 协程被激活，重新加入全局队列 */
@@ -50,7 +55,7 @@ protected:
 private:
     /* Scheduler */
     bbt::clock::Timestamp<>                     m_begin_timestamp;  // 调度器开启时间
-    std::thread*                                m_thread{nullptr};
+    std::thread*                                m_sche_thread{nullptr};
     std::vector<std::thread*>                   m_proc_threads;
 
     /* Processer 管理 */

@@ -38,11 +38,25 @@
 
 #define g_bbt_dbgmgr                (bbt::coroutine::detail::DebugMgr::GetInstance())
 
-namespace bbt::coroutine::sync
+namespace bbt::coroutine
+{
+
+
+enum SchedulerStartOpt
+{
+    SCHE_START_OPT_SCHE_THREAD      = 1,    // 线程模式，几乎不阻塞，开启后台调度线程
+    SCHE_START_OPT_SCHE_LOOP        = 2,    // 循环模式，阻塞并在当前线程调度
+    SCHE_START_OPT_SCHE_NO_LOOP     = 3,    // 非循环模式，需要用户手动LoopOnce来驱动调度
+};
+
+
+
+namespace sync
 {
 
 template<class TItem, int Max> class Chan;
 class CoWaiter;
+
 
 
 /*
@@ -92,7 +106,7 @@ enum CoRWMutexStatus
 
 }
 
-namespace bbt::coroutine::detail
+namespace detail
 {
 
 /**
@@ -228,3 +242,5 @@ typedef std::function<void()> DeferCallback;            // defer 执行函数
 typedef std::function<void(std::shared_ptr<CoPollEvent>, int /*events*/, int)> CoPollEventCallback;      // Poller监听事件完成回调
 
 } // namespace bbt::coroutine::detail
+
+} // namespace bbt::coroutine

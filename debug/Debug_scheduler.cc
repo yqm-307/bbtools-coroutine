@@ -7,7 +7,7 @@ std::atomic_int g_count = 0;
 
 int main()
 {
-    g_scheduler->Start(true);
+    g_scheduler->Start();
 
 
     for (int i = 0; i < 10; ++i)

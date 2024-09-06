@@ -10,7 +10,7 @@ BOOST_AUTO_TEST_SUITE(CoRWMutexTest)
 
 BOOST_AUTO_TEST_CASE(t_start_scheduler)
 {
-    g_scheduler->Start(true);
+    g_scheduler->Start();
 }
 
 /* 测试读锁非阻塞 */

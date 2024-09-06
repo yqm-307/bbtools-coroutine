@@ -14,7 +14,7 @@ BOOST_AUTO_TEST_SUITE(HookSystemFunc)
 
 BOOST_AUTO_TEST_CASE(test_env_setup)
 {
-    g_scheduler->Start(true);
+    g_scheduler->Start();
 }
 
 BOOST_AUTO_TEST_CASE(t_hook_call)

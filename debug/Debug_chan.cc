@@ -100,7 +100,7 @@ void DebugWriteBlock()
 
 int main()
 {
-    g_scheduler->Start(true);
+    g_scheduler->Start();
     ReadOnce();
     ReadMulti();
     DebugWriteBlock();

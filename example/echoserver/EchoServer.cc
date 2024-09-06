@@ -65,7 +65,7 @@ private:
 
 int main()
 {
-    g_scheduler->Start(true);
+    g_scheduler->Start();
     Server s{10010};
     s.Start();
 

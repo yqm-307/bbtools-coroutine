@@ -72,7 +72,7 @@ void CloseNotify()
 
 int main()
 {
-    g_scheduler->Start(true);
+    g_scheduler->Start();
     printf("============================ Example 1 ============================\n");
     ReadOnce();
     printf("============================ Example 2 ============================\n");

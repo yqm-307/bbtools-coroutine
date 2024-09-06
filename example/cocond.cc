@@ -7,7 +7,7 @@ int main()
     /* 线程级别的waitgroup */
     bbt::thread::CountDownLatch l{1};
 
-    g_scheduler->Start(true);
+    g_scheduler->Start();
 
     /* 启动main协程 */
     bbtco_desc("main") [&](){

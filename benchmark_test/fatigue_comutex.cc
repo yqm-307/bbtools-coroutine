@@ -52,7 +52,7 @@ void fatigue_1()
 
 int main()
 {
-    g_scheduler->Start(true);
+    g_scheduler->Start();
 
     fatigue_1();
 
