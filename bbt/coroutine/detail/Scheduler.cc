@@ -95,35 +95,42 @@ void Scheduler::_FixTimingScan()
     m_run_status = ScheudlerStatus::SCHE_SUSPEND;
 }
 
+void Scheduler::_OnUpdate()
+{
+    static auto prev_profile_timepoint = bbt::clock::now<>();
+    bool actived = false;
+    do {
+
+#ifdef BBT_COROUTINE_PROFILE
+        if (g_bbt_coroutine_config->m_cfg_profile_printf_ms > 0 &&
+            bbt::clock::is_expired<bbt::clock::ms>((prev_profile_timepoint + bbt::clock::ms(g_bbt_coroutine_config->m_cfg_profile_printf_ms))))
+        {
+            std::string info = "";
+            g_bbt_profiler->ProfileInfo(info);
+            bbt::log::DebugPrint(info.c_str());
+            prev_profile_timepoint = bbt::clock::now<>();
+        }
+#endif
+
+        actived = g_bbt_poller->PollOnce();
+        _FixTimingScan();
+        g_bbt_stackpoll->OnUpdate();
+    } while(actived);
+
+}
+
 void Scheduler::_Run()
 {
     m_begin_timestamp = bbt::clock::now<>();
     auto prev_scan_timepoint = bbt::clock::now<>();
-    auto prev_profile_timepoint = bbt::clock::now<>();
+
 #ifdef BBT_COROUTINE_PROFILE
     g_bbt_profiler->OnEvent_StartScheudler();
 #endif
     while(m_is_running)
     {
-        
-        bool actived = false;
-        do {
+        _OnUpdate();
 
-#ifdef BBT_COROUTINE_PROFILE
-            if (g_bbt_coroutine_config->m_cfg_profile_printf_ms > 0 &&
-                bbt::clock::is_expired<bbt::clock::milliseconds>((prev_profile_timepoint + bbt::clock::milliseconds(g_bbt_coroutine_config->m_cfg_profile_printf_ms))))
-            {
-                std::string info = "";
-                g_bbt_profiler->ProfileInfo(info);
-                bbt::log::DebugPrint(info.c_str());
-                prev_profile_timepoint = bbt::clock::now<>();
-            }
-#endif
-
-            actived = g_bbt_poller->PollOnce();
-            _FixTimingScan();
-            g_bbt_stackpoll->OnUpdate();
-        } while(actived);
         prev_scan_timepoint = prev_scan_timepoint + bbt::clock::ms(g_bbt_coroutine_config->m_cfg_scan_interval_ms);
         std::this_thread::sleep_until(prev_scan_timepoint);
     }
@@ -167,6 +174,7 @@ void Scheduler::LoopOnce()
     // 使用单独的调度线程，就不可以调用LoopOnce来手动驱动了
     AssertWithInfo(m_sche_thread == nullptr, "the sche-thread has been started!");
 
+    _OnUpdate();
 }
 
 

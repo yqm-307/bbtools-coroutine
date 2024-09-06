@@ -37,6 +37,9 @@ public:
     void                            NotifyCustomEvent(std::shared_ptr<CoPollEvent> event);
     /* 获取CoPoller缓存的UTC时间戳 */
     int64_t                         GetTime();
+
+    std::shared_ptr<bbt::pollevent::EventLoop>
+                                    GetEventLoop() const;
 protected:
 private:
     std::shared_ptr<bbt::pollevent::EventLoop> m_event_loop{nullptr};
