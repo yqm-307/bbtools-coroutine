@@ -3,8 +3,9 @@
 #include <bbt/coroutine/detail/Scheduler.hpp>
 #include <bbt/coroutine/detail/Hook.hpp>
 #include <bbt/coroutine/sync/Chan.hpp>
-#include <bbt/coroutine/_CoHelper.hpp>
-#include <bbt/coroutine/_DeferHelper.hpp>
+#include <bbt/coroutine/syntax/_CoHelper.hpp>
+#include <bbt/coroutine/syntax/_DeferHelper.hpp>
+#include <bbt/coroutine/syntax/_EventHelper.hpp>
 
 #include <bbt/coroutine/sync/Chan.hpp>
 #include <bbt/coroutine/sync/CoCond.hpp>
@@ -39,6 +40,9 @@ do \
 #define bbtco_make_cocond(mtx)     bbt::coroutine::sync::CoCond::Create(mtx)
 #define bbtco_make_comutex()    bbt::coroutine::sync::CoMutex::Create()
 #define bbtco_make_corwmutex()  bbt::coroutine::sync::CoRWMutex::Create()
+
+/* event */
+#define bbtco_event_regist(fd, event, time) (*std::make_shared<bbt::coroutine::_EventHelper>(fd, event, time))-
 
 namespace bbt::coroutine
 {

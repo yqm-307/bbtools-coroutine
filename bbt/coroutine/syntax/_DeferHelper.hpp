@@ -1,3 +1,4 @@
+#pragma once
 #include <bbt/coroutine/detail/Defer.hpp>
 
 namespace bbt::coroutine

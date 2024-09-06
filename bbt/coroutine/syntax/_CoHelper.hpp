@@ -1,3 +1,4 @@
+#pragma once
 #include <bbt/coroutine/detail/Scheduler.hpp>
 
 
