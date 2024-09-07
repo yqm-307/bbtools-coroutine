@@ -1,7 +1,9 @@
 #pragma once
 #include <bbt/base/clock/Clock.hpp>
-#include <bbt/coroutine/detail/Processer.hpp>
 #include <bbt/base/thread/Lock.hpp>
+#include <bbt/base/thread/LockFreeQueue.hpp>
+// #include <bbt/coroutine/utils/lockfree/concurrentqueue.h>
+#include <bbt/coroutine/detail/Processer.hpp>
 
 namespace bbt::coroutine::detail
 {
@@ -66,8 +68,7 @@ private:
     bbt::thread::CountDownLatch                 m_down_latch;
 
     /* coroutine全局队列 */
-    CoroutineQueue                              m_global_coroutine_deque;
-    bbt::thread::Spinlock                       m_global_coroutine_spinlock;
+    bbt::thread::Queue<Coroutine::SPtr, 655350> m_global_coroutine_deque;
     volatile bool                               m_is_running{true};
     volatile ScheudlerStatus                    m_run_status{ScheudlerStatus::SCHE_DEFAULT};
 

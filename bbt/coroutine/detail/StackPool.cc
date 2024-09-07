@@ -23,23 +23,20 @@ StackPool::StackPool():
 
 StackPool::~StackPool()
 {
-    bbt::thread::lock_guard _(m_pool_lock);
-    while (!m_pool.empty()) {
-        auto item = m_pool.front();
-        m_pool.pop();
+    ItemType* item = nullptr; 
+    /* XXX 概率返回false不为空，需要验证 */
+    while (m_pool.try_dequeue(item)) {
         delete item;
     }
 }
 
 void StackPool::Release(ItemType* item)
 {
-    bbt::thread::lock_guard _(m_pool_lock);
-    m_pool.push(item);
+    AssertWithInfo(m_pool.enqueue(item), "oom!");
 }
 
 StackPool::ItemType* StackPool::Apply()
 {
-    bbt::thread::lock_guard _(m_pool_lock);
     AssertWithInfo(m_alloc_obj_count < g_bbt_coroutine_config->m_cfg_stackpool_max_alloc_size,
         "coroutine stack not enough! please try adjust the globalconfig 'm_cfg_stackpool_max_alloc_size'");
 
@@ -47,19 +44,16 @@ StackPool::ItemType* StackPool::Apply()
         return nullptr;
     }
 
-    if (m_pool.empty()) {
-        m_alloc_obj_count++;
-        return new Stack(g_bbt_coroutine_config->m_cfg_stack_size, g_bbt_coroutine_config->m_cfg_stack_protect);
-    }
+    ItemType* item = nullptr;
+    if (m_pool.try_dequeue(item))
+        return item;
 
-    auto ret = m_pool.front();
-    m_pool.pop();
-    return ret;
+    m_alloc_obj_count++;
+    return new Stack(g_bbt_coroutine_config->m_cfg_stack_size, g_bbt_coroutine_config->m_cfg_stack_protect);
 }
 
 int StackPool::AllocSize()
 {
-    bbt::thread::lock_guard _(m_pool_lock);
     return m_alloc_obj_count;
 }
 
@@ -83,27 +77,22 @@ void StackPool::OnUpdate()
         if (allowable_stack_num >= g_bbt_coroutine_config->m_cfg_stackpool_min_alloc_size &&
             m_alloc_obj_count > allowable_stack_num)
         {
-            std::queue<ItemType*> m_swap_queue;
-            {
-                bbt::thread::lock_guard _(m_pool_lock);
-                m_swap_queue.swap(m_pool);
-                Assert(m_pool.size() == 0);
-                m_alloc_obj_count -= m_swap_queue.size();
-            }
+            decltype(m_pool) m_swap_queue;
+            
+            m_swap_queue.swap(m_pool);
+            m_alloc_obj_count -= m_swap_queue.size_approx();
 
-            while (!m_swap_queue.empty())
-            {
-                delete m_swap_queue.front();
-                m_swap_queue.pop();
-            }
+            ItemType* item = nullptr;
+            while (m_swap_queue.try_dequeue(item))
+                delete item;
+
         }
     }
 }
 
 int StackPool::GetCurCoNum()
 {
-    bbt::thread::lock_guard _(m_pool_lock);
-    return (m_alloc_obj_count - m_pool.size());
+    return (m_alloc_obj_count - m_pool.size_approx());
 }
 
 int StackPool::GetRtts()

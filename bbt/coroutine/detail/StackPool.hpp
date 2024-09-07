@@ -1,6 +1,7 @@
 #pragma once
 #include <queue>
 #include <mutex>
+#include <bbt/coroutine/utils/lockfree/concurrentqueue.h>
 #include <bbt/base/clock/Clock.hpp>
 #include <bbt/base/thread/Lock.hpp>
 #include <bbt/coroutine/detail/Define.hpp>
@@ -38,8 +39,7 @@ public:
 protected:
     int                                 GetCurCoNum();
 private:
-    std::queue<ItemType*>               m_pool;                 // 空闲的stack个数
-    bbt::thread::Spinlock               m_pool_lock;
+    moodycamel::ConcurrentQueue<ItemType*> m_pool;
     uint32_t                            m_alloc_obj_count{0};   // 总数
 
     uint32_t                            m_rtts{0};              // 一段时间内，程序中平均值协程数量

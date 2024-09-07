@@ -35,7 +35,7 @@ public:
     const size_t                                m_cfg_processer_worksteal_timeout_ms{10};   // work steal 认为任务饿死的超时时间
 
     /* 栈池配置 */
-    const size_t                                m_cfg_stackpool_max_alloc_size{1024 * 100}; // 栈池中分配最大栈数量
+    const size_t                                m_cfg_stackpool_max_alloc_size{1024 * 1000}; // 栈池中分配最大栈数量
     const size_t                                m_cfg_stackpool_min_alloc_size{1024};       // 栈池中最小栈数量
     const size_t                                m_cfg_stackpool_sample_interval{100};       // 采样间隔
 };

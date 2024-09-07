@@ -13,8 +13,11 @@ int main()
     g_scheduler->Start();
 
     bbtco [&](){
-        for (int i = 0; i < nsum_co; ++i)
-            bbtco [&](){ l.Down(); };  
+        for (int i = 0; i < nsum_co / 10000; ++i) {
+            for (int j = 0 ; j < 10000; ++j)
+                bbtco [&](){ l.Down(); };
+            bbtco_sleep(1000);
+        }
     };
 
     l.Wait();

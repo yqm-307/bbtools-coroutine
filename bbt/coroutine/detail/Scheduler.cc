@@ -59,9 +59,7 @@ CoroutineId Scheduler::RegistCoroutineTask(const CoroutineCallback& handle)
 #endif
     /* 尝试先找个Processer放进执行队列，失败放入全局队列 */
     if (!_LoadBlance2Proc(coroutine_sptr)) {
-        m_global_coroutine_spinlock.Lock();
-        m_global_coroutine_deque.PushTail(coroutine_sptr);
-        m_global_coroutine_spinlock.UnLock();
+        AssertWithInfo(m_global_coroutine_deque.Push(coroutine_sptr), "too many coroutine!");
     }
     
     return coroutine_sptr->GetId();
@@ -72,9 +70,7 @@ void Scheduler::OnActiveCoroutine(Coroutine::SPtr coroutine)
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
     g_bbt_dbgmgr->Check_IsResumedCo(coroutine->GetId());
 #endif
-        m_global_coroutine_spinlock.Lock();
-        m_global_coroutine_deque.PushTail(coroutine);
-        m_global_coroutine_spinlock.UnLock();
+    AssertWithInfo(m_global_coroutine_deque.Push(coroutine), "too many coroutine!");
 }
 
 void Scheduler::_FixTimingScan()
@@ -177,9 +173,10 @@ void Scheduler::Stop()
     }
 
     m_sche_thread = nullptr;
-    m_global_coroutine_spinlock.Lock();
-    m_global_coroutine_deque.Clear();
-    m_global_coroutine_spinlock.UnLock();
+    Coroutine::SPtr item = nullptr;
+    while (m_global_coroutine_deque.Pop(item))
+        item = nullptr;
+
     m_run_status = ScheudlerStatus::SCHE_EXIT;
 #ifdef BBT_COROUTINE_PROFILE
     std::string profileinfo;
@@ -192,9 +189,15 @@ void Scheduler::Stop()
 size_t Scheduler::GetGlobalCoroutine(std::vector<Coroutine::SPtr>& coroutines, size_t size)
 {
     coroutines.clear();
-    m_global_coroutine_spinlock.Lock();
-    m_global_coroutine_deque.PopNTail(coroutines, size);
-    m_global_coroutine_spinlock.UnLock();
+
+    Coroutine::SPtr item = nullptr;
+    for (int i = 0; i < size; ++i) {
+        if (!m_global_coroutine_deque.Pop(item))
+            break;
+
+        coroutines.push_back(item);
+    }
+
     return coroutines.size();
 }
 
