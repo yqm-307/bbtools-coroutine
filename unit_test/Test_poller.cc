@@ -20,7 +20,7 @@ BOOST_AUTO_TEST_CASE(t_poller_timeout_event_single)
     const int timeout_ms = 1000;
 
     auto co_sptr = Coroutine::Create(stack_size, [](){});
-    auto event = CoPollEvent::Create(co_sptr,[&](auto event, int, int){
+    auto event = CoPollEvent::Create(co_sptr->GetId(),[&](auto event, int, int){
         count++;
     });
 
@@ -42,7 +42,7 @@ BOOST_AUTO_TEST_CASE(t_poller_evnet_cancel)
     const int timeout_ms = 200;
 
     auto co_sptr = Coroutine::Create(stack_size, [](){});
-    auto event = CoPollEvent::Create(co_sptr, [&](auto event, int, int){
+    auto event = CoPollEvent::Create(co_sptr->GetId(), [&](auto event, int, int){
         flag.exchange(true);
     });
 
@@ -64,7 +64,7 @@ BOOST_AUTO_TEST_CASE(t_poller_timerout_event_multi)
     for (int i = 0; i < 1000; ++i)
     {
         auto co_sptr = Coroutine::Create(4096, [](){});
-        auto event = CoPollEvent::Create(co_sptr, [&count, co_sptr](auto, int, int){
+        auto event = CoPollEvent::Create(co_sptr->GetId(), [&count, co_sptr](auto, int, int){
             count++;
         });
 
@@ -105,7 +105,7 @@ BOOST_AUTO_TEST_CASE(t_poller_timerout_event_multi_thread)
             for (int i = 0; i < 5000; ++i)
             {
                 auto co_sptr = Coroutine::Create(4096, [](){}, false);
-                auto event = CoPollEvent::Create(co_sptr, [&count, co_sptr](auto, int, int){
+                auto event = CoPollEvent::Create(co_sptr->GetId(), [&count, co_sptr](auto, int, int){
                     count++;
                 });
 

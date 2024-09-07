@@ -33,12 +33,13 @@ int TransformToPollEventType(short pollevent_type, bool has_custom)
     return ret;
 }
 
-CoPollEvent::SPtr CoPollEvent::Create(std::shared_ptr<Coroutine> coroutine, const CoPollEventCallback& cb)
+CoPollEvent::SPtr CoPollEvent::Create(CoroutineId id, const CoPollEventCallback& cb)
 {
-    return std::make_shared<CoPollEvent>(coroutine, cb);
+    return std::make_shared<CoPollEvent>(id, cb);
 }
 
-CoPollEvent::CoPollEvent(std::shared_ptr<Coroutine> coroutine, const CoPollEventCallback& cb):
+CoPollEvent::CoPollEvent(CoroutineId id, const CoPollEventCallback& cb):
+    m_co_id(id),
     m_onevent_callback(cb),
     m_event_id(_GenerateId())
 {
@@ -138,7 +139,7 @@ int CoPollEvent::Regist()
     }
 
     std::string event = m_event == nullptr ? "-1" : std::to_string(m_event->GetEvents());
-    g_bbt_dbgp_full(("[CoEvent:Regist] co=" + std::to_string(g_bbt_tls_coroutine_co->GetId()) +
+    g_bbt_dbgp_full(("[CoEvent:Regist] co=" + std::to_string(m_co_id) +
                                      " event=" + event +
                                      " id=" + std::to_string(GetId()) +
                                      " customkey=" + std::to_string(m_custom_key)).c_str());

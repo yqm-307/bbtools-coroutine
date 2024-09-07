@@ -10,7 +10,7 @@ using namespace bbt::coroutine::detail;
 int main()
 {
     auto co_sptr = Coroutine::Create(4096, [](){});
-    auto event = CoPollEvent::Create(co_sptr,[co_sptr](auto, int, int){
+    auto event = CoPollEvent::Create(co_sptr->GetId(),[co_sptr](auto, int, int){
         printf("timeout [%ld]\n", bbt::clock::now<>().time_since_epoch().count());
     });
 

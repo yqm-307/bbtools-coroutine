@@ -97,6 +97,7 @@ BOOST_AUTO_TEST_CASE(t_hook_write)
     bbtco[&l]()
     {
         ::sleep(1);
+        BOOST_TEST_MESSAGE("[client] client co=" << bbt::coroutine::GetLocalCoroutineId());
         sockaddr_in addr;
         addr.sin_addr.s_addr = inet_addr("127.0.0.1");
         addr.sin_port = htons(10001);
@@ -104,6 +105,7 @@ BOOST_AUTO_TEST_CASE(t_hook_write)
 
         int fd = ::socket(AF_INET, SOCK_STREAM, 0);
         BOOST_ASSERT(fd >= 0);
+        BOOST_TEST_MESSAGE("[client] create socket succ!");
         int ret = ::connect(fd, (sockaddr *)(&addr), sizeof(addr));
         BOOST_CHECK_MESSAGE(ret == 0, "[connect] errno=" << errno << "\tret=" << ret << "\tfd=" << fd);
         BOOST_ASSERT(ret == 0);
