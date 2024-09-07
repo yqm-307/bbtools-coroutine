@@ -75,24 +75,10 @@ void Scheduler::OnActiveCoroutine(Coroutine::SPtr coroutine)
         m_global_coroutine_spinlock.Lock();
         m_global_coroutine_deque.PushTail(coroutine);
         m_global_coroutine_spinlock.UnLock();
-    }
-
-void Scheduler::_SampleSchuduleAlgorithm()
-{
-    m_global_coroutine_spinlock.Lock();
-    bool has_co = !m_global_coroutine_deque.Empty();
-    m_global_coroutine_spinlock.UnLock();
-    if (!has_co)
-        return;
-
 }
-
 
 void Scheduler::_FixTimingScan()
 {
-    m_run_status = ScheudlerStatus::SCHE_RUNNING;
-    _SampleSchuduleAlgorithm();
-    m_run_status = ScheudlerStatus::SCHE_SUSPEND;
 }
 
 void Scheduler::_OnUpdate()

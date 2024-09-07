@@ -52,11 +52,6 @@ void CoPoller::NotifyCustomEvent(std::shared_ptr<CoPollEvent> event)
     event->Trigger(POLL_EVENT_CUSTOM);
 }
 
-int64_t CoPoller::GetTime()
-{
-    return m_event_loop->GetTime();
-}
-
 std::shared_ptr<bbt::pollevent::EventLoop> CoPoller::GetEventLoop() const
 {
     return m_event_loop;
