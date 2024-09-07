@@ -24,8 +24,7 @@ Scheduler::UPtr& Scheduler::GetInstance()
 }
 
 Scheduler::Scheduler():
-    m_down_latch(g_bbt_coroutine_config->m_cfg_static_thread_num),
-    m_global_coroutine_deque(nullptr)
+    m_down_latch(g_bbt_coroutine_config->m_cfg_static_thread_num)
 {
 }
 
@@ -60,7 +59,7 @@ CoroutineId Scheduler::RegistCoroutineTask(const CoroutineCallback& handle)
 #endif
     /* 尝试先找个Processer放进执行队列，失败放入全局队列 */
     if (!_LoadBlance2Proc(coroutine_sptr)) {
-        AssertWithInfo(m_global_coroutine_deque.Push(coroutine_sptr), "too many coroutine!");
+        AssertWithInfo(m_global_coroutine_deque.enqueue(coroutine_sptr), "oom!");
     }
     
     return coroutine_sptr->GetId();
@@ -71,7 +70,8 @@ void Scheduler::OnActiveCoroutine(Coroutine::SPtr coroutine)
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
     g_bbt_dbgmgr->Check_IsResumedCo(coroutine->GetId());
 #endif
-    AssertWithInfo(m_global_coroutine_deque.Push(coroutine), "too many coroutine!");
+    AssertWithInfo(m_global_coroutine_deque.enqueue(coroutine), "oom!");
+    printf("加入队列了 %ld\n", coroutine->GetId());
 }
 
 void Scheduler::_FixTimingScan()
@@ -175,7 +175,7 @@ void Scheduler::Stop()
 
     m_sche_thread = nullptr;
     Coroutine::SPtr item = nullptr;
-    while (m_global_coroutine_deque.Pop(item))
+    while (m_global_coroutine_deque.try_dequeue(item))
         item = nullptr;
 
     m_run_status = ScheudlerStatus::SCHE_EXIT;
@@ -193,7 +193,7 @@ size_t Scheduler::GetGlobalCoroutine(std::vector<Coroutine::SPtr>& coroutines, s
 
     Coroutine::SPtr item = nullptr;
     for (int i = 0; i < size; ++i) {
-        if (!m_global_coroutine_deque.Pop(item))
+        if (!m_global_coroutine_deque.try_dequeue(item))
             break;
 
         coroutines.push_back(item);
