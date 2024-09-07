@@ -66,6 +66,7 @@ void Coroutine::Resume()
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
     g_bbt_dbgmgr->OnEvent_ResumeCo(shared_from_this());
 #endif
+    g_bbt_dbgp_full(("[Coroutine::Resume] co=" + std::to_string(GetId())).c_str());
     m_context.Resume();
 }
 
@@ -76,6 +77,7 @@ void Coroutine::Yield()
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
     g_bbt_dbgmgr->OnEvent_YieldCo(shared_from_this());
 #endif
+    g_bbt_dbgp_full(("[Coroutine::Yield] co=" + std::to_string(GetId())).c_str());
     m_context.Yield();
 }
 
@@ -86,6 +88,7 @@ int Coroutine::YieldWithCallback(const CoroutineOnYieldCallback& cb)
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
     g_bbt_dbgmgr->OnEvent_YieldCo(shared_from_this());
 #endif
+    g_bbt_dbgp_full(("[Coroutine::YieldWithCallback] co=" + std::to_string(GetId())).c_str());
     return m_context.YieldWithCallback(cb);
 }
 
@@ -125,7 +128,7 @@ int Coroutine::YieldUntilTimeout(int ms)
         if (m_await_event != nullptr)
             return -1;
 
-        m_await_event = CoPollEvent::Create(shared_from_this(), [this](auto, int event, int custom_key){
+        m_await_event = CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key){
             OnCoPollEvent(event, custom_key);
         });
 
@@ -142,7 +145,7 @@ std::shared_ptr<CoPollEvent> Coroutine::RegistCustom(int key)
     if (m_await_event != nullptr)
         return nullptr;
     
-    m_await_event = CoPollEvent::Create(shared_from_this(), [this](auto, int event, int custom_key){
+    m_await_event = CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key){
         OnCoPollEvent(event, custom_key);
     });
 
@@ -161,7 +164,7 @@ std::shared_ptr<CoPollEvent> Coroutine::RegistCustom(int key, int timeout_ms)
     if (m_await_event != nullptr)
         return nullptr;
     
-    m_await_event = CoPollEvent::Create(shared_from_this(), [this](auto, int event, int custom_key){
+    m_await_event = CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key){
         OnCoPollEvent(event, custom_key);
     });
 
@@ -184,7 +187,7 @@ int Coroutine::YieldUntilFdReadable(int fd)
         if (m_await_event != nullptr)
             return -1;
         
-        m_await_event = CoPollEvent::Create(shared_from_this(), [this](auto, int event, int custom_key){
+        m_await_event = CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key){
             OnCoPollEvent(event, custom_key);
         });
 
@@ -202,7 +205,7 @@ int Coroutine::YieldUntilFdReadable(int fd, int timeout_ms)
         if (m_await_event != nullptr)
             return -1;
         
-        m_await_event = CoPollEvent::Create(shared_from_this(), [this](auto, int event, int custom_key){
+        m_await_event = CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key){
             OnCoPollEvent(event, custom_key);
         });
 
@@ -220,7 +223,7 @@ int Coroutine::YieldUntilFdWriteable(int fd)
         if (m_await_event != nullptr)
             return -1;
         
-        m_await_event = CoPollEvent::Create(shared_from_this(), [this](auto, int event, int custom_key){
+        m_await_event = CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key){
             OnCoPollEvent(event, custom_key);
         });
 
@@ -238,7 +241,7 @@ int Coroutine::YieldUntilFdWriteable(int fd, int timeout_ms)
         if (m_await_event != nullptr)
             return -1;
         
-        m_await_event = CoPollEvent::Create(shared_from_this(), [this](auto, int event, int custom_key){
+        m_await_event = CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key){
             OnCoPollEvent(event, custom_key);
         });
 

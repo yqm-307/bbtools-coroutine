@@ -119,22 +119,18 @@ void Processer::_Run()
                 break;
             }
 
-            m_coroutine_queue.PopNHead(pending_coroutines, g_bbt_coroutine_config->m_cfg_processer_do_task_once_task_num);
+            m_running_coroutine = m_coroutine_queue.PopHead();
             lock.unlock();
 
-            for (auto&& coroutine : pending_coroutines) {
-                if (coroutine->GetStatus() == CO_RUNNING || coroutine->GetStatus() == CO_FINAL)
-                    continue;
+            AssertWithInfo(m_running_coroutine->GetStatus() != CO_RUNNING && m_running_coroutine->GetStatus() != CO_FINAL, "bad coroutine status!");
 
-                // 执行前设置当前协程缓存
-                m_running_coroutine = coroutine;
-                m_running_coroutine_begin.exchange( bbt::clock::gettime_mono<>());
-                AssertWithInfo(m_running_coroutine != nullptr, "maybe coroutine queue has bug!");
-                AssertWithInfo(m_running_coroutine->GetStatus() != CoroutineStatus::CO_RUNNING, "error, try to resume a already running coroutine!");
-                m_co_swap_times++;
-                m_running_coroutine->Resume();
-                m_running_coroutine = nullptr;
-            }
+            // 执行前设置当前协程缓存
+            m_running_coroutine_begin.exchange( bbt::clock::gettime_mono<>());
+            AssertWithInfo(m_running_coroutine != nullptr, "maybe coroutine queue has bug!");
+            AssertWithInfo(m_running_coroutine->GetStatus() != CoroutineStatus::CO_RUNNING, "error, try to resume a already running coroutine!");
+            m_co_swap_times++;
+            m_running_coroutine->Resume();
+            m_running_coroutine = nullptr;
         }
 
         if (g_scheduler->TryWorkSteal(shared_from_this()) <= 0)
