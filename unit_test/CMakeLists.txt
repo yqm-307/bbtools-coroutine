@@ -49,3 +49,7 @@ add_test(NAME Test_defer COMMAND Test_defer)
 add_executable(Test_co_rwmutex Test_co_rwmutex.cc)
 target_link_libraries(Test_co_rwmutex ${MY_LIBS})
 add_test(NAME Test_co_rwmutex COMMAND Test_co_rwmutex)
+
+add_executable(Test_coevent Test_coevent.cc)
+target_link_libraries(Test_coevent ${MY_LIBS})
+add_test(NAME Test_coevent COMMAND Test_coevent)

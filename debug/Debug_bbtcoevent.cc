@@ -8,14 +8,14 @@ int main()
     while (true) {
         
         for (int i = 0; i < 10000; ++i) {
-            auto a = bbtco_event_regist(-1, bbt::pollevent::EventOpt::TIMEOUT, 100) [&](){
+            auto a = bbtco_ev_t(100) [&](int fd, short event){
                 val++;
             };
 
             Assert(a == 0);
         }
 
-        sleep(1);
+        std::this_thread::sleep_for(bbt::clock::ms(100));
         printf("timenow:%ld ncount:%d\n", time(NULL), val.load());
     }
 

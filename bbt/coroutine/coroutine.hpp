@@ -42,7 +42,37 @@ do \
 #define bbtco_make_corwmutex()  bbt::coroutine::sync::CoRWMutex::Create()
 
 /* event */
-#define bbtco_event_regist(fd, event, time) (*std::make_shared<bbt::coroutine::_EventHelper>(fd, event, time))-
+#define __bbtco_event_regist_ex(fd, event, time) (*std::make_shared<bbt::coroutine::_EventHelper>(fd, event, time))-
+
+#define bbtco_emev_timeout bbt::pollevent::EventOpt::TIMEOUT
+#define bbtco_emev_readable bbt::pollevent::EventOpt::READABLE
+#define bbtco_emev_writeable bbt::pollevent::EventOpt::WRITEABLE
+#define bbtco_emev_close    bbt::pollevent::EventOpt::CLOSE
+#define bbtco_emev_finalize bbt::pollevent::EventOpt::FINALIZE
+#define bbtco_emev_persist  bbt::pollevent::EventOpt::PERSIST
+
+/**
+ * event regist helper
+ * 
+ * bbtco_ev_[event type]
+ * 
+ * event type:
+ * [w] 监听套接字可读
+ * [r] 监听套接字可写
+ * [c] 监听套接字关闭
+ * [t] 监听超时
+ * 
+ * 若不满足，可使用 __bbtco_event_regist_ex
+ */
+#define bbtco_ev_w(fd)  __bbtco_event_regist_ex(fd, bbtco_emev_writeable, -1)
+#define bbtco_ev_r(fd)  __bbtco_event_regist_ex(fd, bbtco_emev_readable, -1)
+#define bbtco_ev_wc(fd) __bbtco_event_regist_ex(fd, bbtco_emev_writeable | bbtco_emev_finalize, -1)
+#define bbtco_ev_rc(fd) __bbtco_event_regist_ex(fd, bbtco_emev_readable | bbtco_emev_finalize, -1)
+#define bbtco_ev_wt(fd, timeout) __bbtco_event_regist_ex(fd, bbtco_emev_writeable | bbtco_emev_timeout, -1)
+#define bbtco_ev_rt(fd, timeout) __bbtco_event_regist_ex(fd, bbtco_emev_readable | bbtco_emev_timeout, -1)
+#define bbtco_ev_wtc(fd, timeout) __bbtco_event_regist_ex(fd, bbtco_emev_writeable | bbtco_emev_timeout | bbtco_emev_finalize, -1)
+#define bbtco_ev_rtc(fd, timeout) __bbtco_event_regist_ex(fd, bbtco_emev_readable | bbtco_emev_timeout | bbtco_emev_finalize, -1)
+#define bbtco_ev_t(timeout_ms) __bbtco_event_regist_ex(-1, bbtco_emev_timeout, timeout_ms)
 
 namespace bbt::coroutine
 {

@@ -43,9 +43,6 @@ protected:
     void                                        _Run();
     /* 定时扫描 */
     void                                        _FixTimingScan();
-    /* 简单调度算法 */
-    void                                        _SampleSchuduleAlgorithm();
-
     void                                        _CreateProcessers();
     void                                        _DestoryProcessers();
 

@@ -49,6 +49,12 @@ enum SchedulerStartOpt
     SCHE_START_OPT_SCHE_NO_LOOP     = 3,    // 非循环模式，需要用户手动LoopOnce来驱动调度
 };
 
+/**
+ * @brief 对外注册协程事件函数
+ * @param fd 套接字，如果不存在则为-1
+ * @param event 触发事件
+ */
+typedef std::function<void(int /*fd*/, short /*trigger event*/)> ExtCoEventCallback;
 
 
 namespace sync

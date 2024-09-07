@@ -11,7 +11,7 @@ public:
     explicit _EventHelper(int fd, short event, int ms);
     ~_EventHelper();
 
-    int operator-(const std::function<void()>& event_handle);
+    int operator-(const ExtCoEventCallback& event_handle);
 
 private:
     std::shared_ptr<bbt::pollevent::Event> m_pollevent{nullptr};
