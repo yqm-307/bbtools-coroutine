@@ -50,7 +50,6 @@ protected:
     void                            _OnFinal();
     static CoPollEventId            _GenerateId();
 private:
-    std::shared_ptr<Coroutine>      m_coroutine{nullptr};
     std::shared_ptr<bbt::pollevent::Event>
                                     m_event{nullptr};
     int                             m_timeout{-1};

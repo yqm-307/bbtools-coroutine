@@ -39,11 +39,9 @@ CoPollEvent::SPtr CoPollEvent::Create(std::shared_ptr<Coroutine> coroutine, cons
 }
 
 CoPollEvent::CoPollEvent(std::shared_ptr<Coroutine> coroutine, const CoPollEventCallback& cb):
-    m_coroutine(coroutine),
     m_onevent_callback(cb),
     m_event_id(_GenerateId())
 {
-    Assert(m_coroutine != nullptr);
     Assert(m_onevent_callback != nullptr);
     m_run_status = CoPollEventStatus::POLLEVENT_INITED;
 }
@@ -140,7 +138,10 @@ int CoPollEvent::Regist()
     }
 
     std::string event = m_event == nullptr ? "-1" : std::to_string(m_event->GetEvents());
-    g_bbt_dbgp_full(("[CoEvent:Regist] co=" + std::to_string(m_coroutine->GetId()) + " event=" + event + " id=" + std::to_string(GetId()) + " customkey=" + std::to_string(m_custom_key)).c_str());
+    g_bbt_dbgp_full(("[CoEvent:Regist] co=" + std::to_string(g_bbt_tls_coroutine_co->GetId()) +
+                                     " event=" + event +
+                                     " id=" + std::to_string(GetId()) +
+                                     " customkey=" + std::to_string(m_custom_key)).c_str());
 #ifdef BBT_COROUTINE_PROFILE
     g_bbt_profiler->OnEvent_RegistCoPollEvent();
 #endif
