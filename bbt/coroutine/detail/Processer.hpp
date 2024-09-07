@@ -49,7 +49,8 @@ private:
     const ProcesserId               m_id{BBT_COROUTINE_INVALID_PROCESSER_ID};
     volatile ProcesserStatus        m_run_status{ProcesserStatus::PROC_DEFAULT};
     CoroutineQueue                  m_coroutine_queue;
-    bbt::thread::Spinlock           m_coroutine_queue_spinlock;
+    // bbt::thread::Spinlock           m_coroutine_queue_spinlock;
+    std::mutex                      m_coroutine_queue_mtx;
 
     std::condition_variable         m_run_cond;
     std::mutex                      m_run_cond_mutex;
