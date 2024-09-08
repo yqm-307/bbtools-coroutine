@@ -71,7 +71,6 @@ void Scheduler::OnActiveCoroutine(Coroutine::SPtr coroutine)
     g_bbt_dbgmgr->Check_IsResumedCo(coroutine->GetId());
 #endif
     AssertWithInfo(m_global_coroutine_deque.enqueue(coroutine), "oom!");
-    printf("加入队列了 %ld\n", coroutine->GetId());
 }
 
 void Scheduler::_FixTimingScan()
@@ -191,6 +190,9 @@ size_t Scheduler::GetGlobalCoroutine(std::vector<Coroutine::SPtr>& coroutines, s
 {
     coroutines.clear();
 
+    if (m_global_coroutine_deque.size_approx() <= 0)
+        return 0;
+
     Coroutine::SPtr item = nullptr;
     for (int i = 0; i < size; ++i) {
         if (!m_global_coroutine_deque.try_dequeue(item))
@@ -278,7 +280,7 @@ int Scheduler::TryWorkSteal(Processer::SPtr thief)
 
         if (!works.empty()) {
             steal_num = works.size();
-            thief->AddCoroutineTaskRange(works.begin(), works.end());
+            thief->AddCoroutineTaskRange(works);
             break;
         }
     }
