@@ -2,6 +2,7 @@
 #include <condition_variable>
 #include <bbt/base/clock/Clock.hpp>
 #include <bbt/coroutine/detail/CoroutineQueue.hpp>
+#include <bbt/coroutine/utils/lockfree/concurrentqueue.h>
 
 namespace bbt::coroutine::detail
 {
@@ -35,7 +36,7 @@ protected:
     int                             GetLoadValue();
     int                             GetExecutableNum(); /* 可执行协程数 */
     void                            AddCoroutineTask(Coroutine::SPtr coroutine);
-    void                            AddCoroutineTaskRange(std::vector<Coroutine::SPtr>::iterator begin, std::vector<Coroutine::SPtr>::iterator end);
+    void                            AddCoroutineTaskRange(std::vector<Coroutine::SPtr> works);
 
     uint64_t                        GetContextSwapTimes();  /* 协程上下文换出次数 */
     uint64_t                        GetSuspendCostTime();     /* 任务执行耗时，返回微秒 */
@@ -48,9 +49,8 @@ protected:
 private:
     const ProcesserId               m_id{BBT_COROUTINE_INVALID_PROCESSER_ID};
     volatile ProcesserStatus        m_run_status{ProcesserStatus::PROC_DEFAULT};
-    CoroutineQueue                  m_coroutine_queue;
-    // bbt::thread::Spinlock           m_coroutine_queue_spinlock;
-    std::mutex                      m_coroutine_queue_mtx;
+
+    moodycamel::ConcurrentQueue<Coroutine::SPtr> m_coroutine_queue;
 
     std::condition_variable         m_run_cond;
     std::mutex                      m_run_cond_mutex;

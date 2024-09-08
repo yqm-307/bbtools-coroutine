@@ -54,9 +54,7 @@ int Processer::GetLoadValue()
 
 int Processer::GetExecutableNum()
 {
-    std::lock_guard<std::mutex> _(m_coroutine_queue_mtx);
-    int size = m_coroutine_queue.Size();
-    return size;
+    return m_coroutine_queue.size_approx();
 }
 
 
@@ -67,14 +65,13 @@ ProcesserId Processer::GetId()
 
 void Processer::AddCoroutineTask(Coroutine::SPtr coroutine)
 {
-    std::lock_guard<std::mutex> _(m_coroutine_queue_mtx);
-    m_coroutine_queue.PushTail(coroutine);
+    AssertWithInfo(m_coroutine_queue.enqueue(coroutine), "oom!");
 }
 
-void Processer::AddCoroutineTaskRange(std::vector<Coroutine::SPtr>::iterator begin, std::vector<Coroutine::SPtr>::iterator end)
+void Processer::AddCoroutineTaskRange(std::vector<Coroutine::SPtr> works)
 {
-    std::lock_guard<std::mutex> _(m_coroutine_queue_mtx);
-    m_coroutine_queue.PushTailRange(begin, end);
+    for (auto&& it : works)
+        AssertWithInfo(m_coroutine_queue.enqueue(it), "oom!");
 }
 
 void Processer::_Init()
@@ -113,21 +110,18 @@ void Processer::_Run()
         m_run_status = ProcesserStatus::PROC_RUNNING;
         while (true)
         {
-            std::vector<Coroutine::SPtr> pending_coroutines;
-            std::unique_lock<std::mutex> lock(m_coroutine_queue_mtx);
-            if (m_coroutine_queue.Size() <= 0 && _TryGetCoroutineFromGlobal() <= 0) {
-                break;
-            }
+            // 如果本地没有了，尝试去全局取
+            if (m_coroutine_queue.size_approx() <= 0)
+                _TryGetCoroutineFromGlobal();
 
-            m_running_coroutine = m_coroutine_queue.PopHead();
-            lock.unlock();
+            /* 全局队列取不到且本地队列也为空，就休眠 */
+            if (!m_coroutine_queue.try_dequeue(m_running_coroutine) || m_running_coroutine == nullptr)
+                break;
 
             AssertWithInfo(m_running_coroutine->GetStatus() != CO_RUNNING && m_running_coroutine->GetStatus() != CO_FINAL, "bad coroutine status!");
 
             // 执行前设置当前协程缓存
             m_running_coroutine_begin.exchange( bbt::clock::gettime_mono<>());
-            AssertWithInfo(m_running_coroutine != nullptr, "maybe coroutine queue has bug!");
-            AssertWithInfo(m_running_coroutine->GetStatus() != CoroutineStatus::CO_RUNNING, "error, try to resume a already running coroutine!");
             m_co_swap_times++;
             m_running_coroutine->Resume();
             m_running_coroutine = nullptr;
@@ -148,21 +142,26 @@ void Processer::_Run()
 
 void Processer::Stop()
 {
+    Coroutine::SPtr item = nullptr;
+
     do {
         m_is_running = false;
         std::this_thread::sleep_for(bbt::clock::milliseconds(50));
         m_run_cond.notify_one();
     } while (m_run_status != ProcesserStatus::PROC_EXIT);
 
-    std::lock_guard<std::mutex> lock(m_coroutine_queue_mtx);
-    m_coroutine_queue.Clear();
+
+    while (m_coroutine_queue.try_dequeue(item))
+        item = nullptr;
 }
 
 size_t Processer::_TryGetCoroutineFromGlobal()
 {
     std::vector<Coroutine::SPtr> vec;
     g_scheduler->GetGlobalCoroutine(vec, g_bbt_coroutine_config->m_cfg_processer_get_co_from_g_count);
-    m_coroutine_queue.PushTailRange(vec.begin(), vec.end());
+    for (auto it = vec.begin(); it != vec.end(); ++it)
+        AssertWithInfo(m_coroutine_queue.enqueue(*it), "oom!");
+
     return vec.size();
 }
 
@@ -183,8 +182,9 @@ uint64_t Processer::GetSuspendCostTime()
 
 void Processer::Steal(std::vector<Coroutine::SPtr>& works)
 {
-    std::lock_guard<std::mutex> lock(m_coroutine_queue_mtx);
-    auto size = m_coroutine_queue.Size();
+    Coroutine::SPtr item = nullptr;
+    auto size = m_coroutine_queue.size_approx();
+
     if (size <= 0) {
         return;
     }
@@ -196,7 +196,14 @@ void Processer::Steal(std::vector<Coroutine::SPtr>& works)
     }
 
     int steal_num = g_bbt_coroutine_config->m_cfg_processer_steal_once_min_task_num > size ? g_bbt_coroutine_config->m_cfg_processer_steal_once_min_task_num : size / 2;
-    m_coroutine_queue.PopNTail(works, steal_num);
+
+    /* 尽量给 */
+    for (int i = 0; i < steal_num; ++i) {
+        if (!m_coroutine_queue.try_dequeue(item))
+            break;
+
+        works.push_back(item);
+    }
 
 #ifdef BBT_COROUTINE_PROFILE
     g_bbt_profiler->OnEvent_StealSucc(steal_num);

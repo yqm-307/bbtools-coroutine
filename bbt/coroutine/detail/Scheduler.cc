@@ -191,6 +191,9 @@ size_t Scheduler::GetGlobalCoroutine(std::vector<Coroutine::SPtr>& coroutines, s
 {
     coroutines.clear();
 
+    if (m_global_coroutine_deque.size_approx() <= 0)
+        return 0;
+
     Coroutine::SPtr item = nullptr;
     for (int i = 0; i < size; ++i) {
         if (!m_global_coroutine_deque.try_dequeue(item))
@@ -278,7 +281,7 @@ int Scheduler::TryWorkSteal(Processer::SPtr thief)
 
         if (!works.empty()) {
             steal_num = works.size();
-            thief->AddCoroutineTaskRange(works.begin(), works.end());
+            thief->AddCoroutineTaskRange(works);
             break;
         }
     }
