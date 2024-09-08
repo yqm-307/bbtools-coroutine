@@ -132,7 +132,7 @@ void Processer::_Run()
             auto begin = bbt::clock::now<bbt::clock::microseconds>();
             std::unique_lock<std::mutex> lock_uptr(m_run_cond_mutex);
             m_run_status = ProcesserStatus::PROC_SUSPEND;
-            m_run_cond.wait_for(lock_uptr, bbt::clock::milliseconds(1));
+            m_run_cond.wait_for(lock_uptr, bbt::clock::us(g_bbt_coroutine_config->m_cfg_processer_proc_interval_us));
             m_suspend_cost_times += std::chrono::duration_cast<decltype(m_suspend_cost_times)>(bbt::clock::now<bbt::clock::microseconds>() - begin);
         }
     }
