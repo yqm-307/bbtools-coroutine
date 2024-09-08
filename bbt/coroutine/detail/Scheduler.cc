@@ -71,7 +71,6 @@ void Scheduler::OnActiveCoroutine(Coroutine::SPtr coroutine)
     g_bbt_dbgmgr->Check_IsResumedCo(coroutine->GetId());
 #endif
     AssertWithInfo(m_global_coroutine_deque.enqueue(coroutine), "oom!");
-    printf("加入队列了 %ld\n", coroutine->GetId());
 }
 
 void Scheduler::_FixTimingScan()
