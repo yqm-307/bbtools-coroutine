@@ -21,9 +21,9 @@ public:
     friend class CoPoller;
     typedef std::shared_ptr<CoPollEvent> SPtr;
 
-    static SPtr                     Create(std::shared_ptr<Coroutine> coroutine, const CoPollEventCallback& cb);
+    static SPtr                     Create(CoroutineId id, const CoPollEventCallback& cb);
 
-    BBTATTR_FUNC_Ctor_Hidden        CoPollEvent(std::shared_ptr<Coroutine> coroutine, const CoPollEventCallback& cb);
+    BBTATTR_FUNC_Ctor_Hidden        CoPollEvent(CoroutineId id, const CoPollEventCallback& cb);
                                     ~CoPollEvent();
 
     int                             GetEvent() const;
@@ -50,7 +50,7 @@ protected:
     void                            _OnFinal();
     static CoPollEventId            _GenerateId();
 private:
-    std::shared_ptr<Coroutine>      m_coroutine{nullptr};
+    CoroutineId                     m_co_id{0};
     std::shared_ptr<bbt::pollevent::Event>
                                     m_event{nullptr};
     int                             m_timeout{-1};

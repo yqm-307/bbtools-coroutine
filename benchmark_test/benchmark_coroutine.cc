@@ -13,8 +13,9 @@ int main()
     g_scheduler->Start();
 
     bbtco [&](){
-        for (int i = 0; i < nsum_co; ++i)
-            bbtco [&](){ l.Down(); };  
+        for (int i = 0; i < nsum_co; ++i) {
+            bbtco [&](){ l.Down(); };
+        }
     };
 
     l.Wait();
