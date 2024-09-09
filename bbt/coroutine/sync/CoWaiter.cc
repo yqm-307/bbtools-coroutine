@@ -32,8 +32,7 @@ CoWaiter::~CoWaiter()
 
 int CoWaiter::Wait()
 {
-    AssertWithInfo(g_bbt_tls_helper->EnableUseCo(), "please use CoCond in coroutine!"); // 请在协程中使用CoCond
-    AssertWithInfo(g_bbt_tls_coroutine_co != nullptr, "running a non-corourine!");      // 当前运行的非协程
+    AssertWithInfo(g_bbt_tls_helper->EnableUseCo(), "not in coroutine!");
 
     _Lock();
 
@@ -66,8 +65,7 @@ int CoWaiter::Wait()
 
 int CoWaiter::WaitWithCallback(const detail::CoroutineOnYieldCallback& cb)
 {
-    AssertWithInfo(g_bbt_tls_helper->EnableUseCo(), "please use CoCond in coroutine!"); // 请在协程中使用CoCond
-    AssertWithInfo(g_bbt_tls_coroutine_co != nullptr, "running a non-corourine!");      // 当前运行的非协程
+    AssertWithInfo(g_bbt_tls_helper->EnableUseCo(), "not in coroutine!");
     Assert(cb != nullptr);
 
     _Lock();
@@ -100,10 +98,9 @@ int CoWaiter::WaitWithCallback(const detail::CoroutineOnYieldCallback& cb)
 
 int CoWaiter::WaitWithTimeout(int ms)
 {
+    AssertWithInfo(g_bbt_tls_helper->EnableUseCo(), "not in coroutine!");
     int ret = 0;
 
-    AssertWithInfo(g_bbt_tls_helper->EnableUseCo(), "please use CoCond in coroutine!"); // 请在协程中使用CoCond
-    AssertWithInfo(g_bbt_tls_coroutine_co != nullptr, "running a non-corourine!");      // 当前运行的非协程
 
     _Lock();
     if (m_co_event != nullptr) {
@@ -137,10 +134,8 @@ int CoWaiter::WaitWithTimeout(int ms)
 
 int CoWaiter::WaitWithTimeoutAndCallback(int ms, const detail::CoroutineOnYieldCallback& cb)
 {
+    AssertWithInfo(g_bbt_tls_helper->EnableUseCo(), "not in coroutine!");
     int ret = 0;
-
-    AssertWithInfo(g_bbt_tls_helper->EnableUseCo(), "please use CoCond in coroutine!"); // 请在协程中使用CoCond
-    AssertWithInfo(g_bbt_tls_coroutine_co != nullptr, "running a non-corourine!");      // 当前运行的非协程
 
     _Lock();
     if (m_co_event != nullptr) {
@@ -175,8 +170,6 @@ int CoWaiter::WaitWithTimeoutAndCallback(int ms, const detail::CoroutineOnYieldC
 
 int CoWaiter::Notify()
 {
-    AssertWithInfo(g_bbt_tls_helper->EnableUseCo(), "please use CoCond in coroutine!");
-
     _Lock();
     Assert(m_run_status != COND_DEFAULT);;
     if (m_co_event == nullptr || m_run_status != COND_WAIT) {

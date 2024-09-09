@@ -18,7 +18,7 @@ public:
     int                         Wait();
     int                         WaitFor(int ms);
 
-    void                        NotifyOne();
+    int                         NotifyOne();
     void                        NotifyAll();
 protected:
     int                         _NotifyOne();

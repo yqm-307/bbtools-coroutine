@@ -53,3 +53,7 @@ add_test(NAME Test_co_rwmutex COMMAND Test_co_rwmutex)
 add_executable(Test_coevent Test_coevent.cc)
 target_link_libraries(Test_coevent ${MY_LIBS})
 add_test(NAME Test_coevent COMMAND Test_coevent)
+
+add_executable(Test_copool Test_copool.cc)
+target_link_libraries(Test_copool ${MY_LIBS})
+add_test(NAME Test_copool COMMAND Test_copool)

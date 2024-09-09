@@ -57,10 +57,10 @@ void CoCond::NotifyAll()
         _NotifyOne();
 }
 
-void CoCond::NotifyOne()
+int CoCond::NotifyOne()
 {
     std::unique_lock<std::mutex> lock{m_lock_ref};
-    _NotifyOne();
+    return _NotifyOne();
 }
 
 int CoCond::_NotifyOne()

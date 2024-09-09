@@ -48,3 +48,6 @@ target_link_libraries(Debug_co_rwmutex ${MY_DBG_LIBS})
 
 add_executable(Debug_bbtcoevent Debug_bbtcoevent.cc)
 target_link_libraries(Debug_bbtcoevent ${MY_DBG_LIBS})
+
+add_executable(Debug_bbtcoevent Debug_bbtcoevent.cc)
+target_link_libraries(Debug_bbtcoevent ${MY_DBG_LIBS})
