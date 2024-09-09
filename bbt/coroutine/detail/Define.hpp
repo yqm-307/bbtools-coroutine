@@ -56,12 +56,24 @@ enum SchedulerStartOpt
  */
 typedef std::function<void(int /*fd*/, short /*trigger event*/)> ExtCoEventCallback;
 
+namespace pool
+{
+    
+class Work;
+class CoPool;
+
+typedef std::function<void()> CoPoolWorkCallback;
+
+}
 
 namespace sync
 {
 
 template<class TItem, int Max> class Chan;
 class CoWaiter;
+
+class CoCond;
+class CoMutex;
 
 
 

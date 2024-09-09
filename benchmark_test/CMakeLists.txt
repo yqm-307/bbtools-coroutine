@@ -13,6 +13,9 @@ target_link_libraries(fatigue_coroutine ${MY_LIBS})
 add_executable(benchmark_coroutine benchmark_coroutine.cc)
 target_link_libraries(benchmark_coroutine ${MY_LIBS})
 
+add_executable(benchmark_copool benchmark_copool.cc)
+target_link_libraries(benchmark_copool ${MY_LIBS})
+
 add_executable(fatigue_chan fatigue_chan.cc)
 target_link_libraries(fatigue_chan ${MY_LIBS})
 
