@@ -22,5 +22,8 @@ target_link_libraries(fatigue_chan ${MY_LIBS})
 add_executable(fatigue_comutex fatigue_comutex.cc)
 target_link_libraries(fatigue_comutex ${MY_LIBS})
 
+add_executable(fatigue_copool fatigue_copool.cc)
+target_link_libraries(fatigue_copool ${MY_LIBS})
+
 add_executable(mem_check_test mem_check_test.cc)
 target_link_libraries(mem_check_test ${MY_LIBS})

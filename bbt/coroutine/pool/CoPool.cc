@@ -36,7 +36,6 @@ int CoPool::Submit(CoPoolWorkCallback&& workfunc)
 {
     auto* work = new Work(std::forward<CoPoolWorkCallback&&>(workfunc));
     AssertWithInfo(m_works_queue.enqueue(work), "oom!");
-    m_cond->NotifyOne();
     return 0;
 }
 
