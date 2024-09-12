@@ -51,11 +51,12 @@ namespace detail
 extern int Hook_Socket(int domain, int type, int protocol);
 extern int Hook_Connect(int socket, const struct sockaddr* address, socklen_t address_len);
 extern int Hook_Close(int fd);
-extern int Hook_Sleep(int s);
-extern int MsSleep(int ms);
+extern int Hook_Sleep(int ms);
 extern ssize_t Hook_Read(int fd, void* buf, size_t nbytes);
 extern ssize_t Hook_Write(int fd, const void* buf, size_t n);
 extern int Hook_Accept(int fd, struct sockaddr* addr, socklen_t* len);
+extern ssize_t Hook_Send(int fd, const void *buf, size_t len, int flags);
+extern ssize_t Hook_Recv(int fd, void *buf, size_t len, int flags);
 }
 
 }
