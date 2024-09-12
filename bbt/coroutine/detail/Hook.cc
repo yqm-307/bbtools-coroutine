@@ -10,146 +10,131 @@
 namespace bbt::coroutine::detail
 {
 
-    int Hook_Socket(int domain, int type, int protocol)
-    {
-        int fd;
+int Hook_Socket(int domain, int type, int protocol)
+{
+    int fd;
 
-        fd = g_bbt_sys_hook_socket_func(domain, type, protocol);
-        if (fd < 0)
+    fd = g_bbt_sys_hook_socket_func(domain, type, protocol);
+    if (fd < 0)
+        return -1;
+
+    if (evutil_make_socket_nonblocking(fd) != 0) {
+        ::close(fd);
+        return -1;
+    }
+
+    return fd;
+}
+
+int Hook_Connect(int socket, const struct sockaddr *address, socklen_t address_len)
+{
+
+    while (g_bbt_sys_hook_connect_func(socket, address, address_len) != 0) {
+        // 是否因为非阻塞导致没法立即完成
+        if (errno != EINTR && errno != EINPROGRESS && errno != EALREADY)
             return -1;
 
-        if (evutil_make_socket_nonblocking(fd) != 0)
-        {
-            ::close(fd);
+        if (g_bbt_tls_coroutine_co->YieldUntilFdWriteable(socket) != 0)
             return -1;
-        }
-
-        return fd;
     }
 
-    int Hook_Connect(int socket, const struct sockaddr *address, socklen_t address_len)
-    {
+    return 0;
+}
 
-        while (g_bbt_sys_hook_connect_func(socket, address, address_len) != 0)
-        {
-            // 是否因为非阻塞导致没法立即完成
-            if (errno != EINTR && errno != EINPROGRESS && errno != EALREADY)
-                return -1;
+int Hook_Close(int fd)
+{
+    return g_bbt_sys_hook_close_func(fd);
+}
 
-            if (g_bbt_tls_coroutine_co->YieldUntilFdWriteable(socket) != 0)
-                return -1;
-        }
+int Hook_Sleep(int ms)
+{
+    if (ms <= 0)
+        return -1;
 
-        return 0;
-    }
+    return g_bbt_tls_coroutine_co->YieldUntilTimeout(ms);
+}
 
-    int Hook_Close(int fd)
-    {
-        return g_bbt_sys_hook_close_func(fd);
-    }
-
-    int Hook_Sleep(int ms)
-    {
-        if (ms <= 0)
+ssize_t Hook_Read(int fd, void *buf, size_t nbytes)
+{
+    ssize_t read_len;
+    while ((read_len = g_bbt_sys_hook_read_func(fd, buf, nbytes)) < 0) {
+        /* 如果read没有立即成功，判断失败原因是否为正在执行读操作 */
+        if (errno != EAGAIN && errno != EINPROGRESS && errno != EINTR && errno != EWOULDBLOCK)
             return -1;
 
-        return g_bbt_tls_coroutine_co->YieldUntilTimeout(ms);
+        /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读 */
+        if (g_bbt_tls_coroutine_co->YieldUntilFdReadable(fd) != 0)
+            return -1;
+
     }
 
-    ssize_t Hook_Read(int fd, void *buf, size_t nbytes)
-    {
-        ssize_t read_len;
-        while ((read_len = g_bbt_sys_hook_read_func(fd, buf, nbytes)) <= 0)
-        {
-            /* 读到eof了 */
-            if (read_len == 0)
-                return -1;
+    return read_len;
+}
 
-            /* 如果read没有立即成功，判断失败原因是否为正在执行读操作 */
-            if (errno != EAGAIN && errno != EINPROGRESS && errno != EINTR && errno != EWOULDBLOCK)
-                return -1;
+ssize_t Hook_Write(int fd, const void *buf, size_t n)
+{
+    ssize_t write_len;
+    while ((write_len = g_bbt_sys_hook_write_func(fd, buf, n)) < 0) {
+        /* 如果write没有立即成功，判断失败原因是否为正在执行写操作 */
+        if (errno != EAGAIN && errno != EINTR && errno != EWOULDBLOCK)
+            return -1;
 
-            /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读 */
-            if (g_bbt_tls_coroutine_co->YieldUntilFdReadable(fd) != 0)
-                return -1;
-
-        }
-
-        return read_len;
+        /* 对当前协程注册fd可写事件，挂起当前协程直到fd可写 */
+        if (g_bbt_tls_coroutine_co->YieldUntilFdWriteable(fd) != 0)
+            return -1;
     }
 
-    ssize_t Hook_Write(int fd, const void *buf, size_t n)
-    {
-        ssize_t write_len;
-        while ((write_len = g_bbt_sys_hook_write_func(fd, buf, n)) < 0)
-        {
-            /* 如果write没有立即成功，判断失败原因是否为正在执行写操作 */
-            if (errno != EAGAIN && errno != EINTR && errno != EWOULDBLOCK)
-                return -1;
+    return write_len;
+}
 
-            /* 对当前协程注册fd可写事件，挂起当前协程直到fd可写 */
-            if (g_bbt_tls_coroutine_co->YieldUntilFdWriteable(fd) != 0)
-                return -1;
-        }
+int Hook_Accept(int fd, struct sockaddr *addr, socklen_t *len)
+{
+    int new_cli_fd;
 
-        return write_len;
+    while ((new_cli_fd = g_bbt_sys_hook_accept_func(fd, addr, len)) < 0) {
+        /* 如果accept没有立即成功，判断失败原因是否为设置非阻塞 */
+        if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)
+            return -1;
+
+        /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读 */
+        if (g_bbt_tls_coroutine_co->YieldUntilFdReadable(fd) != 0)
+            return -1;
     }
 
-    int Hook_Accept(int fd, struct sockaddr *addr, socklen_t *len)
-    {
-        int new_cli_fd;
+    return new_cli_fd;
+}
 
-        while ((new_cli_fd = g_bbt_sys_hook_accept_func(fd, addr, len)) < 0)
-        {
-            /* 如果accept没有立即成功，判断失败原因是否为设置非阻塞 */
-            if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)
-                return -1;
+ssize_t Hook_Send(int fd, const void *buf, size_t n, int flags)
+{
+    ssize_t send_len;
+    while ((send_len = g_bbt_sys_hook_send_func(fd, buf, n, flags)) < 0) {
+        /* 如果write没有立即成功，判断失败原因是否为正在执行写操作 */
+        if (errno != EAGAIN && errno != EINTR && errno != EWOULDBLOCK)
+            return -1;
 
-            /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读 */
-            if (g_bbt_tls_coroutine_co->YieldUntilFdReadable(fd) != 0)
-                return -1;
-        }
-
-        return new_cli_fd;
+        /* 对当前协程注册fd可写事件，挂起当前协程直到fd可写 */
+        if (g_bbt_tls_coroutine_co->YieldUntilFdWriteable(fd) != 0)
+            return -1;
     }
 
-    ssize_t Hook_Send(int fd, const void *buf, size_t n, int flags)
-    {
-        ssize_t send_len;
-        while ((send_len = g_bbt_sys_hook_send_func(fd, buf, n, flags)) < 0)
-        {
-            /* 如果write没有立即成功，判断失败原因是否为正在执行写操作 */
-            if (errno != EAGAIN && errno != EINTR && errno != EWOULDBLOCK)
-                return -1;
+    return send_len;
+}
 
-            /* 对当前协程注册fd可写事件，挂起当前协程直到fd可写 */
-            if (g_bbt_tls_coroutine_co->YieldUntilFdWriteable(fd) != 0)
-                return -1;
-        }
+ssize_t Hook_Recv(int fd, void *buf, size_t n, int flags)
+{
+    ssize_t recv_len;
+    while ((recv_len = g_bbt_sys_hook_recv_func(fd, buf, n, flags)) < 0) {
+        /* 如果read没有立即成功，判断失败原因是否为正在执行读操作 */
+        if (errno != EAGAIN && errno != EINPROGRESS && errno != EINTR && errno != EWOULDBLOCK)
+            return -1;
 
-        return send_len;
+        /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读 */
+        if (g_bbt_tls_coroutine_co->YieldUntilFdReadable(fd) != 0)
+            return -1;
     }
 
-    ssize_t Hook_Recv(int fd, void *buf, size_t n, int flags)
-    {
-        ssize_t recv_len;
-        while ((recv_len = g_bbt_sys_hook_recv_func(fd, buf, n, flags)) <= 0)
-        {
-            /* 读到eof了 */
-            if (recv_len == 0)
-                return -1;
-
-            /* 如果read没有立即成功，判断失败原因是否为正在执行读操作 */
-            if (errno != EAGAIN && errno != EINPROGRESS && errno != EINTR && errno != EWOULDBLOCK)
-                return -1;
-
-            /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读 */
-            if (g_bbt_tls_coroutine_co->YieldUntilFdReadable(fd) != 0)
-                return -1;
-        }
-
-        return recv_len;
-    }
+    return recv_len;
+}
 
 }
 
