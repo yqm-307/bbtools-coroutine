@@ -15,13 +15,13 @@ BOOST_AUTO_TEST_CASE(t_begin)
 
 BOOST_AUTO_TEST_CASE(t_test_copool)
 {
-    pool::CoPool pool{100};
+    auto pool = bbtco_make_copool(100);
     const int max_co = 100000;
     bbt::thread::CountDownLatch l{max_co};
     std::atomic_int count = 0;
 
     for (int i = 0; i < max_co; ++i) {
-        pool.Submit([&](){
+        pool->Submit([&](){
             BOOST_ASSERT(GetLocalCoroutineId() > 0);
             l.Down();
             count++;
@@ -29,7 +29,7 @@ BOOST_AUTO_TEST_CASE(t_test_copool)
     }
 
     l.Wait();
-    pool.Release();
+    pool->Release();
 
     BOOST_CHECK_EQUAL(count, max_co);
 }

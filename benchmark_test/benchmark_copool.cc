@@ -10,17 +10,17 @@ int main()
 
     g_scheduler->Start();
 
-    pool::CoPool pool{100};
+    auto pool = bbtco_make_copool(100);
 
     bbtco [&](){
         for (int i = 0; i < nsum_co; ++i) {
-            pool.Submit([&](){ l.Down(); });
+            pool->Submit([&](){ l.Down(); });
         }
     };
 
     l.Wait();
 
-    pool.Release();
+    pool->Release();
 
     g_scheduler->Stop();
     printf("time cost: %ldms\n", bbt::clock::gettime() - begin);

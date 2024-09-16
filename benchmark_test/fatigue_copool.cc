@@ -8,17 +8,17 @@ int main()
 
     g_scheduler->Start();
 
-    pool::CoPool pool{3000};
+    auto pool = bbtco_make_copool(3000);
 
     while (true)
     {   
         for (int i = 0; i < nsum_co; ++i)
-            pool.Submit([&](){});
+            pool->Submit([&](){});
         sleep(1);
     }
 
 
-    pool.Release();
+    pool->Release();
     g_scheduler->Stop();
 
 }
