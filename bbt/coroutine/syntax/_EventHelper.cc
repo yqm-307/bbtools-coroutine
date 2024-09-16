@@ -1,6 +1,7 @@
 #include <bbt/pollevent/Event.hpp>
 #include <bbt/coroutine/syntax/_EventHelper.hpp>
 #include <bbt/coroutine/detail/Scheduler.hpp>
+#include <bbt/coroutine/pool/CoPool.hpp>
 
 namespace bbt::coroutine
 {
@@ -11,6 +12,14 @@ _EventHelper::_EventHelper(int fd, short event, int ms):
     if (m_event > 0)
         m_arg_check_rlt = true;
 }
+
+_EventHelper::_EventHelper(int fd, short event, int ms, std::shared_ptr<pool::CoPool> pool):
+    m_fd(fd), m_event(event), m_timeout(ms), m_copool(pool)
+{
+    if (m_event > 0)
+        m_arg_check_rlt = true;
+}
+
 
 _EventHelper::~_EventHelper()
 {
@@ -28,8 +37,6 @@ int _EventHelper::operator-(const ExtCoEventCallback& event_handle)
 
     /* 当事件触发时，注册一个事件处理协程 */
     m_pollevent = g_bbt_poller->CreateEvent(m_fd, m_event, [pthis, event_handle](auto ev, short type){
-        g_scheduler->RegistCoroutineTask([=](){ event_handle(ev->GetSocket(), type); });
-
         /**
          * 这里有个隐蔽的循环引用问题：
          * 
@@ -38,7 +45,22 @@ int _EventHelper::operator-(const ExtCoEventCallback& event_handle)
          * 
          * 所以这里在触发事件后，将_EventHelper中持有的Event释放掉，打破循环引用
          */
-        pthis->m_pollevent = nullptr;
+        auto on_event_handle = [=](){ 
+            /**
+             * 如果是持久事件且使用者不想释放，直接返回。这样m_pollevent不会释放，下次触发再
+             * 根据使用者提供的返回值来判断是否释放事件
+             */
+            if(event_handle(ev->GetSocket(), type) && pthis->m_event & pollevent::EventOpt::PERSIST)
+                return;
+            pthis->m_pollevent = nullptr;
+        };
+
+        /* 支持使用协程池处理 */
+        auto copool = pthis->m_copool.lock();
+        if (copool)
+            copool->Submit(std::move(on_event_handle));
+        else
+            g_scheduler->RegistCoroutineTask(std::move(on_event_handle));
     });
 
     return m_pollevent->StartListen(m_timeout);

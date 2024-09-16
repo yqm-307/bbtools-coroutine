@@ -12,7 +12,10 @@ class CoPool:
     private bbt::templateutil::noncopyable
 {
 public:
-    CoPool(int co_max);
+    static std::shared_ptr<CoPool> Create(int max_co);
+
+    BBTATTR_FUNC_Ctor_Hidden
+    explicit CoPool(int co_max);
     virtual ~CoPool();
 
     virtual int             Submit(const CoPoolWorkCallback& workfunc);

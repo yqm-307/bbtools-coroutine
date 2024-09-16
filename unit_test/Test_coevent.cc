@@ -20,6 +20,7 @@ BOOST_AUTO_TEST_CASE(t_regist_event_timeout)
     bbtco_ev_t(100) [&](int fd, short event){
         BOOST_CHECK(bbt::clock::gettime() - begin >= 100);
         l.Down();
+        return false;
     };
 
     l.Wait();
@@ -42,6 +43,7 @@ BOOST_AUTO_TEST_CASE(t_regist_event_fd_ev_readable)
         BOOST_CHECK_EQUAL(size, strlen(msg));
         BOOST_CHECK_EQUAL(std::string(buf), std::string(msg));
         l.Down();
+        return false;
     };
 
     BOOST_CHECK_EQUAL(::write(wfd, msg, strlen(msg)), strlen(msg));
@@ -50,9 +52,42 @@ BOOST_AUTO_TEST_CASE(t_regist_event_fd_ev_readable)
     ::close(wfd);
 }
 
-BOOST_AUTO_TEST_CASE(t_regist_event_fd_ev_close)
+BOOST_AUTO_TEST_CASE(t_regist_event_persist)
 {
     bbt::thread::CountDownLatch l{1};
+
+    int i = 0;
+
+    __bbtco_event_regist_ex(-1, bbtco_emev_persist, 10) [&](auto, short event){
+        if (++i < 5)
+            return true;
+        
+        l.Down();
+        return false;
+    }; 
+
+    l.Wait();
+    BOOST_CHECK_EQUAL(i, 5);
+}
+
+BOOST_AUTO_TEST_CASE(t_regist_event_with_copool)
+{
+    bbt::thread::CountDownLatch l{1};
+    int i = 0;
+    auto copool = bbtco_make_copool(10);
+
+    __bbtco_event_regist_with_copool_ex(-1, bbtco_emev_persist, 10, copool)
+    [&](auto, short event){
+        if (++i < 5)
+            return true;
+        
+        l.Down();
+        return false;
+    };
+
+    l.Wait();
+    copool->Release();
+    BOOST_CHECK_EQUAL(i, 5);
 }
 
 BOOST_AUTO_TEST_CASE(t_end)
