@@ -31,9 +31,12 @@ do \
 #define bbtco_make_cocond(mtx)     bbt::coroutine::sync::CoCond::Create(mtx)
 #define bbtco_make_comutex()    bbt::coroutine::sync::CoMutex::Create()
 #define bbtco_make_corwmutex()  bbt::coroutine::sync::CoRWMutex::Create()
+/* copool */
+#define bbtco_make_copool(pool_max_co) bbt::coroutine::pool::CoPool::Create(pool_max_co)
 
 /* event */
 #define __bbtco_event_regist_ex(fd, event, time) (*std::make_shared<bbt::coroutine::_EventHelper>(fd, event, time))-
+#define __bbtco_event_regist_with_copool_ex(fd, event, time, copool) (*std::make_shared<bbt::coroutine::_EventHelper>(fd, event, time, copool))-
 
 #define bbtco_emev_timeout bbt::pollevent::EventOpt::TIMEOUT
 #define bbtco_emev_readable bbt::pollevent::EventOpt::READABLE
