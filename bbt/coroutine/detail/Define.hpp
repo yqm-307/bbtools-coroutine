@@ -53,8 +53,10 @@ enum SchedulerStartOpt
  * @brief 对外注册协程事件函数
  * @param fd 套接字，如果不存在则为-1
  * @param event 触发事件
+ * 
+ * @return 对于persist事件，返回false会自动注销掉当前事件
  */
-typedef std::function<void(int /*fd*/, short /*trigger event*/)> ExtCoEventCallback;
+typedef std::function<bool(int /*fd*/, short /*trigger event*/)> ExtCoEventCallback;
 
 namespace pool
 {
