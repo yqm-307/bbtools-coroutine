@@ -9,6 +9,10 @@
 namespace bbt::coroutine::pool
 {
 
+std::shared_ptr<CoPool> CoPool::Create(int max_co)
+{
+    return std::make_shared<CoPool>(max_co);
+}
 
 CoPool::CoPool(int max):
     m_max_co_num(max),
