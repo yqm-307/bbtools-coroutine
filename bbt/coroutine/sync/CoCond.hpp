@@ -24,7 +24,7 @@ protected:
     int                         _NotifyOne();
 private:
     std::queue<std::shared_ptr<CoWaiter>>       m_waiter_queue;
-    std::mutex&                                 m_lock_ref; 
+    std::mutex&                                 m_lock_ref;
 };
 
 } // namespace bbt::coroutine::sync
