@@ -141,7 +141,7 @@ void multi_cond_check()
                 bbtco_sleep(10);
             
             cond->NotifyAll();
-            l1.Wait();
+            while (0 != l1.WaitTimeout(10));
             l2.Down();
             printf("done %d turn!\n", i);
         };
@@ -189,8 +189,8 @@ int main()
     // debug_notify();
     // dbg_coroutine_wait();
     // cocond();
-    // multi_cond_check();
-    consumer_producer();
+    multi_cond_check();
+    // consumer_producer();
 
     g_scheduler->Stop();
 }

@@ -10,6 +10,7 @@ int main()
         for (int i = 0; i < 10000; ++i) {
             auto a = bbtco_ev_t(100) [&](int fd, short event){
                 val++;
+                return false;
             };
 
             Assert(a == 0);
