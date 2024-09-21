@@ -1,6 +1,7 @@
 #pragma once
 #include <bbt/coroutine/detail/Define.hpp>
 #include <bbt/coroutine/sync/CoWaiter.hpp>
+#include <bbt/coroutine/sync/interface/ICoLock.hpp>
 
 namespace bbt::coroutine::sync
 {
@@ -18,7 +19,8 @@ namespace bbt::coroutine::sync
  * 目前实现为使用CoCond来实现。CoCond内部需要加锁导致部
  * 分锁是重叠的，最好的做法是像CoCond一样控制CoPollEvent
  */
-class CoMutex
+class CoMutex:
+    public ICoLock
 {
 public:
     typedef std::shared_ptr<CoMutex> SPtr;
