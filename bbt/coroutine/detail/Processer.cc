@@ -114,7 +114,7 @@ void Processer::_Run()
             if (m_coroutine_queue.size_approx() <= 0)
                 _TryGetCoroutineFromGlobal();
 
-            /* 全局队列取不到且本地队列也为空，就休眠 */
+            /* 如果取不到或者取到空的，就退出循环 */
             if (!m_coroutine_queue.try_dequeue(m_running_coroutine) || m_running_coroutine == nullptr)
                 break;
 
