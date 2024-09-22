@@ -25,6 +25,10 @@ CoPool::CoPool(int max):
 
 CoPool::~CoPool()
 {
+    Work* item = nullptr;
+    while (m_works_queue.try_dequeue(item))
+        delete item;
+
     AssertWithInfo(m_running_co_num == 0, "no release!");
 }
 
