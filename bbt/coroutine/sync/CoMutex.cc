@@ -26,6 +26,7 @@ CoMutex::~CoMutex()
 void CoMutex::Lock()
 {
     _SysLock();
+    AssertWithInfo(m_locked_co != g_bbt_tls_coroutine_co, "comutex deadlock!");
 
     while (m_status == CoMutexStatus::COMUTEX_LOCKED) {
         Assert(_WaitUnLock([this](){ _SysUnLock(); return true; }) == 0);
@@ -33,9 +34,7 @@ void CoMutex::Lock()
         _SysLock();
     }
 
-    Assert(m_status == CoMutexStatus::COMUTEX_FREE);
-
-    m_status = CoMutexStatus::COMUTEX_LOCKED;
+    _OnLocked();
     _SysUnLock();
 }
 
@@ -43,8 +42,7 @@ void CoMutex::UnLock()
 {
     _SysLock();
 
-    m_status = CoMutexStatus::COMUTEX_FREE;
-    _NotifyOne();
+    _OnUnLocked();
 
     _SysUnLock();
 }
@@ -54,9 +52,10 @@ int CoMutex::TryLock()
 
     int ret = 0;
     _SysLock();
+    AssertWithInfo(m_locked_co != g_bbt_tls_coroutine_co, "comutex deadlock!");
 
     if (m_status == CoMutexStatus::COMUTEX_FREE)
-        m_status = CoMutexStatus::COMUTEX_LOCKED;
+        _OnLocked();
     else
         ret = -1;
 
@@ -68,6 +67,7 @@ int CoMutex::TryLock(int ms)
 {
     int ret = 0;
     _SysLock();
+    AssertWithInfo(m_locked_co != g_bbt_tls_coroutine_co, "comutex deadlock!");
 
     if (m_status == CoMutexStatus::COMUTEX_LOCKED) {
         ret = _WaitUnLockUnitlTimeout(ms, [this](){ _SysUnLock(); return true; });
@@ -85,7 +85,7 @@ int CoMutex::TryLock(int ms)
         return -1;
     }
 
-    m_status = CoMutexStatus::COMUTEX_LOCKED;
+    _OnLocked();
     _SysUnLock();
     return 0;
 }
@@ -129,6 +129,20 @@ void CoMutex::_NotifyOne()
         if (co_sptr->Trigger(detail::POLL_EVENT_CUSTOM) == 0)
             break;
     }
+}
+
+void CoMutex::_OnLocked()
+{
+    Assert(m_status == CoMutexStatus::COMUTEX_FREE);
+    m_locked_co = g_bbt_tls_coroutine_co;
+    m_status = CoMutexStatus::COMUTEX_LOCKED;
+}
+
+void CoMutex::_OnUnLocked()
+{
+    m_status = CoMutexStatus::COMUTEX_FREE;
+    _NotifyOne();
+    m_locked_co = nullptr;
 }
 
 }
