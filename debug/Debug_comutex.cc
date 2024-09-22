@@ -31,12 +31,36 @@ void RunOnce()
     l.Wait();
 }
 
+void DeadLockAssert()
+{
+    auto mutex = bbtco_make_comutex();
+    bbtco [&](){
+        mutex->Lock();
+        // mutex->Lock(); // assert fail
+        // mutex->TryLock(); // assert fail
+        // mutex->TryLock(1); // assert fail
+
+        mutex->UnLock();
+        mutex->Lock();      // success
+
+        mutex->UnLock();
+        mutex->TryLock();   // success
+
+        mutex->UnLock();
+        mutex->TryLock(1);  // success
+    };
+
+    sleep(1);
+}
+
 int main()
 {
     g_scheduler->Start();
 
-    for (int i = 0; i < 100; ++i)
-        RunOnce();
+    // for (int i = 0; i < 100; ++i)
+    //     RunOnce();
+
+    DeadLockAssert();
 
     g_scheduler->Stop();
 }
