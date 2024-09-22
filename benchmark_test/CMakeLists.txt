@@ -25,5 +25,11 @@ target_link_libraries(fatigue_comutex ${MY_LIBS})
 add_executable(fatigue_copool fatigue_copool.cc)
 target_link_libraries(fatigue_copool ${MY_LIBS})
 
+add_executable(fatigue_cocond fatigue_cocond.cc)
+target_link_libraries(fatigue_cocond ${MY_LIBS})
+
+add_executable(fatigue_std_uniquelock fatigue_std_uniquelock.cc)
+target_link_libraries(fatigue_std_uniquelock ${MY_LIBS})
+
 add_executable(mem_check_test mem_check_test.cc)
 target_link_libraries(mem_check_test ${MY_LIBS})

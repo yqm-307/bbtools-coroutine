@@ -8,6 +8,7 @@
 #include <bbt/coroutine/sync/CoCond.hpp>
 #include <bbt/coroutine/sync/CoMutex.hpp>
 #include <bbt/coroutine/sync/CoRWMutex.hpp>
+#include <bbt/coroutine/sync/StdLockWapper.hpp>
 
 #include <bbt/coroutine/pool/CoPool.hpp>
 
