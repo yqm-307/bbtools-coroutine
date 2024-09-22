@@ -4,21 +4,31 @@ using namespace bbt::coroutine;
 
 int main()
 {
-    const int nsum_co = 1000000;
-
+    const int nsum_co = 10000;
+    std::atomic_int count = 0;
     g_scheduler->Start();
 
-    auto pool = bbtco_make_copool(3000);
+    bbtco [&](){
+        while (true) {
+            printf("count= %d\n", count.load());
+            sleep(1);
+        }
+
+    };
 
     while (true)
-    {   
+    {
+        auto pool = bbtco_make_copool(100);
+
         for (int i = 0; i < nsum_co; ++i)
-            pool->Submit([&](){});
-        sleep(1);
+            pool->Submit([&](){
+                count++;
+            });
+
+        pool->Release();
+        count++;
     }
 
-
-    pool->Release();
     g_scheduler->Stop();
 
 }
