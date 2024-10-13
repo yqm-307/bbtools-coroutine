@@ -26,6 +26,8 @@ CoMutex::~CoMutex()
 void CoMutex::Lock()
 {
     _SysLock();
+    
+    AssertWithInfo(g_bbt_tls_helper->EnableUseCo(), "must use in coroutine!");
     AssertWithInfo(m_locked_co != g_bbt_tls_coroutine_co, "comutex deadlock!");
 
     while (m_status == CoMutexStatus::COMUTEX_LOCKED) {
