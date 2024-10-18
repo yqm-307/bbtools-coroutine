@@ -60,11 +60,13 @@ int CoPollEvent::Trigger(short trigger_events)
      * 到底执行什么样的操作了，只由外部创建者定义。
      */
 
+    std::unique_lock lock{m_onevent_callback_mtx};
+
     int expect = CoPollEventStatus::POLLEVENT_LISTEN;
-    if (!m_run_status.compare_exchange_strong(expect, CoPollEventStatus::POLLEVENT_TRIGGER))
+    if (m_run_status != CoPollEventStatus::POLLEVENT_LISTEN)
         return -1;
 
-
+    m_run_status = CoPollEventStatus::POLLEVENT_TRIGGER;
     if (_CannelAllFdEvent() != 0)
         g_bbt_dbgp_full("");
 
@@ -128,6 +130,8 @@ int CoPollEvent::InitCustomEvent(int key, void* args)
 int CoPollEvent::Regist()
 {
 
+    std::unique_lock lock{m_onevent_callback_mtx};
+
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
     g_bbt_dbgmgr->OnEvent_RegistEvent(shared_from_this());
 #endif
@@ -161,6 +165,7 @@ void CoPollEvent::_OnListen()
 
 int CoPollEvent::UnRegist()
 {
+    std::unique_lock lock{m_onevent_callback_mtx};
     int ret = 0;
 
     /* 只能对监听中的任务执行操作 */
@@ -216,7 +221,7 @@ bool CoPollEvent::IsFinal() const
 
 CoPollEventStatus CoPollEvent::GetStatus() const
 {
-    return (CoPollEventStatus)m_run_status.load();
+    return m_run_status;
 }
 
 CoPollEventId CoPollEvent::GetId() const
