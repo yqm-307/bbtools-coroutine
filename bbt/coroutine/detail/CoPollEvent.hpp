@@ -59,7 +59,8 @@ private:
     CoPollEventId                   m_event_id{BBT_COROUTINE_INVALID_COPOLLEVENT_ID};
 
     CoPollEventCallback             m_onevent_callback{nullptr};
-    std::atomic_int                 m_run_status{CoPollEventStatus::POLLEVENT_DEFAULT};
+    CoPollEventStatus               m_run_status{CoPollEventStatus::POLLEVENT_DEFAULT};
+    std::mutex                      m_onevent_callback_mtx;
 };
 
 }
