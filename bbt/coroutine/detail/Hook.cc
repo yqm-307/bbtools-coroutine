@@ -12,7 +12,7 @@ namespace bbt::coroutine::detail
 
 int Hook_Socket(int domain, int type, int protocol)
 {
-    int fd;
+    int fd = -1;
 
     fd = g_bbt_sys_hook_socket_func(domain, type, protocol);
     if (fd < 0)
@@ -56,7 +56,7 @@ int Hook_Sleep(int ms)
 
 ssize_t Hook_Read(int fd, void *buf, size_t nbytes)
 {
-    ssize_t read_len;
+    ssize_t read_len = -1;
     while ((read_len = g_bbt_sys_hook_read_func(fd, buf, nbytes)) < 0) {
         /* 如果read没有立即成功，判断失败原因是否为正在执行读操作 */
         if (errno != EAGAIN && errno != EINPROGRESS && errno != EINTR && errno != EWOULDBLOCK)
@@ -73,7 +73,7 @@ ssize_t Hook_Read(int fd, void *buf, size_t nbytes)
 
 ssize_t Hook_Write(int fd, const void *buf, size_t n)
 {
-    ssize_t write_len;
+    ssize_t write_len = -1;
     while ((write_len = g_bbt_sys_hook_write_func(fd, buf, n)) < 0) {
         /* 如果write没有立即成功，判断失败原因是否为正在执行写操作 */
         if (errno != EAGAIN && errno != EINTR && errno != EWOULDBLOCK)
@@ -89,7 +89,7 @@ ssize_t Hook_Write(int fd, const void *buf, size_t n)
 
 int Hook_Accept(int fd, struct sockaddr *addr, socklen_t *len)
 {
-    int new_cli_fd;
+    int new_cli_fd = -1;
 
     while ((new_cli_fd = g_bbt_sys_hook_accept_func(fd, addr, len)) < 0) {
         /* 如果accept没有立即成功，判断失败原因是否为设置非阻塞 */
@@ -106,7 +106,7 @@ int Hook_Accept(int fd, struct sockaddr *addr, socklen_t *len)
 
 ssize_t Hook_Send(int fd, const void *buf, size_t n, int flags)
 {
-    ssize_t send_len;
+    ssize_t send_len = -1;
     while ((send_len = g_bbt_sys_hook_send_func(fd, buf, n, flags)) < 0) {
         /* 如果write没有立即成功，判断失败原因是否为正在执行写操作 */
         if (errno != EAGAIN && errno != EINTR && errno != EWOULDBLOCK)
@@ -122,7 +122,7 @@ ssize_t Hook_Send(int fd, const void *buf, size_t n, int flags)
 
 ssize_t Hook_Recv(int fd, void *buf, size_t n, int flags)
 {
-    ssize_t recv_len;
+    ssize_t recv_len = -1;
     while ((recv_len = g_bbt_sys_hook_recv_func(fd, buf, n, flags)) < 0) {
         /* 如果read没有立即成功，判断失败原因是否为正在执行读操作 */
         if (errno != EAGAIN && errno != EINPROGRESS && errno != EINTR && errno != EWOULDBLOCK)
