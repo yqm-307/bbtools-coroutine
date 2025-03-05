@@ -61,8 +61,10 @@ private:
     std::atomic_uint64_t            m_running_coroutine_begin{0};      // 当前运行协程开始执行的时间 
 
     // XXX 可以优化到profiler中
+#ifdef BBT_COROUTINE_PROFILE
     uint64_t                        m_co_swap_times{0};
     bbt::clock::us                  m_suspend_cost_times{0};
+#endif
 };
 
 }

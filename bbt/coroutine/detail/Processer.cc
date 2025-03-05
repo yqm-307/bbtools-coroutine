@@ -122,18 +122,24 @@ void Processer::_Run()
 
             // 执行前设置当前协程缓存
             m_running_coroutine_begin.exchange( bbt::clock::gettime_mono<>());
+#ifdef BBT_COROUTINE_PROFILE
             m_co_swap_times++;
+#endif
             m_running_coroutine->Resume();
             m_running_coroutine = nullptr;
         }
 
         if (g_scheduler->TryWorkSteal(shared_from_this()) <= 0)
         {
+#ifdef BBT_COROUTINE_PROFILE
             auto begin = bbt::clock::now<bbt::clock::microseconds>();
+#endif
             std::unique_lock<std::mutex> lock_uptr(m_run_cond_mutex);
             m_run_status = ProcesserStatus::PROC_SUSPEND;
             m_run_cond.wait_for(lock_uptr, bbt::clock::us(g_bbt_coroutine_config->m_cfg_processer_proc_interval_us));
+#ifdef BBT_COROUTINE_PROFILE
             m_suspend_cost_times += std::chrono::duration_cast<decltype(m_suspend_cost_times)>(bbt::clock::now<bbt::clock::microseconds>() - begin);
+#endif
         }
     }
 
@@ -172,12 +178,20 @@ Coroutine::SPtr Processer::GetCurrentCoroutine()
 
 uint64_t Processer::GetContextSwapTimes()
 {
+#ifdef BBT_COROUTINE_PROFILE
     return m_co_swap_times;
+#else
+    return 0;
+#endif
 }
 
 uint64_t Processer::GetSuspendCostTime()
 {
+#ifdef BBT_COROUTINE_PROFILE
     return m_suspend_cost_times.count();
+#else
+    return 0;
+#endif
 }
 
 void Processer::Steal(std::vector<Coroutine::SPtr>& works)

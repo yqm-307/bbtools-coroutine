@@ -2,7 +2,6 @@
 #include <fcntl.h>
 #include <bbt/base/assert/Assert.hpp>
 #include <bbt/base/clock/Clock.hpp>
-#include <bbt/base/bits/BitUtil.hpp>
 #include <bbt/base/Logger/DebugPrint.hpp>
 #include <bbt/coroutine/detail/CoPoller.hpp>
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
