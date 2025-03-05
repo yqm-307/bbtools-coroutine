@@ -89,6 +89,6 @@
         "-DPROFILE=OFF",
         "-DRELEASE=ON",
         "-DDEBUG_INFO=OFF",
-        "-DSTRINGENT_DEBUG=ON"
+        "-DSTRINGENT_DEBUG=OFF"
     ]
 }
