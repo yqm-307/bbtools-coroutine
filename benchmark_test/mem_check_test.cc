@@ -1,10 +1,10 @@
 #include <cmath>
-#include <bbt/base/clock/Clock.hpp>
-#include <bbt/base/random/Random.hpp>
+#include <bbt/core/clock/Clock.hpp>
+#include <bbt/core/crypto/Random.hpp>
 #include <bbt/coroutine/coroutine.hpp>
 
 int a = 0;
-bbt::random::mt_random rd;
+bbt::core::crypto::mt_random rd;
 
 void _CoroutineTask()
 {
@@ -25,7 +25,7 @@ void CoTask()
     };
 
     while (count < max) {
-        std::this_thread::sleep_for(bbt::clock::milliseconds(10));
+        std::this_thread::sleep_for(bbt::core::clock::milliseconds(10));
     }
 
 }
@@ -35,7 +35,7 @@ void ChanRW()
     const int write_times = 10000;
     const int writer_num = 5;
     const int reader_num = 10;
-    bbt::thread::CountDownLatch l{reader_num};
+    bbt::core::thread::CountDownLatch l{reader_num};
     std::atomic_int count{0};
 
     for (int i = 0; i < reader_num; ++i) {

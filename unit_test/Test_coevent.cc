@@ -14,11 +14,11 @@ BOOST_AUTO_TEST_CASE(t_begin)
 /* 外部事件注册 */
 BOOST_AUTO_TEST_CASE(t_regist_event_timeout)
 {
-    bbt::thread::CountDownLatch l{1};
-    auto begin = bbt::clock::gettime();
+    bbt::core::thread::CountDownLatch l{1};
+    auto begin = bbt::core::clock::gettime();
 
     bbtco_ev_t(100) [&](int fd, short event){
-        BOOST_CHECK(bbt::clock::gettime() - begin >= 100);
+        BOOST_CHECK(bbt::core::clock::gettime() - begin >= 100);
         l.Down();
         return false;
     };
@@ -28,7 +28,7 @@ BOOST_AUTO_TEST_CASE(t_regist_event_timeout)
 
 BOOST_AUTO_TEST_CASE(t_regist_event_fd_ev_readable)
 {
-    bbt::thread::CountDownLatch l{1};
+    bbt::core::thread::CountDownLatch l{1};
     const char msg[] = "hello";
 
     int fds[2];
@@ -54,7 +54,7 @@ BOOST_AUTO_TEST_CASE(t_regist_event_fd_ev_readable)
 
 BOOST_AUTO_TEST_CASE(t_regist_event_persist)
 {
-    bbt::thread::CountDownLatch l{1};
+    bbt::core::thread::CountDownLatch l{1};
 
     int i = 0;
 
@@ -72,7 +72,7 @@ BOOST_AUTO_TEST_CASE(t_regist_event_persist)
 
 BOOST_AUTO_TEST_CASE(t_regist_event_with_copool)
 {
-    bbt::thread::CountDownLatch l{1};
+    bbt::core::thread::CountDownLatch l{1};
     int i = 0;
     auto copool = bbtco_make_copool(10);
 

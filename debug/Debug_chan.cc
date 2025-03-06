@@ -1,6 +1,6 @@
 #include <atomic>
 #include <bbt/coroutine/coroutine.hpp>
-#include <bbt/base/clock/Clock.hpp>
+#include <bbt/core/clock/Clock.hpp>
 // #include <bbt/coroutine/sync/CoCond.hpp>
 #include <bbt/coroutine/sync/Chan.hpp>
 using namespace bbt::coroutine;
@@ -56,16 +56,16 @@ void ReadMulti()
     };
 
     std::unique_lock<std::mutex> lock(mutex);
-    auto begin = bbt::clock::now<>();
+    auto begin = bbt::core::clock::now<>();
     cond.wait(lock);
-    printf("chan写n次耗时：%ldms  count: %d\n", (bbt::clock::now<>() - begin).count(), count.load());
+    printf("chan写n次耗时：%ldms  count: %d\n", (bbt::core::clock::now<>() - begin).count(), count.load());
     count.exchange(0);
 
 }
 
 void DebugWriteBlock()
 {
-    bbt::thread::CountDownLatch l{1};
+    bbt::core::thread::CountDownLatch l{1};
     const int nwrite = 100;
     std::atomic_int n_read_succ_num{0};
     std::set<int> results;

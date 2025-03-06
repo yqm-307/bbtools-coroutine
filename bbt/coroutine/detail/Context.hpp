@@ -1,7 +1,7 @@
 #pragma once
 #include <functional>
 #include <boost/context/detail/fcontext.hpp>
-#include <bbt/base/assert/Assert.hpp>
+#include <bbt/core/macroutil/Assert.hpp>
 #include <bbt/coroutine/detail/Stack.hpp>
 
 namespace bbt::coroutine::detail

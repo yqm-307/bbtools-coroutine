@@ -19,7 +19,7 @@ BOOST_AUTO_TEST_CASE(t_multi_coroutine)
         };
     }
 
-    std::this_thread::sleep_for(bbt::clock::milliseconds(1000));
+    std::this_thread::sleep_for(bbt::core::clock::milliseconds(1000));
     g_scheduler->Stop();
 
     BOOST_CHECK_EQUAL(ncount, 100000);

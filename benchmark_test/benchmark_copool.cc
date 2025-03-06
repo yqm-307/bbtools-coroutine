@@ -5,8 +5,8 @@ using namespace bbt::coroutine;
 int main()
 {
     const int nsum_co = 10000000;
-    bbt::thread::CountDownLatch l{nsum_co};
-    auto begin = bbt::clock::gettime();
+    bbt::core::thread::CountDownLatch l{nsum_co};
+    auto begin = bbt::core::clock::gettime();
 
     g_scheduler->Start();
 
@@ -23,6 +23,6 @@ int main()
     pool->Release();
 
     g_scheduler->Stop();
-    printf("time cost: %ldms\n", bbt::clock::gettime() - begin);
+    printf("time cost: %ldms\n", bbt::core::clock::gettime() - begin);
 
 }

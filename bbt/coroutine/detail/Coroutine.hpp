@@ -1,6 +1,6 @@
 #pragma once
 #include <memory>
-#include <bbt/base/Attribute.hpp>
+#include <bbt/core/Attribute.hpp>
 #include <bbt/coroutine/detail/interface/ICoroutine.hpp>
 #include <bbt/coroutine/detail/Context.hpp>
 

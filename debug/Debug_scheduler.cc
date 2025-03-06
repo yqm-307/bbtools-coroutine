@@ -1,6 +1,6 @@
 #include <atomic>
 #include <bbt/coroutine/coroutine.hpp>
-#include <bbt/base/clock/Clock.hpp>
+#include <bbt/core/clock/Clock.hpp>
 using namespace bbt::coroutine;
 
 std::atomic_int g_count = 0;
@@ -19,11 +19,11 @@ void SchedulerThread()
                 // printf("cur thread %ld %d\n", gettid(), g_count.load());
             });
         }
-        std::this_thread::sleep_for(bbt::clock::milliseconds(50));
+        std::this_thread::sleep_for(bbt::core::clock::milliseconds(50));
     }
 
 
-    std::this_thread::sleep_for(bbt::clock::milliseconds(1000));
+    std::this_thread::sleep_for(bbt::core::clock::milliseconds(1000));
     if (g_count != 50000) {
         printf("final count: %d\n", g_count.load());
         g_scheduler->Stop();

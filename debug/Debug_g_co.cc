@@ -1,6 +1,6 @@
 #include <atomic>
 #include <bbt/coroutine/coroutine.hpp>
-#include <bbt/base/clock/Clock.hpp>
+#include <bbt/core/clock/Clock.hpp>
 using namespace bbt::coroutine;
 
 void dbg_regist_co()
@@ -12,13 +12,13 @@ void dbg_regist_co()
         };
     }
 
-    std::this_thread::sleep_for(bbt::clock::milliseconds(100));
+    std::this_thread::sleep_for(bbt::core::clock::milliseconds(100));
 
 }
 
 void dbg_bbtco_yield()
 {
-    bbt::thread::CountDownLatch l{1};
+    bbt::core::thread::CountDownLatch l{1};
 
     bbtco_yield;
 

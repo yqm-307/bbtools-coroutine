@@ -6,7 +6,7 @@ void Pool()
 {
     pool::CoPool pool{100};
     const int max_co = 100000;
-    bbt::thread::CountDownLatch l{max_co};
+    bbt::core::thread::CountDownLatch l{max_co};
 
     for (int i = 0; i < max_co; ++i) {
         pool.Submit([&](){

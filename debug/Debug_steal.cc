@@ -1,5 +1,5 @@
 #include <bbt/coroutine/coroutine.hpp>
-#include <bbt/base/clock/Clock.hpp>
+#include <bbt/core/clock/Clock.hpp>
 using namespace bbt::coroutine;
 
 int main()

@@ -2,7 +2,7 @@
 #define BOOST_TEST_MAIN
 #include <boost/test/included/unit_test.hpp>
 
-#include <bbt/base/thread/Lock.hpp>
+#include <bbt/core/thread/Lock.hpp>
 #include <bbt/coroutine/coroutine.hpp>
 #include <bbt/coroutine/sync/CoMutex.hpp>
 using namespace bbt::coroutine::sync;
@@ -24,13 +24,13 @@ BOOST_AUTO_TEST_CASE(t_lock_unlock)
     int b = 0;
 
 
-    const uint64_t begin = bbt::clock::gettime_mono();
-    bbt::thread::CountDownLatch l{nco_num};
+    const uint64_t begin = bbt::core::clock::gettime_mono();
+    bbt::core::thread::CountDownLatch l{nco_num};
 
     for (int i = 0; i < nco_num; ++i) {
         bbtco [mutex, &a, &b, begin, &l]()
         {
-            while ((bbt::clock::gettime_mono() - begin) < nsec)
+            while ((bbt::core::clock::gettime_mono() - begin) < nsec)
             {
                 mutex->Lock();
                 BOOST_ASSERT(a == b);
@@ -55,13 +55,13 @@ BOOST_AUTO_TEST_CASE(t_try_lock)
     int a = 0;
     int b = 0;
 
-    const uint64_t begin = bbt::clock::gettime_mono();
-    bbt::thread::CountDownLatch l{nco_num};
+    const uint64_t begin = bbt::core::clock::gettime_mono();
+    bbt::core::thread::CountDownLatch l{nco_num};
 
     for (int i = 0; i < nco_num; ++i) {
         bbtco [mutex, &a, &b, begin, &l]()
         {
-            while ((bbt::clock::gettime_mono() - begin) < nsec)
+            while ((bbt::core::clock::gettime_mono() - begin) < nsec)
             {
                 if (mutex->TryLock(1) == 0) {
                     BOOST_ASSERT(a == b);

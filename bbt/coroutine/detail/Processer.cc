@@ -121,7 +121,7 @@ void Processer::_Run()
             AssertWithInfo(m_running_coroutine->GetStatus() != CO_RUNNING && m_running_coroutine->GetStatus() != CO_FINAL, "bad coroutine status!");
 
             // 执行前设置当前协程缓存
-            m_running_coroutine_begin.exchange( bbt::clock::gettime_mono<>());
+            m_running_coroutine_begin.exchange( bbt::core::clock::gettime_mono<>());
 #ifdef BBT_COROUTINE_PROFILE
             m_co_swap_times++;
 #endif
@@ -132,13 +132,13 @@ void Processer::_Run()
         if (g_scheduler->TryWorkSteal(shared_from_this()) <= 0)
         {
 #ifdef BBT_COROUTINE_PROFILE
-            auto begin = bbt::clock::now<bbt::clock::microseconds>();
+            auto begin = bbt::core::clock::now<bbt::core::clock::microseconds>();
 #endif
             std::unique_lock<std::mutex> lock_uptr(m_run_cond_mutex);
             m_run_status = ProcesserStatus::PROC_SUSPEND;
-            m_run_cond.wait_for(lock_uptr, bbt::clock::us(g_bbt_coroutine_config->m_cfg_processer_proc_interval_us));
+            m_run_cond.wait_for(lock_uptr, bbt::core::clock::us(g_bbt_coroutine_config->m_cfg_processer_proc_interval_us));
 #ifdef BBT_COROUTINE_PROFILE
-            m_suspend_cost_times += std::chrono::duration_cast<decltype(m_suspend_cost_times)>(bbt::clock::now<bbt::clock::microseconds>() - begin);
+            m_suspend_cost_times += std::chrono::duration_cast<decltype(m_suspend_cost_times)>(bbt::core::clock::now<bbt::core::clock::microseconds>() - begin);
 #endif
         }
     }
@@ -152,7 +152,7 @@ void Processer::Stop()
 
     do {
         m_is_running = false;
-        std::this_thread::sleep_for(bbt::clock::milliseconds(50));
+        std::this_thread::sleep_for(bbt::core::clock::milliseconds(50));
         m_run_cond.notify_one();
     } while (m_run_status != ProcesserStatus::PROC_EXIT);
 
@@ -204,7 +204,7 @@ void Processer::Steal(std::vector<Coroutine::SPtr>& works)
     }
     
     uint64_t prev_run = m_running_coroutine_begin.load();
-    auto already_run_time = bbt::clock::gettime_mono() - prev_run;
+    auto already_run_time = bbt::core::clock::gettime_mono() - prev_run;
     if (already_run_time < g_bbt_coroutine_config->m_cfg_processer_worksteal_timeout_ms) {
         return;
     }

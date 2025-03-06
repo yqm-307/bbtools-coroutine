@@ -1,6 +1,6 @@
 #pragma once
-#include <bbt/base/thread/Lock.hpp>
-#include <bbt/base/templateutil/Noncopyable.hpp>
+#include <bbt/core/thread/Lock.hpp>
+#include <bbt/core/templateutil/Noncopyable.hpp>
 #include <bbt/coroutine/detail/Define.hpp>
 #include <bbt/coroutine/utils/lockfree/concurrentqueue.h>
 
@@ -9,7 +9,7 @@ namespace bbt::coroutine::pool
 {
 
 class CoPool:
-    private bbt::templateutil::noncopyable
+    private bbt::core::templateutil::noncopyable
 {
 public:
     static std::shared_ptr<CoPool> Create(int max_co);
@@ -38,7 +38,7 @@ private:
                             m_cond{nullptr};
     std::mutex              m_cond_mtx;
 
-    bbt::thread::CountDownLatch m_latch;
+    bbt::core::thread::CountDownLatch m_latch;
 
 };
 

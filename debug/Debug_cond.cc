@@ -1,12 +1,12 @@
 #include <atomic>
 #include <bbt/coroutine/coroutine.hpp>
-#include <bbt/base/clock/Clock.hpp>
+#include <bbt/core/clock/Clock.hpp>
 #include <bbt/coroutine/sync/CoWaiter.hpp>
 #include <bbt/coroutine/sync/CoCond.hpp>
 using namespace bbt::coroutine;
 
 
-#define PrintTime(flag) printf("标记点=[%s]   协程id=[%ld] 时间戳=[%ld]\n", flag, GetLocalCoroutineId(), bbt::clock::now<>().time_since_epoch().count());
+#define PrintTime(flag) printf("标记点=[%s]   协程id=[%ld] 时间戳=[%ld]\n", flag, GetLocalCoroutineId(), bbt::core::clock::now<>().time_since_epoch().count());
 
 void debug_notify()
 {
@@ -49,7 +49,7 @@ void debug_notify()
         PrintTime("t7");
     };
 
-    std::this_thread::sleep_for(bbt::clock::milliseconds(4000));
+    std::this_thread::sleep_for(bbt::core::clock::milliseconds(4000));
 
     printf("=============================================================\n");
     printf("====================== wait timeout  ========================\n");
@@ -64,7 +64,7 @@ void debug_notify()
         printf("WaitRet=%d\n", ret);
     };
 
-    std::this_thread::sleep_for(bbt::clock::milliseconds(2000));
+    std::this_thread::sleep_for(bbt::core::clock::milliseconds(2000));
 
     g_scheduler->Stop();
 }
@@ -94,8 +94,8 @@ void dbg_coroutine_wait()
 void cocond()
 {
     std::mutex lock;
-    bbt::thread::CountDownLatch l{1};
-    bbt::thread::CountDownLatch l2{1};
+    bbt::core::thread::CountDownLatch l{1};
+    bbt::core::thread::CountDownLatch l2{1};
 
     bbtco [&](){
         auto cond = sync::CoCond::Create(lock);
@@ -119,8 +119,8 @@ void multi_cond_check()
 {
     std::mutex lock;
     const int nmax_wait_co = 1000;
-    bbt::thread::CountDownLatch l1{1};
-    bbt::thread::CountDownLatch l2{1};
+    bbt::core::thread::CountDownLatch l1{1};
+    bbt::core::thread::CountDownLatch l2{1};
 
     for (int i = 0; i < 12000; ++i) {
         l1.Reset(nmax_wait_co);

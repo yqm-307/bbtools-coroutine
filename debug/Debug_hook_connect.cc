@@ -1,10 +1,10 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
-#include <bbt/base/net/SocketUtil.hpp>
+#include <bbt/core/net/SocketUtil.hpp>
 #include <bbt/coroutine/coroutine.hpp>
 #include <bbt/coroutine/detail/Hook.hpp>
-#include <bbt/base/clock/Clock.hpp>
+#include <bbt/core/clock/Clock.hpp>
 using namespace bbt::coroutine;
 
 #define print(msg) (std::cout << msg << std::endl)
@@ -65,7 +65,7 @@ void echo_server(){
 
 void test()
 {
-    bbt::thread::CountDownLatch l{2};
+    bbt::core::thread::CountDownLatch l{2};
 
     bbtco[&l]()
     {
@@ -132,7 +132,7 @@ void recurrent()
 
     while (1)
     {
-        std::this_thread::sleep_for(bbt::clock::milliseconds(100));
+        std::this_thread::sleep_for(bbt::core::clock::milliseconds(100));
         bbtco [](){echo_client();};
     }    
 }

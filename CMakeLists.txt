@@ -40,10 +40,21 @@ message(
 )
 ################################################################
 
+set(Wall_Flag "-Wnon-virtual-dtor -Wdelete-non-virtual-dtor -Wdeprecated-copy \
+-Waddress -Warray-bounds=1 -Wbool-compare -Wbool-operation \
+-Wduplicated-branches -Wduplicated-cond \
+-Wchar-subscripts -Wformat -Wint-in-bool-context \
+-Wstrict-aliasing -Wstrict-overflow=1 -Wswitch \
+-Wtautological-compare -Wtrigraphs -Wuninitialized \
+-Wunused-function -Wunused-label \
+-Wunused-value -Wunused-variable -Wnonnull-compare \
+-Wmaybe-uninitialized -Wmemset-elt-size -Wreturn-type \
+-Wreorder")
+
 if (RELEASE)
-    set(CMAKE_CXX_FALGS "${CMAKE_CXX_FLAGS} -fPIC -std=c++17 -O3")
+    set(CMAKE_CXX_FALGS "${CMAKE_CXX_FLAGS} -fPIC -std=c++17 -O3 ${Wall_Flag}")
 else()
-    set(CMAKE_CXX_FALGS "${CMAKE_CXX_FLAGS} -std=c++17 -g")
+    set(CMAKE_CXX_FALGS "${CMAKE_CXX_FLAGS} -std=c++17 -g ${Wall_Flag}")
 endif()
 
 if (PROFILE)
@@ -74,7 +85,7 @@ target_link_libraries(bbt_coroutine
     event_core
     event_pthreads
     bbt_pollevent
-    ybbt
+    bbt_core
     # tcmalloc
 )
 

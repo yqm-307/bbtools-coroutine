@@ -3,7 +3,7 @@
 #include <boost/test/included/unit_test.hpp>
 
 #include <atomic>
-#include <bbt/base/clock/Clock.hpp>
+#include <bbt/core/clock/Clock.hpp>
 #include <bbt/coroutine/detail/Coroutine.hpp>
 #include <bbt/coroutine/detail/CoPoller.hpp>
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
@@ -30,7 +30,7 @@ BOOST_AUTO_TEST_CASE(t_poller_timeout_event_single)
     while (count != 1)
     {
         CoPoller::GetInstance()->PollOnce();
-        std::this_thread::sleep_for(bbt::clock::milliseconds(1));
+        std::this_thread::sleep_for(bbt::core::clock::milliseconds(1));
     }
     BOOST_CHECK(count == 1);
 }
@@ -75,13 +75,13 @@ BOOST_AUTO_TEST_CASE(t_poller_timerout_event_multi)
     }
 
     // 非阻塞情况下程序最多活10s
-    auto max_end_ts = bbt::clock::nowAfter(bbt::clock::seconds(2));
+    auto max_end_ts = bbt::core::clock::nowAfter(bbt::core::clock::seconds(2));
 
     /* 开始轮询，探测完成的事件并回调通知到协程事件完成 */
-    while (!bbt::clock::is_expired<bbt::clock::milliseconds>(max_end_ts))
+    while (!bbt::core::clock::is_expired<bbt::core::clock::milliseconds>(max_end_ts))
     {
         CoPoller::GetInstance()->PollOnce();
-        std::this_thread::sleep_for(bbt::clock::milliseconds(2));
+        std::this_thread::sleep_for(bbt::core::clock::milliseconds(2));
     }
 
     /* 所有超时时间完成，开始判断是否达成预期 */
@@ -121,13 +121,13 @@ BOOST_AUTO_TEST_CASE(t_poller_timerout_event_multi_thread)
     }
 
     // 非阻塞情况下程序最多活10s
-    auto max_end_ts = bbt::clock::nowAfter(bbt::clock::seconds(2));
+    auto max_end_ts = bbt::core::clock::nowAfter(bbt::core::clock::seconds(2));
 
     /* 开始轮询，探测完成的事件并回调通知到协程事件完成 */
-    while (!bbt::clock::is_expired<bbt::clock::milliseconds>(max_end_ts))
+    while (!bbt::core::clock::is_expired<bbt::core::clock::milliseconds>(max_end_ts))
     {
         CoPoller::GetInstance()->PollOnce();
-        std::this_thread::sleep_for(bbt::clock::microseconds(2));
+        std::this_thread::sleep_for(bbt::core::clock::microseconds(2));
     }
 
     for (auto&& item : threads)
