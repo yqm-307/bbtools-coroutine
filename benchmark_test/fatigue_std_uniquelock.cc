@@ -8,10 +8,10 @@ int main()
 
     g_scheduler->Start();
 
-    std::array<std::atomic_uint64_t, nco> alive_ts_arr{bbt::clock::gettime()};
+    std::array<std::atomic_uint64_t, nco> alive_ts_arr{bbt::core::clock::gettime()};
 
     for (auto&& it : alive_ts_arr)
-        it = bbt::clock::gettime();
+        it = bbt::core::clock::gettime();
 
 
     for (int i = 0; i < nco; ++i) {
@@ -19,7 +19,7 @@ int main()
             while (true) {
                 {
                     std::unique_lock<bbt::co::sync::StdLockWapper> _{lock};
-                    alive_ts_arr[i] = bbt::clock::gettime();
+                    alive_ts_arr[i] = bbt::core::clock::gettime();
                     Assert(a == b);
                     a++;
                     b++;
@@ -33,8 +33,8 @@ int main()
         while (true) {
             printf("checked\n");
             for (int i = 0; i < nco; ++i) {
-                if (bbt::clock::gettime() - alive_ts_arr[i] > 2000) {
-                    printf("co=%d diff=%d\n", i, bbt::clock::gettime() - alive_ts_arr[i]);
+                if (bbt::core::clock::gettime() - alive_ts_arr[i] > 2000) {
+                    printf("co=%d diff=%d\n", i, bbt::core::clock::gettime() - alive_ts_arr[i]);
                     continue;
                 }
             }

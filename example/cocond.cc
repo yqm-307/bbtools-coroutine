@@ -5,7 +5,7 @@ std::mutex mutex;
 int main()
 {
     /* 线程级别的waitgroup */
-    bbt::thread::CountDownLatch l{1};
+    bbt::core::thread::CountDownLatch l{1};
 
     g_scheduler->Start();
 

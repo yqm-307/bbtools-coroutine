@@ -1,5 +1,5 @@
 #include <cmath>
-#include <bbt/base/assert/Assert.hpp>
+#include <bbt/core/macroutil/Assert.hpp>
 #include <bbt/coroutine/detail/GlobalConfig.hpp>
 #include <bbt/coroutine/detail/StackPool.hpp>
 
@@ -16,7 +16,7 @@ StackPool::UPtr& StackPool::GetInstance()
 }
 
 StackPool::StackPool():
-    m_prev_adjust_pool_ts(bbt::clock::now<>())
+    m_prev_adjust_pool_ts(bbt::core::clock::now<>())
 {
 
 }
@@ -63,16 +63,16 @@ void StackPool::OnUpdate()
     if (m_rtts == 0)
         m_rtts = GetCurCoNum();
 
-    if (bbt::clock::is_expired<bbt::clock::milliseconds>(m_prev_rtts_sample_ts + bbt::clock::milliseconds(g_bbt_coroutine_config->m_cfg_stackpool_sample_interval))) {
+    if (bbt::core::clock::is_expired<bbt::core::clock::milliseconds>(m_prev_rtts_sample_ts + bbt::core::clock::milliseconds(g_bbt_coroutine_config->m_cfg_stackpool_sample_interval))) {
         m_rtts = ::floor(0.875 * m_rtts + 0.125 * GetCurCoNum());
     }
 
     /* 通过算法计算的程序应该存在栈数量 */
     int allowable_stack_num = ::floor((m_rate + 1) * m_rtts);
 
-    if ( bbt::clock::is_expired<bbt::clock::milliseconds>((m_prev_adjust_pool_ts + bbt::clock::milliseconds(500))))
+    if ( bbt::core::clock::is_expired<bbt::core::clock::milliseconds>((m_prev_adjust_pool_ts + bbt::core::clock::milliseconds(500))))
     {
-        m_prev_adjust_pool_ts = bbt::clock::now<>();
+        m_prev_adjust_pool_ts = bbt::core::clock::now<>();
         /* 除了配置保证最低限度的栈数量，其余超过的栈都释放掉 */
         if (allowable_stack_num >= g_bbt_coroutine_config->m_cfg_stackpool_min_alloc_size &&
             m_alloc_obj_count > allowable_stack_num)

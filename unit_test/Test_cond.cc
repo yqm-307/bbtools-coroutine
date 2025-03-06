@@ -3,12 +3,12 @@
 #include <boost/test/included/unit_test.hpp>
 
 #include <bbt/coroutine/coroutine.hpp>
-#include <bbt/base/clock/Clock.hpp>
+#include <bbt/core/clock/Clock.hpp>
 #include <bbt/coroutine/sync/CoWaiter.hpp>
 #include <bbt/coroutine/sync/CoCond.hpp>
 using namespace bbt::coroutine;
 
-#define PrintTime(flag) printf("标记点=[%s]   协程id=[%ld] 时间戳=[%ld]\n", flag, GetLocalCoroutineId(), bbt::clock::now<>().time_since_epoch().count());
+#define PrintTime(flag) printf("标记点=[%s]   协程id=[%ld] 时间戳=[%ld]\n", flag, GetLocalCoroutineId(), bbt::core::clock::now<>().time_since_epoch().count());
 
 BOOST_AUTO_TEST_SUITE(CoCondTest)
 
@@ -49,12 +49,12 @@ BOOST_AUTO_TEST_CASE(t_cond_multi)
     };
 
     // 非阻塞情况下程序最多活10s
-    auto max_end_ts = bbt::clock::nowAfter(bbt::clock::milliseconds(100));
+    auto max_end_ts = bbt::core::clock::nowAfter(bbt::core::clock::milliseconds(100));
 
     /* 开始轮询，探测完成的事件并回调通知到协程事件完成 */
-    while (!bbt::clock::is_expired<bbt::clock::milliseconds>(max_end_ts))
+    while (!bbt::core::clock::is_expired<bbt::core::clock::milliseconds>(max_end_ts))
     {
-        std::this_thread::sleep_for(bbt::clock::milliseconds(10));
+        std::this_thread::sleep_for(bbt::core::clock::milliseconds(10));
     }
 
 }
@@ -65,20 +65,20 @@ BOOST_AUTO_TEST_CASE(t_cond_wait_with_timeout)
     int a = 0;
     bbtco [&](){
         auto cond = sync::CoWaiter::Create();
-        auto begin = bbt::clock::gettime();
+        auto begin = bbt::core::clock::gettime();
         cond->WaitWithTimeout(wait_ms);
-        auto end = bbt::clock::gettime();
+        auto end = bbt::core::clock::gettime();
         a++;
 
         BOOST_CHECK_GE(end - begin, wait_ms);
     };
 
     // 非阻塞情况下程序最多活1s
-    auto max_end_ts = bbt::clock::nowAfter(bbt::clock::milliseconds(500));
+    auto max_end_ts = bbt::core::clock::nowAfter(bbt::core::clock::milliseconds(500));
 
     /* 开始轮询，探测完成的事件并回调通知到协程事件完成 */
-    while (a <= 0 && !bbt::clock::is_expired<bbt::clock::milliseconds>(max_end_ts))
-        std::this_thread::sleep_for(bbt::clock::milliseconds(10));
+    while (a <= 0 && !bbt::core::clock::is_expired<bbt::core::clock::milliseconds>(max_end_ts))
+        std::this_thread::sleep_for(bbt::core::clock::milliseconds(10));
 
     BOOST_CHECK(a == 1);
 }
@@ -88,7 +88,7 @@ BOOST_AUTO_TEST_CASE(t_cond_wait)
     std::mutex lock;
     const int nmax_co = 1000;
     std::atomic_int ncount{0};
-    bbt::thread::CountDownLatch l2{nmax_co};
+    bbt::core::thread::CountDownLatch l2{nmax_co};
 
     bbtco [&](){
         auto cond = sync::CoCond::Create(lock);

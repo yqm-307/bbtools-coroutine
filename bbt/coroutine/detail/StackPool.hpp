@@ -2,8 +2,8 @@
 #include <queue>
 #include <mutex>
 #include <bbt/coroutine/utils/lockfree/concurrentqueue.h>
-#include <bbt/base/clock/Clock.hpp>
-#include <bbt/base/thread/Lock.hpp>
+#include <bbt/core/clock/Clock.hpp>
+#include <bbt/core/thread/Lock.hpp>
 #include <bbt/coroutine/detail/Define.hpp>
 #include <bbt/coroutine/detail/Stack.hpp>
 
@@ -44,8 +44,8 @@ private:
 
     uint32_t                            m_rtts{0};              // 一段时间内，程序中平均值协程数量
     float                               m_rate{0.2};
-    bbt::clock::Timestamp<>             m_prev_adjust_pool_ts;
-    bbt::clock::Timestamp<>             m_prev_rtts_sample_ts;
+    bbt::core::clock::Timestamp<>             m_prev_adjust_pool_ts;
+    bbt::core::clock::Timestamp<>             m_prev_rtts_sample_ts;
 };
 
 }

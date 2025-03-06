@@ -17,7 +17,7 @@ BOOST_AUTO_TEST_CASE(t_test_copool)
 {
     auto pool = bbtco_make_copool(100);
     const int max_co = 100000;
-    bbt::thread::CountDownLatch l{max_co};
+    bbt::core::thread::CountDownLatch l{max_co};
     std::atomic_int count = 0;
 
     for (int i = 0; i < max_co; ++i) {

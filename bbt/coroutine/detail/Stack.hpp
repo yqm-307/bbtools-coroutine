@@ -1,7 +1,7 @@
 #pragma once
 #include <memory>
 #include <sys/mman.h>
-#include <bbt/base/templateutil/Noncopyable.hpp>
+#include <bbt/core/templateutil/Noncopyable.hpp>
 #include <bbt/coroutine/detail/Define.hpp>
 
 namespace bbt::coroutine::detail
@@ -19,7 +19,7 @@ namespace bbt::coroutine::detail
  * |        | <-- protect page (can`t read & write)
  */
 class Stack:
-    bbt::templateutil::noncopyable
+    bbt::core::templateutil::noncopyable
 {
 public:
     /**

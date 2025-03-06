@@ -1,6 +1,6 @@
 #include <iostream>
-#include <bbt/base/net/SocketUtil.hpp>
-#include <bbt/base/thread/Lock.hpp>
+#include <bbt/core/net/SocketUtil.hpp>
+#include <bbt/core/thread/Lock.hpp>
 #include <bbt/coroutine/coroutine.hpp>
 
 using namespace bbt::coroutine;
@@ -23,7 +23,7 @@ public:
 
 protected:
     void _Run(){
-        int listen_fd = bbt::net::Util::CreateListen("", m_listen_port, false);
+        int listen_fd = bbt::core::net::Util::CreateListen("", m_listen_port, false);
         // int listen_fd = bbt::net::Util::CreateListen("", m_listen_port, true);
         Assert(listen_fd >= 0);
 
@@ -59,7 +59,7 @@ protected:
         ::close(listen_fd);
     }
 private:
-    bbt::thread::CountDownLatch m_cdl{1};
+    bbt::core::thread::CountDownLatch m_cdl{1};
     short m_listen_port{-1};
 };
 

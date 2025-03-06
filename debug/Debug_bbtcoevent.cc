@@ -16,7 +16,7 @@ int main()
             Assert(a == 0);
         }
 
-        std::this_thread::sleep_for(bbt::clock::ms(100));
+        std::this_thread::sleep_for(bbt::core::clock::ms(100));
         printf("timenow:%ld ncount:%d\n", time(NULL), val.load());
     }
 

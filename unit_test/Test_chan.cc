@@ -3,8 +3,8 @@
 #include <boost/test/included/unit_test.hpp>
 
 #include <iostream>
-#include <bbt/base/thread/Lock.hpp>
-#include <bbt/base/clock/Clock.hpp>
+#include <bbt/core/thread/Lock.hpp>
+#include <bbt/core/clock/Clock.hpp>
 #include <bbt/coroutine/coroutine.hpp>
 #include <bbt/coroutine/sync/Chan.hpp>
 using namespace bbt::coroutine;
@@ -42,7 +42,7 @@ BOOST_AUTO_TEST_CASE(t_chan_1_vs_1)
 {
     BOOST_TEST_MESSAGE("enter t_chan_1_vs_1");
     std::atomic_int count = 0;
-    bbt::thread::CountDownLatch l{1};
+    bbt::core::thread::CountDownLatch l{1};
     bbtco [&count, &l](){
         auto c = Chan<int, 65535>();
         
@@ -69,7 +69,7 @@ BOOST_AUTO_TEST_CASE(t_chan_1_vs_1)
 BOOST_AUTO_TEST_CASE(t_chan_1_vs_n)
 {
     BOOST_TEST_MESSAGE("enter t_chan_1_vs_n");
-    bbt::thread::CountDownLatch l{1};
+    bbt::core::thread::CountDownLatch l{1};
     std::atomic_int count = 0;
     bbtco [&](){
         auto c = Chan<int, 65535>();
@@ -103,7 +103,7 @@ BOOST_AUTO_TEST_CASE(t_chan_operator_overload)
     BOOST_TEST_MESSAGE("enter t_chan_operator_overload");
     std::atomic_int count = 0;
     int wait_ms = 100;
-    bbt::thread::CountDownLatch l{1};
+    bbt::core::thread::CountDownLatch l{1};
 
     bbtco [&count, wait_ms, &l] () {
         bool succ = false;
@@ -149,7 +149,7 @@ BOOST_AUTO_TEST_CASE(t_chan_operator_overload)
 BOOST_AUTO_TEST_CASE(t_block_write)
 {
     BOOST_TEST_MESSAGE("enter t_block_write");
-    bbt::thread::CountDownLatch l{1};
+    bbt::core::thread::CountDownLatch l{1};
     bbtco [&](){
         auto chan = Chan<int, 100>();
         bbtco [&](){
@@ -169,7 +169,7 @@ BOOST_AUTO_TEST_CASE(t_block_write)
 BOOST_AUTO_TEST_CASE(t_block_write_n)
 {
     BOOST_TEST_MESSAGE("enter t_block_write_n");
-    bbt::thread::CountDownLatch l{1};
+    bbt::core::thread::CountDownLatch l{1};
     const int nwrite = 100;
     std::atomic_int n_read_succ_num{0};
     std::set<int> results;
@@ -210,7 +210,7 @@ BOOST_AUTO_TEST_CASE(t_block_write_n)
 BOOST_AUTO_TEST_CASE(t_nocache_chan_1v1)
 {
     BOOST_TEST_MESSAGE("enter t_nocache_chan_1v1");
-    bbt::thread::CountDownLatch l{1};
+    bbt::core::thread::CountDownLatch l{1};
     std::atomic_bool flag{false};
 
     bbtco [&](){
@@ -238,7 +238,7 @@ BOOST_AUTO_TEST_CASE(t_nocache_chan_1vn)
 
     const int nwrite_co_num = 100;
     int ncount = 0;
-    bbt::thread::CountDownLatch l{nwrite_co_num + 1};
+    bbt::core::thread::CountDownLatch l{nwrite_co_num + 1};
 
     bbtco [&](){
         auto chan = Chan<int, 0>();
@@ -268,7 +268,7 @@ BOOST_AUTO_TEST_CASE(t_close)
 {
     BOOST_TEST_MESSAGE("enter t_close");
     std::atomic_bool flag{false};
-    bbt::thread::CountDownLatch l{2};
+    bbt::core::thread::CountDownLatch l{2};
     
     auto chan = Chan<int, 65535>();
     bbtco [&flag, &chan, &l](){

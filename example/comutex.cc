@@ -3,8 +3,8 @@
 int main()
 {
     const int sec = 5;
-    auto end = bbt::clock::nowAfter<>(bbt::clock::ms(sec * 1000));
-    bbt::thread::CountDownLatch l{1};
+    auto end = bbt::core::clock::nowAfter<>(bbt::core::clock::ms(sec * 1000));
+    bbt::core::thread::CountDownLatch l{1};
 
     g_scheduler->Start();
 
@@ -14,7 +14,7 @@ int main()
         int a=0, b=0;
 
         bbtco_desc("productor") [&, comutex, end](){
-            while (!bbt::clock::is_expired<bbt::clock::ms>(end)) {
+            while (!bbt::core::clock::is_expired<bbt::core::clock::ms>(end)) {
                 comutex->Lock();
                 a++;
                 b++;
@@ -24,7 +24,7 @@ int main()
 
 
         bbtco_desc("consumer") [&, comutex, end](){
-            while (!bbt::clock::is_expired<bbt::clock::ms>(end)) {
+            while (!bbt::core::clock::is_expired<bbt::core::clock::ms>(end)) {
                 comutex->Lock();
                 Assert(a == b);
                 comutex->UnLock();
@@ -32,7 +32,7 @@ int main()
         };
         
 
-        while (!bbt::clock::is_expired<bbt::clock::ms>(end)) {
+        while (!bbt::core::clock::is_expired<bbt::core::clock::ms>(end)) {
             comutex->Lock();
             printf("current a=%d b=%d\n", a, b);
             comutex->UnLock();

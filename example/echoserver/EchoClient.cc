@@ -1,7 +1,7 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
-#include <bbt/base/thread/Lock.hpp>
+#include <bbt/core/thread/Lock.hpp>
 #include <bbt/coroutine/coroutine.hpp>
 
 using namespace bbt::coroutine;
@@ -50,7 +50,7 @@ protected:
         ::close(fd);
     }
 private:
-    bbt::thread::CountDownLatch m_cdl{1};
+    bbt::core::thread::CountDownLatch m_cdl{1};
     std::string m_ip;
     short       m_port;
 };

@@ -4,8 +4,8 @@
 
 #include <bbt/coroutine/detail/Hook.hpp>
 #include <bbt/coroutine/coroutine.hpp>
-#include <bbt/base/thread/Lock.hpp>
-#include <bbt/base/net/SocketUtil.hpp>
+#include <bbt/core/thread/Lock.hpp>
+#include <bbt/core/net/SocketUtil.hpp>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -27,7 +27,7 @@ BOOST_AUTO_TEST_CASE(t_hook_call)
 BOOST_AUTO_TEST_CASE(t_hook_socket)
 {
 
-    bbt::thread::CountDownLatch l{1};
+    bbt::core::thread::CountDownLatch l{1};
 
     bbtco[&l]()
     {
@@ -45,7 +45,7 @@ BOOST_AUTO_TEST_CASE(t_hook_socket)
 BOOST_AUTO_TEST_CASE(t_hook_connect)
 {
 
-    bbt::thread::CountDownLatch l{1};
+    bbt::core::thread::CountDownLatch l{1};
 
     bbtco[&l]()
     {
@@ -68,12 +68,12 @@ const char *msg = "hello world";
 
 BOOST_AUTO_TEST_CASE(t_hook_write)
 {
-    bbt::thread::CountDownLatch l{2};
+    bbt::core::thread::CountDownLatch l{2};
 
     bbtco[&l]()
     {
         BOOST_TEST_MESSAGE("[server] server co=" << bbt::coroutine::GetLocalCoroutineId());
-        int fd = bbt::net::Util::CreateListen("", 10001, true);
+        int fd = bbt::core::net::Util::CreateListen("", 10001, true);
         BOOST_ASSERT(fd >= 0);
         BOOST_TEST_MESSAGE("[server] create succ listen fd=" << fd);
         sockaddr_in cli_addr;
@@ -125,11 +125,11 @@ BOOST_AUTO_TEST_CASE(t_hook_write)
 
 BOOST_AUTO_TEST_CASE(t_hook_send)
 {
-    bbt::thread::CountDownLatch l{2};
+    bbt::core::thread::CountDownLatch l{2};
 
     bbtco[&l]()
     {
-        int fd = bbt::net::Util::CreateListen("", 10001, true);
+        int fd = bbt::core::net::Util::CreateListen("", 10001, true);
         BOOST_ASSERT(fd >= 0);
         sockaddr_in cli_addr;
         char *buf = new char[1024];

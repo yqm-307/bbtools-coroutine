@@ -5,7 +5,7 @@
 #include <malloc.h>
 #include <sys/types.h>
 
-#include <bbt/base/Logger/DebugPrint.hpp>
+#include <bbt/core/Logger/DebugPrint.hpp>
 #include "bbt/coroutine/detail/Stack.hpp"
 
 namespace bbt::coroutine::detail
@@ -55,7 +55,7 @@ int Stack::_ApplyStackProtect(char* mem_chunk, size_t mem_chunk_len)
     void* ptail = mem_chunk + mem_chunk_len - pagesize;
 
     if (mprotect(ptail, pagesize, PROT_NONE) < 0){
-        bbt::log::WarnPrint("%s, errno : %d %s", __FUNCTION__, errno, strerror(errno));
+        bbt::core::log::WarnPrint("%s, errno : %d %s", __FUNCTION__, errno, strerror(errno));
         return -1;
     }
 
@@ -68,7 +68,7 @@ int Stack::_ReleaseStackProtect()
     void* ptail = m_mem_chunk + m_mem_chunk_size - pagesize;
 
     if (mprotect(ptail, pagesize, PROT_READ | PROT_WRITE) < 0) {
-        bbt::log::WarnPrint("%s, errno : %d %s", __FUNCTION__, errno, strerror(errno));
+        bbt::core::log::WarnPrint("%s, errno : %d %s", __FUNCTION__, errno, strerror(errno));
         return -1;
     }
 

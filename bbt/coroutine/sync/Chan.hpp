@@ -3,7 +3,7 @@
 #include <mutex>
 #include <atomic>
 #include <array>
-#include <bbt/base/templateutil/Noncopyable.hpp>
+#include <bbt/core/templateutil/Noncopyable.hpp>
 #include <bbt/coroutine/detail/Define.hpp>
 #include <bbt/coroutine/detail/Coroutine.hpp>
 #include <bbt/coroutine/sync/interface/IChan.hpp>
@@ -32,7 +32,7 @@ namespace bbt::coroutine::sync
 template<class TItem, int Max>
 class Chan:
     public IChan<TItem>,
-    bbt::templateutil::noncopyable
+    bbt::core::templateutil::noncopyable
 {
 public:
     typedef TItem ItemType;

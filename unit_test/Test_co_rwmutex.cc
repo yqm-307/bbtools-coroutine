@@ -16,7 +16,7 @@ BOOST_AUTO_TEST_CASE(t_start_scheduler)
 /* 测试读锁非阻塞 */
 BOOST_AUTO_TEST_CASE(t_rlock_block)
 {
-    bbt::thread::CountDownLatch l{1};
+    bbt::core::thread::CountDownLatch l{1};
     bool succ = false;
 
     bbtco [&](){
@@ -51,7 +51,7 @@ BOOST_AUTO_TEST_CASE(t_rlock_block)
 
 BOOST_AUTO_TEST_CASE(t_rlock_wlock_block)
 {
-    bbt::thread::CountDownLatch l{1};
+    bbt::core::thread::CountDownLatch l{1};
 
     bbtco_desc("main co") [&](){
         int n = 0, m = 0;
@@ -78,7 +78,7 @@ BOOST_AUTO_TEST_CASE(t_rlock_wlock_block)
 BOOST_AUTO_TEST_CASE(t_rwlock_multi_co)
 {
     std::atomic_bool running = true;
-    bbt::thread::CountDownLatch l{1};
+    bbt::core::thread::CountDownLatch l{1};
     int nwrite = 0;
     int nread = 0;
 

@@ -1,6 +1,6 @@
 #pragma once
-#include <bbt/base/clock/Clock.hpp>
-#include <bbt/base/thread/Lock.hpp>
+#include <bbt/core/clock/Clock.hpp>
+#include <bbt/core/thread/Lock.hpp>
 #include <bbt/coroutine/utils/lockfree/blockingconcurrentqueue.h>
 #include <bbt/coroutine/detail/Processer.hpp>
 
@@ -54,7 +54,7 @@ protected:
     void                                        _OnUpdate();
 private:
     /* Scheduler */
-    bbt::clock::Timestamp<>                     m_begin_timestamp;  // 调度器开启时间
+    bbt::core::clock::Timestamp<>               m_begin_timestamp;  // 调度器开启时间
     std::thread*                                m_sche_thread{nullptr};
     std::vector<std::thread*>                   m_proc_threads;
 
@@ -64,7 +64,7 @@ private:
     uint32_t                                    m_load_idx{0};
     uint32_t                                    m_steal_idx{0};
     std::mutex                                  m_processer_map_mutex;
-    bbt::thread::CountDownLatch                 m_down_latch;
+    bbt::core::thread::CountDownLatch           m_down_latch;
 
     /* coroutine全局队列 */
     moodycamel::BlockingConcurrentQueue<Coroutine::SPtr>

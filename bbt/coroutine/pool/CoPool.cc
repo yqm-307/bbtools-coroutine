@@ -56,7 +56,7 @@ void CoPool::Release()
         if (g_bbt_tls_helper->EnableUseCo())
             bbtco_sleep(5);
         else
-            std::this_thread::sleep_for(bbt::clock::ms(5));
+            std::this_thread::sleep_for(bbt::core::clock::ms(5));
     } 
 
     m_latch.Wait();

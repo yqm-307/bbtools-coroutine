@@ -1,6 +1,6 @@
 #pragma once
 #include <deque>
-#include <bbt/base/thread/lock/Spinlock.hpp>
+#include <bbt/core/thread/lock/Spinlock.hpp>
 #include <bbt/coroutine/detail/Coroutine.hpp>
 
 namespace bbt::coroutine::detail
