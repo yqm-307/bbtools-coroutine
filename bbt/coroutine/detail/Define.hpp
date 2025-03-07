@@ -12,10 +12,10 @@
 #include <cstdint>
 #include <sys/timerfd.h>
 #include <sys/epoll.h>
-#include <bbt/core/Logger/DebugPrint.hpp>
+#include <bbt/core/log/DebugPrint.hpp>
 #include <bbt/core/clock/Clock.hpp>
 #include <bbt/core/Attribute.hpp>
-#include <bbt/core/macroutil/Assert.hpp>
+#include <bbt/core/util/Assert.hpp>
 
 // #define BBT_COROUTINE_PROFILE
 

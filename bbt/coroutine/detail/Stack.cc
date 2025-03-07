@@ -5,7 +5,7 @@
 #include <malloc.h>
 #include <sys/types.h>
 
-#include <bbt/core/Logger/DebugPrint.hpp>
+#include <bbt/core/log/DebugPrint.hpp>
 #include "bbt/coroutine/detail/Stack.hpp"
 
 namespace bbt::coroutine::detail

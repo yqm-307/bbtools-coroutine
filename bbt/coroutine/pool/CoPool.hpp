@@ -1,6 +1,6 @@
 #pragma once
+#include <boost/noncopyable.hpp>
 #include <bbt/core/thread/Lock.hpp>
-#include <bbt/core/templateutil/Noncopyable.hpp>
 #include <bbt/coroutine/detail/Define.hpp>
 #include <bbt/coroutine/utils/lockfree/concurrentqueue.h>
 
@@ -9,7 +9,7 @@ namespace bbt::coroutine::pool
 {
 
 class CoPool:
-    private bbt::core::templateutil::noncopyable
+    boost::noncopyable
 {
 public:
     static std::shared_ptr<CoPool> Create(int max_co);
