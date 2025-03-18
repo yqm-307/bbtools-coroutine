@@ -106,7 +106,7 @@ int CoPollEvent::InitFdEvent(int fd, short events, int timeout)
     
     m_timeout = timeout;
     auto weakthis = weak_from_this();
-    m_event = g_bbt_poller->CreateEvent(fd, events, [weakthis](std::shared_ptr<bbt::pollevent::Event>, short events){
+    m_event = g_bbt_poller->CreateEvent(fd, events, [weakthis](int fd, short events, bbt::pollevent::EventId eventid){
         Assert(!weakthis.expired());
         auto pthis = weakthis.lock();
         pthis->Trigger(events);
