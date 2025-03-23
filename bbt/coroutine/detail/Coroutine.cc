@@ -140,7 +140,8 @@ int Coroutine::YieldUntilTimeout(int ms)
 
     return YieldWithCallback([this, &lock](){
         int ret = (m_await_event->Regist() == 0);
-        lock.unlock();
+        // XXX 理论上不会出现owns_lock为false的情况，这里先处理一下。
+        if (lock.owns_lock()) lock.unlock();
         return ret;
     });
 }
@@ -198,7 +199,7 @@ int Coroutine::YieldUntilFdReadable(int fd)
     
     return YieldWithCallback([this, &lock](){
         int ret = (m_await_event->Regist() == 0);
-        lock.unlock();
+        if (lock.owns_lock()) lock.unlock();
         return ret;
     });
 }
@@ -219,7 +220,7 @@ int Coroutine::YieldUntilFdReadable(int fd, int timeout_ms)
 
     return YieldWithCallback([this, &lock](){
         int ret = (m_await_event->Regist() == 0);
-        lock.unlock();
+        if (lock.owns_lock()) lock.unlock();
         return ret;
     });
 }
@@ -240,7 +241,7 @@ int Coroutine::YieldUntilFdWriteable(int fd)
 
     return YieldWithCallback([this, &lock](){
         int ret = (m_await_event->Regist() == 0);
-        lock.unlock();
+        if (lock.owns_lock()) lock.unlock();
         return ret;
     });
 }
@@ -261,7 +262,7 @@ int Coroutine::YieldUntilFdWriteable(int fd, int timeout_ms)
 
     return YieldWithCallback([this, &lock](){
         int ret = (m_await_event->Regist() == 0);
-        lock.unlock();
+        if (lock.owns_lock()) lock.unlock();
         return ret;
     });
 }
