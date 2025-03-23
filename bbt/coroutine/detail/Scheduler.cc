@@ -89,7 +89,7 @@ void Scheduler::_OnUpdate()
         {
             std::string info = "";
             g_bbt_profiler->ProfileInfo(info);
-            bbt::log::DebugPrint(info.c_str());
+            bbt::core::log::DebugPrint(info.c_str());
             prev_profile_timepoint = bbt::core::clock::now<>();
         }
 #endif
@@ -181,7 +181,7 @@ void Scheduler::Stop()
 #ifdef BBT_COROUTINE_PROFILE
     std::string profileinfo;
     g_bbt_profiler->ProfileInfo(profileinfo);
-    bbt::log::DebugPrint(profileinfo.c_str());
+    bbt::core::log::DebugPrint(profileinfo.c_str());
 #endif
 
 }
