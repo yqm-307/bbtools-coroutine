@@ -83,6 +83,9 @@ void Coroutine::Yield()
 
 int Coroutine::YieldWithCallback(const CoroutineOnYieldCallback& cb)
 {
+    /**
+     * 确保协程挂起后，才可以触发事件
+     */
     Assert(m_run_status == CoroutineStatus::CO_RUNNING);
     m_run_status = CoroutineStatus::CO_SUSPEND;
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
@@ -127,10 +130,8 @@ int Coroutine::YieldUntilTimeout(int ms)
     if (m_await_event != nullptr)
         return -1;
 
-    auto wkthis = weak_from_this();
-    m_await_event = CoPollEvent::Create(GetId(), [wkthis](auto, int event, int custom_key){
-        auto pthis = wkthis.lock();
-        if (pthis != nullptr)
+    m_await_event = CoPollEvent::Create(GetId(), [wkthis{weak_from_this()}](auto, int event, int custom_key){
+        if (auto pthis = wkthis.lock(); pthis)
             pthis->OnCoPollEvent(event, custom_key);
     });
 
@@ -150,10 +151,8 @@ std::shared_ptr<CoPollEvent> Coroutine::RegistCustom(int key)
     if (m_await_event != nullptr)
         return nullptr;
     
-    auto wkthis = weak_from_this();
-    m_await_event = CoPollEvent::Create(GetId(), [wkthis](auto, int event, int custom_key){
-        auto pthis = wkthis.lock();
-        if (pthis)
+    m_await_event = CoPollEvent::Create(GetId(), [wkthis{weak_from_this()}](auto, int event, int custom_key){
+        if (auto pthis = wkthis.lock(); pthis)
             pthis->OnCoPollEvent(event, custom_key);
     });
 
@@ -169,10 +168,8 @@ std::shared_ptr<CoPollEvent> Coroutine::RegistCustom(int key, int timeout_ms)
     if (m_await_event != nullptr)
         return nullptr;
     
-    auto wkthis = weak_from_this();
-    m_await_event = CoPollEvent::Create(GetId(), [wkthis](auto, int event, int custom_key){
-        auto pthis = wkthis.lock();
-        if (pthis)
+    m_await_event = CoPollEvent::Create(GetId(), [wkthis{weak_from_this()}](auto, int event, int custom_key){
+        if (auto pthis = wkthis.lock(); pthis)
             pthis->OnCoPollEvent(event, custom_key);
     });
 
@@ -191,10 +188,8 @@ int Coroutine::YieldUntilFdReadable(int fd)
     if (m_await_event != nullptr)
         return -1;
     
-    auto wkthis = weak_from_this();
-    m_await_event = CoPollEvent::Create(GetId(), [wkthis](auto, int event, int custom_key){
-        auto pthis = wkthis.lock();
-        if (pthis)
+    m_await_event = CoPollEvent::Create(GetId(), [wkthis{weak_from_this()}](auto, int event, int custom_key){
+        if (auto pthis = wkthis.lock(); pthis)
             pthis->OnCoPollEvent(event, custom_key);
     });
 
@@ -214,15 +209,12 @@ int Coroutine::YieldUntilFdReadable(int fd, int timeout_ms)
     if (m_await_event != nullptr)
         return -1;
     
-    auto pthis = shared_from_this();
-    auto wkthis = weak_from_this();
-    m_await_event = CoPollEvent::Create(GetId(), [wkthis](auto, int event, int custom_key){
-        auto pthis = wkthis.lock();
-        if (pthis)
+    m_await_event = CoPollEvent::Create(GetId(), [wkthis{weak_from_this()}](auto, int event, int custom_key){
+        if (auto pthis = wkthis.lock(); pthis)
             pthis->OnCoPollEvent(event, custom_key);
     });
 
-    if (m_await_event->InitFdEvent(fd, EventOpt::READABLE | EventOpt::TIMEOUT | EventOpt::FINALIZE, timeout_ms))
+    if (m_await_event->InitFdEvent(fd, EventOpt::READABLE | EventOpt::TIMEOUT | EventOpt::FINALIZE, timeout_ms) != 0)
         return -1;
 
     return YieldWithCallback([this, &lock](){
@@ -238,10 +230,8 @@ int Coroutine::YieldUntilFdWriteable(int fd)
     if (m_await_event != nullptr)
         return -1;
     
-    auto wkthis = weak_from_this();
-    m_await_event = CoPollEvent::Create(GetId(), [wkthis](auto, int event, int custom_key){
-        auto pthis = wkthis.lock();
-        if (pthis)
+    m_await_event = CoPollEvent::Create(GetId(), [wkthis{weak_from_this()}](auto, int event, int custom_key){
+        if (auto pthis = wkthis.lock(); pthis)
             pthis->OnCoPollEvent(event, custom_key);
     });
 
@@ -260,12 +250,9 @@ int Coroutine::YieldUntilFdWriteable(int fd, int timeout_ms)
     std::unique_lock<std::mutex> lock(m_await_event_mutex);
     if (m_await_event != nullptr)
         return -1;
-    
 
-    auto wkthis = weak_from_this();
-    m_await_event = CoPollEvent::Create(GetId(), [wkthis](auto, int event, int custom_key){
-        auto pthis = wkthis.lock();
-        if (pthis)
+    m_await_event = CoPollEvent::Create(GetId(), [wkthis{weak_from_this()}](auto, int event, int custom_key){
+        if (auto pthis = wkthis.lock(); pthis)
             pthis->OnCoPollEvent(event, custom_key);
     });
 
