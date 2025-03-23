@@ -1,12 +1,12 @@
 #pragma once
-#include <bbt/core/templateutil/Noncopyable.hpp>
+#include <boost/noncopyable.hpp>
 #include <bbt/coroutine/detail/Define.hpp>
 
 namespace bbt::coroutine::detail
 {
 
 class Defer:
-    bbt::core::templateutil::noncopyable
+    boost::noncopyable
 {
 public:
     explicit Defer(DeferCallback&& defer_cb);

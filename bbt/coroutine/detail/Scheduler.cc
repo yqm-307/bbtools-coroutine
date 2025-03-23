@@ -1,5 +1,5 @@
 #include <cmath>
-#include <bbt/core/Logger/DebugPrint.hpp>
+#include <bbt/core/log/DebugPrint.hpp>
 #include <bbt/core/clock/Clock.hpp>
 #include <bbt/coroutine/detail/Scheduler.hpp>
 #include <bbt/coroutine/detail/Processer.hpp>

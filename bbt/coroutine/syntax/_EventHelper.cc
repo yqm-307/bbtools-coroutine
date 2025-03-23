@@ -36,7 +36,7 @@ int _EventHelper::operator-(const ExtCoEventCallback& event_handle)
     std::shared_ptr<_EventHelper> pthis = shared_from_this();
 
     /* 当事件触发时，注册一个事件处理协程 */
-    m_pollevent = g_bbt_poller->CreateEvent(m_fd, m_event, [pthis, event_handle](auto ev, short type){
+    m_pollevent = g_bbt_poller->CreateEvent(m_fd, m_event, [pthis, event_handle](int fd, short type, bbt::pollevent::EventId eventid){
         /**
          * 这里有个隐蔽的循环引用问题：
          * 
@@ -50,7 +50,7 @@ int _EventHelper::operator-(const ExtCoEventCallback& event_handle)
              * 如果是持久事件且使用者不想释放，直接返回。这样m_pollevent不会释放，下次触发再
              * 根据使用者提供的返回值来判断是否释放事件
              */
-            if(event_handle(ev->GetSocket(), type) && pthis->m_event & pollevent::EventOpt::PERSIST)
+            if(event_handle(fd, type) && pthis->m_event & pollevent::EventOpt::PERSIST)
                 return;
             pthis->m_pollevent = nullptr;
         };

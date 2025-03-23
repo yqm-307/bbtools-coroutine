@@ -1,8 +1,8 @@
 #include <stdio.h>
 #include <fcntl.h>
-#include <bbt/core/macroutil/Assert.hpp>
+#include <bbt/core/util/Assert.hpp>
 #include <bbt/core/clock/Clock.hpp>
-#include <bbt/core/Logger/DebugPrint.hpp>
+#include <bbt/core/log/DebugPrint.hpp>
 #include <bbt/coroutine/detail/CoPoller.hpp>
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
 #include <bbt/coroutine/utils/DebugPrint.hpp>
@@ -106,7 +106,7 @@ int CoPollEvent::InitFdEvent(int fd, short events, int timeout)
     
     m_timeout = timeout;
     auto weakthis = weak_from_this();
-    m_event = g_bbt_poller->CreateEvent(fd, events, [weakthis](std::shared_ptr<bbt::pollevent::Event>, short events){
+    m_event = g_bbt_poller->CreateEvent(fd, events, [weakthis](int fd, short events, bbt::pollevent::EventId eventid){
         Assert(!weakthis.expired());
         auto pthis = weakthis.lock();
         pthis->Trigger(events);
