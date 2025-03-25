@@ -261,6 +261,8 @@ typedef std::function<void()> DeferCallback;            // defer 执行函数
  */
 typedef std::function<void(std::shared_ptr<CoPollEvent>, int /*events*/, int)> CoPollEventCallback;      // Poller监听事件完成回调
 
+#undef MOODYCAMEL_CPP11_THREAD_LOCAL_SUPPORTED
+
 } // namespace bbt::coroutine::detail
 
 } // namespace bbt::coroutine
