@@ -95,7 +95,7 @@ void Profiler::ProfileInfo(std::string& info)
     info += "未释放协程数："    + std::to_string(m_create_coroutine_count.load() - m_destory_coroutine_count.load()) + '\n';
     info += "Steal数量："       + std::to_string(m_total_steal_count.load()) + '\n';
     info += "StackPool大小："   + std::to_string(g_bbt_stackpoll->AllocSize()) + '\n';
-    info += "StackPool Rtts："  + std::to_string(g_bbt_stackpoll->GetRtts()) + '\n';
+    info += "StackPool Rtts："  + std::to_string(g_bbt_stackpoll->GetCoAvgCount()) + '\n';
     info += "CoEvent 注册数量："  + std::to_string(m_regist_event_count.load()) + '\n';
     info += "CoEvent 触发数量："  + std::to_string(m_trigger_event_count.load()) + '\n';
     info += "StackPool 指标, alloc_count=" + std::to_string(m_stack_alloc_count.load()) + "\trelease_count=" + std::to_string(m_stack_release_count.load()) + '\n';

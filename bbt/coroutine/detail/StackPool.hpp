@@ -1,7 +1,6 @@
 #pragma once
 #include <queue>
 #include <mutex>
-// #include <bbt/coroutine/utils/lockfree/concurrentqueue.h>
 #include <bbt/core/thread/sync/Queue.hpp>
 #include <bbt/core/clock/Clock.hpp>
 #include <bbt/core/thread/Lock.hpp>
@@ -27,26 +26,33 @@ public:
     typedef Stack                       ItemType;
 
     static UPtr&                        GetInstance();
+
     StackPool();
     ~StackPool();
-
-    void                                Release(ItemType* item);
-    ItemType*                           Apply();
-    int                                 AllocSize();
-
-    // TODO后续做定时检测并释放
+    /* 定时更新，采样、动态调整池大小 */
     void                                OnUpdate();
-    int                                 GetRtts();
-protected:
+
+    /* 归还Stack */
+    void                                Release(ItemType* item);
+    /* 申请Stack */
+    ItemType*                           Apply();
+    /* 已经创建的Stack总数，非线程安全的参考值 */
+    int                                 AllocSize();
+    /* 最近使用Co的平均值，非线程安全的参考值 */
+    int                                 GetCoAvgCount();
+    /* 当前内存中Co数量，非线程安全的参考值 */
     int                                 GetCurCoNum();
+protected:
+    ItemType*                           _AllocItem();
+    void                                _FreeItem(ItemType* item);
 private:
     bbt::core::thread::Queue<ItemType*> m_pool{1024};
-    uint32_t                            m_alloc_obj_count{0};   // 总数
+    std::atomic_uint32_t                m_alloc_obj_count{0};   // 总数
 
-    uint32_t                            m_rtts{0};              // 一段时间内，程序中平均值协程数量
-    float                               m_rate{0.2};
-    bbt::core::clock::Timestamp<>             m_prev_adjust_pool_ts;
-    bbt::core::clock::Timestamp<>             m_prev_rtts_sample_ts;
+    std::atomic_uint32_t                m_co_avg{0};              // 一段时间内，程序中平均值协程数量
+    const float                         m_rate{0};
+    bbt::core::clock::Timestamp<>       m_prev_adjust_pool_ts;
+    bbt::core::clock::Timestamp<>       m_prev_rtts_sample_ts;
 };
 
 }

@@ -49,11 +49,8 @@ StackPool::ItemType* StackPool::Apply()
     if (m_pool.Pop(item))
         return item;
 
-#ifdef BBT_COROUTINE_PROFILE
-    g_bbt_profiler->OnEvent_StackAlloc();
-#endif
-    m_alloc_obj_count++;
-    return new Stack(g_bbt_coroutine_config->m_cfg_stack_size, g_bbt_coroutine_config->m_cfg_stack_protect);
+
+    return _AllocItem();
 }
 
 int StackPool::AllocSize()
@@ -64,15 +61,15 @@ int StackPool::AllocSize()
 
 void StackPool::OnUpdate()
 {
-    if (m_rtts == 0)
-        m_rtts = GetCurCoNum();
+    if (m_co_avg == 0)
+        m_co_avg = GetCurCoNum();
 
     if (bbt::core::clock::is_expired<bbt::core::clock::milliseconds>(m_prev_rtts_sample_ts + bbt::core::clock::milliseconds(g_bbt_coroutine_config->m_cfg_stackpool_sample_interval))) {
-        m_rtts = ::floor(0.875 * m_rtts + 0.125 * GetCurCoNum());
+        m_co_avg = ::floor(0.875 * m_co_avg + 0.125 * GetCurCoNum());
     }
 
     /* 通过算法计算的程序应该存在栈数量 */
-    int allowable_stack_num = ::floor((m_rate + 1) * m_rtts);
+    int allowable_stack_num = ::floor((m_rate + 1) * m_co_avg);
 
     if ( bbt::core::clock::is_expired<bbt::core::clock::milliseconds>((m_prev_adjust_pool_ts + bbt::core::clock::milliseconds(g_bbt_coroutine_config->m_cfg_stackpool_adjust_interval))))
     {
@@ -83,18 +80,13 @@ void StackPool::OnUpdate()
         {
             int delete_count = m_alloc_obj_count - allowable_stack_num;
 
-
-        for (int i = 0; i < delete_count; ++i) {
-            ItemType* item = nullptr;
-            if (m_pool.Pop(item)) {
-                    m_alloc_obj_count--;
-                    delete item;
-#ifdef BBT_COROUTINE_PROFILE
-                    g_bbt_profiler->OnEvent_StackRelease(1);
-#endif
-                }
-                else
+            for (int i = 0; i < delete_count; ++i)
+            {
+                ItemType* item = nullptr;
+                if (!m_pool.Pop(item))
                     break;
+
+                _FreeItem(item);
             }
         }
     }
@@ -105,9 +97,27 @@ int StackPool::GetCurCoNum()
     return (m_alloc_obj_count - m_pool.Size());
 }
 
-int StackPool::GetRtts()
+int StackPool::GetCoAvgCount()
 {
-    return m_rtts;
+    return m_co_avg;
+}
+
+StackPool::ItemType* StackPool::_AllocItem()
+{
+#ifdef BBT_COROUTINE_PROFILE
+    g_bbt_profiler->OnEvent_StackAlloc();
+#endif
+    m_alloc_obj_count++;
+    return new Stack(g_bbt_coroutine_config->m_cfg_stack_size, g_bbt_coroutine_config->m_cfg_stack_protect);
+}
+
+void StackPool::_FreeItem(ItemType* item)
+{
+    m_alloc_obj_count--;
+    delete item;
+#ifdef BBT_COROUTINE_PROFILE
+    g_bbt_profiler->OnEvent_StackRelease(1);
+#endif
 }
 
 
