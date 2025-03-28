@@ -1,7 +1,8 @@
 #pragma once
 #include <queue>
 #include <mutex>
-#include <bbt/coroutine/utils/lockfree/concurrentqueue.h>
+// #include <bbt/coroutine/utils/lockfree/concurrentqueue.h>
+#include <bbt/core/thread/sync/Queue.hpp>
 #include <bbt/core/clock/Clock.hpp>
 #include <bbt/core/thread/Lock.hpp>
 #include <bbt/coroutine/detail/Define.hpp>
@@ -39,7 +40,7 @@ public:
 protected:
     int                                 GetCurCoNum();
 private:
-    moodycamel::ConcurrentQueue<ItemType*> m_pool;
+    bbt::core::thread::Queue<ItemType*> m_pool{1024};
     uint32_t                            m_alloc_obj_count{0};   // 总数
 
     uint32_t                            m_rtts{0};              // 一段时间内，程序中平均值协程数量

@@ -26,14 +26,14 @@ StackPool::~StackPool()
 {
     ItemType* item = nullptr; 
     /* XXX 概率返回false不为空，需要验证 */
-    while (m_pool.try_dequeue(item)) {
+    while (m_pool.Pop(item)) {
         delete item;
     }
 }
 
 void StackPool::Release(ItemType* item)
 {
-    AssertWithInfo(m_pool.enqueue(item), "oom!");
+    AssertWithInfo(m_pool.Push(item), "oom!");
 }
 
 StackPool::ItemType* StackPool::Apply()
@@ -46,7 +46,7 @@ StackPool::ItemType* StackPool::Apply()
     }
 
     ItemType* item = nullptr;
-    if (m_pool.try_dequeue(item))
+    if (m_pool.Pop(item))
         return item;
 
 #ifdef BBT_COROUTINE_PROFILE
@@ -81,27 +81,28 @@ void StackPool::OnUpdate()
         if (allowable_stack_num >= g_bbt_coroutine_config->m_cfg_stackpool_min_alloc_size &&
             m_alloc_obj_count > allowable_stack_num)
         {
-            decltype(m_pool) m_swap_queue;
-            
-            m_swap_queue.swap(m_pool);
-            int count = m_swap_queue.size_approx();
+            int delete_count = m_alloc_obj_count - allowable_stack_num;
 
-#ifdef BBT_COROUTINE_PROFILE
-            g_bbt_profiler->OnEvent_StackRelease(count);
-#endif
-            m_alloc_obj_count -= count;
 
+        for (int i = 0; i < delete_count; ++i) {
             ItemType* item = nullptr;
-            while (m_swap_queue.try_dequeue(item))
-                delete item;
-
+            if (m_pool.Pop(item)) {
+                    m_alloc_obj_count--;
+                    delete item;
+#ifdef BBT_COROUTINE_PROFILE
+                    g_bbt_profiler->OnEvent_StackRelease(1);
+#endif
+                }
+                else
+                    break;
+            }
         }
     }
 }
 
 int StackPool::GetCurCoNum()
 {
-    return (m_alloc_obj_count - m_pool.size_approx());
+    return (m_alloc_obj_count - m_pool.Size());
 }
 
 int StackPool::GetRtts()
