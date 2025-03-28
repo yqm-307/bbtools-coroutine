@@ -35,6 +35,9 @@ public:
 
     void                        OnEvent_StealSucc(int num);
 
+    void                        OnEvent_StackRelease(int num);
+    void                        OnEvent_StackAlloc();
+
     void                        ProfileInfo(std::string& info);
 
     struct ProcesserProfile
@@ -63,6 +66,10 @@ private:
     /* CoEvent 相关指标 */
     std::atomic_uint64_t        m_regist_event_count{0};
     std::atomic_uint64_t        m_trigger_event_count{0};
+
+    /* StackPool 相关指标 */
+    std::atomic_uint64_t        m_stack_release_count{0};
+    std::atomic_uint64_t        m_stack_alloc_count{0};
 };
 
 }
