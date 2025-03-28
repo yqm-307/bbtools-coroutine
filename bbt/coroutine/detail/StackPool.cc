@@ -2,6 +2,7 @@
 #include <bbt/core/util/Assert.hpp>
 #include <bbt/coroutine/detail/GlobalConfig.hpp>
 #include <bbt/coroutine/detail/StackPool.hpp>
+#include <bbt/coroutine/detail/Profiler.hpp>
 
 namespace bbt::coroutine::detail
 {
@@ -25,14 +26,14 @@ StackPool::~StackPool()
 {
     ItemType* item = nullptr; 
     /* XXX 概率返回false不为空，需要验证 */
-    while (m_pool.try_dequeue(item)) {
+    while (m_pool.Pop(item)) {
         delete item;
     }
 }
 
 void StackPool::Release(ItemType* item)
 {
-    AssertWithInfo(m_pool.enqueue(item), "oom!");
+    AssertWithInfo(m_pool.Push(item), "oom!");
 }
 
 StackPool::ItemType* StackPool::Apply()
@@ -45,11 +46,11 @@ StackPool::ItemType* StackPool::Apply()
     }
 
     ItemType* item = nullptr;
-    if (m_pool.try_dequeue(item))
+    if (m_pool.Pop(item))
         return item;
 
-    m_alloc_obj_count++;
-    return new Stack(g_bbt_coroutine_config->m_cfg_stack_size, g_bbt_coroutine_config->m_cfg_stack_protect);
+
+    return _AllocItem();
 }
 
 int StackPool::AllocSize()
@@ -60,44 +61,63 @@ int StackPool::AllocSize()
 
 void StackPool::OnUpdate()
 {
-    if (m_rtts == 0)
-        m_rtts = GetCurCoNum();
+    if (m_co_avg == 0)
+        m_co_avg = GetCurCoNum();
 
     if (bbt::core::clock::is_expired<bbt::core::clock::milliseconds>(m_prev_rtts_sample_ts + bbt::core::clock::milliseconds(g_bbt_coroutine_config->m_cfg_stackpool_sample_interval))) {
-        m_rtts = ::floor(0.875 * m_rtts + 0.125 * GetCurCoNum());
+        m_co_avg = ::floor(0.875 * m_co_avg + 0.125 * GetCurCoNum());
     }
 
     /* 通过算法计算的程序应该存在栈数量 */
-    int allowable_stack_num = ::floor((m_rate + 1) * m_rtts);
+    int allowable_stack_num = ::floor((m_rate + 1) * m_co_avg);
 
-    if ( bbt::core::clock::is_expired<bbt::core::clock::milliseconds>((m_prev_adjust_pool_ts + bbt::core::clock::milliseconds(500))))
+    if ( bbt::core::clock::is_expired<bbt::core::clock::milliseconds>((m_prev_adjust_pool_ts + bbt::core::clock::milliseconds(g_bbt_coroutine_config->m_cfg_stackpool_adjust_interval))))
     {
         m_prev_adjust_pool_ts = bbt::core::clock::now<>();
         /* 除了配置保证最低限度的栈数量，其余超过的栈都释放掉 */
         if (allowable_stack_num >= g_bbt_coroutine_config->m_cfg_stackpool_min_alloc_size &&
             m_alloc_obj_count > allowable_stack_num)
         {
-            decltype(m_pool) m_swap_queue;
-            
-            m_swap_queue.swap(m_pool);
-            m_alloc_obj_count -= m_swap_queue.size_approx();
+            int delete_count = m_alloc_obj_count - allowable_stack_num;
 
-            ItemType* item = nullptr;
-            while (m_swap_queue.try_dequeue(item))
-                delete item;
+            for (int i = 0; i < delete_count; ++i)
+            {
+                ItemType* item = nullptr;
+                if (!m_pool.Pop(item))
+                    break;
 
+                _FreeItem(item);
+            }
         }
     }
 }
 
 int StackPool::GetCurCoNum()
 {
-    return (m_alloc_obj_count - m_pool.size_approx());
+    return (m_alloc_obj_count - m_pool.Size());
 }
 
-int StackPool::GetRtts()
+int StackPool::GetCoAvgCount()
 {
-    return m_rtts;
+    return m_co_avg;
+}
+
+StackPool::ItemType* StackPool::_AllocItem()
+{
+#ifdef BBT_COROUTINE_PROFILE
+    g_bbt_profiler->OnEvent_StackAlloc();
+#endif
+    m_alloc_obj_count++;
+    return new Stack(g_bbt_coroutine_config->m_cfg_stack_size, g_bbt_coroutine_config->m_cfg_stack_protect);
+}
+
+void StackPool::_FreeItem(ItemType* item)
+{
+    m_alloc_obj_count--;
+    delete item;
+#ifdef BBT_COROUTINE_PROFILE
+    g_bbt_profiler->OnEvent_StackRelease(1);
+#endif
 }
 
 

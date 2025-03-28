@@ -37,7 +37,8 @@ public:
     /* 栈池配置 */
     const size_t                                m_cfg_stackpool_max_alloc_size{1024 * 1000}; // 栈池中分配最大栈数量
     const size_t                                m_cfg_stackpool_min_alloc_size{1024};       // 栈池中最小栈数量
-    const size_t                                m_cfg_stackpool_sample_interval{100};       // 采样间隔
+    const size_t                                m_cfg_stackpool_sample_interval{10};        // 采样间隔
+    const size_t                                m_cfg_stackpool_adjust_interval{5000};      // 栈池进行动态调整间隔
 };
 
 } // namespace bbt::coroutine::detail
