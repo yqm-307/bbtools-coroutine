@@ -21,8 +21,7 @@ void VPrint(const char* fmt, ...);
 #define g_bbt_dbgp_full(msg) \
     __g_bbt_debug_printf_full(msg)
 
-#endif
-
+#else
 #define __g_bbt_debug_printf(fmt, ...)
 
 #define __g_bbt_debug_printf_full(msg)
@@ -30,4 +29,6 @@ void VPrint(const char* fmt, ...);
 #define g_bbt_dbgp(module, msg)
 
 #define g_bbt_dbgp_full(msg)
+#endif
+
 }

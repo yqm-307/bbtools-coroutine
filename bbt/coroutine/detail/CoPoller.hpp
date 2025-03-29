@@ -34,6 +34,7 @@ public:
     std::shared_ptr<bbt::pollevent::Event> 
                                     CreateEvent(int fd, short events, const bbt::pollevent::OnEventCallback& onevent_cb);
 
+    /* 线程安全的，多次调用仅第一次有效 */
     void                            NotifyCustomEvent(std::shared_ptr<CoPollEvent> event);
     std::shared_ptr<bbt::pollevent::EventLoop>
                                     GetEventLoop() const;
