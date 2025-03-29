@@ -135,14 +135,16 @@ int CoPollEvent::Regist()
     g_bbt_dbgmgr->OnEvent_RegistEvent(shared_from_this());
 #endif
 
+    _OnListen();
+
     if (m_event != nullptr && (_RegistFdEvent() != 0)) {
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
     g_bbt_dbgmgr->OnEvent_TriggerEvent(shared_from_this());
 #endif
+        m_run_status = CoPollEventStatus::POLLEVENT_INITED;
         return -1;
     }
 
-    _OnListen();
     std::string event = m_event == nullptr ? "-1" : std::to_string(m_event->GetEvents());
     g_bbt_dbgp_full(("[CoEvent:Regist] co=" + std::to_string(m_co_id) +
                                      " event=" + event +
@@ -158,7 +160,6 @@ int CoPollEvent::Regist()
 
 void CoPollEvent::_OnListen()
 {
-    int ret = 0;
     m_run_status = CoPollEventStatus::POLLEVENT_LISTEN;
 }
 

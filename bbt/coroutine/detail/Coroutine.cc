@@ -126,10 +126,7 @@ void Coroutine::_OnCoroutineFinal()
 
 int Coroutine::YieldUntilTimeout(int ms)
 {
-    std::unique_lock<std::mutex> lock(m_await_event_mutex);
-    if (m_await_event != nullptr)
-        return -1;
-
+    Assert(m_await_event == nullptr);
     m_await_event = CoPollEvent::Create(GetId(), [wkthis{weak_from_this()}](auto, int event, int custom_key){
         if (auto pthis = wkthis.lock(); pthis)
             pthis->OnCoPollEvent(event, custom_key);
@@ -138,17 +135,13 @@ int Coroutine::YieldUntilTimeout(int ms)
     if (m_await_event->InitFdEvent(-1, EventOpt::TIMEOUT, ms) != 0)
         return -1;
 
-    return YieldWithCallback([this, &lock](){
-        int ret = (m_await_event->Regist() == 0);
-        // XXX 理论上不会出现owns_lock为false的情况，这里先处理一下。
-        if (lock.owns_lock()) lock.unlock();
-        return ret;
+    return YieldWithCallback([this](){
+        return (m_await_event->Regist() == 0);
     });
 }
 
 std::shared_ptr<CoPollEvent> Coroutine::RegistCustom(int key)
 {
-    std::unique_lock<std::mutex> _(m_await_event_mutex);
     if (m_await_event != nullptr)
         return nullptr;
     
@@ -165,7 +158,6 @@ std::shared_ptr<CoPollEvent> Coroutine::RegistCustom(int key)
 
 std::shared_ptr<CoPollEvent> Coroutine::RegistCustom(int key, int timeout_ms)
 {
-    std::unique_lock<std::mutex> _(m_await_event_mutex);
     if (m_await_event != nullptr)
         return nullptr;
     
@@ -185,10 +177,7 @@ std::shared_ptr<CoPollEvent> Coroutine::RegistCustom(int key, int timeout_ms)
 
 int Coroutine::YieldUntilFdReadable(int fd)
 {
-    std::unique_lock<std::mutex> lock(m_await_event_mutex);
-    if (m_await_event != nullptr)
-        return -1;
-    
+    Assert(m_await_event == nullptr);
     m_await_event = CoPollEvent::Create(GetId(), [wkthis{weak_from_this()}](auto, int event, int custom_key){
         if (auto pthis = wkthis.lock(); pthis)
             pthis->OnCoPollEvent(event, custom_key);
@@ -197,18 +186,14 @@ int Coroutine::YieldUntilFdReadable(int fd)
     if (m_await_event->InitFdEvent(fd, EventOpt::READABLE | EventOpt::FINALIZE, 0) != 0)
         return -1;
     
-    return YieldWithCallback([this, &lock](){
-        int ret = (m_await_event->Regist() == 0);
-        if (lock.owns_lock()) lock.unlock();
-        return ret;
+    return YieldWithCallback([this](){
+        return (m_await_event->Regist() == 0);
     });
 }
 
 int Coroutine::YieldUntilFdReadable(int fd, int timeout_ms)
 {
-    std::unique_lock<std::mutex> lock(m_await_event_mutex);
-    if (m_await_event != nullptr)
-        return -1;
+    Assert(m_await_event == nullptr);
     
     m_await_event = CoPollEvent::Create(GetId(), [wkthis{weak_from_this()}](auto, int event, int custom_key){
         if (auto pthis = wkthis.lock(); pthis)
@@ -218,19 +203,14 @@ int Coroutine::YieldUntilFdReadable(int fd, int timeout_ms)
     if (m_await_event->InitFdEvent(fd, EventOpt::READABLE | EventOpt::TIMEOUT | EventOpt::FINALIZE, timeout_ms) != 0)
         return -1;
 
-    return YieldWithCallback([this, &lock](){
-        int ret = (m_await_event->Regist() == 0);
-        if (lock.owns_lock()) lock.unlock();
-        return ret;
+    return YieldWithCallback([this](){
+        return (m_await_event->Regist() == 0);
     });
 }
 
 int Coroutine::YieldUntilFdWriteable(int fd)
 {
-    std::unique_lock<std::mutex> lock(m_await_event_mutex);
-    if (m_await_event != nullptr)
-        return -1;
-    
+    Assert(m_await_event == nullptr);
     m_await_event = CoPollEvent::Create(GetId(), [wkthis{weak_from_this()}](auto, int event, int custom_key){
         if (auto pthis = wkthis.lock(); pthis)
             pthis->OnCoPollEvent(event, custom_key);
@@ -239,19 +219,14 @@ int Coroutine::YieldUntilFdWriteable(int fd)
     if (m_await_event->InitFdEvent(fd, EventOpt::WRITEABLE | EventOpt::FINALIZE, 0) != 0)
         return -1;
 
-    return YieldWithCallback([this, &lock](){
-        int ret = (m_await_event->Regist() == 0);
-        if (lock.owns_lock()) lock.unlock();
-        return ret;
+    return YieldWithCallback([this](){
+        return (m_await_event->Regist() == 0);
     });
 }
 
 int Coroutine::YieldUntilFdWriteable(int fd, int timeout_ms)
 {
-    std::unique_lock<std::mutex> lock(m_await_event_mutex);
-    if (m_await_event != nullptr)
-        return -1;
-
+    Assert(m_await_event == nullptr);
     m_await_event = CoPollEvent::Create(GetId(), [wkthis{weak_from_this()}](auto, int event, int custom_key){
         if (auto pthis = wkthis.lock(); pthis)
             pthis->OnCoPollEvent(event, custom_key);
@@ -260,24 +235,22 @@ int Coroutine::YieldUntilFdWriteable(int fd, int timeout_ms)
     if (m_await_event->InitFdEvent(fd, EventOpt::WRITEABLE | EventOpt::TIMEOUT | EventOpt::FINALIZE, timeout_ms) != 0)
         return -1;
 
-    return YieldWithCallback([this, &lock](){
-        int ret = (m_await_event->Regist() == 0);
-        if (lock.owns_lock()) lock.unlock();
-        return ret;
+    return YieldWithCallback([this](){
+        return (m_await_event->Regist() == 0);
     });
 }
 
 void Coroutine::OnCoPollEvent(int event, int custom_key)
 {
-    std::unique_lock<std::mutex> _(m_await_event_mutex);
     Assert(m_await_event != nullptr);
 
     m_last_resume_event = event;
 
-    g_scheduler->OnActiveCoroutine(shared_from_this());
+    // 先取消事件，然后push到全局队列中
     g_bbt_dbgp_full(("[CoEvent:Trigger] co=" + std::to_string(GetId()) + " trigger_event=" + std::to_string(event) + " id=" + std::to_string(m_await_event->GetId()) + " customkey=" + std::to_string(custom_key)).c_str());
-
     m_await_event = nullptr;
+    g_scheduler->OnActiveCoroutine(shared_from_this());
+
 }
 
 int Coroutine::GetLastResumeEvent()

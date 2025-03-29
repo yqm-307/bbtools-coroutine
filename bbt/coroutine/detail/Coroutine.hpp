@@ -132,7 +132,6 @@ private:
     FollowEventStatus               m_actived_event{DEFAULT}; // 触发的事件
 
     std::shared_ptr<CoPollEvent>    m_await_event{nullptr};
-    std::mutex                      m_await_event_mutex;
 
     CoroutineFinalCallback          m_co_final_callback{nullptr};
     CoroutineOnYieldCallback        m_co_onyield_callback{nullptr};
