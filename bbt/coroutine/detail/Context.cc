@@ -64,7 +64,7 @@ int Context::YieldWithCallback(const CoroutineOnYieldCallback& cb)
     m_onyield_callback = nullptr;
     m_onyield_callback_result = YieldCheckStatus::NO_CHECK;
 
-    return 0;
+    return ret;
 }
 
 
