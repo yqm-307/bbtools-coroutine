@@ -91,7 +91,7 @@ BOOST_AUTO_TEST_CASE(t_cond_wait)
     bbt::core::thread::CountDownLatch l2{nmax_co};
 
     bbtco [&](){
-        auto cond = sync::CoCond::Create(lock);
+        auto cond = sync::CoCond::Create();
 
         for (int i = 0; i < nmax_co; ++i) {
             bbtco [&](){

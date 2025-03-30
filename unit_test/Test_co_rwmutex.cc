@@ -4,7 +4,6 @@
 
 #include <bbt/coroutine/coroutine.hpp>
 
-std::mutex lock;
 
 BOOST_AUTO_TEST_SUITE(CoRWMutexTest)
 
@@ -20,7 +19,7 @@ BOOST_AUTO_TEST_CASE(t_rlock_block)
     bool succ = false;
 
     bbtco [&](){
-        auto cocond = bbt::coroutine::sync::CoCond::Create(lock);
+        auto cocond = bbt::coroutine::sync::CoCond::Create();
         auto rwlock = bbt::coroutine::sync::CoRWMutex::Create();
         bbtco [=, &succ](){
             rwlock->RLock();
