@@ -25,11 +25,13 @@ CoPool::CoPool(int max):
 
 CoPool::~CoPool()
 {
+    // 先释放所有任务
     Work* item = nullptr;
     while (m_works_queue.try_dequeue(item))
         delete item;
 
-    AssertWithInfo(m_running_co_num == 0, "no release!");
+    // 释放所有coroutine
+    Release();
 }
 
 int CoPool::Submit(const CoPoolWorkCallback& workfunc)

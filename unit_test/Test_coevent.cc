@@ -26,6 +26,7 @@ BOOST_AUTO_TEST_CASE(t_regist_event_timeout)
     l.Wait();
 }
 
+/* fd可读事件 */
 BOOST_AUTO_TEST_CASE(t_regist_event_fd_ev_readable)
 {
     bbt::core::thread::CountDownLatch l{1};
@@ -52,42 +53,81 @@ BOOST_AUTO_TEST_CASE(t_regist_event_fd_ev_readable)
     ::close(wfd);
 }
 
-BOOST_AUTO_TEST_CASE(t_regist_event_persist)
+
+/* fd可写事件 */
+BOOST_AUTO_TEST_CASE(t_regist_event_fd_ev_writeable)
 {
     bbt::core::thread::CountDownLatch l{1};
+    const char msg[] = "hello";
+    char buf[10] = {'0'};
 
-    int i = 0;
+    int fds[2];
+    Assert(pipe(fds) == 0);
+    int rfd = fds[0];
+    int wfd = fds[1];
 
-    __bbtco_event_regist_ex(-1, bbtco_emev_persist, 10) [&](auto, short event){
-        if (++i < 5)
-            return true;
-        
-        l.Down();
-        return false;
-    }; 
+    bbtco_ev_w(fds[1]) [&](int fd, short event)
+    {
+        BOOST_CHECK_EQUAL(::write(fd, msg, strlen(msg)), strlen(msg));
+    };
 
-    l.Wait();
-    BOOST_CHECK_EQUAL(i, 5);
+    BOOST_CHECK_EQUAL(::read(rfd, buf, sizeof(msg)), strlen(msg));
+    BOOST_CHECK(memcmp(buf, msg, strlen(msg)) == 0);
+    ::close(rfd);
+    ::close(wfd);
 }
 
 BOOST_AUTO_TEST_CASE(t_regist_event_with_copool)
 {
     bbt::core::thread::CountDownLatch l{1};
-    int i = 0;
-    auto copool = bbtco_make_copool(10);
 
-    __bbtco_event_regist_with_copool_ex(-1, bbtco_emev_persist, 10, copool)
-    [&](auto, short event){
-        if (++i < 5)
-            return true;
-        
+    auto copool = bbtco_make_copool(10);
+    auto cocond = bbtco_make_cocond();
+    auto chan = bbt::co::sync::Chan<int, 10>();
+
+    auto succ = bbtco_ev_t_with_copool(10, copool) [&](auto, auto){
+        for (int i = 0; i < 100; ++i)
+        {
+            chan << i;
+        }
+    };
+    Assert(succ == 0);
+
+    bbtco [&](){
+        while (true)
+        {
+            int val = 0;
+            chan >> val;
+            // printf("read: %d\n", val);
+            if (val == 99)
+                break;
+        }
+
         l.Down();
-        return false;
+    };
+    
+    l.Wait();
+}
+
+BOOST_AUTO_TEST_CASE(t_regist_event_fd_timeout)
+{
+    bbt::core::thread::CountDownLatch l{1};
+
+    int fds[2];
+    Assert(pipe(fds) == 0);
+    int rfd = fds[0];
+    int wfd = fds[1];
+    auto start_time = bbt::core::clock::gettime();
+
+    bbtco_ev_rt(fds[1], 100) [&](int fd, short event)
+    {
+        BOOST_CHECK_GE(bbt::core::clock::gettime() - 100, start_time);
+        l.Down();
     };
 
     l.Wait();
-    copool->Release();
-    BOOST_CHECK_EQUAL(i, 5);
+    ::close(rfd);
+    ::close(wfd);
 }
 
 BOOST_AUTO_TEST_CASE(t_end)

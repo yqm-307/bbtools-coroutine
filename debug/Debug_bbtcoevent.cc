@@ -2,25 +2,69 @@
 
 void debug_1()
 {
-    while (true)
-    {
-        bbt::core::thread::CountDownLatch l{1};
-        std::atomic_int i = 0;
-        auto copool = bbtco_make_copool(10);
+    auto copool = bbtco_make_copool(10);
+    auto cocond = bbtco_make_cocond();
+    auto chan = bbt::co::sync::Chan<int, 10>();
+
+    auto succ = bbtco_ev_t_with_copool(10, copool) [&](auto, auto){
+        for (int i = 0; i < 100; ++i)
+        {
+            chan << i;
+        }
+    };
+    Assert(succ == 0);
+
+    bbtco [&](){
+        while (true)
+        {
+            int val = 0;
+            chan >> val;
+            printf("read: %d\n", val);
+            if (val == 99)
+                break;
+        }
+    };
+
+
+    sleep(2);
+}
+
+void debug_2()
+{
+    bbtco [](){
+        while (true)
+        {
+            printf("======== turn once =========\n");
+            auto cond = bbtco_make_cocond();
+            auto chan = bbt::co::sync::Chan<int, 10>();
+            std::atomic_int count{0};
+
+            bbtco [&](){
+                while (true)
+                {
+                    bbtco_sleep(10);
+                    printf("enter once! %d\n", count.load());
+                    if (count < 5) {
+                        count++;
+                        printf("write: %d\n", count.load());
+                        chan << count.load();
+                    }
+                    else
+                        break;
+                }
+            };
     
-        __bbtco_event_regist_with_copool_ex(-1, bbtco_emev_persist, 10, copool)
-        [&](auto, short event){
-            if (++i < 100)
-                return true;
-            
-            l.Down();
-            return false;
-        };
-    
-        l.Wait();
-        copool->Release();
-        assert(i == 100);
-    }
+            for (int i = 0; i < 5; ++i)
+            {
+                int val = 0;
+                chan >> val;
+                printf("read: %d\n", val);
+            }
+            chan.Close();
+            Assert(count == 5);
+        }
+    };
+    sleep(10000);
 }
 
 int main()
@@ -29,6 +73,7 @@ int main()
     std::atomic_int val = 0;
 
     debug_1();
+    debug_2();
 
     g_scheduler->Stop();
 }

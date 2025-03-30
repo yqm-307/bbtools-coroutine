@@ -8,6 +8,16 @@
 namespace bbt::coroutine::pool
 {
 
+/**
+ * @brief 协程池，池子会创建固定数量的协程来处理任务
+ * 
+ * 注意：
+ * 1. 协程池的协程数量是固定的，不能动态增加
+ * 2. 在协程池中执行任务，如过执行阻塞操作导致协程挂起，会占用这个协程
+ *   导致池子中可用协程数变少
+ * 3. 协程池中的协程会一直存在，直到协程池被销毁
+ * 
+ */
 class CoPool:
     boost::noncopyable
 {
@@ -20,6 +30,10 @@ public:
 
     virtual int             Submit(const CoPoolWorkCallback& workfunc);
     virtual int             Submit(CoPoolWorkCallback&& workfunc);
+
+    /**
+     * @brief 阻塞直到，池中所有协程全部退出
+     */
     virtual void            Release();
 protected:
     void                    _Start();

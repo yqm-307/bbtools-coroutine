@@ -34,7 +34,7 @@ do \
 /* copool */
 #define bbtco_make_copool(pool_max_co) bbt::coroutine::pool::CoPool::Create(pool_max_co)
 
-/* event */
+/* 禁止直接使用 */
 #define __bbtco_event_regist_ex(fd, event, time) (*std::make_shared<bbt::coroutine::_EventHelper>(fd, event, time))-
 #define __bbtco_event_regist_with_copool_ex(fd, event, time, copool) (*std::make_shared<bbt::coroutine::_EventHelper>(fd, event, time, copool))-
 
@@ -51,12 +51,11 @@ do \
  * bbtco_ev_[event type]
  * 
  * event type:
- * [w] 监听套接字可读
- * [r] 监听套接字可写
+ * [w] 监听套接字可写
+ * [r] 监听套接字可读
  * [c] 监听套接字关闭
  * [t] 监听超时
  * 
- * 若不满足，可使用 __bbtco_event_regist_ex
  */
 #define bbtco_ev_w(fd)  __bbtco_event_regist_ex(fd, bbtco_emev_writeable, -1)
 #define bbtco_ev_r(fd)  __bbtco_event_regist_ex(fd, bbtco_emev_readable, -1)
@@ -67,3 +66,13 @@ do \
 #define bbtco_ev_wtc(fd, timeout_ms) __bbtco_event_regist_ex(fd, bbtco_emev_writeable | bbtco_emev_timeout | bbtco_emev_finalize, timeout_ms)
 #define bbtco_ev_rtc(fd, timeout_ms) __bbtco_event_regist_ex(fd, bbtco_emev_readable | bbtco_emev_timeout | bbtco_emev_finalize, timeout_ms)
 #define bbtco_ev_t(timeout_ms) __bbtco_event_regist_ex(-1, bbtco_emev_timeout, timeout_ms)
+
+#define bbtco_ev_w_with_copool(fd, copool)  __bbtco_event_regist_with_copool_ex(fd, bbtco_emev_writeable, -1, copool)
+#define bbtco_ev_r_with_copool(fd, copool)  __bbtco_event_regist_with_copool_ex(fd, bbtco_emev_readable, -1, copool)
+#define bbtco_ev_wc_with_copool(fd, copool) __bbtco_event_regist_with_copool_ex(fd, bbtco_emev_writeable | bbtco_emev_finalize, -1, copool)
+#define bbtco_ev_rc_with_copool(fd, copool) __bbtco_event_regist_with_copool_ex(fd, bbtco_emev_readable | bbtco_emev_finalize, -1, copool)
+#define bbtco_ev_wt_with_copool(fd, timeout_ms, copool) __bbtco_event_regist_with_copool_ex(fd, bbtco_emev_writeable | bbtco_emev_timeout, timeout_ms, copool)
+#define bbtco_ev_rt_with_copool(fd, timeout_ms, copool) __bbtco_event_regist_with_copool_ex(fd, bbtco_emev_readable | bbtco_emev_timeout, timeout_ms, copool)
+#define bbtco_ev_wtc_with_copool(fd, timeout_ms, copool) __bbtco_event_regist_with_copool_ex(fd, bbtco_emev_writeable | bbtco_emev_timeout | bbtco_emev_finalize, timeout_ms, copool)
+#define bbtco_ev_rtc_with_copool(fd, timeout_ms, copool) __bbtco_event_regist_with_copool_ex(fd, bbtco_emev_readable | bbtco_emev_timeout | bbtco_emev_finalize, timeout_ms, copool)
+#define bbtco_ev_t_with_copool(timeout_ms, copool) __bbtco_event_regist_with_copool_ex(-1, bbtco_emev_timeout, timeout_ms, copool)
