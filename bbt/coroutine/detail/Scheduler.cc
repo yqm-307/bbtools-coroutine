@@ -198,7 +198,7 @@ size_t Scheduler::GetGlobalCoroutine(std::vector<Coroutine::SPtr>& coroutines, s
         if (!m_global_coroutine_deque.try_dequeue(item))
             break;
 
-        coroutines.push_back(item);
+        coroutines.emplace_back(item);
     }
 
     return coroutines.size();
