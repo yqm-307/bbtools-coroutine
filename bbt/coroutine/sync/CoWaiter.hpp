@@ -4,21 +4,14 @@
 namespace bbt::coroutine::sync
 {
 
-class CoWaiter:
-    public std::enable_shared_from_this<CoWaiter>
+class CoWaiter
 {
 public:
     typedef std::shared_ptr<CoWaiter> SPtr;
-    static SPtr                         Create(bool nolock = false);
+    static SPtr                         Create();
 
-    /**
-     * @brief 
-     * 
-     * @param nolock 如果使用无锁版本，请使用WaitWithCallback系列函数，由外部加锁，通过callback解锁
-     * @return BBTATTR_FUNC_Ctor_Hidden 
-     */
-    BBTATTR_FUNC_Ctor_Hidden            CoWaiter(bool nolock);
-                                        ~CoWaiter();
+    CoWaiter();
+    ~CoWaiter();
 
     /**
      * @brief 挂起当前协程，直到被唤醒。如果有多个协程调用Wait族函数只有第一个成功
@@ -60,11 +53,7 @@ public:
      */
     int                                 Notify();
 protected:
-    void                                _Lock();
-    void                                _UnLock();
-protected:
     std::shared_ptr<detail::CoPollEvent> m_co_event{nullptr};
-    std::mutex*                         m_co_event_mutex{nullptr};
     volatile CoCondStatus               m_run_status{COND_DEFAULT};
 };
 

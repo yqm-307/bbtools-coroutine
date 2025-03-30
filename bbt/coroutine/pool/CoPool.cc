@@ -17,7 +17,7 @@ std::shared_ptr<CoPool> CoPool::Create(int max_co)
 CoPool::CoPool(int max):
     m_max_co_num(max),
     m_latch(m_max_co_num + 1), // monitor co + work co
-    m_cond(sync::CoCond::Create(m_cond_mtx))
+    m_cond(sync::CoCond::Create())
 {
     Assert(m_max_co_num > 0);
     _Start();

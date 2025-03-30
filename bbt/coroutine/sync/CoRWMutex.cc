@@ -122,14 +122,14 @@ int CoRWMutex::_NotifyAll(bool reader)
 
 int CoRWMutex::_WaitRLock(detail::CoroutineOnYieldCallback&& cb)
 {
-    auto waiter = CoWaiter::Create(true);
+    auto waiter = CoWaiter::Create();
     m_wait_readlock_queue.push(waiter);
     return waiter->WaitWithCallback(std::forward<detail::CoroutineOnYieldCallback&&>(cb));
 }
 
 int CoRWMutex::_WaitWLock(detail::CoroutineOnYieldCallback&& cb)
 {
-    auto waiter = CoWaiter::Create(true);
+    auto waiter = CoWaiter::Create();
     m_wait_writelock_queue.push(waiter);
     return waiter->WaitWithCallback(std::forward<detail::CoroutineOnYieldCallback&&>(cb));
 }

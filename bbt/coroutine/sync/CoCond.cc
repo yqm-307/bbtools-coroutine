@@ -4,75 +4,59 @@
 namespace bbt::coroutine::sync
 {
 
-CoCond::SPtr CoCond::Create(std::mutex& lock)
+CoCond::SPtr CoCond::Create()
 {
-    return std::make_shared<CoCond>(lock);
+    return std::make_shared<CoCond>();
 }
 
-CoCond::CoCond(std::mutex& lock):
-    m_lock_ref(lock)
+CoCond::CoCond()
 {
 }
 
 CoCond::~CoCond()
 {
-    std::unique_lock<std::mutex> lock{m_lock_ref};
-    if (!m_waiter_queue.empty())
-        g_bbt_dbgp_full((std::to_string(m_waiter_queue.size()) + " coroutine maybe have been lost permanently!").c_str());
-    // NotifyAll();
+    if (!m_waiter_queue.Empty())
+        g_bbt_dbgp_full((std::to_string(m_waiter_queue.Size()) + " coroutine maybe have been lost permanently!").c_str());
 }
 
 int CoCond::Wait()
 {
-    std::unique_lock<std::mutex> lock{m_lock_ref};
-    auto waiter = CoWaiter::Create(true);
-    m_waiter_queue.push(waiter);
+    auto waiter = CoWaiter{};
 
-    int ret = waiter->WaitWithCallback([&lock](){
-        lock.unlock();
+    return waiter.WaitWithCallback([&](){
+        m_waiter_queue.Push(&waiter);
         return true;
-    });
-
-    return ret;
+    });;
 }
 
 int CoCond::WaitFor(int ms)
 {
-    std::unique_lock<std::mutex> lock{m_lock_ref};
-    auto waiter = CoWaiter::Create(true);
-    m_waiter_queue.push(waiter);
-
-    int ret = waiter->WaitWithTimeoutAndCallback(ms, [&lock](){
-        lock.unlock();
+    auto waiter = CoWaiter{};
+    
+    return waiter.WaitWithTimeoutAndCallback(ms, [&](){
+        m_waiter_queue.Push(&waiter);
         return true;
     });
-
-    return ret;
 }
 
 void CoCond::NotifyAll()
 {
-    std::unique_lock<std::mutex> lock{m_lock_ref};
-    while (!m_waiter_queue.empty())
+    while (!m_waiter_queue.Empty())
         _NotifyOne();
 }
 
 int CoCond::NotifyOne()
 {
-    std::unique_lock<std::mutex> lock{m_lock_ref};
     return _NotifyOne();
 }
 
 int CoCond::_NotifyOne()
 {
     int ret = -1;
-    if (m_waiter_queue.empty())
-        return ret;
-    
-    while (!m_waiter_queue.empty()) {
-        auto waiter = m_waiter_queue.front();
-        m_waiter_queue.pop();
-        if (waiter->Notify() == 0) {
+    while (!m_waiter_queue.Empty()) {
+        CoWaiter* waiter = nullptr;
+        if (m_waiter_queue.Pop(waiter) && (waiter->Notify() == 0))
+        {
             ret = 0;
             break;
         }

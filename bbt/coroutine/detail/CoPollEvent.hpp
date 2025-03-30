@@ -34,10 +34,12 @@ public:
     int                             GetFd() const;
     int64_t                         GetTimeout() const;
 
-    int                             Trigger(short trigger_events);
     /* 初始化后调用Regist注册事件 */
     int                             InitFdEvent(int fd, short events, int timeout);
     int                             InitCustomEvent(int key, void* args);
+
+    /* 注册、触发、反注册都是线程安全的，意味着可以在任意线程执行 */
+    int                             Trigger(short trigger_events);
     int                             Regist();
     int                             UnRegist();
 

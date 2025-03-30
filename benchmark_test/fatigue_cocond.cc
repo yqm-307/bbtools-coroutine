@@ -6,17 +6,16 @@ int main()
     g_scheduler->Start();
 
     /**
-     * 开启1000个协程不停挂起，在唤醒后标记自己的计数
+     * 开启n个协程不停挂起，在唤醒后标记自己的计数
      * 
      * 开启一个协程定时唤醒，并检查计数
      */
 
     std::array<std::atomic_int, nco> alive_arr{0};
-    std::mutex mutex;
     std::atomic_int current_frame{0};
 
 
-    auto cond = bbtco_make_cocond(mutex);
+    auto cond = bbtco_make_cocond();
 
     for (int i = 0; i < nco; ++i) {
         bbtco [&, i](){

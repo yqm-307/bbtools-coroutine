@@ -15,10 +15,19 @@ enum FollowEventStatus
 };
 
 /**
- * @brief 协程对象
+ * @brief
+ *
+ * Coroutine是一个协程对象，封装了协程的上下文和状态信息。
  * 
- * 原则上协程对象不允许多线程共享，目前协程对象只能通过全局队列来
- * 在多线程之间传递，这一方式是为了提高访问协程的效率。
+ * Coroutine还提供了常用的挂起、唤醒以及基于事件的挂起和唤醒的功能。 
+ * 
+ * Coroutine使用shared_ptr来控制生命期，其主要目的是为了在使用
+ * 基于EventLoop的调度器中不会被意外释放。减少编写调度器的难度，
+ * 但是目前Scheduler和Processer的实现可以保证一个Coroutine只
+ * 会在一个时刻，被一个Processer访问到，因为所有Coroutine执行都
+ * 在Processer的上下文中进行。
+ * 
+ * TODO ： 不再使用shared_ptr来控制Coroutine的生命周期
  * 
  */
 class Coroutine:
@@ -37,17 +46,69 @@ public:
     static SPtr                     Create(int stack_size, const CoroutineCallback& co_func, bool need_protect = true);
     static SPtr                     Create(int stack_size, const CoroutineCallback& co_func, const CoroutineFinalCallback& co_final_cb, bool need_protect = true);
 
+    /**
+     * @brief 唤醒协程。切换到协程的上下文中执行。
+     */
     virtual void                    Resume() override;
+
+    /**
+     * @brief 挂起协程。保存协程上下文，并回到调用Resume的上下文中
+     */
     virtual void                    Yield() override;
+
+    /**
+     * @brief 挂起协程，并在挂起成功后执行函数
+     * 
+     * 因为协程在Processer中执行，但是EventLoop在Scheduler中运行。
+     * 如果当前Coroutine在挂起前注册事件，可能会导致Scheduler中
+     * 立即触发此事件并将Coroutine放入就绪队列，导致当前Coroutine
+     * 还没被挂起就被唤醒了。
+     * 
+     * 因此这个函数是为了在挂起成功后，保证Event同步操作的。
+     * 
+     * @param cb 在挂起成功后执行的函数
+     * @return int 成功返回0，cb执行失败返回-1
+     */
     virtual int                     YieldWithCallback(const CoroutineOnYieldCallback& cb) override;
     /* 手动挂起co并加入到全局队列中，和事件触发挂起无冲突，因为一个协程内逻辑串行 */
+
+    /**
+     * @brief 挂起协程，并将协程加入到全局就绪队列中去
+     */
     virtual void                    YieldAndPushGCoQueue();
 
     virtual CoroutineId             GetId() override;
     CoroutineStatus                 GetStatus();
     int                             GetLastResumeEvent();
 
-    /* 事件相关 */
+    /**
+     * YieldUnitl事件
+     * 
+     * 这些事件是为了让Coroutine支持事件驱动的挂起和唤醒。
+     * 
+     * 工作原理：
+     * 首先Coroutine只能在Processer中被访问，当Coroutine执行YieldUnitl被挂起时，
+     * Coroutine会被存储在Event中，此时Coroutine就会被挂起了。Processer会继续执
+     * 行其他Coroutine。当Scheduler中发现有Coroutine的等待事件就绪了，就会将对应
+     * 的Coroutine放入到就绪队列中去。Coroutine只能在一个Processer中被访问，所以
+     * Coroutine可以保证事件是唯一的，不会出现同一个Coroutine被多次唤醒的情况。
+     * 
+     *  事件触发有两种情况：
+     *      1、Scheduler中事件就绪了，会将Coroutine放入就绪队列中去；
+     *      2、其他Processer中触发了Custom事件，会将Coroutine放入就绪队列中去。
+     * 
+     * 支持的事件有：
+     * - 可读事件：当fd可读
+     * - 可写事件：当fd可写
+     * - 超时事件：当超过指定时间
+     * - 自定义事件：当自定义事件被触发
+     * 
+     * Q: 事件触发是否为异步的？
+     * A: 是的，首先明确Coroutine只能在Processer中被访问，且YieldUnitl
+     * 只能由当前Coroutine主动调用，那么事件注册的唯一性就可以保证了。
+     * 
+     */
+
     int                             YieldUntilTimeout(int ms);
     std::shared_ptr<CoPollEvent>    RegistCustom(int key);
     std::shared_ptr<CoPollEvent>    RegistCustom(int key, int timeout_ms);
@@ -71,7 +132,6 @@ private:
     FollowEventStatus               m_actived_event{DEFAULT}; // 触发的事件
 
     std::shared_ptr<CoPollEvent>    m_await_event{nullptr};
-    std::mutex                      m_await_event_mutex;
 
     CoroutineFinalCallback          m_co_final_callback{nullptr};
     CoroutineOnYieldCallback        m_co_onyield_callback{nullptr};

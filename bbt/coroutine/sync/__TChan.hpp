@@ -13,7 +13,7 @@ namespace bbt::coroutine::sync
 template<class TItem, int Max>
 Chan<TItem, Max>::Chan():
     m_max_size(Max),
-    m_enable_read_cond(CoWaiter::Create(true))
+    m_enable_read_cond(CoWaiter::Create())
 {
     Assert(m_max_size >= 0);
     m_run_status = ChanStatus::CHAN_OPEN;
@@ -277,7 +277,7 @@ int Chan<TItem, Max>::_OnEnableWrite()
 template<class TItem, int Max>
 CoWaiter::SPtr Chan<TItem, Max>::_CreateAndPushEnableWriteCond()
 {
-    auto enable_write_cond = CoWaiter::Create(true);
+    auto enable_write_cond = CoWaiter::Create();
     Assert(enable_write_cond != nullptr);
     m_enable_write_conds.push(enable_write_cond);
 

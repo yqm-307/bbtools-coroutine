@@ -93,12 +93,11 @@ void dbg_coroutine_wait()
 
 void cocond()
 {
-    std::mutex lock;
     bbt::core::thread::CountDownLatch l{1};
     bbt::core::thread::CountDownLatch l2{1};
 
     bbtco [&](){
-        auto cond = sync::CoCond::Create(lock);
+        auto cond = sync::CoCond::Create();
 
         bbtco [&](){
             cond->Wait();
@@ -117,7 +116,6 @@ void cocond()
 
 void multi_cond_check()
 {
-    std::mutex lock;
     const int nmax_wait_co = 1000;
     bbt::core::thread::CountDownLatch l1{1};
     bbt::core::thread::CountDownLatch l2{1};
@@ -127,7 +125,7 @@ void multi_cond_check()
         l2.Reset(1);
         std::atomic_int wait_count{0};
         bbtco [&, i](){
-            auto cond = sync::CoCond::Create(lock);
+            auto cond = sync::CoCond::Create();
 
             for (int i = 0; i < nmax_wait_co; ++i) {
                 bbtco [&](){
@@ -152,9 +150,8 @@ void multi_cond_check()
 
 void consumer_producer()
 {
-    std::mutex lock;
     bbtco [&](){
-        auto cond = sync::CoCond::Create(lock);
+        auto cond = sync::CoCond::Create();
 
         bbtco_desc("this is consumer co!") 
         [&](){

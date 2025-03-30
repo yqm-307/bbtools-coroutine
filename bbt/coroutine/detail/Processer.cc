@@ -216,7 +216,7 @@ void Processer::Steal(std::vector<Coroutine::SPtr>& works)
         if (!m_coroutine_queue.try_dequeue(item))
             break;
 
-        works.push_back(item);
+        works.emplace_back(item);
     }
 
 #ifdef BBT_COROUTINE_PROFILE
