@@ -9,6 +9,7 @@ namespace bbt::coroutine
 _EventHelper::_EventHelper(int fd, short event, int ms):
     m_fd(fd), m_event(event), m_timeout(ms)
 {
+    Assert((m_event & bbt::pollevent::PERSIST) == 0);
     if (m_event > 0)
         m_arg_check_rlt = true;
 }
@@ -16,6 +17,7 @@ _EventHelper::_EventHelper(int fd, short event, int ms):
 _EventHelper::_EventHelper(int fd, short event, int ms, std::shared_ptr<pool::CoPool> pool):
     m_fd(fd), m_event(event), m_timeout(ms), m_copool(pool)
 {
+    Assert((m_event & bbt::pollevent::PERSIST) == 0);
     if (m_event > 0)
         m_arg_check_rlt = true;
 }
@@ -50,8 +52,7 @@ int _EventHelper::operator-(const ExtCoEventCallback& event_handle)
              * 如果是持久事件且使用者不想释放，直接返回。这样m_pollevent不会释放，下次触发再
              * 根据使用者提供的返回值来判断是否释放事件
              */
-            if(event_handle(fd, type) && pthis->m_event & pollevent::EventOpt::PERSIST)
-                return;
+            event_handle(fd, type);
             pthis->m_pollevent = nullptr;
         };
 

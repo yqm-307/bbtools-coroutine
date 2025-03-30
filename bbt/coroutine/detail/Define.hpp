@@ -56,7 +56,7 @@ enum SchedulerStartOpt
  * 
  * @return 对于persist事件，返回false会自动注销掉当前事件
  */
-typedef std::function<bool(int /*fd*/, short /*trigger event*/)> ExtCoEventCallback;
+typedef std::function<void(int /*fd*/, short /*trigger event*/)> ExtCoEventCallback;
 
 namespace pool
 {
