@@ -80,7 +80,11 @@ int CoPollEvent::Trigger(short trigger_events)
     if (m_onevent_callback != nullptr) {
         int event = TransformToPollEventType(trigger_events, trigger_events & POLL_EVENT_CUSTOM);
         AssertWithInfo(event > 0, "may be has a bug! trigger event must greater then 0!"); // 事件触发必须有原因
+        lock.unlock();
+
         m_onevent_callback(shared_from_this(), trigger_events, m_custom_key);
+
+        lock.lock();
     }
 
     _OnFinal();
@@ -166,19 +170,15 @@ void CoPollEvent::_OnListen()
 int CoPollEvent::UnRegist()
 {
     std::unique_lock lock{m_onevent_callback_mtx};
-    int ret = 0;
 
     /* 只能对监听中的任务执行操作 */
     if (m_run_status != CoPollEventStatus::POLLEVENT_LISTEN)
         return -1;
 
-    if (ret == 0)
-    {
-        m_event->CancelListen();
-        m_run_status = CoPollEventStatus::POLLEVENT_CANNEL;
-    }
+    m_event->CancelListen();
+    m_run_status = CoPollEventStatus::POLLEVENT_CANNEL;
 
-    return ret;
+    return 0;
 }
 
 // int CoPollEvent::_RegistCustomEvent()
