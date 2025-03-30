@@ -25,7 +25,6 @@ int main()
                 count++;
             });
 
-        pool->Release();
         count++;
     }
 

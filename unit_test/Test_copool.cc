@@ -29,7 +29,6 @@ BOOST_AUTO_TEST_CASE(t_test_copool)
     }
 
     l.Wait();
-    pool->Release();
 
     BOOST_CHECK_EQUAL(count, max_co);
 }

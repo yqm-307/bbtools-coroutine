@@ -20,7 +20,6 @@ int main()
 
     l.Wait();
 
-    pool->Release();
 
     g_scheduler->Stop();
     printf("time cost: %ldms\n", bbt::core::clock::gettime() - begin);
