@@ -33,3 +33,6 @@ target_link_libraries(fatigue_std_uniquelock ${MY_LIBS})
 
 add_executable(mem_check_test mem_check_test.cc)
 target_link_libraries(mem_check_test ${MY_LIBS})
+
+add_executable(benchmark_cocond benchmark_cocond.cc)
+target_link_libraries(benchmark_cocond ${MY_LIBS})

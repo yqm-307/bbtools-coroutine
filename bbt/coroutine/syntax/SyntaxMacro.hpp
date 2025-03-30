@@ -28,7 +28,7 @@ do \
 } while(0);
 
 /* sync */
-#define bbtco_make_cocond(mtx)     bbt::coroutine::sync::CoCond::Create(mtx)
+#define bbtco_make_cocond()     bbt::coroutine::sync::CoCond::Create()
 #define bbtco_make_comutex()    bbt::coroutine::sync::CoMutex::Create()
 #define bbtco_make_corwmutex()  bbt::coroutine::sync::CoRWMutex::Create()
 /* copool */

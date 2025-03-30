@@ -34,7 +34,7 @@ void echo_client(){
 void echo_server(){
     printf("[server] co=%ld\n", bbt::coroutine::GetLocalCoroutineId());
 
-    int fd = bbt::net::Util::CreateListen("", 10001, true);
+    int fd = bbt::core::net::Util::CreateListen("", 10001, true);
     Assert(fd >= 0);
 
     printf("[server] listenfd=%d\n", fd);
@@ -49,7 +49,7 @@ void echo_server(){
         int new_fd = ::accept(fd, (sockaddr *)(&cli_addr), &len);
         Assert(new_fd >= 0);
 
-        Assert(bbt::net::Util::SetFdNoBlock(new_fd) == 0);
+        Assert(bbt::core::net::Util::SetFdNoBlock(new_fd) == 0);
 
         printf("[server] read msg! fd=%d\n", new_fd);
 
@@ -70,7 +70,7 @@ void test()
     bbtco[&l]()
     {
         print("[server] server co=" << bbt::coroutine::GetLocalCoroutineId());
-        int fd = bbt::net::Util::CreateListen("", 10001, true);
+        int fd = bbt::core::net::Util::CreateListen("", 10001, true);
         Assert(fd >= 0);
         print("[server] create succ listen fd=" << fd);
         sockaddr_in cli_addr;
@@ -82,7 +82,7 @@ void test()
         int new_fd = ::accept(fd, (sockaddr *)(&cli_addr), &len);
         Assert(new_fd >= 0);
 
-        Assert(bbt::net::Util::SetFdNoBlock(new_fd) == 0);
+        Assert(bbt::core::net::Util::SetFdNoBlock(new_fd) == 0);
         print("[server] read msg! fd=" << new_fd);
         int read_len = ::read(new_fd, buf, 1024);
         Assert(read_len != 0);

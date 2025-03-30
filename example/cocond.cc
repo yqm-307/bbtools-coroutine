@@ -1,6 +1,5 @@
 #include <bbt/coroutine/coroutine.hpp>
 
-std::mutex mutex;
 
 int main()
 {
@@ -16,7 +15,7 @@ int main()
         bbtco_desc("wait co") [](){
 
             /* 创建cond */
-            auto cond = bbtco_make_cocond(mutex);
+            auto cond = bbtco_make_cocond();
 
             /* 启动cond notify 协程 */
             bbtco_desc("notify co") [&](){
