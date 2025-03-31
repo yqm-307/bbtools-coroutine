@@ -61,14 +61,6 @@ public:
     virtual int TryWrite(const ItemType& item, int timeout) = 0;
 
     /**
-     * @brief 读取所有值
-     * 
-     * @param item 
-     * @return int 
-     */
-    virtual int ReadAll(std::vector<ItemType>& item) = 0;
-
-    /**
      * @brief 关闭当前信道
      * 
      */
