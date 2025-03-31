@@ -12,10 +12,9 @@ namespace bbt::coroutine::sync
 
 template<class TItem, int Max>
 Chan<TItem, Max>::Chan():
-    m_max_size(Max),
     m_enable_read_cond(CoWaiter::Create())
 {
-    Assert(m_max_size >= 0);
+    static_assert(Max >= 0);
     m_run_status = ChanStatus::CHAN_OPEN;
 }
 
@@ -37,7 +36,7 @@ int Chan<TItem, Max>::Write(const ItemType& item)
         sync::CoWaiter co_writeable_waiter;
         if (co_writeable_waiter.WaitWithCallback([&]()
         {
-            AssertWithInfo(m_enable_write_conds.push(&co_writeable_waiter), "oom");
+            AssertWithInfo(m_enable_write_conds.Push(&co_writeable_waiter), "oom");
             return true;
         }) != 0)
             return -1;
@@ -102,7 +101,7 @@ int Chan<TItem, Max>::TryWrite(const ItemType& item, int timeout)
         sync::CoWaiter co_writeable_waiter;
         if (co_writeable_waiter.WaitWithTimeoutAndCallback(timeout, [&]()
         {
-            AssertWithInfo(m_enable_write_conds.push(&co_writeable_waiter), "oom");
+            AssertWithInfo(m_enable_write_conds.Push(&co_writeable_waiter), "oom");
             return true;
         }) != 0)
             return -1;
@@ -265,7 +264,7 @@ int Chan<TItem, 0>::Read(ItemType& item)
     if (!BaseType::m_is_reading.compare_exchange_strong(expect, true))
         return -1;
 
-    int ret = m_enable_read_cond.Wait();
+    int ret = this->m_enable_read_cond.Wait();
 
     /* 抛出队列可写 */
     Assert(BaseType::_OnEnableWrite() == 0);

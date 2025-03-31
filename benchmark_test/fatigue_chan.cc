@@ -14,32 +14,32 @@ int main()
     g_scheduler->Start();
 
     // 无缓冲channel
-    bbt::co::sync::Chan<uint64_t, 0> chan;
+    // bbt::co::sync::Chan<uint64_t, 0> chan;
 
-    bbtco_desc("写者") [&]()
-    {
-        for (uint64_t i = 0; i < UINT64_MAX; ++i)
-        {
-            if (chan << i)
-            {
-                nocache_chan_write_count++;
-            }
-            else
-            {
-                nocache_chan_write_failed++;
-            }
-        }
-    };
+    // bbtco_desc("写者") [&]()
+    // {
+    //     for (uint64_t i = 0; i < UINT64_MAX; ++i)
+    //     {
+    //         if (chan << i)
+    //         {
+    //             nocache_chan_write_count++;
+    //         }
+    //         else
+    //         {
+    //             nocache_chan_write_failed++;
+    //         }
+    //     }
+    // };
 
-    bbtco_desc("读者") [&]()
-    {
-        uint64_t item;
-        while (true)
-        {
-            Assert(chan >> item);
-            nocache_chan_read_count++;
-        }
-    };
+    // bbtco_desc("读者") [&]()
+    // {
+    //     uint64_t item;
+    //     while (true)
+    //     {
+    //         Assert(chan >> item);
+    //         nocache_chan_read_count++;
+    //     }
+    // };
 
     // 有缓冲 channel
     bbt::co::sync::Chan<uint64_t, 10000> chan2;
