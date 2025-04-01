@@ -36,3 +36,6 @@ target_link_libraries(mem_check_test ${MY_LIBS})
 
 add_executable(benchmark_cocond benchmark_cocond.cc)
 target_link_libraries(benchmark_cocond ${MY_LIBS})
+
+add_executable(benchmark_chan benchmark_chan.cc)
+target_link_libraries(benchmark_chan ${MY_LIBS})
