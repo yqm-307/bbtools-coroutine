@@ -2,11 +2,34 @@
 
 using CoId = bbt::coroutine::detail::CoroutineId;
 
+class WatchDog
+{
+public:
+    void Feed()
+    {
+        m_last_feed_time = bbt::core::clock::gettime();
+    }
+
+    bool IsDead()
+    {
+        auto now = bbt::core::clock::gettime();
+        if (now - m_last_feed_time > 3 * 1000)
+        {
+            return true;
+        }
+        return false;
+    }
+
+private:
+    std::atomic_uint64_t m_last_feed_time{bbt::core::clock::gettime()};
+};
+
 int main()
 {
     const int ncount = 10000;
     const int time_s = 3600;
 
+    std::vector<WatchDog> dogs(ncount);
 
     std::map<CoId, int> co_sleep_count_map;
     std::mutex co_sleep_count_map_mutex;
@@ -19,15 +42,11 @@ int main()
 
     for (int i = 0; i < ncount; ++i)
     {
-        bbtco_desc("这个协程不停的 wait, 在醒来后将自己wait次数加1") [&](){
-            while (true)
+        bbtco_desc("这个协程不停的 wait, 在醒来后将自己wait次数加1") [&, i](){
+            while (!is_stop)
             {
                 cocond->Wait();
-                if (is_stop)
-                {
-                    stop_count++;
-                    break;
-                }
+                dogs[i].Feed();
                 std::unique_lock<std::mutex> lock(co_sleep_count_map_mutex);
                 auto it = co_sleep_count_map.find(g_bbt_tls_coroutine_co->GetId());
                 if (it == co_sleep_count_map.end())
@@ -39,6 +58,7 @@ int main()
                     it->second++;
                 }
             }
+            stop_count++;
         };
     }
 
@@ -63,7 +83,23 @@ int main()
         }
     };
 
-    bbtco_desc("结束后销毁所有协程") [&](){
+    bbtco_desc("monitor") [&]()
+    {
+        while (!is_stop)
+        {
+            bbtco_sleep(1000);
+            std::cout << "monitor" << std::endl;
+            for (int i = 0; i < ncount; ++i)
+            {
+                if (dogs[i].IsDead())
+                {
+                    std::cout << "dog " << i << " is dead" << std::endl;
+                }
+            }
+        }
+    };
+
+    bbtco_desc("monitor") [&](){
         bbtco_sleep(time_s * 1000);
         is_stop = true;
         while (stop_count.load() < ncount)
@@ -74,8 +110,8 @@ int main()
     };
 
 
-    // 60s 回收所有资源
-    sleep(time_s + 60);
+    // 5s 回收所有资源
+    sleep(time_s + 5);
 
     g_scheduler->Stop();
 }

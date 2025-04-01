@@ -353,7 +353,6 @@ int Chan<TItem, 0>::Write(const ItemType& item)
     if (BaseType::_WaitUntilEnableWrite(enable_write_cond, [this](){ BaseType::_UnLock(); return true; }) != 0)
         return -1;
     
-    BaseType::_UnLock();
     return 0;
 }
 

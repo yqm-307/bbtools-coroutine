@@ -5,48 +5,92 @@ using namespace bbt::coroutine;
 
 int main()
 {
+    std::atomic_uint64_t nocache_chan_read_count{0};
+    std::atomic_uint64_t nocache_chan_write_count{0};
+    std::atomic_uint64_t nocache_chan_write_failed{0};
     std::atomic_uint64_t read_count{0};
     std::atomic_uint64_t write_count{0};
     std::atomic_uint64_t write_failed{0};
     g_scheduler->Start();
 
-    /* 开启100个单读多写协程 */
+    // 无缓冲channel
+    bbt::co::sync::Chan<uint64_t, 0> chan;
 
-    for (int i = 0; i < 100; ++i) {
-        // chan读写协程
-        bbtco [&read_count, &write_count, &write_failed](){
-            sync::Chan<int, 65535> chan;
-            for (int i = 0; i < 100; ++i) {
-                bbtco [&chan, &write_count, &write_failed](){
-                    while (true) {
-                        for (int i = 0; i < 100; ++i) {
-                            if (chan.Write(1) == 0)
-                                write_count++;
-                            else
-                                write_failed++;
-                        }
-                        ::sleep(1);
-                    }
-                };
+    bbtco_desc("写者") [&]()
+    {
+        for (uint64_t i = 0; i < UINT64_MAX; ++i)
+        {
+            if (chan << i)
+            {
+                nocache_chan_write_count++;
             }
-            int val;
-
-            while (true) {
-                Assert(chan.Read(val) == 0);
-                read_count++;
+            else
+            {
+                nocache_chan_write_failed++;
             }
-        };
-    }
-
-    // 打印协程
-    bbtco [&read_count, &write_count, &write_failed](){
-        while (true) {
-            printf("read=%d write=%d write_failed=%d\n", read_count.load(), write_count.load(), write_failed.load());
-            sleep(1);
         }
     };
 
-    while (1) sleep(1);
+    bbtco_desc("读者") [&]()
+    {
+        uint64_t item;
+        while (true)
+        {
+            Assert(chan >> item);
+            nocache_chan_read_count++;
+        }
+    };
+
+    // 有缓冲 channel
+    bbt::co::sync::Chan<uint64_t, 10000> chan2;
+    auto cond = bbtco_make_cocond();
+
+    bbtco_desc("写者2") [&]()
+    {
+        while (true)
+        {
+            for (int i = 0; i < 10000; ++i)
+            {
+                if (chan2 << i)
+                {
+                    write_count++;
+                }
+                else
+                {
+                    write_failed++;
+                }
+            }
+            Assert(cond->Wait() == 0);
+        }
+    };
+
+    bbtco_desc("读者2") [&]()
+    {
+        uint64_t item;
+        while (true)
+        {
+            for (int i = 0; i < 10000; ++i)
+            {
+                Assert(chan2 >> item);
+                read_count++;
+            }
+
+            while (cond->NotifyOne() != 0)
+                bbtco_sleep(5);
+        }
+    };
+
+
+    bbtco_desc("监视者") [&]()
+    {
+        while (true) {
+            printf("[nocache chan] read=%d write=%d write_failed=%d\n", nocache_chan_read_count.load(), nocache_chan_write_count.load(), nocache_chan_write_failed.load());
+            printf("[chan] read=%d write=%d write_failed=%d\n", read_count.load(), write_count.load(), write_failed.load());
+            bbtco_sleep(1000);
+        }
+    };
+    
+    sleep(100000);
 
     g_scheduler->Stop();
 }
