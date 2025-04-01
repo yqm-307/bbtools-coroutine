@@ -46,10 +46,10 @@ bool CoPoller::PollOnce()
     return (m_event_loop->GetEventNum() != before_num);
 }
 
-void CoPoller::NotifyCustomEvent(std::shared_ptr<CoPollEvent> event)
+int CoPoller::NotifyCustomEvent(std::shared_ptr<CoPollEvent> event)
 {
     Assert(event != nullptr);
-    event->Trigger(POLL_EVENT_CUSTOM);
+    return event->Trigger(POLL_EVENT_CUSTOM);
 }
 
 std::shared_ptr<bbt::pollevent::EventLoop> CoPoller::GetEventLoop() const

@@ -179,6 +179,31 @@ void consumer_producer()
     while(true) sleep(1);
 }
 
+void single_cond()
+{
+    auto cond1 = sync::CoCond::Create();
+    auto cond2 = sync::CoCond::Create();
+    bbtco [&](){
+        while (true)
+        {
+            cond1->Wait();
+            while (cond2->NotifyOne() != -1)
+                bbtco_sleep(5);
+        }
+    };
+
+    bbtco [&](){
+        while (true)
+        {
+            cond2->Wait();
+            while (cond1->NotifyOne() != -1)
+                bbtco_sleep(5);
+        }
+    };
+
+    
+}
+
 int main()
 {
     g_scheduler->Start();
@@ -186,8 +211,9 @@ int main()
     // debug_notify();
     // dbg_coroutine_wait();
     // cocond();
-    multi_cond_check();
+    // multi_cond_check();
     // consumer_producer();
+    single_cond();
 
     g_scheduler->Stop();
 }

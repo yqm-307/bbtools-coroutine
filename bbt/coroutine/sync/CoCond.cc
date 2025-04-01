@@ -55,9 +55,9 @@ int CoCond::_NotifyOne()
     int ret = -1;
     while (!m_waiter_queue.Empty()) {
         CoWaiter* waiter = nullptr;
-        if (m_waiter_queue.Pop(waiter) && (waiter->Notify() == 0))
+        if (m_waiter_queue.Pop(waiter))
         {
-            ret = 0;
+            ret = waiter->Notify();
             break;
         }
     }

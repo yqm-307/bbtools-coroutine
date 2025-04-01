@@ -149,9 +149,7 @@ int CoWaiter::Notify()
     }
 
     m_run_status = COND_ACTIVE;
-    g_bbt_poller->NotifyCustomEvent(m_co_event);
-
-    return 0;
+    return g_bbt_poller->NotifyCustomEvent(m_co_event);
 }
 
 }
