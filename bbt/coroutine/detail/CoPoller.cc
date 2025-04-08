@@ -17,9 +17,9 @@ CoPoller::UPtr& CoPoller::GetInstance()
 
 CoPoller::CoPoller()
 {
-    auto* base = new bbt::pollevent::EventBase(
-        bbt::pollevent::EventBaseConfigFlag::NO_CACHE_TIME |
-        bbt::pollevent::EventBaseConfigFlag::PRECISE_TIMER);
+    auto* base = new bbt::pollevent::detail::EventBase(
+        bbt::pollevent::detail::EventBaseConfigFlag::NO_CACHE_TIME |
+        bbt::pollevent::detail::EventBaseConfigFlag::PRECISE_TIMER);
     
     Assert(base != nullptr);
 
