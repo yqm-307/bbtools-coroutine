@@ -25,7 +25,7 @@ public:
     const bool                                  m_cfg_stack_protect{true};                  // 栈保护
     const size_t                                m_cfg_scan_interval_ms{1};                  // scheduler 扫描间隔
     const bool                                  m_cfg_static_thread{true};                  // 是否静态创建线程 TODO 动态线程
-    const size_t                                m_cfg_static_thread_num{4};                 // 静态线程数
+    size_t                                      m_cfg_static_thread_num{0};                 // 静态线程数，如果不指定则默认是 std::thread::hardware_concurrency()
     const size_t                                m_cfg_profile_printf_ms{1000};              // 打印profile间隔，0不打印
 
     /* Processer */
@@ -39,6 +39,9 @@ public:
     const size_t                                m_cfg_stackpool_min_alloc_size{1024};       // 栈池中最小栈数量
     const size_t                                m_cfg_stackpool_sample_interval{10};        // 采样间隔
     const size_t                                m_cfg_stackpool_adjust_interval{5000};      // 栈池进行动态调整间隔
+
+private:
+    GlobalConfig();
 };
 
 } // namespace bbt::coroutine::detail
