@@ -40,6 +40,11 @@ protected:
 
     uint64_t                        GetContextSwapTimes();  /* 协程上下文换出次数 */
     uint64_t                        GetSuspendCostTime();     /* 任务执行耗时，返回微秒 */
+    /**
+     * @brief 从Processer中窃取任务（线程安全）
+     * 
+     * @param works 窃取的任务
+     */
     void                            Steal(std::vector<Coroutine::SPtr>& works); /* 偷取任务 */
 protected:
     void                            _Init();

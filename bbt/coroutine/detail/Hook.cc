@@ -99,6 +99,12 @@ int Hook_Accept(int fd, struct sockaddr *addr, socklen_t *len)
         /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读 */
         if (g_bbt_tls_coroutine_co->YieldUntilFdReadable(fd) != 0)
             return -1;
+        
+    }
+
+    if (evutil_make_socket_nonblocking(new_cli_fd) != 0) {
+        ::close(new_cli_fd);
+        new_cli_fd = -1;
     }
 
     return new_cli_fd;
