@@ -55,8 +55,19 @@ void LoopOnce()
     g_scheduler->Stop();
 }
 
+void SetThreadCount()
+{
+    g_bbt_coroutine_config->m_cfg_static_thread_num = 1;
+    g_scheduler->Start();
+
+
+    sleep(10);
+    g_scheduler->Stop();
+}
+
 int main()
 {
-    LoopOnce();
+    // LoopOnce();
+    SetThreadCount();
     return 0;
 }

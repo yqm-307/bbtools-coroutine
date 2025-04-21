@@ -266,13 +266,21 @@ bool Scheduler::_LoadBlance2Proc(Coroutine::SPtr co)
 
 int Scheduler::TryWorkSteal(Processer::SPtr thief)
 {
+    /**
+     * m_processer_map 在主线程初始化后都是安全的
+     * 
+     * m_steal_idx 是一个全局的索引，所有线程都可以访问，且只
+     * 用来loadblance，不需要保证完全可靠，其实int32大部分情况
+     * 都算是原子的
+     * 
+     */
     uint32_t index = m_steal_idx;
     int steal_num = 0;
     int max_processer_num = m_processer_map.size();
 
     for (int i = 0; i < max_processer_num; i++) {
         m_steal_idx++;
-        index %= max_processer_num;
+        index = m_steal_idx % max_processer_num;
         auto proc = m_load_blance_vec[index];
         Assert(proc != nullptr);
         std::vector<Coroutine::SPtr> works;

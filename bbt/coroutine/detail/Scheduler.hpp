@@ -31,7 +31,7 @@ public:
     /* 从全局队列中取一定数量的协程 */
     size_t                                      GetGlobalCoroutine(std::vector<Coroutine::SPtr>& coroutines, size_t size);
     /**
-     * @brief 尝试窃取任务
+     * @brief 尝试窃取任务（线程安全）
      * 
      * @param thief 窃取者
      * @return 偷取任务数量

@@ -1,9 +1,10 @@
 #pragma once
 
+#include <bbt/coroutine/detail/GlobalConfig.hpp>
 #include <bbt/coroutine/detail/Scheduler.hpp>
 #include <bbt/coroutine/detail/Hook.hpp>
-#include <bbt/coroutine/sync/Chan.hpp>
 
+#include <bbt/coroutine/sync/Chan.hpp>
 #include <bbt/coroutine/sync/Chan.hpp>
 #include <bbt/coroutine/sync/CoCond.hpp>
 #include <bbt/coroutine/sync/CoMutex.hpp>
