@@ -3,6 +3,7 @@
 #include <bbt/core/thread/Lock.hpp>
 #include <bbt/coroutine/utils/lockfree/blockingconcurrentqueue.h>
 #include <bbt/coroutine/detail/Processer.hpp>
+#include <bbt/coroutine/detail/Coroutine.hpp>
 
 namespace bbt::coroutine::detail
 {
@@ -15,6 +16,7 @@ class Scheduler
 {
 public:
     friend class Profiler;
+    friend class Processer;
     typedef std::unique_ptr<Scheduler> UPtr;
     ~Scheduler();
 
@@ -27,9 +29,11 @@ public:
 
     CoroutineId                                 RegistCoroutineTask(const CoroutineCallback& handle);
     /* 协程被激活，重新加入全局队列 */
-    void                                        OnActiveCoroutine(Coroutine::SPtr coroutine);
+    void                                        OnActiveCoroutine(CoroutinePriority priority, Coroutine::SPtr coroutine);
+
+protected:
     /* 从全局队列中取一定数量的协程 */
-    size_t                                      GetGlobalCoroutine(std::vector<Coroutine::SPtr>& coroutines, size_t size);
+    size_t                                      GetCoroutineFromGlobal(CoroutinePriority priority, CoroutineQueue& queue, size_t size);
     /**
      * @brief 尝试窃取任务（线程安全）
      * 
@@ -47,7 +51,7 @@ protected:
     void                                        _CreateProcessers();
     void                                        _DestoryProcessers();
 
-    bool                                        _LoadBlance2Proc(Coroutine::SPtr co);
+    bool                                        _LoadBlance2Proc(CoroutinePriority priority, Coroutine::SPtr co);
     /* 初始化全局实例 */
     void                                        _InitGlobalUniqInstance();
 
@@ -67,8 +71,7 @@ private:
     bbt::core::thread::CountDownLatch           m_down_latch;
 
     /* coroutine全局队列 */
-    moodycamel::BlockingConcurrentQueue<Coroutine::SPtr>
-                                                m_global_coroutine_deque;
+    CoPriorityQueue                             m_global_coroutine_queue;
     volatile bool                               m_is_running{true};
     volatile ScheudlerStatus                    m_run_status{ScheudlerStatus::SCHE_DEFAULT};
 

@@ -16,6 +16,7 @@
 #include <bbt/core/clock/Clock.hpp>
 #include <bbt/core/Attribute.hpp>
 #include <bbt/core/util/Assert.hpp>
+#include <bbt/coroutine/utils/lockfree/blockingconcurrentqueue.h>
 
 // #define BBT_COROUTINE_PROFILE
 
@@ -226,7 +227,14 @@ enum CoPollEventCustom
     POLL_EVENT_CUSTOM_COMUTEX = 3,  // co mutex
 };
 
-
+enum CoroutinePriority : int32_t
+{
+    CO_PRIORITY_LOW       = 0,  // 低优先级
+    CO_PRIORITY_NORMAL    = 1,  // 普通优先级
+    CO_PRIORITY_HIGH      = 2,  // 高优先级
+    CO_PRIORITY_CRITICAL  = 3,  // 关键优先级
+    CO_PRIORITY_COUNT     = 4,  // 优先级数量
+};
 
 class Coroutine;    // 协程
 class Scheduler;    // 调度器
@@ -248,6 +256,8 @@ typedef uint64_t ProcesserId;
 typedef uint64_t CoPollEventId;
 #define BBT_COROUTINE_INVALID_COPOLLEVENT_ID 0
 
+typedef moodycamel::BlockingConcurrentQueue<std::shared_ptr<Coroutine>> CoroutineQueue; // 协程队列
+typedef std::array<CoroutineQueue, CoroutinePriority::CO_PRIORITY_COUNT> CoPriorityQueue; // 协程优先级队列
 
 typedef std::function<void()> CoroutineCallback;        // 协程处理主函数
 typedef std::function<void()> CoroutineFinalCallback;   // 协程主函数执行完毕回调
