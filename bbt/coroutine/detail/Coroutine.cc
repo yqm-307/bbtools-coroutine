@@ -98,7 +98,7 @@ int Coroutine::YieldWithCallback(const CoroutineOnYieldCallback& cb)
 void Coroutine::YieldAndPushGCoQueue()
 {
     Assert(YieldWithCallback([this](){
-        g_scheduler->OnActiveCoroutine(shared_from_this());
+        g_scheduler->OnActiveCoroutine(CO_PRIORITY_NORMAL, shared_from_this());
         return true;
     }) == 0);
 }
@@ -242,6 +242,8 @@ int Coroutine::YieldUntilFdWriteable(int fd, int timeout_ms)
 
 void Coroutine::OnCoPollEvent(int event, int custom_key)
 {
+    CoroutinePriority priority = CO_PRIORITY_NORMAL;
+
     Assert(m_await_event != nullptr);
 
     m_last_resume_event = event;
@@ -249,7 +251,12 @@ void Coroutine::OnCoPollEvent(int event, int custom_key)
     // 先取消事件，然后push到全局队列中
     g_bbt_dbgp_full(("[CoEvent:Trigger] co=" + std::to_string(GetId()) + " trigger_event=" + std::to_string(event) + " id=" + std::to_string(m_await_event->GetId()) + " customkey=" + std::to_string(custom_key)).c_str());
     m_await_event = nullptr;
-    g_scheduler->OnActiveCoroutine(shared_from_this());
+
+    // 超时任务优先级高一些
+    if (event & EventOpt::TIMEOUT)
+        priority = CO_PRIORITY_CRITICAL;
+
+    g_scheduler->OnActiveCoroutine(priority, shared_from_this());
 
 }
 

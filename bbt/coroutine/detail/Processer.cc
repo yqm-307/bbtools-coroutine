@@ -47,14 +47,21 @@ ProcesserStatus Processer::GetStatus()
     return m_run_status;
 }
 
-int Processer::GetLoadValue()
+size_t Processer::GetLoadValue()
 {
     return GetExecutableNum();
 }
 
-int Processer::GetExecutableNum()
+size_t Processer::GetExecutableNum()
 {
-    return m_coroutine_queue.size_approx();
+    size_t total_size = 0;
+    for (auto&& it : m_coroutine_queue)
+    {
+        if (it.size_approx() > 0)
+            total_size += it.size_approx();
+    }
+
+    return total_size;
 }
 
 
@@ -63,15 +70,14 @@ ProcesserId Processer::GetId()
     return m_id;
 }
 
-void Processer::AddCoroutineTask(Coroutine::SPtr coroutine)
+void Processer::AddCoroutineTask(CoroutinePriority priority, Coroutine::SPtr coroutine)
 {
-    AssertWithInfo(m_coroutine_queue.enqueue(coroutine), "oom!");
-}
+    AssertWithInfo(coroutine != nullptr, "coroutine is nullptr!");
+    AssertWithInfo(m_coroutine_queue[priority].enqueue(coroutine), "oom!");
 
-void Processer::AddCoroutineTaskRange(std::vector<Coroutine::SPtr> works)
-{
-    for (auto&& it : works)
-        AssertWithInfo(m_coroutine_queue.enqueue(it), "oom!");
+    bool need_notify = true;
+    if (m_run_status == ProcesserStatus::PROC_SUSPEND && m_run_cond_notify.compare_exchange_strong(need_notify, false))        
+        m_run_cond.notify_one();
 }
 
 void Processer::_Init()
@@ -108,35 +114,46 @@ void Processer::_Run()
     while (m_is_running)
     {
         m_run_status = ProcesserStatus::PROC_RUNNING;
-        while (true)
+
+        // 如果本地没有了，尝试去全局取
+        if (GetExecutableNum() <= 0)
+            _TryGetCoroutineFromGlobal();
+
+        // 对各个优先级任务进行执行，根据优先级自高到低依次执行
+        for (auto&& p : {CO_PRIORITY_CRITICAL, CO_PRIORITY_HIGH, CO_PRIORITY_NORMAL, CO_PRIORITY_LOW})
         {
-            // 如果本地没有了，尝试去全局取
-            if (m_coroutine_queue.size_approx() <= 0)
-                _TryGetCoroutineFromGlobal();
+            while (true)
+            {
+                /* 如果取不到或者取到空的，就退出循环 */
+                if (!m_coroutine_queue[p].try_dequeue(m_running_coroutine) || m_running_coroutine == nullptr)
+                    break;
 
-            /* 如果取不到或者取到空的，就退出循环 */
-            if (!m_coroutine_queue.try_dequeue(m_running_coroutine) || m_running_coroutine == nullptr)
-                break;
+                AssertWithInfo(m_running_coroutine->GetStatus() != CO_RUNNING && m_running_coroutine->GetStatus() != CO_FINAL, "bad coroutine status!");
 
-            AssertWithInfo(m_running_coroutine->GetStatus() != CO_RUNNING && m_running_coroutine->GetStatus() != CO_FINAL, "bad coroutine status!");
-
-            // 执行前设置当前协程缓存
-            m_running_coroutine_begin.exchange( bbt::core::clock::gettime_mono<>());
+                // 执行前设置当前协程缓存
+                m_running_coroutine_begin.exchange(bbt::core::clock::gettime_mono<>());
 #ifdef BBT_COROUTINE_PROFILE
             m_co_swap_times++;
 #endif
-            m_running_coroutine->Resume();
-            m_running_coroutine = nullptr;
+                m_running_coroutine->Resume();
+                m_running_coroutine = nullptr;
+            }
         }
 
-        if (g_scheduler->TryWorkSteal(shared_from_this()) <= 0)
+        m_run_status = ProcesserStatus::PROC_SUSPEND;
+        auto steal_num = g_scheduler->TryWorkSteal(shared_from_this());
+#ifdef BBT_COROUTINE_PROFILE
+        m_steal_succ_times += steal_num;
+#endif
+
+        if (steal_num <= 0)
         {
 #ifdef BBT_COROUTINE_PROFILE
             auto begin = bbt::core::clock::now<bbt::core::clock::microseconds>();
 #endif
             std::unique_lock<std::mutex> lock_uptr(m_run_cond_mutex);
-            m_run_status = ProcesserStatus::PROC_SUSPEND;
             m_run_cond.wait_for(lock_uptr, bbt::core::clock::us(g_bbt_coroutine_config->m_cfg_processer_proc_interval_us));
+            m_run_cond_notify.exchange(true);
 #ifdef BBT_COROUTINE_PROFILE
             m_suspend_cost_times += std::chrono::duration_cast<decltype(m_suspend_cost_times)>(bbt::core::clock::now<bbt::core::clock::microseconds>() - begin);
 #endif
@@ -157,18 +174,29 @@ void Processer::Stop()
     } while (m_run_status != ProcesserStatus::PROC_EXIT);
 
 
-    while (m_coroutine_queue.try_dequeue(item))
-        item = nullptr;
+    /* 释放所有协程 */
+    for (auto && it : m_coroutine_queue)
+        while (it.try_dequeue(item))
+            item = nullptr;
+
 }
 
 size_t Processer::_TryGetCoroutineFromGlobal()
 {
-    std::vector<Coroutine::SPtr> vec;
-    g_scheduler->GetGlobalCoroutine(vec, g_bbt_coroutine_config->m_cfg_processer_get_co_from_g_count);
-    for (auto it = vec.begin(); it != vec.end(); ++it)
-        AssertWithInfo(m_coroutine_queue.enqueue(*it), "oom!");
+    /* 希望获取的总数 */ 
+    auto expected_size = g_bbt_coroutine_config->m_cfg_processer_get_co_from_g_count;
+    /* 已经处理的数量 */
+    size_t already_count = 0;
 
-    return vec.size();
+    /* 每个队列都尝试去全局队列中取一下 */
+    for (auto && priority : { CO_PRIORITY_CRITICAL, CO_PRIORITY_HIGH, CO_PRIORITY_NORMAL, CO_PRIORITY_LOW})
+    {
+        already_count += g_scheduler->GetCoroutineFromGlobal(priority, m_coroutine_queue[priority], expected_size - already_count);
+        if (already_count >= expected_size)
+            break;
+    }
+
+    return already_count;
 }
 
 Coroutine::SPtr Processer::GetCurrentCoroutine()
@@ -194,34 +222,70 @@ uint64_t Processer::GetSuspendCostTime()
 #endif
 }
 
-void Processer::Steal(std::vector<Coroutine::SPtr>& works)
+uint64_t Processer::GetStealSuccTimes()
+{
+#ifdef BBT_COROUTINE_PROFILE
+    return m_steal_succ_times;
+#else
+    return 0;
+#endif
+}
+
+uint64_t Processer::GetStealCount()
+{
+#ifdef BBT_COROUTINE_PROFILE
+    return m_steal_count;
+#else
+    return 0;
+#endif
+}
+
+size_t Processer::Steal(Processer::SPtr thief)
 {
     Coroutine::SPtr item = nullptr;
-    auto size = m_coroutine_queue.size_approx();
+    size_t steal_num = 0;
+    size_t expect_size = 0;
 
-    if (size <= 0) {
-        return;
-    }
+    /* 如果没有任务就返回 */
+    size_t size = GetExecutableNum();
+    if (size <= 0)
+        return steal_num;
     
+    /* 运行时间过久的才需要偷 */
     uint64_t prev_run = m_running_coroutine_begin.load();
     auto already_run_time = bbt::core::clock::gettime_mono() - prev_run;
     if (already_run_time < g_bbt_coroutine_config->m_cfg_processer_worksteal_timeout_ms) {
-        return;
+        return steal_num;
     }
 
-    int steal_num = g_bbt_coroutine_config->m_cfg_processer_steal_once_min_task_num > size ? g_bbt_coroutine_config->m_cfg_processer_steal_once_min_task_num : size / 2;
+    /* 计算下需要偷多少个 */
+    expect_size = g_bbt_coroutine_config->m_cfg_processer_steal_once_min_task_num > size / 2 ? g_bbt_coroutine_config->m_cfg_processer_steal_once_min_task_num : size / 2;
 
-    /* 尽量给 */
-    for (int i = 0; i < steal_num; ++i) {
-        if (!m_coroutine_queue.try_dequeue(item))
+    for (auto && p : {CO_PRIORITY_CRITICAL, CO_PRIORITY_HIGH, CO_PRIORITY_NORMAL, CO_PRIORITY_LOW})
+    {
+        if (steal_num >= expect_size)
             break;
 
-        works.emplace_back(item);
+        size_t count = 0;
+        for (size_t i = 0; i < (expect_size - steal_num); ++i)
+        {
+            if (!m_coroutine_queue[p].try_dequeue(item))
+                break;
+
+            AssertWithInfo(thief->m_coroutine_queue[p].enqueue(item), "oom!");
+            item = nullptr;
+            ++count;
+        }
+
+        steal_num += count;
     }
 
 #ifdef BBT_COROUTINE_PROFILE
     g_bbt_profiler->OnEvent_StealSucc(steal_num);
+    m_steal_count += steal_num;
 #endif
+
+    return steal_num;
 }
 
 } // namespace bbt::coroutine::detail

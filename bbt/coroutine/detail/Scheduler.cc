@@ -58,19 +58,19 @@ CoroutineId Scheduler::RegistCoroutineTask(const CoroutineCallback& handle)
         g_bbt_coroutine_config->m_cfg_stack_protect);
 #endif
     /* 尝试先找个Processer放进执行队列，失败放入全局队列 */
-    if (!_LoadBlance2Proc(coroutine_sptr)) {
-        AssertWithInfo(m_global_coroutine_deque.enqueue(coroutine_sptr), "oom!");
-    }
+    AssertWithInfo(_LoadBlance2Proc(CO_PRIORITY_NORMAL, coroutine_sptr), "this is impossible!");
     
     return coroutine_sptr->GetId();
 }
 
-void Scheduler::OnActiveCoroutine(Coroutine::SPtr coroutine)
+void Scheduler::OnActiveCoroutine(CoroutinePriority priority, Coroutine::SPtr coroutine)
 {
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
     g_bbt_dbgmgr->Check_IsResumedCo(coroutine->GetId());
 #endif
-    AssertWithInfo(m_global_coroutine_deque.enqueue(coroutine), "oom!");
+    AssertWithInfo(priority >= CO_PRIORITY_LOW && priority < CO_PRIORITY_COUNT, "invalid priority!");
+    AssertWithInfo(coroutine != nullptr, "coroutine is nullptr!");
+    AssertWithInfo(m_global_coroutine_queue[priority].enqueue(coroutine), "oom!");
 }
 
 void Scheduler::_FixTimingScan()
@@ -174,8 +174,9 @@ void Scheduler::Stop()
 
     m_sche_thread = nullptr;
     Coroutine::SPtr item = nullptr;
-    while (m_global_coroutine_deque.try_dequeue(item))
-        item = nullptr;
+    for (auto && queue : m_global_coroutine_queue)
+        while (queue.try_dequeue(item))
+            item = nullptr;
 
     m_run_status = ScheudlerStatus::SCHE_EXIT;
 #ifdef BBT_COROUTINE_PROFILE
@@ -186,22 +187,21 @@ void Scheduler::Stop()
 
 }
 
-size_t Scheduler::GetGlobalCoroutine(std::vector<Coroutine::SPtr>& coroutines, size_t size)
+size_t Scheduler::GetCoroutineFromGlobal(CoroutinePriority priority, CoroutineQueue& queue, size_t size)
 {
-    coroutines.clear();
-
-    if (m_global_coroutine_deque.size_approx() <= 0)
-        return 0;
-
+    size_t count = 0;
     Coroutine::SPtr item = nullptr;
-    for (int i = 0; i < size; ++i) {
-        if (!m_global_coroutine_deque.try_dequeue(item))
+
+    for (size_t i = 0; i < size; ++i) {
+        if (!m_global_coroutine_queue[priority].try_dequeue(item))
             break;
 
-        coroutines.emplace_back(item);
+        AssertWithInfo(queue.enqueue(item), "oom!");
+        item = nullptr;
+        ++count;
     }
 
-    return coroutines.size();
+    return count;
 }
 
 void Scheduler::_CreateProcessers()
@@ -246,7 +246,7 @@ void Scheduler::_DestoryProcessers()
     m_proc_threads.clear();
 }
 
-bool Scheduler::_LoadBlance2Proc(Coroutine::SPtr co)
+bool Scheduler::_LoadBlance2Proc(CoroutinePriority priority, Coroutine::SPtr co)
 {
     if (m_load_blance_vec.empty())
         return false;
@@ -256,10 +256,7 @@ bool Scheduler::_LoadBlance2Proc(Coroutine::SPtr co)
 
     index %= g_bbt_coroutine_config->m_cfg_static_thread_num;
     auto proc = m_load_blance_vec[index];
-    if (proc->GetStatus() != ProcesserStatus::PROC_SUSPEND)
-        return false;
-    
-    proc->AddCoroutineTask(co);    
+    proc->AddCoroutineTask(priority, co);
 
     return true;
 }
@@ -283,14 +280,12 @@ int Scheduler::TryWorkSteal(Processer::SPtr thief)
         index = m_steal_idx % max_processer_num;
         auto proc = m_load_blance_vec[index];
         Assert(proc != nullptr);
-        std::vector<Coroutine::SPtr> works;
-        proc->Steal(works);
+        if (proc->GetId() == thief->GetId())
+            continue;
 
-        if (!works.empty()) {
-            steal_num = works.size();
-            thief->AddCoroutineTaskRange(works);
+        steal_num = proc->Steal(thief);
+        if (steal_num > 0)
             break;
-        }
     }
 
     return steal_num;

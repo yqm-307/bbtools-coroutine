@@ -23,8 +23,8 @@ BOOST_AUTO_TEST_CASE(t_test_copool)
     for (int i = 0; i < max_co; ++i) {
         pool->Submit([&](){
             BOOST_ASSERT(GetLocalCoroutineId() > 0);
-            l.Down();
             count++;
+            l.Down();
         });
     }
 

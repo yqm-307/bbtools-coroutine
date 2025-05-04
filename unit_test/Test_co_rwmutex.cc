@@ -90,6 +90,7 @@ BOOST_AUTO_TEST_CASE(t_rwlock_multi_co)
                 BOOST_ASSERT(in_writing == false);
                 nread++;
                 rwlock->UnLock();
+                bbtco_yield;
             }
         };
 
@@ -100,6 +101,7 @@ BOOST_AUTO_TEST_CASE(t_rwlock_multi_co)
                 nread++;
                 rwlock->UnLock();
             }
+            bbtco_yield;
         };
 
         bbtco_desc("writer") [&]() {

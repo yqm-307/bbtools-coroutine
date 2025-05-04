@@ -7,18 +7,23 @@ int main()
 {
     /* 执行1000w个协程耗时 */
     const int nsum_co = 10000000;
-    bbt::core::thread::CountDownLatch l{nsum_co};
+    std::atomic_int done_count{0};
     auto begin = bbt::core::clock::gettime();
 
     g_scheduler->Start();
 
     bbtco [&](){
         for (int i = 0; i < nsum_co; ++i) {
-            bbtco [&](){ l.Down(); };
+            bbtco [&](){ done_count++; };
         }
     };
 
-    l.Wait();
+    // l.Wait();
+
+    while (done_count < nsum_co) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    
     g_scheduler->Stop();
     printf("time cost: %ldms\n", bbt::core::clock::gettime() - begin);
 }
