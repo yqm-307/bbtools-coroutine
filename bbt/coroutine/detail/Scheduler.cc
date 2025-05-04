@@ -58,10 +58,7 @@ CoroutineId Scheduler::RegistCoroutineTask(const CoroutineCallback& handle)
         g_bbt_coroutine_config->m_cfg_stack_protect);
 #endif
     /* 尝试先找个Processer放进执行队列，失败放入全局队列 */
-    if (!_LoadBlance2Proc(CO_PRIORITY_NORMAL, coroutine_sptr)) {
-        // 默认是普通优先级
-        OnActiveCoroutine(CO_PRIORITY_NORMAL, coroutine_sptr);
-    }
+    AssertWithInfo(_LoadBlance2Proc(CO_PRIORITY_NORMAL, coroutine_sptr), "this is impossible!");
     
     return coroutine_sptr->GetId();
 }
@@ -259,9 +256,6 @@ bool Scheduler::_LoadBlance2Proc(CoroutinePriority priority, Coroutine::SPtr co)
 
     index %= g_bbt_coroutine_config->m_cfg_static_thread_num;
     auto proc = m_load_blance_vec[index];
-    if (proc->GetStatus() != ProcesserStatus::PROC_SUSPEND)
-        return false;
-    
     proc->AddCoroutineTask(priority, co);
 
     return true;

@@ -74,6 +74,8 @@ void Processer::AddCoroutineTask(CoroutinePriority priority, Coroutine::SPtr cor
 {
     AssertWithInfo(coroutine != nullptr, "coroutine is nullptr!");
     AssertWithInfo(m_coroutine_queue[priority].enqueue(coroutine), "oom!");
+    if (m_run_status == ProcesserStatus::PROC_SUSPEND)
+        m_run_cond.notify_one();
 }
 
 void Processer::_Init()
