@@ -283,7 +283,7 @@ int Scheduler::TryWorkSteal(Processer::SPtr thief)
         if (proc->GetId() == thief->GetId())
             continue;
 
-        steal_num = proc->Steal(proc);
+        steal_num = proc->Steal(thief);
         if (steal_num > 0)
             break;
     }

@@ -74,7 +74,9 @@ void Processer::AddCoroutineTask(CoroutinePriority priority, Coroutine::SPtr cor
 {
     AssertWithInfo(coroutine != nullptr, "coroutine is nullptr!");
     AssertWithInfo(m_coroutine_queue[priority].enqueue(coroutine), "oom!");
-    if (m_run_status == ProcesserStatus::PROC_SUSPEND)
+
+    bool need_notify = true;
+    if (m_run_status == ProcesserStatus::PROC_SUSPEND && m_run_cond_notify.compare_exchange_strong(need_notify, false))        
         m_run_cond.notify_one();
 }
 
@@ -129,7 +131,7 @@ void Processer::_Run()
                 AssertWithInfo(m_running_coroutine->GetStatus() != CO_RUNNING && m_running_coroutine->GetStatus() != CO_FINAL, "bad coroutine status!");
 
                 // 执行前设置当前协程缓存
-                m_running_coroutine_begin.exchange( bbt::core::clock::gettime_mono<>());
+                m_running_coroutine_begin.exchange(bbt::core::clock::gettime_mono<>());
 #ifdef BBT_COROUTINE_PROFILE
             m_co_swap_times++;
 #endif
@@ -138,14 +140,20 @@ void Processer::_Run()
             }
         }
 
-        if (g_scheduler->TryWorkSteal(shared_from_this()) <= 0)
+        m_run_status = ProcesserStatus::PROC_SUSPEND;
+        auto steal_num = g_scheduler->TryWorkSteal(shared_from_this());
+#ifdef BBT_COROUTINE_PROFILE
+        m_steal_succ_times += steal_num;
+#endif
+
+        if (steal_num <= 0)
         {
 #ifdef BBT_COROUTINE_PROFILE
             auto begin = bbt::core::clock::now<bbt::core::clock::microseconds>();
 #endif
             std::unique_lock<std::mutex> lock_uptr(m_run_cond_mutex);
-            m_run_status = ProcesserStatus::PROC_SUSPEND;
             m_run_cond.wait_for(lock_uptr, bbt::core::clock::us(g_bbt_coroutine_config->m_cfg_processer_proc_interval_us));
+            m_run_cond_notify.exchange(true);
 #ifdef BBT_COROUTINE_PROFILE
             m_suspend_cost_times += std::chrono::duration_cast<decltype(m_suspend_cost_times)>(bbt::core::clock::now<bbt::core::clock::microseconds>() - begin);
 #endif
@@ -214,6 +222,24 @@ uint64_t Processer::GetSuspendCostTime()
 #endif
 }
 
+uint64_t Processer::GetStealSuccTimes()
+{
+#ifdef BBT_COROUTINE_PROFILE
+    return m_steal_succ_times;
+#else
+    return 0;
+#endif
+}
+
+uint64_t Processer::GetStealCount()
+{
+#ifdef BBT_COROUTINE_PROFILE
+    return m_steal_count;
+#else
+    return 0;
+#endif
+}
+
 size_t Processer::Steal(Processer::SPtr thief)
 {
     Coroutine::SPtr item = nullptr;
@@ -233,7 +259,7 @@ size_t Processer::Steal(Processer::SPtr thief)
     }
 
     /* 计算下需要偷多少个 */
-    expect_size = g_bbt_coroutine_config->m_cfg_processer_steal_once_min_task_num > size ? g_bbt_coroutine_config->m_cfg_processer_steal_once_min_task_num : size / 2;
+    expect_size = g_bbt_coroutine_config->m_cfg_processer_steal_once_min_task_num > size / 2 ? g_bbt_coroutine_config->m_cfg_processer_steal_once_min_task_num : size / 2;
 
     for (auto && p : {CO_PRIORITY_CRITICAL, CO_PRIORITY_HIGH, CO_PRIORITY_NORMAL, CO_PRIORITY_LOW})
     {
@@ -256,6 +282,7 @@ size_t Processer::Steal(Processer::SPtr thief)
 
 #ifdef BBT_COROUTINE_PROFILE
     g_bbt_profiler->OnEvent_StealSucc(steal_num);
+    m_steal_count += steal_num;
 #endif
 
     return steal_num;
