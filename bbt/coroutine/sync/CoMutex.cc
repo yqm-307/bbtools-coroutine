@@ -10,10 +10,10 @@ namespace bbt::coroutine::sync
 
 CoMutex::SPtr CoMutex::Create()
 {
-    return std::make_shared<CoMutex>();
+    return std::make_shared<CoMutex>(PrivateTag{});
 }
 
-CoMutex::CoMutex()
+CoMutex::CoMutex(PrivateTag)
 {
 
 }

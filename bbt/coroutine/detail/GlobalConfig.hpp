@@ -20,11 +20,11 @@ public:
     }
 
 
-    /* XXX 配置，先静态配置 */
-    const size_t                                m_cfg_stack_size{1024 * 8};                 // 栈大小
-    const bool                                  m_cfg_stack_protect{true};                  // 栈保护
-    const size_t                                m_cfg_scan_interval_ms{1};                  // scheduler 扫描间隔
-    const bool                                  m_cfg_static_thread{true};                  // 是否静态创建线程 TODO 动态线程
+    /* 这里的配置都是非线程安全的，建议在启动前设置好 */
+    size_t                                      m_cfg_stack_size{1024 * 12};                // 栈大小
+    bool                                        m_cfg_stack_protect{true};                  // 栈保护
+    size_t                                      m_cfg_scan_interval_ms{1};                  // scheduler 扫描间隔
+    // const bool                                  m_cfg_static_thread{true};                  // 是否静态创建线程 TODO 动态线程
     size_t                                      m_cfg_static_thread_num{0};                 // 静态线程数，如果不指定则默认是 std::thread::hardware_concurrency()
     const size_t                                m_cfg_profile_printf_ms{1000};              // 打印profile间隔，0不打印
 

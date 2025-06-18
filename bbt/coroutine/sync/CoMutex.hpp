@@ -22,12 +22,13 @@ namespace bbt::coroutine::sync
 class CoMutex:
     public ICoLock
 {
+    struct PrivateTag {};
 public:
     typedef std::shared_ptr<CoMutex> SPtr;
     static SPtr Create();
 
-    BBTATTR_FUNC_Ctor_Hidden
-    CoMutex();
+    BBTATTR_FUNC_CTOR_HIDDEN
+    CoMutex(PrivateTag);
     ~CoMutex();
 
     void                        Lock();

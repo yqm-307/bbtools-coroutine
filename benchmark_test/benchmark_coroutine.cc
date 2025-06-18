@@ -3,8 +3,15 @@
 #include <bbt/core/clock/Clock.hpp>
 #include <bbt/coroutine/sync/CoWaiter.hpp>
 
+void InitConfig()
+{
+    g_bbt_coroutine_config->m_cfg_stack_size = 1024 * 8; // 设置栈大小为8KB
+    g_bbt_coroutine_config->m_cfg_stack_protect = false; // 启用栈保护
+}
+
 int main()
 {
+    InitConfig();
     /* 执行1000w个协程耗时 */
     const int nsum_co = 10000000;
     std::atomic_int done_count{0};
