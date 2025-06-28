@@ -21,6 +21,8 @@ public:
 
 
     /* 这里的配置都是非线程安全的，建议在启动前设置好 */
+    int                                         m_cfg_max_coroutine{65535};                 // 最大协程数，超过此数量，继续注册会throw异常
+
     size_t                                      m_cfg_stack_size{1024 * 12};                // 栈大小
     bool                                        m_cfg_stack_protect{true};                  // 栈保护
     size_t                                      m_cfg_scan_interval_ms{1};                  // scheduler 扫描间隔
@@ -35,7 +37,7 @@ public:
     const size_t                                m_cfg_processer_proc_interval_us{3000};     // proc 每次执行间隔时间
 
     /* 栈池配置 */
-    const size_t                                m_cfg_stackpool_max_alloc_size{1024 * 1000}; // 栈池中分配最大栈数量
+    const int&                                  m_cfg_stackpool_max_alloc_size{m_cfg_max_coroutine}; // 栈池中分配最大栈数量
     const size_t                                m_cfg_stackpool_min_alloc_size{1024};       // 栈池中最小栈数量
     const size_t                                m_cfg_stackpool_sample_interval{10};        // 采样间隔
     const size_t                                m_cfg_stackpool_adjust_interval{5000};      // 栈池进行动态调整间隔

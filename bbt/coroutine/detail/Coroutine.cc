@@ -19,12 +19,12 @@ CoroutineId Coroutine::GenCoroutineId()
     return (++_generate_id);
 }
 
-Coroutine::SPtr Coroutine::Create(int stack_size, const CoroutineCallback& co_func, bool need_protect)
+Coroutine::Ptr Coroutine::Create(int stack_size, const CoroutineCallback& co_func, bool need_protect)
 {
     return new Coroutine(stack_size, co_func, need_protect);
 }
 
-Coroutine::SPtr Coroutine::Create(int stack_size, const CoroutineCallback& co_func, const CoroutineFinalCallback& co_final_cb, bool need_protect)
+Coroutine::Ptr Coroutine::Create(int stack_size, const CoroutineCallback& co_func, const CoroutineFinalCallback& co_final_cb, bool need_protect)
 {
     return new Coroutine(stack_size, co_func, co_final_cb, need_protect);
 }

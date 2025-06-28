@@ -34,14 +34,14 @@ class Coroutine:
     public ICoroutine
 {
 public:
-    typedef Coroutine* SPtr;
+    typedef Coroutine* Ptr;
 
     Coroutine(int stack_size, const CoroutineCallback& co_func, bool need_protect);
     Coroutine(int stack_size, const CoroutineCallback& co_func, const CoroutineFinalCallback& co_final_cb, bool need_protect);
     ~Coroutine();
     
-    static SPtr                     Create(int stack_size, const CoroutineCallback& co_func, bool need_protect = true);
-    static SPtr                     Create(int stack_size, const CoroutineCallback& co_func, const CoroutineFinalCallback& co_final_cb, bool need_protect = true);
+    static Ptr                     Create(int stack_size, const CoroutineCallback& co_func, bool need_protect = true);
+    static Ptr                     Create(int stack_size, const CoroutineCallback& co_func, const CoroutineFinalCallback& co_final_cb, bool need_protect = true);
 
     /**
      * @brief 唤醒协程。切换到协程的上下文中执行。

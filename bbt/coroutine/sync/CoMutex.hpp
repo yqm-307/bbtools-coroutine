@@ -62,7 +62,7 @@ protected:
 private:
     std::queue<std::shared_ptr<detail::CoPollEvent>> 
                                 m_wait_event_queue;
-    detail::Coroutine::SPtr
+    detail::Coroutine::Ptr
                                 m_locked_co{nullptr};
     std::mutex                  m_mutex;
     volatile CoMutexStatus      m_status{CoMutexStatus::COMUTEX_FREE};

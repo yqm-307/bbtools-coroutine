@@ -28,8 +28,9 @@ public:
     void                                        LoopOnce();
 
     void                                        RegistCoroutineTask(const CoroutineCallback& handle);
+    void                                        RegistCoroutineTask(const CoroutineCallback& handle, bool& succ) noexcept;
     /* 协程被激活，重新加入全局队列 */
-    void                                        OnActiveCoroutine(CoroutinePriority priority, Coroutine::SPtr coroutine);
+    void                                        OnActiveCoroutine(CoroutinePriority priority, Coroutine::Ptr coroutine);
 
 protected:
     /* 从全局队列中取一定数量的协程 */
@@ -51,7 +52,7 @@ protected:
     void                                        _CreateProcessers();
     void                                        _DestoryProcessers();
 
-    bool                                        _LoadBlance2Proc(CoroutinePriority priority, Coroutine::SPtr co);
+    bool                                        _LoadBlance2Proc(CoroutinePriority priority, Coroutine::Ptr co);
     /* 初始化全局实例 */
     void                                        _InitGlobalUniqInstance();
 

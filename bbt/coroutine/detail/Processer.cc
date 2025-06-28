@@ -70,7 +70,7 @@ ProcesserId Processer::GetId()
     return m_id;
 }
 
-void Processer::AddCoroutineTask(CoroutinePriority priority, Coroutine::SPtr coroutine)
+void Processer::AddCoroutineTask(CoroutinePriority priority, Coroutine::Ptr coroutine)
 {
     AssertWithInfo(coroutine != nullptr, "coroutine is nullptr!");
     AssertWithInfo(m_coroutine_queue[priority].enqueue(coroutine), "oom!");
@@ -166,7 +166,7 @@ void Processer::_Run()
 
 void Processer::Stop()
 {
-    Coroutine::SPtr item = nullptr;
+    Coroutine::Ptr item = nullptr;
 
     do {
         m_is_running = false;
@@ -200,7 +200,7 @@ size_t Processer::_TryGetCoroutineFromGlobal()
     return already_count;
 }
 
-Coroutine::SPtr Processer::GetCurrentCoroutine()
+Coroutine::Ptr Processer::GetCurrentCoroutine()
 {
     return m_running_coroutine;
 }
@@ -243,7 +243,7 @@ uint64_t Processer::GetStealCount()
 
 size_t Processer::Steal(Processer::SPtr thief)
 {
-    Coroutine::SPtr item = nullptr;
+    Coroutine::Ptr item = nullptr;
     size_t steal_num = 0;
     size_t expect_size = 0;
 

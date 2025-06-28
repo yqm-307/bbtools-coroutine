@@ -34,7 +34,9 @@ Context::Context(size_t stack_size, const CoroutineCallback& co_func, const Coro
     m_final_handle(co_final_cb)
 {
     Assert(m_user_main != nullptr);
-    AssertWithInfo(m_stack != nullptr, "可申请的保护栈数量已达上限");
+    if (m_stack == nullptr) {
+        throw std::runtime_error("Coroutine stack not enough! Please try adjust the globalconfig 'm_cfg_stackpool_max_alloc_size'");
+    }
     void* stack = m_stack->StackTop();
     m_context = boost::context::detail::make_fcontext(stack, m_stack->UseableSize(), &Context::_CoroutineMain);
 }

@@ -6,7 +6,7 @@ using namespace bbt::coroutine::detail;
 
 int main()
 {
-    std::vector<Coroutine::SPtr> vec;
+    std::vector<Coroutine::Ptr> vec;
 
     while (true)
     {

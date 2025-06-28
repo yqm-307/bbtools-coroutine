@@ -61,7 +61,28 @@ void Scheduler::RegistCoroutineTask(const CoroutineCallback& handle)
     AssertWithInfo(_LoadBlance2Proc(CO_PRIORITY_NORMAL, coroutine_sptr), "this is impossible!");    
 }
 
-void Scheduler::OnActiveCoroutine(CoroutinePriority priority, Coroutine::SPtr coroutine)
+void Scheduler::RegistCoroutineTask(const CoroutineCallback& handle, bool& succ) noexcept
+{
+    try
+    {
+        RegistCoroutineTask(handle);
+        succ = true;
+    }
+    catch(std::runtime_error& e)
+    {
+        std::cerr << "[bbtco] " << e.what() << std::endl;
+        succ = false;
+        return;
+    }
+    catch(...)
+    {
+        succ = false;
+        return;
+    }
+}
+
+
+void Scheduler::OnActiveCoroutine(CoroutinePriority priority, Coroutine::Ptr coroutine)
 {
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
     g_bbt_dbgmgr->Check_IsResumedCo(coroutine->GetId());
@@ -171,7 +192,7 @@ void Scheduler::Stop()
     }
 
     m_sche_thread = nullptr;
-    Coroutine::SPtr item = nullptr;
+    Coroutine::Ptr item = nullptr;
     for (auto && queue : m_global_coroutine_queue)
         while (queue.try_dequeue(item))
             item = nullptr;
@@ -188,7 +209,7 @@ void Scheduler::Stop()
 size_t Scheduler::GetCoroutineFromGlobal(CoroutinePriority priority, CoroutineQueue& queue, size_t size)
 {
     size_t count = 0;
-    Coroutine::SPtr item = nullptr;
+    Coroutine::Ptr item = nullptr;
 
     for (size_t i = 0; i < size; ++i) {
         if (!m_global_coroutine_queue[priority].try_dequeue(item))
@@ -244,7 +265,7 @@ void Scheduler::_DestoryProcessers()
     m_proc_threads.clear();
 }
 
-bool Scheduler::_LoadBlance2Proc(CoroutinePriority priority, Coroutine::SPtr co)
+bool Scheduler::_LoadBlance2Proc(CoroutinePriority priority, Coroutine::Ptr co)
 {
     if (m_load_blance_vec.empty())
         return false;
