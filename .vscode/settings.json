@@ -84,8 +84,8 @@
     "cmake.configureArgs": [
         "-DNEED_BENCHMARK=ON",
         "-DNEED_EXAMPLE=OFF",
-        "-DNEED_TEST=ON",
-        "-DNEED_DEBUG=ON",
+        "-DNEED_TEST=OFF",
+        "-DNEED_DEBUG=OFF",
         "-DPROFILE=OFF",
         "-DRELEASE=ON",
         "-DDEBUG_INFO=OFF",

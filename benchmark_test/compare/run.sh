@@ -3,7 +3,7 @@ if [ ! -d "bin" ]; then
 fi
 
 g++ -o bin/libgo_test 100w_task_libgo.cc -llibgo -ldl -lbbt_core
-g++ -o bin/bbtco_test 100w_task_bbtco.cc -lbbt_core -lbbt_coroutine -lpthread -levent_pthreads
+g++ -o bin/bbtco_test 100w_task_bbtco.cc -lbbt_core -lbbt_pollevent -lbbt_coroutine -lpthread -levent_pthreads
 
 sleep 1
 if [ -f "./bin/libgo_test" ]; then

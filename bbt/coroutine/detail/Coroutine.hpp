@@ -36,9 +36,7 @@ class Coroutine:
 public:
     typedef Coroutine* SPtr;
 
-    BBTATTR_FUNC_CTOR_HIDDEN
     Coroutine(int stack_size, const CoroutineCallback& co_func, bool need_protect);
-    BBTATTR_FUNC_CTOR_HIDDEN
     Coroutine(int stack_size, const CoroutineCallback& co_func, const CoroutineFinalCallback& co_final_cb, bool need_protect);
     ~Coroutine();
     
