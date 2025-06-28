@@ -10,9 +10,9 @@ class _CoHelper
 public:
     
 
-    detail::CoroutineId operator-(const detail::CoroutineCallback& co_func)
+    void operator-(const detail::CoroutineCallback& co_func)
     {
-        return g_scheduler->RegistCoroutineTask(co_func);
+        g_scheduler->RegistCoroutineTask(co_func);
     }
 };
 

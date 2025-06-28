@@ -136,7 +136,8 @@ void Processer::_Run()
             m_co_swap_times++;
 #endif
                 m_running_coroutine->Resume();
-                m_running_coroutine = nullptr;
+                if (m_running_coroutine->GetStatus() == CO_FINAL)
+                    delete m_running_coroutine;
             }
         }
 

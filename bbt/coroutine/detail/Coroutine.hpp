@@ -31,11 +31,10 @@ enum FollowEventStatus
  * 
  */
 class Coroutine:
-    public ICoroutine,
-    public std::enable_shared_from_this<Coroutine>
+    public ICoroutine
 {
 public:
-    typedef std::shared_ptr<Coroutine> SPtr;
+    typedef Coroutine* SPtr;
 
     BBTATTR_FUNC_CTOR_HIDDEN
     Coroutine(int stack_size, const CoroutineCallback& co_func, bool need_protect);

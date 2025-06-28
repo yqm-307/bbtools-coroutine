@@ -41,7 +41,7 @@ void Scheduler::_Init()
     m_down_latch.Reset(g_bbt_coroutine_config->m_cfg_static_thread_num);
 }
 
-CoroutineId Scheduler::RegistCoroutineTask(const CoroutineCallback& handle)
+void Scheduler::RegistCoroutineTask(const CoroutineCallback& handle)
 {
 #ifdef BBT_COROUTINE_PROFILE
     auto coroutine_sptr = Coroutine::Create(
@@ -58,9 +58,7 @@ CoroutineId Scheduler::RegistCoroutineTask(const CoroutineCallback& handle)
         g_bbt_coroutine_config->m_cfg_stack_protect);
 #endif
     /* 尝试先找个Processer放进执行队列，失败放入全局队列 */
-    AssertWithInfo(_LoadBlance2Proc(CO_PRIORITY_NORMAL, coroutine_sptr), "this is impossible!");
-    
-    return coroutine_sptr->GetId();
+    AssertWithInfo(_LoadBlance2Proc(CO_PRIORITY_NORMAL, coroutine_sptr), "this is impossible!");    
 }
 
 void Scheduler::OnActiveCoroutine(CoroutinePriority priority, Coroutine::SPtr coroutine)

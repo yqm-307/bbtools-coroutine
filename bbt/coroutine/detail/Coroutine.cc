@@ -21,12 +21,12 @@ CoroutineId Coroutine::GenCoroutineId()
 
 Coroutine::SPtr Coroutine::Create(int stack_size, const CoroutineCallback& co_func, bool need_protect)
 {
-    return std::make_shared<Coroutine>(stack_size, co_func, need_protect);
+    return new Coroutine(stack_size, co_func, need_protect);
 }
 
 Coroutine::SPtr Coroutine::Create(int stack_size, const CoroutineCallback& co_func, const CoroutineFinalCallback& co_final_cb, bool need_protect)
 {
-    return std::make_shared<Coroutine>(stack_size, co_func, co_final_cb, need_protect);
+    return new Coroutine(stack_size, co_func, co_final_cb, need_protect);
 }
 
 Coroutine::Coroutine(int stack_size, const CoroutineCallback& co_func, bool need_protect):
@@ -98,7 +98,7 @@ int Coroutine::YieldWithCallback(const CoroutineOnYieldCallback& cb)
 void Coroutine::YieldAndPushGCoQueue()
 {
     Assert(YieldWithCallback([this](){
-        g_scheduler->OnActiveCoroutine(CO_PRIORITY_NORMAL, shared_from_this());
+        g_scheduler->OnActiveCoroutine(CO_PRIORITY_NORMAL, this);
         return true;
     }) == 0);
 }
@@ -127,9 +127,8 @@ void Coroutine::_OnCoroutineFinal()
 int Coroutine::YieldUntilTimeout(int ms)
 {
     Assert(m_await_event == nullptr);
-    m_await_event = CoPollEvent::Create(GetId(), [wkthis{weak_from_this()}](auto, int event, int custom_key){
-        if (auto pthis = wkthis.lock(); pthis)
-            pthis->OnCoPollEvent(event, custom_key);
+    m_await_event = CoPollEvent::Create(GetId(), [&](auto, int event, int custom_key){
+        OnCoPollEvent(event, custom_key);
     });
 
     if (m_await_event->InitFdEvent(-1, EventOpt::TIMEOUT, ms) != 0)
@@ -145,9 +144,8 @@ std::shared_ptr<CoPollEvent> Coroutine::RegistCustom(int key)
     if (m_await_event != nullptr)
         return nullptr;
     
-    m_await_event = CoPollEvent::Create(GetId(), [wkthis{weak_from_this()}](auto, int event, int custom_key){
-        if (auto pthis = wkthis.lock(); pthis)
-            pthis->OnCoPollEvent(event, custom_key);
+    m_await_event = CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key){
+        OnCoPollEvent(event, custom_key);
     });
 
     if (m_await_event->InitCustomEvent(key, NULL) != 0)
@@ -161,9 +159,8 @@ std::shared_ptr<CoPollEvent> Coroutine::RegistCustom(int key, int timeout_ms)
     if (m_await_event != nullptr)
         return nullptr;
     
-    m_await_event = CoPollEvent::Create(GetId(), [wkthis{weak_from_this()}](auto, int event, int custom_key){
-        if (auto pthis = wkthis.lock(); pthis)
-            pthis->OnCoPollEvent(event, custom_key);
+    m_await_event = CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key){
+        OnCoPollEvent(event, custom_key);
     });
 
     if (m_await_event->InitCustomEvent(key, NULL) != 0)
@@ -178,9 +175,8 @@ std::shared_ptr<CoPollEvent> Coroutine::RegistCustom(int key, int timeout_ms)
 int Coroutine::YieldUntilFdReadable(int fd)
 {
     Assert(m_await_event == nullptr);
-    m_await_event = CoPollEvent::Create(GetId(), [wkthis{weak_from_this()}](auto, int event, int custom_key){
-        if (auto pthis = wkthis.lock(); pthis)
-            pthis->OnCoPollEvent(event, custom_key);
+    m_await_event = CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key){
+        OnCoPollEvent(event, custom_key);
     });
 
     if (m_await_event->InitFdEvent(fd, EventOpt::READABLE | EventOpt::FINALIZE, 0) != 0)
@@ -195,9 +191,8 @@ int Coroutine::YieldUntilFdReadable(int fd, int timeout_ms)
 {
     Assert(m_await_event == nullptr);
     
-    m_await_event = CoPollEvent::Create(GetId(), [wkthis{weak_from_this()}](auto, int event, int custom_key){
-        if (auto pthis = wkthis.lock(); pthis)
-            pthis->OnCoPollEvent(event, custom_key);
+    m_await_event = CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key){
+        OnCoPollEvent(event, custom_key);
     });
 
     if (m_await_event->InitFdEvent(fd, EventOpt::READABLE | EventOpt::TIMEOUT | EventOpt::FINALIZE, timeout_ms) != 0)
@@ -211,9 +206,8 @@ int Coroutine::YieldUntilFdReadable(int fd, int timeout_ms)
 int Coroutine::YieldUntilFdWriteable(int fd)
 {
     Assert(m_await_event == nullptr);
-    m_await_event = CoPollEvent::Create(GetId(), [wkthis{weak_from_this()}](auto, int event, int custom_key){
-        if (auto pthis = wkthis.lock(); pthis)
-            pthis->OnCoPollEvent(event, custom_key);
+    m_await_event = CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key){
+        OnCoPollEvent(event, custom_key);
     });
 
     if (m_await_event->InitFdEvent(fd, EventOpt::WRITEABLE | EventOpt::FINALIZE, 0) != 0)
@@ -227,9 +221,8 @@ int Coroutine::YieldUntilFdWriteable(int fd)
 int Coroutine::YieldUntilFdWriteable(int fd, int timeout_ms)
 {
     Assert(m_await_event == nullptr);
-    m_await_event = CoPollEvent::Create(GetId(), [wkthis{weak_from_this()}](auto, int event, int custom_key){
-        if (auto pthis = wkthis.lock(); pthis)
-            pthis->OnCoPollEvent(event, custom_key);
+    m_await_event = CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key){
+        OnCoPollEvent(event, custom_key);
     });
 
     if (m_await_event->InitFdEvent(fd, EventOpt::WRITEABLE | EventOpt::TIMEOUT | EventOpt::FINALIZE, timeout_ms) != 0)
@@ -256,7 +249,7 @@ void Coroutine::OnCoPollEvent(int event, int custom_key)
     if (event & EventOpt::TIMEOUT)
         priority = CO_PRIORITY_CRITICAL;
 
-    g_scheduler->OnActiveCoroutine(priority, shared_from_this());
+    g_scheduler->OnActiveCoroutine(priority, this);
 
 }
 

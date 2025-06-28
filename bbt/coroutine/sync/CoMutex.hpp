@@ -1,5 +1,6 @@
 #pragma once
 #include <bbt/coroutine/detail/Define.hpp>
+#include <bbt/coroutine/detail/Coroutine.hpp>
 #include <bbt/coroutine/sync/CoWaiter.hpp>
 #include <bbt/coroutine/sync/interface/ICoLock.hpp>
 
@@ -61,7 +62,7 @@ protected:
 private:
     std::queue<std::shared_ptr<detail::CoPollEvent>> 
                                 m_wait_event_queue;
-    std::shared_ptr<detail::Coroutine>
+    detail::Coroutine::SPtr
                                 m_locked_co{nullptr};
     std::mutex                  m_mutex;
     volatile CoMutexStatus      m_status{CoMutexStatus::COMUTEX_FREE};

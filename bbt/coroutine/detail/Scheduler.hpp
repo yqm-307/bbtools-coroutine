@@ -27,7 +27,7 @@ public:
     void                                        Stop();
     void                                        LoopOnce();
 
-    CoroutineId                                 RegistCoroutineTask(const CoroutineCallback& handle);
+    void                                        RegistCoroutineTask(const CoroutineCallback& handle);
     /* 协程被激活，重新加入全局队列 */
     void                                        OnActiveCoroutine(CoroutinePriority priority, Coroutine::SPtr coroutine);
 
