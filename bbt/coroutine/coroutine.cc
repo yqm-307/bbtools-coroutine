@@ -20,4 +20,18 @@ detail::CoroutineId GetLocalCoroutineId()
     return coroutine->GetId();
 }
 
+size_t GetLocalCoroutineStackSize()
+{
+    auto tls_processer = g_bbt_tls_processer;
+    if (tls_processer == nullptr)
+        return 0;
+
+    auto coroutine = g_bbt_tls_coroutine_co;
+    if (coroutine == nullptr)
+        return 0;
+
+    return coroutine->GetStackSize();
+}
+
+
 }

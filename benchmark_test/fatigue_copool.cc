@@ -4,7 +4,7 @@ using namespace bbt::coroutine;
 
 int main()
 {
-    const int nsum_co = 10000;
+    const int nsum_co = 1000000;
     std::atomic_int count = 0;
     g_scheduler->Start();
 

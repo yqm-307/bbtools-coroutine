@@ -48,6 +48,8 @@ public:
      */
     static fcontext_t&          GetCurThreadContext();
 
+    size_t                      GetStackSize() const noexcept;
+
 protected:
     /**
      * @brief 执行协程

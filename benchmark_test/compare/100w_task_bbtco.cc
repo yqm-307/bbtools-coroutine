@@ -3,8 +3,16 @@
 const int max_task_count = 1000000;
 const int producer_count = 2;
 
+void Init()
+{
+    g_bbt_coroutine_config->m_cfg_stack_size = 1024 * 8; // 设置栈大小为8KB
+    g_bbt_coroutine_config->m_cfg_stack_protect = false; // 启用栈保护
+    g_bbt_coroutine_config->m_cfg_static_coroutine = 10000;
+}
+
 int main()
 {
+    Init();
     g_scheduler->Start();
     auto start = bbt::core::clock::now();
 

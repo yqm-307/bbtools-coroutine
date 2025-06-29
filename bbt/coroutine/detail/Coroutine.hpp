@@ -74,9 +74,10 @@ public:
      */
     virtual void                    YieldAndPushGCoQueue();
 
-    virtual CoroutineId             GetId() override;
-    CoroutineStatus                 GetStatus();
-    int                             GetLastResumeEvent();
+    virtual CoroutineId             GetId() noexcept override;
+    CoroutineStatus                 GetStatus() const noexcept;
+    int                             GetLastResumeEvent() const noexcept;
+    size_t                          GetStackSize() const noexcept;
 
     /**
      * YieldUnitl事件

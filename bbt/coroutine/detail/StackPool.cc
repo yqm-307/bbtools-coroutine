@@ -19,6 +19,8 @@ StackPool::UPtr& StackPool::GetInstance()
 StackPool::StackPool():
     m_prev_adjust_pool_ts(bbt::core::clock::now<>())
 {
+    if (g_bbt_coroutine_config->m_cfg_static_coroutine > 0)
+        _Preload(g_bbt_coroutine_config->m_cfg_static_coroutine);
 
 }
 
@@ -115,6 +117,23 @@ void StackPool::_FreeItem(ItemType* item)
     g_bbt_profiler->OnEvent_StackRelease(1);
 #endif
 }
+
+size_t StackPool::_Preload(size_t preload_size) noexcept
+{
+    size_t succ_num = 0;
+    AssertWithInfo(preload_size > 0, "preload size must be greater than 0");
+    for (size_t i = 0; i < preload_size; ++i) {
+        auto* item = Apply();
+        if (item == nullptr)
+            return succ_num;;
+
+        Release(item);
+        succ_num++;
+    }
+
+    return succ_num;
+}
+
 
 
 }

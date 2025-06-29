@@ -119,4 +119,10 @@ int Context::_Resume()
     return 0;
 }
 
+size_t Context::GetStackSize() const noexcept
+{
+    return m_stack->UseableSize();
+}
+
+
 }

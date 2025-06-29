@@ -104,12 +104,12 @@ void Coroutine::YieldAndPushGCoQueue()
 }
 
 
-CoroutineId Coroutine::GetId()
+CoroutineId Coroutine::GetId() noexcept
 {
     return m_id;
 }
 
-CoroutineStatus Coroutine::GetStatus()
+CoroutineStatus Coroutine::GetStatus() const noexcept
 {
     return m_run_status;
 }
@@ -253,9 +253,14 @@ void Coroutine::OnCoPollEvent(int event, int custom_key)
 
 }
 
-int Coroutine::GetLastResumeEvent()
+int Coroutine::GetLastResumeEvent() const noexcept
 {
     return m_last_resume_event;
+}
+
+size_t Coroutine::GetStackSize() const noexcept
+{
+    return m_context.GetStackSize();
 }
 
 }

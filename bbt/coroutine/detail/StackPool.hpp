@@ -13,10 +13,17 @@ namespace bbt::coroutine::detail
 /**
  * @brief 栈池
  * 
- * 使用固定栈，为了减少内存消耗，使用栈池来做栈的复用。
+ * 使用固定栈，为了减少频繁的内存分配和系统调用产生的开销，使用栈池来做栈的复用。
  * 
  * 使用了较为稳定的最大协程数算法，可以获取一个平稳值
  * 同时兼顾到内存和cpu占用。
+ * 
+ * todo：
+ *  1、支持不同大小的栈
+ *  2、使用更好的分配算法来减少内存碎片
+ *  3、这里其实优化空间比较大，因为系统调用还是比较频繁。而且每个栈单
+ *     独申请释放内存对碎片化也有影响。同时系统调用次数会很高。但是
+ *     目前还没需求来优化，已经很快了。
  * 
  */
 class StackPool
@@ -43,6 +50,7 @@ public:
     /* 当前内存中Co数量，非线程安全的参考值 */
     int                                 GetCurCoNum();
 protected:
+    size_t                              _Preload(size_t preload_size) noexcept;
     ItemType*                           _AllocItem();
     void                                _FreeItem(ItemType* item);
 private:
