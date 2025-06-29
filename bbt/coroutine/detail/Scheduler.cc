@@ -70,7 +70,7 @@ void Scheduler::RegistCoroutineTask(const CoroutineCallback& handle, bool& succ)
     }
     catch(std::runtime_error& e)
     {
-        std::cerr << "[bbtco] " << e.what() << std::endl;
+        // std::cerr << "[bbtco] " << e.what() << std::endl;
         succ = false;
         return;
     }

@@ -57,8 +57,7 @@ size_t Processer::GetExecutableNum()
     size_t total_size = 0;
     for (auto&& it : m_coroutine_queue)
     {
-        if (it.size_approx() > 0)
-            total_size += it.size_approx();
+        total_size += it.size_approx();
     }
 
     return total_size;

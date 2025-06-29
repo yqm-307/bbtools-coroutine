@@ -23,10 +23,20 @@ int main()
         bbtco_desc("producer") [&latch]{
             for (int i = 0; i < max_task_count / producer_count; ++i)
             {
-                bbtco [i,&latch]{
-                    int a = i + i;
-                    latch.Down();
-                };
+                bool succ = false;
+                while (!succ)
+                {
+                    bbtco_noexcept(&succ) [i,&latch]{
+                        int a = i + i;
+                        latch.Down();
+                    };
+
+                    if (!succ)
+                    {
+                        // 如果注册失败，说明协程池满了，等待一段时间后重试
+                        bbtco_sleep(1);
+                    }
+                }
             }
         };
     }
