@@ -5,7 +5,7 @@
 #include <bbt/coroutine/coroutine.hpp>
 
 using namespace bbt::coroutine;
-detail::Coroutine::SPtr current_coroutine = nullptr;
+detail::Coroutine::Ptr current_coroutine = nullptr;
 
 BOOST_AUTO_TEST_SUITE(CoroutineTest)
 

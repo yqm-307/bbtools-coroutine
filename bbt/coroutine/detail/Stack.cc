@@ -16,26 +16,21 @@ Stack::Stack(const size_t stack_size,const bool stack_protect)
 {
     size_t pagesize = getpagesize();
 
-    m_useable_size = stack_size;
-    if (m_useable_size % pagesize == 0)
-        m_useable_size = m_useable_size; 
-    else
-        m_useable_size = (m_useable_size / pagesize + 1) * pagesize;
+    m_useable_size = stack_size % pagesize == 0 ? stack_size : (stack_size / pagesize + 1) * pagesize;
 
     if (m_stack_protect_flag)
     {
+        // 在栈生长方向上保护栈，防止栈溢出导致的非法访问
         m_mem_chunk_size = m_useable_size + pagesize;
         m_mem_chunk = (char*)Alloc(m_mem_chunk_size);
-        assert(m_mem_chunk != nullptr);    
-        m_useable_stack = m_mem_chunk;   //可访问内存栈   
-        _ApplyStackProtect(m_mem_chunk, m_mem_chunk_size);
+        assert(m_mem_chunk != nullptr && "oom");    
+        _ApplyStackProtect(m_mem_chunk);
     }
     else
     {
         m_mem_chunk_size = m_useable_size;
         m_mem_chunk = (char*)Alloc(m_mem_chunk_size);
-        assert(m_mem_chunk != nullptr);
-        m_useable_stack = m_mem_chunk;
+        assert(m_mem_chunk != nullptr && "oom");
     }
 }
 
@@ -49,10 +44,10 @@ Stack::~Stack()
     _Release();
 }
 
-int Stack::_ApplyStackProtect(char* mem_chunk, size_t mem_chunk_len)
+int Stack::_ApplyStackProtect(char* mem_chunk)
 {
     int pagesize = getpagesize();
-    void* ptail = mem_chunk + mem_chunk_len - pagesize;
+    void* ptail = mem_chunk;
 
     if (mprotect(ptail, pagesize, PROT_NONE) < 0){
         bbt::core::log::WarnPrint("%s, errno : %d %s", __FUNCTION__, errno, strerror(errno));
@@ -65,9 +60,11 @@ int Stack::_ApplyStackProtect(char* mem_chunk, size_t mem_chunk_len)
 int Stack::_ReleaseStackProtect()
 {
     int pagesize = getpagesize();
-    void* ptail = m_mem_chunk + m_mem_chunk_size - pagesize;
-
-    if (mprotect(ptail, pagesize, PROT_READ | PROT_WRITE) < 0) {
+    
+    // 释放保护页的保护设置，应该对应创建时的地址
+    void* protect_addr = m_mem_chunk;  // 对应 _ApplyStackProtect 中的地址
+    
+    if (mprotect(protect_addr, pagesize, PROT_READ | PROT_WRITE) < 0) {
         bbt::core::log::WarnPrint("%s, errno : %d %s", __FUNCTION__, errno, strerror(errno));
         return -1;
     }
@@ -95,9 +92,32 @@ void Stack::_Release()
     assert(Free(m_mem_chunk, m_mem_chunk_size) == 0);
 }
 
+char* Stack::StackTop() const
+{
+    if (m_mem_chunk == nullptr)
+        return nullptr;
+
+    return m_mem_chunk + m_mem_chunk_size;
+}
+
+char* Stack::StackBottom() const
+{
+    if (m_mem_chunk == nullptr || m_useable_size == 0)
+        return nullptr;
+
+    if (!m_stack_protect_flag)
+        return m_mem_chunk; // 没有保护区，栈底就是内存块起始位置
+
+    // 有保护区，栈底是保护区后面的位置
+    if (m_useable_size == 0)
+        return nullptr; // 没有可用栈
+
+    return m_mem_chunk + getpagesize(); // protect 区域后面开始才是可用栈
+}
+
 char* Stack::MemChunkBegin()
 {
-    return m_useable_stack;
+    return m_mem_chunk;
 }
 
 size_t Stack::MemChunkSize()
@@ -134,12 +154,10 @@ void Stack::Swap(Stack&& other)
 
     m_stack_protect_flag = other.m_stack_protect_flag;
 
-    m_useable_stack = other.m_useable_stack;
     m_useable_size = other.m_useable_size;
 
     other.m_mem_chunk = nullptr;
     other.m_mem_chunk_size = 0;
-    other.m_useable_stack = nullptr;
     other.m_useable_size = 0;
 }
 

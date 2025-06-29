@@ -27,7 +27,7 @@ public:
     ProcesserStatus                 GetStatus();
     /* 获取processer id */
     ProcesserId                     GetId();
-    Coroutine::SPtr                 GetCurrentCoroutine();
+    Coroutine::Ptr                 GetCurrentCoroutine();
 
 protected:
     /* 非公开库内部接口 */
@@ -35,7 +35,7 @@ protected:
     void                            Stop();
     size_t                          GetLoadValue();
     size_t                          GetExecutableNum(); /* 可执行协程数 */
-    void                            AddCoroutineTask(CoroutinePriority priority, Coroutine::SPtr coroutine);
+    void                            AddCoroutineTask(CoroutinePriority priority, Coroutine::Ptr coroutine);
 
     uint64_t                        GetContextSwapTimes();  /* 协程上下文换出次数 */
     uint64_t                        GetSuspendCostTime();     /* 任务执行耗时，返回微秒 */
@@ -66,7 +66,7 @@ private:
 
     volatile bool                   m_is_running{true};
 
-    Coroutine::SPtr                 m_running_coroutine{nullptr};   // processer当前运行中的协程
+    Coroutine::Ptr                 m_running_coroutine{nullptr};   // processer当前运行中的协程
     std::atomic_uint64_t            m_running_coroutine_begin{0};      // 当前运行协程开始执行的时间 
 
     // XXX 可以优化到profiler中

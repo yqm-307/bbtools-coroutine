@@ -24,7 +24,7 @@ class CoPool:
 public:
     static std::shared_ptr<CoPool> Create(int max_co);
 
-    BBTATTR_FUNC_Ctor_Hidden
+    BBTATTR_FUNC_CTOR_HIDDEN
     explicit CoPool(int co_max);
     virtual ~CoPool();
 

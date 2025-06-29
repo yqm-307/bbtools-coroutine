@@ -5,7 +5,6 @@
 #include <bbt/coroutine/detail/Hook.hpp>
 
 #include <bbt/coroutine/sync/Chan.hpp>
-#include <bbt/coroutine/sync/Chan.hpp>
 #include <bbt/coroutine/sync/CoCond.hpp>
 #include <bbt/coroutine/sync/CoMutex.hpp>
 #include <bbt/coroutine/sync/CoRWMutex.hpp>
@@ -23,6 +22,7 @@ namespace coroutine
 
 /* 获取当前运行的协程id，0为main线程中获取的id */
 detail::CoroutineId GetLocalCoroutineId();
+size_t GetLocalCoroutineStackSize();
 
 template<class TItem, int ItemMax>
 inline typename sync::Chan<TItem, ItemMax>::SPtr Chan()

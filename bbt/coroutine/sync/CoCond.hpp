@@ -8,13 +8,14 @@ namespace bbt::coroutine::sync
 class CoCond:
     public std::enable_shared_from_this<CoCond>
 {
+    struct PrivateTag {};
 public:
     typedef std::shared_ptr<CoCond> SPtr;
 
     static SPtr Create();
 
-    BBTATTR_FUNC_Ctor_Hidden
-    CoCond();
+    BBTATTR_FUNC_CTOR_HIDDEN
+    CoCond(PrivateTag);
     virtual ~CoCond();
 
     /**

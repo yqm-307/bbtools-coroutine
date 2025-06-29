@@ -1,5 +1,6 @@
 #pragma once
 #include <bbt/coroutine/detail/Define.hpp>
+#include <bbt/coroutine/detail/Coroutine.hpp>
 #include <bbt/coroutine/sync/CoWaiter.hpp>
 #include <bbt/coroutine/sync/interface/ICoLock.hpp>
 
@@ -22,12 +23,13 @@ namespace bbt::coroutine::sync
 class CoMutex:
     public ICoLock
 {
+    struct PrivateTag {};
 public:
     typedef std::shared_ptr<CoMutex> SPtr;
     static SPtr Create();
 
-    BBTATTR_FUNC_Ctor_Hidden
-    CoMutex();
+    BBTATTR_FUNC_CTOR_HIDDEN
+    CoMutex(PrivateTag);
     ~CoMutex();
 
     void                        Lock();
@@ -60,7 +62,7 @@ protected:
 private:
     std::queue<std::shared_ptr<detail::CoPollEvent>> 
                                 m_wait_event_queue;
-    std::shared_ptr<detail::Coroutine>
+    detail::Coroutine::Ptr
                                 m_locked_co{nullptr};
     std::mutex                  m_mutex;
     volatile CoMutexStatus      m_status{CoMutexStatus::COMUTEX_FREE};

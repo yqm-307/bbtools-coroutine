@@ -256,7 +256,7 @@ typedef uint64_t ProcesserId;
 typedef uint64_t CoPollEventId;
 #define BBT_COROUTINE_INVALID_COPOLLEVENT_ID 0
 
-typedef moodycamel::BlockingConcurrentQueue<std::shared_ptr<Coroutine>> CoroutineQueue; // 协程队列
+typedef moodycamel::BlockingConcurrentQueue<Coroutine*> CoroutineQueue; // 协程队列
 typedef std::array<CoroutineQueue, CoroutinePriority::CO_PRIORITY_COUNT> CoPriorityQueue; // 协程优先级队列
 
 typedef std::function<void()> CoroutineCallback;        // 协程处理主函数

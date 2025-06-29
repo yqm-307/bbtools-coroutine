@@ -5,7 +5,7 @@ namespace bbt::coroutine::sync
 
 CoRWMutex::SPtr CoRWMutex::Create()
 {
-    return std::make_shared<CoRWMutex>();
+    return std::make_shared<CoRWMutex>(PrivateTag{});
 }
 
 

@@ -7,11 +7,12 @@ namespace bbt::coroutine::sync
 
 class CoRWMutex
 {
+    struct PrivateTag {};
 public:
     typedef std::shared_ptr<CoRWMutex> SPtr;
     static SPtr Create();
-    BBTATTR_FUNC_Ctor_Hidden 
-    CoRWMutex() {}
+    BBTATTR_FUNC_CTOR_HIDDEN 
+    CoRWMutex(PrivateTag) {}
     ~CoRWMutex() {}
 
     int RLock();
