@@ -18,19 +18,17 @@ void SleepHook()
 {
     printf("SleepHook begin\n");
 
-    auto id1 = bbtco [](){
+    bbtco [](){
         printf("[%d] sleep before!, now=%ld\n", bbt::coroutine::GetLocalCoroutineId(), bbt::core::clock::now<>().time_since_epoch().count());
         sleep(1);
         printf("[%d] sleep end!, now=%ld\n", bbt::coroutine::GetLocalCoroutineId(), bbt::core::clock::now<>().time_since_epoch().count());
     };
-    printf("create co1 id=%ld now=%ld\n", id1, bbt::core::clock::now<>().time_since_epoch().count());
 
-    auto id2 = bbtco [](){
+    bbtco [](){
         printf("[%d] sleep before!, now=%ld\n", bbt::coroutine::GetLocalCoroutineId(), bbt::core::clock::now<>().time_since_epoch().count());
         sleep(1);
         printf("[%d] sleep end!, now=%ld\n", bbt::coroutine::GetLocalCoroutineId(), bbt::core::clock::now<>().time_since_epoch().count());
     };
-    printf("create co2 id=%ld now=%ld\n", id2, bbt::core::clock::now<>().time_since_epoch().count());
 
     sleep(2);
 
