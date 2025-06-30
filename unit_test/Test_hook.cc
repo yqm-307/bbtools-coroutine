@@ -73,7 +73,14 @@ BOOST_AUTO_TEST_CASE(t_hook_write)
     bbtco[&l]()
     {
         BOOST_TEST_MESSAGE("[server] server co=" << bbt::coroutine::GetLocalCoroutineId());
-        int fd = bbt::core::net::Util::CreateListen("", 10001, true);
+        auto rlt = bbt::core::net::CreateListen("", 10001, true);
+        if (rlt.IsErr())
+        {
+            BOOST_TEST_MESSAGE("[server] create listen failed, errno=" << rlt.Err().What());
+            BOOST_FAIL("create listen failed");
+        }
+
+        int fd = rlt.Ok();
         BOOST_ASSERT(fd >= 0);
         BOOST_TEST_MESSAGE("[server] create succ listen fd=" << fd);
         sockaddr_in cli_addr;
@@ -129,7 +136,13 @@ BOOST_AUTO_TEST_CASE(t_hook_send)
 
     bbtco[&l]()
     {
-        int fd = bbt::core::net::Util::CreateListen("", 10001, true);
+        auto rlt = bbt::core::net::CreateListen("", 10001, true);
+        if (rlt.IsErr())
+        {
+            BOOST_TEST_MESSAGE("[server] create listen failed, errno=" << rlt.Err().What());
+            BOOST_FAIL("create listen failed");
+        }
+        int fd = rlt.Ok();
         BOOST_ASSERT(fd >= 0);
         sockaddr_in cli_addr;
         char *buf = new char[1024];
