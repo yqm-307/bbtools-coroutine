@@ -5,6 +5,7 @@
 
 /* 辅助宏 */
 #define bbtco bbt::coroutine::_CoHelper()-
+#define bbtco_noexcept(succ) bbt::coroutine::_CoHelper(succ)+ 
 #define bbtco_desc(desc) bbtco
 
 #define bbtco_sleep(ms) bbt::coroutine::detail::Hook_Sleep(ms)

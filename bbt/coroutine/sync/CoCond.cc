@@ -6,10 +6,10 @@ namespace bbt::coroutine::sync
 
 CoCond::SPtr CoCond::Create()
 {
-    return std::make_shared<CoCond>();
+    return std::make_shared<CoCond>(PrivateTag{});
 }
 
-CoCond::CoCond()
+CoCond::CoCond(PrivateTag)
 {
 }
 

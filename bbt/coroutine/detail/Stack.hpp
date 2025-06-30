@@ -34,12 +34,26 @@ public:
     ~Stack();
 
     /**
-     * @brief 获取栈内存起始指针
+     * @brief 获取最大栈顶指针
+     * 
+     * @return char* 
+     */
+    char*   StackTop() const;
+
+    /**
+     * @brief 获取栈底指针，相当于bp
+     * 
+     * @return char* 
+     */
+    char*   StackBottom() const;
+
+    /**
+     * @brief 获取总的内存块大小（包含protect块）
      */
     char*   MemChunkBegin(); 
 
     /**
-     * @brief 内存块大小，包含 protect 块
+     * @brief 获取内存块大小（包含protect块）
      */
     size_t  MemChunkSize();
 
@@ -62,17 +76,16 @@ protected:
      * 保护只是防止因为栈溢出导致的异常但是不崩溃行为，如果
      * 程序在错误的情况继续运行可能导致更严重、难以修复的行为
      */
-    int     _ApplyStackProtect(char* mem_chunk, size_t mem_chunk_len);
+    int     _ApplyStackProtect(char* mem_chunk);
     int     _ReleaseStackProtect();
 
     void    _Release();
     void    Swap(Stack&& other);
 private:
-    char*   m_useable_stack{nullptr};       // 可用栈，不包含 protect 内存块
+    bool    m_stack_protect_flag{false};    // 是否启用栈保护
     size_t  m_useable_size{0};              // 可用栈大小，不包含 protect 内存块
     char*   m_mem_chunk{nullptr};           // 内存块，包含 protect 内存块
     size_t  m_mem_chunk_size{0};            // 内存块大小，包含 protect 内存块
-    bool    m_stack_protect_flag{false};    // 是否启用栈保护
 };
 
 

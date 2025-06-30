@@ -31,20 +31,17 @@ enum FollowEventStatus
  * 
  */
 class Coroutine:
-    public ICoroutine,
-    public std::enable_shared_from_this<Coroutine>
+    public ICoroutine
 {
 public:
-    typedef std::shared_ptr<Coroutine> SPtr;
+    typedef Coroutine* Ptr;
 
-    BBTATTR_FUNC_Ctor_Hidden
     Coroutine(int stack_size, const CoroutineCallback& co_func, bool need_protect);
-    BBTATTR_FUNC_Ctor_Hidden
     Coroutine(int stack_size, const CoroutineCallback& co_func, const CoroutineFinalCallback& co_final_cb, bool need_protect);
     ~Coroutine();
     
-    static SPtr                     Create(int stack_size, const CoroutineCallback& co_func, bool need_protect = true);
-    static SPtr                     Create(int stack_size, const CoroutineCallback& co_func, const CoroutineFinalCallback& co_final_cb, bool need_protect = true);
+    static Ptr                     Create(int stack_size, const CoroutineCallback& co_func, bool need_protect = true);
+    static Ptr                     Create(int stack_size, const CoroutineCallback& co_func, const CoroutineFinalCallback& co_final_cb, bool need_protect = true);
 
     /**
      * @brief 唤醒协程。切换到协程的上下文中执行。
@@ -77,9 +74,10 @@ public:
      */
     virtual void                    YieldAndPushGCoQueue();
 
-    virtual CoroutineId             GetId() override;
-    CoroutineStatus                 GetStatus();
-    int                             GetLastResumeEvent();
+    virtual CoroutineId             GetId() noexcept override;
+    CoroutineStatus                 GetStatus() const noexcept;
+    int                             GetLastResumeEvent() const noexcept;
+    size_t                          GetStackSize() const noexcept;
 
     /**
      * YieldUnitl事件

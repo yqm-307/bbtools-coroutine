@@ -23,7 +23,7 @@ public:
 
     static SPtr                     Create(CoroutineId id, const CoPollEventCallback& cb);
 
-    BBTATTR_FUNC_Ctor_Hidden        CoPollEvent(CoroutineId id, const CoPollEventCallback& cb);
+    BBTATTR_FUNC_CTOR_HIDDEN        CoPollEvent(CoroutineId id, const CoPollEventCallback& cb);
                                     ~CoPollEvent();
 
     int                             GetEvent() const;

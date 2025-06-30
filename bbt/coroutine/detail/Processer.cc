@@ -57,8 +57,7 @@ size_t Processer::GetExecutableNum()
     size_t total_size = 0;
     for (auto&& it : m_coroutine_queue)
     {
-        if (it.size_approx() > 0)
-            total_size += it.size_approx();
+        total_size += it.size_approx();
     }
 
     return total_size;
@@ -70,7 +69,7 @@ ProcesserId Processer::GetId()
     return m_id;
 }
 
-void Processer::AddCoroutineTask(CoroutinePriority priority, Coroutine::SPtr coroutine)
+void Processer::AddCoroutineTask(CoroutinePriority priority, Coroutine::Ptr coroutine)
 {
     AssertWithInfo(coroutine != nullptr, "coroutine is nullptr!");
     AssertWithInfo(m_coroutine_queue[priority].enqueue(coroutine), "oom!");
@@ -136,7 +135,8 @@ void Processer::_Run()
             m_co_swap_times++;
 #endif
                 m_running_coroutine->Resume();
-                m_running_coroutine = nullptr;
+                if (m_running_coroutine->GetStatus() == CO_FINAL)
+                    delete m_running_coroutine;
             }
         }
 
@@ -165,7 +165,7 @@ void Processer::_Run()
 
 void Processer::Stop()
 {
-    Coroutine::SPtr item = nullptr;
+    Coroutine::Ptr item = nullptr;
 
     do {
         m_is_running = false;
@@ -199,7 +199,7 @@ size_t Processer::_TryGetCoroutineFromGlobal()
     return already_count;
 }
 
-Coroutine::SPtr Processer::GetCurrentCoroutine()
+Coroutine::Ptr Processer::GetCurrentCoroutine()
 {
     return m_running_coroutine;
 }
@@ -242,7 +242,7 @@ uint64_t Processer::GetStealCount()
 
 size_t Processer::Steal(Processer::SPtr thief)
 {
-    Coroutine::SPtr item = nullptr;
+    Coroutine::Ptr item = nullptr;
     size_t steal_num = 0;
     size_t expect_size = 0;
 
