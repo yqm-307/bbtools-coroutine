@@ -40,7 +40,7 @@ message(
 )
 ################################################################
 
-set(Wall_Flag "-Wnon-virtual-dtor -Wdelete-non-virtual-dtor -Wdeprecated-copy \
+set(Wall_Flag "-Wdelete-non-virtual-dtor -Wdeprecated-copy \
 -Waddress -Warray-bounds=1 -Wbool-compare -Wbool-operation \
 -Wduplicated-branches -Wduplicated-cond \
 -Wchar-subscripts -Wformat -Wint-in-bool-context \
@@ -51,10 +51,12 @@ set(Wall_Flag "-Wnon-virtual-dtor -Wdelete-non-virtual-dtor -Wdeprecated-copy \
 -Wmaybe-uninitialized -Wmemset-elt-size -Wreturn-type \
 -Wreorder")
 
-if (RELEASE)
-    set(CMAKE_CXX_FALGS "${CMAKE_CXX_FLAGS} -fPIC -std=c++17 -O3 ${Wall_Flag}")
+string(TOUPPER "${CMAKE_BUILD_TYPE}" BUILD_TYPE_UPPER)
+
+if (BUILD_TYPE_UPPER STREQUAL "DEBUG")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -g ${Wall_Flag}")
 else()
-    set(CMAKE_CXX_FALGS "${CMAKE_CXX_FLAGS} -std=c++17 -g ${Wall_Flag}")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC -std=c++17 -O3 ${Wall_Flag}")
 endif()
 
 if (PROFILE)
@@ -87,6 +89,10 @@ target_link_libraries(bbt_coroutine
     bbt_pollevent
     bbt_core
     # tcmalloc
+)
+
+target_compile_features(bbt_coroutine
+    PUBLIC cxx_std_17
 )
 
 if (NEED_TEST)
