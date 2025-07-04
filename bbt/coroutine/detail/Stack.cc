@@ -79,9 +79,6 @@ void Stack::Clear()
 
 void Stack::_Release()
 {
-    // 获取该系统内存页大小
-    int pagesize = getpagesize();
-
     if (m_mem_chunk == nullptr)
         return;
 

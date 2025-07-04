@@ -10,7 +10,7 @@ int main()
 
     while (true)
     {
-        vec.push_back(Coroutine::Create(1024, [](){}, [](){}, true));    
+        vec.push_back(Coroutine::Create(1024, [](){}, true));    
     }
 
 }

@@ -5,8 +5,7 @@ project(bbtools-coroutine)
 ################################################################
 ############## options
 ################################################################
-option(RELEASE
-    "启用编译优化" OFF)
+string(TOUPPER "${CMAKE_BUILD_TYPE}" BUILD_TYPE_UPPER)
 
 option(NEED_BENCHMARK
     "编译benchmark文件" OFF)
@@ -30,7 +29,7 @@ option(STRINGENT_DEBUG
     "启动严格dbg模式，带来性能开销极大" OFF)
 
 message(
-    "RELEASE: "         ${RELEASE}
+    "RELEASE: "         ${BUILD_TYPE_UPPER}
     "\nNEED_BENCHMARK: "  ${NEED_BENCHMARK}
     "\nNEED_EXAMPLE: "    ${NEED_EXAMPLE}
     "\nNEED_TEST: "       ${NEED_TEST}
@@ -51,12 +50,11 @@ set(Wall_Flag "-Wdelete-non-virtual-dtor -Wdeprecated-copy \
 -Wmaybe-uninitialized -Wmemset-elt-size -Wreturn-type \
 -Wreorder")
 
-string(TOUPPER "${CMAKE_BUILD_TYPE}" BUILD_TYPE_UPPER)
 
 if (BUILD_TYPE_UPPER STREQUAL "DEBUG")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -g ${Wall_Flag}")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${Wall_Flag}")
 else()
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC -std=c++17 -O3 ${Wall_Flag}")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC ${Wall_Flag}")
 endif()
 
 if (PROFILE)
@@ -95,19 +93,27 @@ target_compile_features(bbt_coroutine
     PUBLIC cxx_std_17
 )
 
+# 添加一个函数来隔离构建类型
+function(add_subdirectory_with_build_type subdir build_type)
+    set(PARENT_BUILD_TYPE ${CMAKE_BUILD_TYPE})
+    set(CMAKE_BUILD_TYPE ${build_type})
+    add_subdirectory(${subdir})
+    set(CMAKE_BUILD_TYPE ${PARENT_BUILD_TYPE} PARENT_SCOPE)
+endfunction()
+
 if (NEED_TEST)
     enable_testing()
-    add_subdirectory(unit_test)
+    add_subdirectory_with_build_type(unit_test "Debug")
 endif()
 
 if (NEED_BENCHMARK)
-    add_subdirectory(benchmark_test)
+    add_subdirectory_with_build_type(benchmark_test "Debug")
 endif()
 
 if (NEED_EXAMPLE)
-    add_subdirectory(example)
+    add_subdirectory_with_build_type(example "Debug")
 endif()
 
 if (NEED_DEBUG)
-    add_subdirectory(debug)
+    add_subdirectory_with_build_type(debug "Debug")
 endif()

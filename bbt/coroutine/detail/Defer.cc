@@ -3,14 +3,9 @@
 namespace bbt::coroutine::detail
 {
 
-Defer::Defer(DeferCallback&& cb):
+Defer::Defer(const DeferCallback& cb):
     m_defer_handler(cb)
 {
-}
-
-Defer::Defer(Defer&& other):
-    m_defer_handler(std::move(other.m_defer_handler))
-{    
 }
 
 Defer::~Defer()

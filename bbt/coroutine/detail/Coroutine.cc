@@ -13,7 +13,7 @@ namespace bbt::coroutine::detail
 
 typedef bbt::pollevent::EventOpt EventOpt;
 
-CoroutineId Coroutine::GenCoroutineId()
+CoroutineId Coroutine::_GenCoroutineId()
 {
     static std::atomic_uint64_t _generate_id{BBT_COROUTINE_INVALID_COROUTINE_ID};
     return (++_generate_id);
@@ -24,27 +24,11 @@ Coroutine::Ptr Coroutine::Create(int stack_size, const CoroutineCallback& co_fun
     return new Coroutine(stack_size, co_func, need_protect);
 }
 
-Coroutine::Ptr Coroutine::Create(int stack_size, const CoroutineCallback& co_func, const CoroutineFinalCallback& co_final_cb, bool need_protect)
-{
-    return new Coroutine(stack_size, co_func, co_final_cb, need_protect);
-}
-
 Coroutine::Coroutine(int stack_size, const CoroutineCallback& co_func, bool need_protect):
-    m_context(stack_size, co_func, [this](){_OnCoroutineFinal();}, need_protect),
-    m_id(GenCoroutineId())
+    m_context(stack_size, [=](){co_func(); m_run_status = CoroutineStatus::CO_FINAL; }, need_protect),
+    m_id(_GenCoroutineId())
 {
-    m_run_status = CoroutineStatus::CO_PENDING;
-#ifdef BBT_COROUTINE_PROFILE
-    g_bbt_profiler->OnEvent_CreateCoroutine();
-#endif
-}
-
-Coroutine::Coroutine(int stack_size, const CoroutineCallback& co_func, const CoroutineFinalCallback& co_final_cb, bool need_protect):
-    m_context(stack_size, co_func, [this](){_OnCoroutineFinal();}, need_protect),
-    m_id(GenCoroutineId()),
-    m_co_final_callback(co_final_cb)
-{
-    m_run_status = CoroutineStatus::CO_PENDING;
+    m_run_status = CoroutineStatus::CO_RUNNABLE;
 #ifdef BBT_COROUTINE_PROFILE
     g_bbt_profiler->OnEvent_CreateCoroutine();
 #endif
@@ -61,7 +45,7 @@ Coroutine::~Coroutine()
 
 void Coroutine::Resume()
 {
-    Assert(m_run_status == CoroutineStatus::CO_PENDING || m_run_status == CoroutineStatus::CO_SUSPEND);
+    Assert(m_run_status == CoroutineStatus::CO_RUNNABLE || m_run_status == CoroutineStatus::CO_SUSPEND);
     m_run_status = CoroutineStatus::CO_RUNNING;
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
     g_bbt_dbgmgr->OnEvent_ResumeCo(shared_from_this());
@@ -112,16 +96,6 @@ CoroutineId Coroutine::GetId() noexcept
 CoroutineStatus Coroutine::GetStatus() const noexcept
 {
     return m_run_status;
-}
-
-void Coroutine::_OnCoroutineFinal()
-{
-#ifdef BBT_COROUTINE_STRINGENT_DEBUG
-    g_bbt_dbgmgr->OnEvent_YieldCo(shared_from_this());
-#endif
-    m_run_status = CoroutineStatus::CO_FINAL;
-    if (m_co_final_callback)
-        m_co_final_callback();
 }
 
 int Coroutine::YieldUntilTimeout(int ms)

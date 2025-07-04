@@ -17,6 +17,7 @@ namespace bbt::coroutine::pool
  *   导致池子中可用协程数变少
  * 3. 协程池中的协程会一直存在，直到协程池被销毁
  * 
+ * todo：不是异常安全的，没有对oom进行处理
  */
 class CoPool:
     boost::noncopyable

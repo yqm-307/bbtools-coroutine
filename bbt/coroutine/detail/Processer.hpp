@@ -7,6 +7,18 @@
 namespace bbt::coroutine::detail
 {
 
+/**
+ * @brief Processer类
+ * 
+ * Processer是协程的执行单元，负责调度和执行协程任务。
+ * 每个Processer绑定一个线程，且每个线程只能有一个Processer。
+ * 
+ * Processer的主要职责包括：
+ * - 执行协程任务
+ * - 管理协程的状态
+ * - 支持协程的窃取和负载均衡
+ * 
+ */
 class Processer:
     public std::enable_shared_from_this<Processer>
 {
@@ -54,25 +66,25 @@ protected:
     size_t                          _TryGetCoroutineFromGlobal();
     void                            _Run();
 private:
+    /* 控制信息 */
     const ProcesserId               m_id{BBT_COROUTINE_INVALID_PROCESSER_ID};
     volatile ProcesserStatus        m_run_status{ProcesserStatus::PROC_DEFAULT};
 
-    /* 局部队列 */
+    /* 调度相关 */
     CoPriorityQueue                 m_coroutine_queue;
-
     std::condition_variable         m_run_cond;
     std::atomic_bool                m_run_cond_notify{false}; // 是否需要唤醒
     std::mutex                      m_run_cond_mutex;
 
+    /* 运行时相关 */
     volatile bool                   m_is_running{true};
-
-    Coroutine::Ptr                 m_running_coroutine{nullptr};   // processer当前运行中的协程
-    std::atomic_uint64_t            m_running_coroutine_begin{0};      // 当前运行协程开始执行的时间 
+    Coroutine::Ptr                  m_running_coroutine{nullptr};   // processer当前运行中的协程
+    std::atomic_uint64_t            m_running_coroutine_begin{0};   // 当前运行协程开始执行的时间 
 
     // XXX 可以优化到profiler中
 #ifdef BBT_COROUTINE_PROFILE
     uint64_t                        m_co_swap_times{0};
-    bbt::core::clock::us                  m_suspend_cost_times{0};
+    bbt::core::clock::us            m_suspend_cost_times{0};
     uint64_t                        m_steal_succ_times{0};  // 偷取数量
     uint64_t                        m_steal_count{0};       // 被偷取数量
 #endif
