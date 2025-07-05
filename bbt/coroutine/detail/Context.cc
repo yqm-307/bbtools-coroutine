@@ -2,6 +2,7 @@
 #include <bbt/coroutine/detail/StackPool.hpp>
 #include <bbt/coroutine/detail/Processer.hpp>
 #include <bbt/coroutine/detail/LocalThread.hpp>
+#include <bbt/coroutine/detail/Profiler.hpp>
 
 namespace bbt::coroutine::detail
 {

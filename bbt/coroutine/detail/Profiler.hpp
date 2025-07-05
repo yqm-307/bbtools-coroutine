@@ -38,6 +38,8 @@ public:
     void                        OnEvent_StackRelease(int num);
     void                        OnEvent_StackAlloc();
 
+    void                        OnEvent_CoMutexLockYield();
+
     void                        ProfileInfo(std::string& info);
 
     struct ProcesserProfile
@@ -70,6 +72,9 @@ private:
     /* StackPool 相关指标 */
     std::atomic_uint64_t        m_stack_release_count{0};
     std::atomic_uint64_t        m_stack_alloc_count{0};
+
+    /* CoMutex 相关 */
+    std::atomic_uint64_t        m_comutex_lock_count{0};           /* CoMutex发生竞争导致挂起次数 */
 };
 
 }
