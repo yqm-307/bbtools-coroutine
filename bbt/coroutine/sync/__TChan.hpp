@@ -72,9 +72,12 @@ int Chan<TItem, Max>::Read(ItemType& item)
         _Lock();
     }
     
+    if (m_item_queue.empty() || IsClosed())
+        return -1;
+
     item = m_item_queue.front();
     m_item_queue.pop();
-    /* 抛出队列可写 */
+    // 唤醒一个等待写入的协程
     Assert(_OnEnableWrite() == 0);
     m_is_reading.exchange(false);
     _UnLock();
@@ -221,6 +224,10 @@ void Chan<TItem, Max>::Close()
     m_run_status = ChanStatus::CHAN_CLOSE;
 
     _Lock();
+
+    while (!m_item_queue.empty())
+        m_item_queue.pop();
+
     /* 唤醒所有阻塞在Channel上的协程 */
     if (m_is_reading) _OnEnableRead();
 

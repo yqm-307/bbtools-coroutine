@@ -24,3 +24,12 @@ target_link_libraries(echo_client ${MY_LIBS})
 
 add_executable(echo_server echoserver/EchoServer.cc)
 target_link_libraries(echo_server ${MY_LIBS})
+
+add_executable(copool copool.cc)
+target_link_libraries(copool ${MY_LIBS})
+
+add_executable(waitfor waitfor.cc)
+target_link_libraries(waitfor ${MY_LIBS})
+
+add_executable(consumer_productor consumer_productor.cc)
+target_link_libraries(consumer_productor ${MY_LIBS})

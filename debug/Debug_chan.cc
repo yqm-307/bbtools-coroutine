@@ -5,7 +5,7 @@
 #include <bbt/coroutine/sync/Chan.hpp>
 using namespace bbt::coroutine;
 
-void ReadOnce()
+void FixSizeChan()
 {
 
     bbtco [](){
@@ -101,7 +101,7 @@ void DebugWriteBlock()
 int main()
 {
     g_scheduler->Start();
-    ReadOnce();
+    FixSizeChan();
     ReadMulti();
     DebugWriteBlock();
     g_scheduler->Stop();

@@ -207,6 +207,23 @@ int Coroutine::YieldUntilFdWriteable(int fd, int timeout_ms)
     });
 }
 
+int Coroutine::YieldUntilFdEx(int fd, short events, int timeout_ms)
+{
+    Assert(m_await_event == nullptr);
+    m_await_event = CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key){
+        OnCoPollEvent(event, custom_key);
+    });
+
+    /* 绝对不可以反复触发 */
+    if (m_await_event->InitFdEvent(fd, events & ~pollevent::EventOpt::PERSIST, timeout_ms) != 0)
+        return -1;
+
+    return YieldWithCallback([this](){
+        return (m_await_event->Regist() == 0);
+    });
+}
+
+
 void Coroutine::OnCoPollEvent(int event, int custom_key)
 {
     CoroutinePriority priority = CO_PRIORITY_NORMAL;

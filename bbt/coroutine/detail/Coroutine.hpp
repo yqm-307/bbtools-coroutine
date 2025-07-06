@@ -111,6 +111,7 @@ public:
     int                             YieldUntilFdReadable(int fd, int timeout_ms);
     int                             YieldUntilFdWriteable(int fd);
     int                             YieldUntilFdWriteable(int fd, int timeout_ms);
+    int                             YieldUntilFdEx(int fd, short events, int timeout_ms = 0);
 
 protected:
     void                            OnCoPollEvent(int event, int custom_key);
