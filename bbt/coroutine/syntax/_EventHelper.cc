@@ -7,7 +7,7 @@ namespace bbt::coroutine
 {
 
 _EventHelper::_EventHelper(int fd, short event, int ms):
-    m_fd(fd), m_event(event), m_timeout(ms)
+    m_fd(fd), m_timeout(ms), m_event(event)
 {
     Assert((m_event & bbt::pollevent::PERSIST) == 0);
     if (m_event > 0)
@@ -15,7 +15,7 @@ _EventHelper::_EventHelper(int fd, short event, int ms):
 }
 
 _EventHelper::_EventHelper(int fd, short event, int ms, std::shared_ptr<pool::CoPool> pool):
-    m_fd(fd), m_event(event), m_timeout(ms), m_copool(pool)
+    m_copool(pool), m_fd(fd), m_timeout(ms), m_event(event)
 {
     Assert((m_event & bbt::pollevent::PERSIST) == 0);
     if (m_event > 0)

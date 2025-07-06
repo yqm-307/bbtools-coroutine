@@ -1,6 +1,6 @@
 #include <bbt/coroutine/coroutine.hpp>
 
-const int max_task_count = 1000000;
+const int max_task_count = 10000000;
 const int producer_count = 2;
 
 void Init()

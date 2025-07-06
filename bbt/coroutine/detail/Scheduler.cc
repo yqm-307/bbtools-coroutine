@@ -1,6 +1,7 @@
 #include <cmath>
 #include <bbt/core/log/DebugPrint.hpp>
 #include <bbt/core/clock/Clock.hpp>
+#include <bbt/core/Attribute.hpp>
 #include <bbt/coroutine/detail/Scheduler.hpp>
 #include <bbt/coroutine/detail/Processer.hpp>
 #include <bbt/coroutine/detail/CoPoller.hpp>
@@ -43,22 +44,16 @@ void Scheduler::_Init()
 
 void Scheduler::RegistCoroutineTask(const CoroutineCallback& handle)
 {
-#ifdef BBT_COROUTINE_PROFILE
     auto coroutine_sptr = Coroutine::Create(
         g_bbt_coroutine_config->m_cfg_stack_size,
         handle,
-        [this](){ g_bbt_profiler->OnEvent_DoneCoroutine(); },
         g_bbt_coroutine_config->m_cfg_stack_protect);
 
-    g_bbt_profiler->OnEvent_RegistCoroutine();
-#else
-    auto coroutine_sptr = Coroutine::Create(
-        g_bbt_coroutine_config->m_cfg_stack_size,
-        handle,
-        g_bbt_coroutine_config->m_cfg_stack_protect);
-#endif
     /* 尝试先找个Processer放进执行队列，失败放入全局队列 */
     AssertWithInfo(_LoadBlance2Proc(CO_PRIORITY_NORMAL, coroutine_sptr), "this is impossible!");    
+#ifdef BBT_COROUTINE_PROFILE
+    g_bbt_profiler->OnEvent_RegistCoroutine();
+#endif
 }
 
 void Scheduler::RegistCoroutineTask(const CoroutineCallback& handle, bool& succ) noexcept
@@ -122,6 +117,14 @@ void Scheduler::_OnUpdate()
 
 void Scheduler::_Run()
 {
+    /**
+     * 调度器主循环
+     * 
+     * 1. CoPoller 进行事件轮询，检测是否有await_event就绪。
+     * 2. 栈池进行定时采样和动态调整。
+     * 
+     */
+
     m_begin_timestamp = bbt::core::clock::now<>();
     auto prev_scan_timepoint = bbt::core::clock::now<>();
 
@@ -312,11 +315,19 @@ int Scheduler::TryWorkSteal(Processer::SPtr thief)
 
 void Scheduler::_InitGlobalUniqInstance()
 {
+    /**
+     * 禁止编译器优化。
+     * 
+     * 1. 确保全局单例在使用前被初始化，防止编译器将全局单例的初始化延迟到第一次使用时。
+     * 2. 确保全局单例在程序启动时就被初始化，避免多线程环境下的竞态条件。
+     * 3. 确保全局单例的初始化顺序正确，避免依赖关系错误。
+     * 
+     */
 #pragma optimize("", off)
-    auto& _init_tls_helper = g_bbt_tls_helper;
-    auto& _init_poller = g_bbt_poller;
-    auto& _init_profile = g_bbt_profiler;
-    auto& _init_stackpool = g_bbt_stackpoll;
+    BBTATTR_COMM_UNUSED auto& _init_tls_helper = g_bbt_tls_helper;
+    BBTATTR_COMM_UNUSED auto& _init_poller = g_bbt_poller;
+    BBTATTR_COMM_UNUSED auto& _init_profile = g_bbt_profiler;
+    BBTATTR_COMM_UNUSED auto& _init_stackpool = g_bbt_stackpoll;
 #pragma optimize("", on)
 }
 

@@ -39,8 +39,8 @@ CoPollEvent::SPtr CoPollEvent::Create(CoroutineId id, const CoPollEventCallback&
 
 CoPollEvent::CoPollEvent(CoroutineId id, const CoPollEventCallback& cb):
     m_co_id(id),
-    m_onevent_callback(cb),
-    m_event_id(_GenerateId())
+    m_event_id(_GenerateId()),
+    m_onevent_callback(cb)
 {
     Assert(m_onevent_callback != nullptr);
     m_run_status = CoPollEventStatus::POLLEVENT_INITED;
@@ -61,7 +61,6 @@ int CoPollEvent::Trigger(short trigger_events)
 
     std::unique_lock lock{m_onevent_callback_mtx};
 
-    int expect = CoPollEventStatus::POLLEVENT_LISTEN;
     if (m_run_status != CoPollEventStatus::POLLEVENT_LISTEN)
         return -1;
 
@@ -78,7 +77,8 @@ int CoPollEvent::Trigger(short trigger_events)
 #endif
 
     if (m_onevent_callback != nullptr) {
-        int event = TransformToPollEventType(trigger_events, trigger_events & POLL_EVENT_CUSTOM);
+
+        BBTATTR_COMM_UNUSED int event = TransformToPollEventType(trigger_events, trigger_events & POLL_EVENT_CUSTOM);
         AssertWithInfo(event > 0, "may be has a bug! trigger event must greater then 0!"); // 事件触发必须有原因
         lock.unlock();
 

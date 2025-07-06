@@ -4,6 +4,7 @@
 #include <bbt/coroutine/detail/Coroutine.hpp>
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
 #include <bbt/coroutine/detail/Processer.hpp>
+#include <bbt/coroutine/detail/Profiler.hpp>
 
 namespace bbt::coroutine::sync
 {
@@ -31,6 +32,9 @@ void CoMutex::Lock()
     AssertWithInfo(m_locked_co != g_bbt_tls_coroutine_co, "comutex deadlock!");
 
     while (m_status == CoMutexStatus::COMUTEX_LOCKED) {
+#if defined(BBT_COROUTINE_PROFILE)
+        detail::Profiler::GetInstance()->OnEvent_CoMutexLockYield();
+#endif
         Assert(_WaitUnLock([this](){ _SysUnLock(); return true; }) == 0);
 
         _SysLock();

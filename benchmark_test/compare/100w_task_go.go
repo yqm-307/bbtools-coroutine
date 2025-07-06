@@ -1,18 +1,18 @@
 package main
 
 import (
+	"fmt"
 	"sync"
 	"time"
-	"fmt"
 )
 
 func main() {
 	start := time.Now()
-
+	nco := 10000000
 	wg := sync.WaitGroup{}
-	wg.Add(1000000)
+	wg.Add(nco)
 	// 100w task
-	for i := 0; i < 1000000; i++ {
+	for i := 0; i < nco; i++ {
 		go func(i int) {
 			a := i + i
 			_ = a
@@ -22,6 +22,6 @@ func main() {
 
 	wg.Wait()
 
-    elapsed := time.Since(start).Milliseconds()
-    fmt.Printf("cost time: %d ms\n", elapsed)
+	elapsed := time.Since(start).Milliseconds()
+	fmt.Printf("cost time: %d ms\n", elapsed)
 }

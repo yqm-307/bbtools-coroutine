@@ -47,7 +47,7 @@ int main()
         }
     };
 
-    sleep(60 * 60 * 2); // 2小时检测
+    sleep(60 * 60 * 12); // 2小时检测
 
     g_scheduler->Stop();
 }

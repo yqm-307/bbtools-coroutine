@@ -21,6 +21,7 @@
  * epoll等的监听功能来轮训监听事件，当事件完成时，再让P去
  * 唤醒阻塞的协程获取资源继续执行。
  * 
+ * todo：更丰富的接口、支持跨平台
  */
 
 using g_bbt_sys_hook_socket_fn_t    = int           (*)(int /*domain*/, int /*type*/, int /*protocol*/);

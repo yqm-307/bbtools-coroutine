@@ -133,30 +133,30 @@ namespace detail
 /**
 @startuml
 [*] --> Default
-Default --> Pending : 初始化协程，调度器将协程分配到global队列或processer队列中
-Pending --> Running : processer取出协程执行
-Running --> Suspend : 通过Yield主动挂起
-Suspend --> Running : processer再次取出执行
-Suspend --> Final   : kill掉此协程
+Default --> Runnable : 初始化协程，调度器将协程分配到global队列或processer队列中
+Runnable --> Running : processer取出协程执行
+Running --> Suspend : 通过Yield主动挂起，有await_event
+Suspend --> Runnable : await_event达成后被唤醒
+Running -->Runnable : 通过Yield挂起，但是没有await_event
 Running --> Final   : 协程执行完毕
 Final   --> [*]
 
-Pending: **等待任务开始**
+Runnable: **就绪，等待CPU资源**
 
-Running: **执行任务**
+Running: **执行中**
 
-Suspend: **挂起中**
+Suspend: **挂起中，等待await_event**
 
-Final: **任务完成**
+Final: **结束**
 @enduml
  */
 enum CoroutineStatus : int32_t
 {
     CO_DEFAULT = 0,    // 默认，尚未初始化
-    CO_PENDING = 1,    // 等待中，尚未开始
+    CO_RUNNABLE = 1,   // 就绪
     CO_RUNNING = 2,    // 运行中
     CO_SUSPEND = 3,    // 挂起
-    CO_FINAL   = 4,    // 执行结束
+    CO_FINAL   = 4,    // 执行完毕
 };
 
 

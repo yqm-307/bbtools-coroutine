@@ -48,6 +48,7 @@ int Hook_Close(int fd)
 
 int Hook_Sleep(int ms)
 {
+    AssertWithInfo(g_bbt_tls_coroutine_co != nullptr, "must be in coroutine context");
     if (ms <= 0)
         return -1;
 

@@ -180,6 +180,32 @@ BOOST_AUTO_TEST_CASE(t_hook_send)
     l.Wait();
 }
 
+BOOST_AUTO_TEST_CASE(t_bbtco_wait_for)
+{
+    bbt::core::thread::CountDownLatch l{1};
+    int pipefd[2];
+    BOOST_REQUIRE(::pipe(pipefd) == 0);
+
+    bbtco_ref {
+        bbtco_wait_for(pipefd[0], bbtco_emev_readable, 0);
+
+        char buf[128];
+        ssize_t read_len = ::read(pipefd[0], buf, sizeof(buf));
+        BOOST_REQUIRE_GT(read_len, 0);
+        BOOST_CHECK_EQUAL(std::string(buf, read_len), std::string("hello world"));
+        l.Down();
+    };
+
+    bbtco_ref {
+        bbtco_sleep(100);
+        const char *msg = "hello world";
+        ssize_t write_len = ::write(pipefd[1], msg, strlen(msg));
+        BOOST_REQUIRE_GT(write_len, 0);
+    };
+
+    l.Wait();
+}
+
 BOOST_AUTO_TEST_CASE(test_env_unload)
 {
     g_scheduler->Stop();

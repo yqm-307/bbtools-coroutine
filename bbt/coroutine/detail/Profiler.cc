@@ -84,6 +84,12 @@ void Profiler::OnEvent_StackAlloc()
     m_stack_alloc_count++;
 }
 
+void Profiler::OnEvent_CoMutexLockYield()
+{
+    m_comutex_lock_count++;
+}
+
+
 void Profiler::ProfileInfo(std::string& info)
 {
     info.clear();
@@ -98,6 +104,7 @@ void Profiler::ProfileInfo(std::string& info)
     info += "StackPool Rtts："  + std::to_string(g_bbt_stackpoll->GetCoAvgCount()) + '\n';
     info += "CoEvent 注册数量："  + std::to_string(m_regist_event_count.load()) + '\n';
     info += "CoEvent 触发数量："  + std::to_string(m_trigger_event_count.load()) + '\n';
+    info += "CoMutex竞争导致挂起次数：" + std::to_string(m_comutex_lock_count.load()) + '\n';
     info += "StackPool 指标, alloc_count=" + std::to_string(m_stack_alloc_count.load()) + "\trelease_count=" + std::to_string(m_stack_release_count.load()) + '\n';
     for (auto&& processer : m_processer_map)
     {

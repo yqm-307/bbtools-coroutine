@@ -5,12 +5,11 @@
 namespace bbt::coroutine::detail
 {
 
-class Defer:
+class Defer final:
     boost::noncopyable
 {
 public:
-    explicit Defer(DeferCallback&& defer_cb);
-    Defer(Defer&& other);
+    explicit Defer(const DeferCallback& cb);
     ~Defer();
 
 private:

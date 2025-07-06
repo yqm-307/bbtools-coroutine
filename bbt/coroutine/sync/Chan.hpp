@@ -25,6 +25,7 @@ namespace bbt::coroutine::sync
  *      （2）Read族函数：无法读取会挂起直到可读
  *  ps：无法读取的原因：缓冲区满（空）、Chan关闭
  *
+ * todo：异常安全
  * 
  * @tparam TItem 元素类型，建议不要使用平凡类类型，推荐使用指针类型 
  * @tparam Max 缓冲队列最大长度，0 < Max < (1 << 32 - 1)

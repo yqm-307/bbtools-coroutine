@@ -22,7 +22,7 @@ enum YieldCheckStatus {
 class Context
 {
 public:
-    Context(size_t stack_size, const CoroutineCallback& co_func, const CoroutineFinalCallback& co_final, bool stack_protect = true);
+    Context(size_t stack_size, const CoroutineCallback& co_func, bool stack_protect = true);
     ~Context();
 
     /**
@@ -48,6 +48,11 @@ public:
      */
     static fcontext_t&          GetCurThreadContext();
 
+    /**
+     * @brief 获取可用栈总大小
+     * 
+     * @return size_t 
+     */
     size_t                      GetStackSize() const noexcept;
 
 protected:
@@ -62,7 +67,6 @@ protected:
 private:
     fcontext_t                  m_context{nullptr};
     CoroutineCallback           m_user_main{nullptr};
-    CoroutineFinalCallback      m_final_handle{nullptr};
     Stack*                      m_stack{nullptr};
 
     CoroutineOnYieldCallback    m_onyield_callback{nullptr};

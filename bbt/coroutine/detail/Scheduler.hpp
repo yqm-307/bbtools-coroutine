@@ -11,6 +11,18 @@ namespace bbt::coroutine::detail
 /**
  * @brief 调度器
  * 
+ * Scheduler是协程的调度中心，负责管理和调度所有协程任务。
+ * 
+ * Scheduler的主要职责包括：
+ *  - 管理Processer（协程执行单元）
+ *  - 管理全局协程队列
+ *  - 负载均衡和任务窃取
+ *  - 提供协程注册和激活接口
+ *  - 事件派发
+ *  - 栈池动态调整
+ * 
+ * 
+ * Scheduler本身压力较小，希望如果后续有调整放在Scheduler中
  */
 class Scheduler
 {
@@ -31,6 +43,7 @@ public:
     void                                        RegistCoroutineTask(const CoroutineCallback& handle, bool& succ) noexcept;
     /* 协程被激活，重新加入全局队列 */
     void                                        OnActiveCoroutine(CoroutinePriority priority, Coroutine::Ptr coroutine);
+    bool                                        IsRunning() const noexcept { return m_is_running; }
 
 protected:
     /* 从全局队列中取一定数量的协程 */

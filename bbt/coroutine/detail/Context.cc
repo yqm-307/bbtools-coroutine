@@ -2,6 +2,7 @@
 #include <bbt/coroutine/detail/StackPool.hpp>
 #include <bbt/coroutine/detail/Processer.hpp>
 #include <bbt/coroutine/detail/LocalThread.hpp>
+#include <bbt/coroutine/detail/Profiler.hpp>
 
 namespace bbt::coroutine::detail
 {
@@ -17,21 +18,37 @@ void Context::_CoroutineMain(boost::context::detail::transfer_t transfer)
     Assert(transfer.data != nullptr); // 来源协程上下文
     auto* context = reinterpret_cast<Context*>(transfer.data);
 
+    /**
+     * 保存来源线程的上下文。为了知道当前协程是从哪个
+     * 线程切换过来的在Yield时会用到这个上下文
+     */
     context->GetCurThreadContext() = transfer.fctx;
 
+    /**
+     * 在这里执行用户协程的主函数。
+     * 
+     * 用户协程内总是会调用 Yield() 来让出 CPU 控制权，同时
+     * 为了防止用户调用某些阻塞操作导致当前线程挂起，我们需要
+     * 提供一套非阻塞且使协程挂起的操作（bbt::co::sync提供了
+     * 相关类）。
+     * 
+     */
     context->m_user_main();
 
-    if (context->m_final_handle != nullptr)
-        context->m_final_handle();
+#if defined(BBT_COROUTINE_PROFILE)
+    g_bbt_profiler->OnEvent_DoneCoroutine();
+#endif
     
+    /**
+     * 执行完后，切回到调度逻辑中去
+     */
     context->Yield();
 }
 
 
-Context::Context(size_t stack_size, const CoroutineCallback& co_func, const CoroutineFinalCallback& co_final_cb, bool stack_protect):
-    m_stack(g_bbt_stackpoll->Apply()),
+Context::Context(size_t stack_size, const CoroutineCallback& co_func, bool stack_protect):
     m_user_main(co_func),
-    m_final_handle(co_final_cb)
+    m_stack(g_bbt_stackpoll->Apply())
 {
     Assert(m_user_main != nullptr);
     if (m_stack == nullptr) {
@@ -53,6 +70,15 @@ void Context::Yield()
 
 int Context::YieldWithCallback(const CoroutineOnYieldCallback& cb)
 {
+    /**
+     * 因为我们有CoEvent我们需要再协程挂起后再注册事件。
+     * 
+     * 因为我们的CoEvent触发是在另外的线程执行的，如果挂起前
+     * 就注册了CoEvent，那么在尚未挂起，可能会触发CoEvent的回
+     * 调，CoEvent会尝试唤醒当前协程，这样就会导致一个协程尚未
+     * 被挂起就被唤醒出现异常。
+     * 
+     */
     int ret = 0;
 
     Assert(m_onyield_callback == nullptr);
@@ -61,7 +87,8 @@ int Context::YieldWithCallback(const CoroutineOnYieldCallback& cb)
 
     _Yield();
 
-    ret = m_onyield_callback_result == YieldCheckStatus::CHECK_FAILED ? -1 : ret;
+    if (bbt_unlikely(m_onyield_callback_result == YieldCheckStatus::CHECK_FAILED))
+        ret = -1;
 
     m_onyield_callback = nullptr;
     m_onyield_callback_result = YieldCheckStatus::NO_CHECK;
@@ -79,7 +106,11 @@ void Context::Resume()
     // 执行on yield success，然后清除掉
     if (m_onyield_callback) {
         check_succ = m_onyield_callback();
-        m_onyield_callback_result = check_succ ? YieldCheckStatus::CHECK_SUCCESS : YieldCheckStatus::CHECK_FAILED;
+        if (bbt_likely(check_succ)) {
+            m_onyield_callback_result = YieldCheckStatus::CHECK_SUCCESS;
+        } else {
+            m_onyield_callback_result = YieldCheckStatus::CHECK_FAILED;
+        }
     }
 
     // check失败就回到原本协程通知一下check失败了
