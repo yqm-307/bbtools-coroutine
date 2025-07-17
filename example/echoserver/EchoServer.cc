@@ -49,7 +49,12 @@ protected:
                     memset(buf, '\0', sizeof(buf));
 
                     int read_len = ::read(new_fd, buf, sizeof(buf));
-                    
+                    if (read_len <= 0)
+                    {
+                        close = true;
+                        break;
+                    }
+
                     int write_len = ::write(new_fd, buf, read_len);
 
                     if (read_len <= 0 or write_len <= 0)

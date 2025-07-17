@@ -9,8 +9,8 @@ using namespace bbt::coroutine;
 class Client
 {
 public:
-    Client(std::string ip, short port):
-        m_ip(ip), m_port(port), m_cdl(1){}
+    Client(int client_count, std::string ip, short port):
+        m_ip(ip), m_port(port), m_cdl(client_count){}
     ~Client(){}
 
     void Start() {
@@ -19,6 +19,10 @@ public:
             printf("success\n");
             m_cdl.Down();
         };
+    }
+
+    void Wait()
+    {
         m_cdl.Wait();
     }
 
@@ -30,10 +34,13 @@ protected:
         addr.sin_family = AF_INET;
         char read_buf[32];
         memset(read_buf, '\0', sizeof(read_buf));
-
+        
         int fd = ::socket(AF_INET, SOCK_STREAM, 0);
         Assert(fd >= 0);
-        int ret = ::connect(fd, (sockaddr *)(&addr), sizeof(addr));
+        int ret = 0;
+        ret = ::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (const char*)&ret, sizeof(ret));
+        Assert(ret == 0);
+        ret = ::connect(fd, (sockaddr *)(&addr), sizeof(addr));
         Assert(ret == 0);
         for (int i = 0; i<10000; ++i) {
             std::string msg = std::to_string(i);
@@ -58,8 +65,15 @@ private:
 int main()
 {
     g_scheduler->Start();
-    Client c{"127.0.0.1", 10010};
-    c.Start();
+    // 开100个client connection
+    Client c{100, "127.0.0.1", 10010};
+
+    for (int i = 0; i < 100; ++i)
+    {
+        c.Start();
+    }
+
+    c.Wait();
 
     g_scheduler->Stop();
 }
