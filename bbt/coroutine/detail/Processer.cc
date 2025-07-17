@@ -15,6 +15,9 @@ Processer::SPtr Processer::Create()
 
 Processer::SPtr Processer::GetLocalProcesser()
 {
+    /**
+     * Processer绑定一个线程，且每个线程只能有一个Processer。
+     */
     static thread_local Processer::SPtr tl_processer = nullptr;
     if (tl_processer == nullptr) {
         tl_processer = Create();
@@ -104,11 +107,18 @@ void Processer::_Run()
     /**
      * Processer主循环逻辑
      * 
-     * 尝试从全局队列或者本地队列取协程对象，如果取不到就挂起P
-     * 如果取到就在本地线程处理协程执行；
+     * 1. 尝试从全局队列或者本地队列取协程对象
+     *      - 若取不到，就挂起Processer线程
+     *      - 若取得到，本地线程处理协程执行
      * 
-     * 处理完本地的协程后，尝试取窃取其他P的协程，如果窃取不到
-     * 就挂起当前线程。
+     * 2. 处理完本地的协程后，尝试取窃取其他P的协程
+     *      - 如果窃取不到就挂起当前线程。
+     *      - 如果窃取到，就执行窃取到的协程
+     * 
+     * 3. 重复1、2步骤，直到Processer被Stop()方法调用
+     * 
+     * XXX 这里也许可以优化的点：
+     *      - 是否在空闲的时候降低调度频率？
      */
     while (m_is_running)
     {

@@ -39,3 +39,6 @@ target_link_libraries(benchmark_cocond ${MY_LIBS})
 
 add_executable(benchmark_chan benchmark_chan.cc)
 target_link_libraries(benchmark_chan ${MY_LIBS})
+
+add_executable(benchmark_comutex benchmark_comutex.cc)
+target_link_libraries(benchmark_comutex ${MY_LIBS})

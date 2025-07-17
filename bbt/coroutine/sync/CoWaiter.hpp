@@ -4,6 +4,12 @@
 namespace bbt::coroutine::sync
 {
 
+/**
+ * @brief 实现协程等待和唤醒的功能
+ * 
+ * 通过CoWaiter可以定制的去实现协程间的同步机制，事实上
+ * bbtco中也是如此做的
+ */
 class CoWaiter
 {
 public:

@@ -16,8 +16,8 @@ std::shared_ptr<CoPool> CoPool::Create(int max_co)
 
 CoPool::CoPool(int max):
     m_max_co_num(max),
-    m_latch(m_max_co_num + 1), // monitor co + work co
-    m_cond(sync::CoCond::Create())
+    m_cond(sync::CoCond::Create()),
+    m_latch(m_max_co_num + 1) // monitor co + work co
 {
     Assert(m_max_co_num > 0);
     _Start();
@@ -36,7 +36,7 @@ CoPool::~CoPool()
 
 int CoPool::Submit(const CoPoolWorkCallback& workfunc)
 {
-    auto* work = new Work(workfunc);
+    BBTATTR_COMM_UNUSED auto* work = new Work(workfunc);
     AssertWithInfo(m_works_queue.enqueue(work), "oom!");
     m_cond->NotifyOne();
     return 0;    
@@ -44,7 +44,7 @@ int CoPool::Submit(const CoPoolWorkCallback& workfunc)
 
 int CoPool::Submit(CoPoolWorkCallback&& workfunc)
 {
-    auto* work = new Work(std::forward<CoPoolWorkCallback&&>(workfunc));
+    BBTATTR_COMM_UNUSED auto* work = new Work(std::forward<CoPoolWorkCallback&&>(workfunc));
     AssertWithInfo(m_works_queue.enqueue(work), "oom!");
     return 0;
 }
@@ -52,7 +52,7 @@ int CoPool::Submit(CoPoolWorkCallback&& workfunc)
 void CoPool::Release()
 {
     m_is_running = false;
-    while (m_running_co_num != 0) {
+    while (m_running_co_num != 0 && g_scheduler->IsRunning()) {
         m_cond->NotifyAll();
 
         if (g_bbt_tls_helper->EnableUseCo())
@@ -61,7 +61,9 @@ void CoPool::Release()
             std::this_thread::sleep_for(bbt::core::clock::ms(5));
     } 
 
-    m_latch.Wait();
+    if (g_scheduler->IsRunning()) {
+        m_latch.Wait();
+    }
 }
 
 void CoPool::_Start()

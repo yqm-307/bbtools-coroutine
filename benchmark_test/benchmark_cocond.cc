@@ -26,7 +26,7 @@ private:
 
 int main()
 {
-    const int ncount = 10000;
+    const int ncount = 2000;
     const int time_s = 3600;
 
     std::vector<WatchDog> dogs(ncount);
@@ -75,8 +75,8 @@ int main()
 
             for (const auto& [co_id, count] : co_sleep_count_map)
             {
-                if (count < notify_times)
-                    printf("a bad co! co_id: %d, count: %d\n", co_id, count);
+                // if (count < notify_times)
+                //     printf("a bad co! co_id: %d, count: %d, notify_times: %d\n", co_id, count, notify_times);
             }
 
             printf("notify all once! times: %d\n", notify_times);
@@ -93,13 +93,15 @@ int main()
             {
                 if (dogs[i].IsDead())
                 {
-                    std::cout << "dog " << i << " is dead" << std::endl;
+                    // std::cout << "dog " << i << " is dead" << std::endl;
                 }
             }
         }
     };
 
-    bbtco_desc("monitor") [&](){
+
+    // 结束时唤醒所有协程，保证可以正常退出
+    bbtco_desc("notified") [&](){
         bbtco_sleep(time_s * 1000);
         is_stop = true;
         while (stop_count.load() < ncount)

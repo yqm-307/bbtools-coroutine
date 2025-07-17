@@ -23,8 +23,13 @@ public:
 
 protected:
     void _Run(){
-        int listen_fd = bbt::core::net::Util::CreateListen("", m_listen_port, false);
-        // int listen_fd = bbt::net::Util::CreateListen("", m_listen_port, true);
+        auto rlt = bbt::core::net::CreateListen("127.0.0.1", m_listen_port, false);
+        if (rlt.IsErr())
+        {
+            std::cerr << "CreateListen failed: " << rlt.Err().What() << std::endl;
+            return;
+        }
+        int listen_fd = rlt.Ok();
         Assert(listen_fd >= 0);
 
         sockaddr_in cli_addr;
@@ -41,14 +46,21 @@ protected:
 
                 bool close = false;
                 while (!close) {
+                    memset(buf, '\0', sizeof(buf));
+
                     int read_len = ::read(new_fd, buf, sizeof(buf));
-                    
+                    if (read_len <= 0)
+                    {
+                        close = true;
+                        break;
+                    }
+
                     int write_len = ::write(new_fd, buf, read_len);
 
                     if (read_len <= 0 or write_len <= 0)
                         close = true;
 
-                    printf("echo: %s\n", buf);
+                    // printf("echo: %s\n", buf);
                 }
 
                 ::close(new_fd);
