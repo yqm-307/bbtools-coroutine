@@ -82,9 +82,6 @@ file(GLOB_RECURSE SRCS
 add_library(bbt_coroutine SHARED ${SRCS})
 target_link_libraries(bbt_coroutine
     boost_context
-    event_core
-    event_pthreads
-    bbt_pollevent
     bbt_core
     # tcmalloc
 )
