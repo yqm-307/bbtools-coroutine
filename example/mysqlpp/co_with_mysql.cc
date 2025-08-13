@@ -16,8 +16,7 @@ void example1()
     {
         try {
             // 创建数据库连接
-            // MySQLConnection conn{"test_db", "127.0.0.1", "root", "200101"};
-            MySQLConnection conn{"127.0.0.1", "root", "200101", "test_db", 3306};
+            MySQLConnection conn{"127.0.0.1", "root", "123456", "test_db", 3306};
             
             ResultSet resultSet = conn.ExecuteQuery("SELECT * FROM log_data LIMIT 10");
             
