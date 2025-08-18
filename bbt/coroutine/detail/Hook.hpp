@@ -61,3 +61,17 @@ extern ssize_t Hook_Recv(int fd, void *buf, size_t len, int flags);
 }
 
 }
+
+// c api 接口导出声明
+extern "C" {
+    // 重新定义系统函数，这样所有动态库都会调用到我们的 hook 实现
+    int socket(int domain, int type, int protocol);
+    int connect(int socket, const struct sockaddr* address, socklen_t address_len);
+    int close(int fd);
+    unsigned int sleep(unsigned int sec);
+    ssize_t read(int fd, void* buf, size_t nbytes);
+    ssize_t write(int fd, const void* buf, size_t n);
+    int accept(int fd, __SOCKADDR_ARG addr, socklen_t *__restrict addr_len);
+    ssize_t send(int fd, const void *buf, size_t len, int flags);
+    ssize_t recv(int fd, void *buf, size_t len, int flags);
+}
