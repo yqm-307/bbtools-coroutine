@@ -28,17 +28,33 @@ int Hook_Socket(int domain, int type, int protocol)
 
 int Hook_Connect(int socket, const struct sockaddr *address, socklen_t address_len)
 {
+    int ret = 0;
+    int flags = 0;
+
+    flags = fcntl(socket, F_GETFL, 0);
+    if (flags < 0)
+        return -1;
+
+    if (!(flags & O_NONBLOCK) && (fcntl(socket, F_SETFL, flags | O_NONBLOCK) < 0))
+        return -1;
 
     while (g_bbt_sys_hook_connect_func(socket, address, address_len) != 0) {
         // 是否因为非阻塞导致没法立即完成
-        if (errno != EINTR && errno != EINPROGRESS && errno != EALREADY)
-            return -1;
+        if (errno != EINTR && errno != EINPROGRESS && errno != EALREADY) {
+            ret = -1;
+            break;
+        }
 
-        if (g_bbt_tls_coroutine_co->YieldUntilFdWriteable(socket) != 0)
-            return -1;
+        if (g_bbt_tls_coroutine_co->YieldUntilFdWriteable(socket) != 0) {
+            ret = -1;
+            break;
+        }
     }
 
-    return 0;
+    if (!(flags & O_NONBLOCK))
+        AssertWithInfo(fcntl(socket, F_SETFL, flags) >= 0, "Failed to restore socket flags");
+
+    return ret;
 }
 
 int Hook_Close(int fd)
@@ -57,50 +73,94 @@ int Hook_Sleep(int ms)
 
 ssize_t Hook_Read(int fd, void *buf, size_t nbytes)
 {
+    int ret = 0;
+    int flags = 0;
+
+    flags = fcntl(fd, F_GETFL, 0);
+    if (flags < 0)
+        return -1;
+    
+    if (!(flags & O_NONBLOCK) && (fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0))
+        return -1;
+
     ssize_t read_len = -1;
     while ((read_len = g_bbt_sys_hook_read_func(fd, buf, nbytes)) < 0) {
         /* 如果read没有立即成功，判断失败原因是否为正在执行读操作 */
-        if (errno != EAGAIN && errno != EINPROGRESS && errno != EINTR && errno != EWOULDBLOCK)
-            return -1;
+        if (errno != EAGAIN && errno != EINPROGRESS && errno != EINTR && errno != EWOULDBLOCK) {
+            ret = -1;
+            break;
+        }
 
         /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读 */
-        if (g_bbt_tls_coroutine_co->YieldUntilFdReadable(fd) != 0)
-            return -1;
-
+        if (g_bbt_tls_coroutine_co->YieldUntilFdReadable(fd) != 0) {
+            ret = -1;
+            break;            
+        }
     }
+
+    if (!(flags & O_NONBLOCK))
+        AssertWithInfo(fcntl(fd, F_SETFL, flags) >= 0, "Failed to restore socket flags");
 
     return read_len;
 }
 
 ssize_t Hook_Write(int fd, const void *buf, size_t n)
 {
+    int flags = 0;
+    int ret = 0;
+    flags = fcntl(fd, F_GETFL, 0);
+    if (flags < 0)
+        return -1;
+
+    if (!(flags & O_NONBLOCK) && (fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0))
+        return -1;
+
     ssize_t write_len = -1;
     while ((write_len = g_bbt_sys_hook_write_func(fd, buf, n)) < 0) {
         /* 如果write没有立即成功，判断失败原因是否为正在执行写操作 */
-        if (errno != EAGAIN && errno != EINTR && errno != EWOULDBLOCK)
-            return -1;
+        if (errno != EAGAIN && errno != EINTR && errno != EWOULDBLOCK) {
+            ret = -1;
+            break;
+        }
 
         /* 对当前协程注册fd可写事件，挂起当前协程直到fd可写 */
-        if (g_bbt_tls_coroutine_co->YieldUntilFdWriteable(fd) != 0)
-            return -1;
+        if (g_bbt_tls_coroutine_co->YieldUntilFdWriteable(fd) != 0) {
+            ret = -1;
+            break;
+        }
     }
+
+    if (!(flags & O_NONBLOCK))
+        AssertWithInfo(fcntl(fd, F_SETFL, flags) >= 0, "Failed to restore socket flags");
 
     return write_len;
 }
 
 int Hook_Accept(int fd, struct sockaddr *addr, socklen_t *len)
 {
+    int ret = 0;
+    int flags = 0;
     int new_cli_fd = -1;
+
+    flags = fcntl(fd, F_GETFL, 0);
+    if (flags < 0)
+        return -1;
+
+    if (!(flags & O_NONBLOCK) && (fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0))
+        return -1;
 
     while ((new_cli_fd = g_bbt_sys_hook_accept_func(fd, addr, len)) < 0) {
         /* 如果accept没有立即成功，判断失败原因是否为设置非阻塞 */
-        if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)
-            return -1;
+        if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
+            ret = -1;
+            break;
+        }
 
         /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读 */
-        if (g_bbt_tls_coroutine_co->YieldUntilFdReadable(fd) != 0)
-            return -1;
-        
+        if (g_bbt_tls_coroutine_co->YieldUntilFdReadable(fd) != 0) {
+            ret = -1;
+            break;
+        }
     }
 
     if (evutil_make_socket_nonblocking(new_cli_fd) != 0) {
@@ -108,29 +168,57 @@ int Hook_Accept(int fd, struct sockaddr *addr, socklen_t *len)
         new_cli_fd = -1;
     }
 
+    if (!(flags & O_NONBLOCK))
+        AssertWithInfo(fcntl(fd, F_SETFL, flags) >= 0, "Failed to restore socket flags");
+
     return new_cli_fd;
 }
 
-ssize_t Hook_Send(int fd, const void *buf, size_t n, int flags)
+ssize_t Hook_Send(int fd, const void *buf, size_t n, int send_flags)
 {
+    int ret = 0;
+    int flags = 0;
     ssize_t send_len = -1;
-    while ((send_len = g_bbt_sys_hook_send_func(fd, buf, n, flags)) < 0) {
+
+    if (fcntl(fd, F_GETFL, &flags) < 0)
+        return -1;
+    
+    if (!(flags & O_NONBLOCK) && (fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0))
+        return -1;
+
+    while ((send_len = g_bbt_sys_hook_send_func(fd, buf, n, send_flags)) < 0) {
         /* 如果write没有立即成功，判断失败原因是否为正在执行写操作 */
-        if (errno != EAGAIN && errno != EINTR && errno != EWOULDBLOCK)
-            return -1;
+        if (errno != EAGAIN && errno != EINTR && errno != EWOULDBLOCK) {
+            ret = -1;
+            break;
+        }
 
         /* 对当前协程注册fd可写事件，挂起当前协程直到fd可写 */
-        if (g_bbt_tls_coroutine_co->YieldUntilFdWriteable(fd) != 0)
-            return -1;
+        if (g_bbt_tls_coroutine_co->YieldUntilFdWriteable(fd) != 0) {
+            ret = -1;
+            break;
+        }
     }
+
+    if (!(flags & O_NONBLOCK))
+        AssertWithInfo(fcntl(fd, F_SETFL, flags) >= 0, "Failed to restore socket flags");
 
     return send_len;
 }
 
-ssize_t Hook_Recv(int fd, void *buf, size_t n, int flags)
+ssize_t Hook_Recv(int fd, void *buf, size_t n, int recv_flags)
 {
+    int ret = 0;
+    int flags = 0;
     ssize_t recv_len = -1;
-    while ((recv_len = g_bbt_sys_hook_recv_func(fd, buf, n, flags)) < 0) {
+
+    if (fcntl(fd, F_GETFL, &flags) < 0)
+        return -1;
+    
+    if (!(flags & O_NONBLOCK) && (fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0))
+        return -1;
+
+    while ((recv_len = g_bbt_sys_hook_recv_func(fd, buf, n, recv_flags)) < 0) {
         /* 如果read没有立即成功，判断失败原因是否为正在执行读操作 */
         if (errno != EAGAIN && errno != EINPROGRESS && errno != EINTR && errno != EWOULDBLOCK)
             return -1;
@@ -139,6 +227,9 @@ ssize_t Hook_Recv(int fd, void *buf, size_t n, int flags)
         if (g_bbt_tls_coroutine_co->YieldUntilFdReadable(fd) != 0)
             return -1;
     }
+
+    if (!(flags & O_NONBLOCK))
+        AssertWithInfo(fcntl(fd, F_SETFL, flags) >= 0, "Failed to restore socket flags");
 
     return recv_len;
 }
