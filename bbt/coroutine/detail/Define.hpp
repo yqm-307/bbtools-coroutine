@@ -16,6 +16,7 @@
 #include <bbt/core/clock/Clock.hpp>
 #include <bbt/core/Attribute.hpp>
 #include <bbt/core/util/Assert.hpp>
+#include <bbt/core/errcode/Errcode.hpp>
 #include <bbt/coroutine/utils/lockfree/blockingconcurrentqueue.h>
 
 // #define BBT_COROUTINE_PROFILE
@@ -58,6 +59,12 @@ enum SchedulerStartOpt
  * @return 对于persist事件，返回false会自动注销掉当前事件
  */
 typedef std::function<void(int /*fd*/, short /*trigger event*/)> ExtCoEventCallback;
+
+/**
+ * @brief 异常处理回调
+ * 
+ */
+typedef std::function<void(const core::errcode::IErrcode& err)> ExceptionHandleCallback;
 
 namespace pool
 {

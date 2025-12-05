@@ -10,6 +10,7 @@
 #include <bbt/coroutine/detail/LocalThread.hpp>
 #include <bbt/coroutine/detail/Profiler.hpp>
 #include <bbt/coroutine/detail/debug/DebugMgr.hpp>
+#include <bbt/coroutine/detail/GlobalConfig.hpp>
 
 namespace bbt::coroutine::detail
 {
@@ -76,18 +77,37 @@ int CoPollEvent::Trigger(short trigger_events)
     g_bbt_dbgmgr->OnEvent_TriggerEvent(shared_from_this());
 #endif
 
+    std::exception_ptr pending_exception{nullptr};
     if (m_onevent_callback != nullptr) {
-
         BBTATTR_COMM_UNUSED int event = TransformToPollEventType(trigger_events, trigger_events & POLL_EVENT_CUSTOM);
         AssertWithInfo(event > 0, "may be has a bug! trigger event must greater then 0!"); // 事件触发必须有原因
         lock.unlock();
 
-        m_onevent_callback(shared_from_this(), trigger_events, m_custom_key);
+        try
+        {
+            m_onevent_callback(shared_from_this(), trigger_events, m_custom_key);
+        }
+        catch(const std::exception& e)
+        {
+            if (g_bbt_coroutine_config->m_ext_coevent_exception_callback != nullptr)
+                g_bbt_coroutine_config->m_ext_coevent_exception_callback(core::errcode::Errcode(e.what()));
+            else
+                pending_exception = std::current_exception();
+        }
+        catch(...)
+        {
+            if (g_bbt_coroutine_config->m_ext_coevent_exception_callback != nullptr)
+                g_bbt_coroutine_config->m_ext_coevent_exception_callback(core::errcode::Errcode("unknown exception"));
+            else
+                pending_exception = std::current_exception();
+        }
 
         lock.lock();
     }
 
     _OnFinal();
+    if (pending_exception)
+        std::rethrow_exception(pending_exception);
     return 0;
 }
 
