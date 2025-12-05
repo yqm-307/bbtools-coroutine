@@ -1,8 +1,13 @@
+#include <exception>
+
 #include <bbt/coroutine/detail/Context.hpp>
+#include <bbt/coroutine/detail/Define.hpp>
+#include <bbt/coroutine/detail/Coroutine.hpp>
 #include <bbt/coroutine/detail/StackPool.hpp>
 #include <bbt/coroutine/detail/Processer.hpp>
 #include <bbt/coroutine/detail/LocalThread.hpp>
 #include <bbt/coroutine/detail/Profiler.hpp>
+#include <bbt/coroutine/detail/GlobalConfig.hpp>
 
 namespace bbt::coroutine::detail
 {
@@ -33,7 +38,29 @@ void Context::_CoroutineMain(boost::context::detail::transfer_t transfer)
      * 相关类）。
      * 
      */
-    context->m_user_main();
+    try {
+        context->m_user_main();
+    }
+    catch (const std::exception& e)
+    {
+        if (auto co = g_bbt_tls_coroutine_co)
+            co->OnException();
+
+        if (g_bbt_coroutine_config->m_ext_coevent_exception_callback != nullptr)
+            g_bbt_coroutine_config->m_ext_coevent_exception_callback(core::errcode::Errcode(e.what()));
+        else
+            throw;
+    }
+    catch (...)
+    {
+        if (auto co = g_bbt_tls_coroutine_co)
+            co->OnException();
+
+        if (g_bbt_coroutine_config->m_ext_coevent_exception_callback != nullptr)
+            g_bbt_coroutine_config->m_ext_coevent_exception_callback(core::errcode::Errcode("unknown exception"));
+        else
+            throw;
+    }
 
 #if defined(BBT_COROUTINE_PROFILE)
     g_bbt_profiler->OnEvent_DoneCoroutine();

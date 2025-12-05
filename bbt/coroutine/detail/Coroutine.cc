@@ -98,6 +98,15 @@ CoroutineStatus Coroutine::GetStatus() const noexcept
     return m_run_status;
 }
 
+void Coroutine::OnException() noexcept
+{
+    m_run_status = CoroutineStatus::CO_FINAL;
+    if (m_await_event) {
+        m_await_event->UnRegist();
+        m_await_event = nullptr;
+    }
+}
+
 int Coroutine::YieldUntilTimeout(int ms)
 {
     Assert(m_await_event == nullptr);

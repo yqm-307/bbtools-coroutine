@@ -39,7 +39,7 @@ public:
     Coroutine(int stack_size, const CoroutineCallback& co_func, bool need_protect);
     virtual ~Coroutine();
     
-    static Ptr                     Create(int stack_size, const CoroutineCallback& co_func, bool need_protect = true);
+    static Ptr                      Create(int stack_size, const CoroutineCallback& co_func, bool need_protect = true);
     /**
      * @brief 唤醒协程。切换到协程的上下文中执行。
      */
@@ -75,6 +75,7 @@ public:
     CoroutineStatus                 GetStatus() const noexcept;
     int                             GetLastResumeEvent() const noexcept;
     size_t                          GetStackSize() const noexcept;
+    void                            OnException() noexcept;
 
     /**
      * YieldUnitl事件

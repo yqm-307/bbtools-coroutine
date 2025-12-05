@@ -1,4 +1,6 @@
+#pragma once
 #include <memory>
+#include <bbt/coroutine/detail/Define.hpp>
 
 
 namespace bbt::coroutine::detail
@@ -58,6 +60,8 @@ public:
     const size_t                                m_cfg_stackpool_sample_interval{10};        // 采样间隔
     const size_t                                m_cfg_stackpool_adjust_interval{5000};      // 栈池进行动态调整间隔
 
+    /* 异常处理用户hook。非线程安全，bbtco内所有异常都会通过该函数抛出。请保证异常处理函数不会抛出异常 */
+    ExceptionHandleCallback                     m_ext_coevent_exception_callback{nullptr};
 private:
     GlobalConfig();
 };
