@@ -44,20 +44,41 @@ BOOST_AUTO_TEST_CASE(t_hook_socket)
 
 BOOST_AUTO_TEST_CASE(t_hook_connect)
 {
-
-    bbt::core::thread::CountDownLatch l{1};
+    bbt::core::thread::CountDownLatch l{2};
 
     bbtco[&l]()
     {
+        auto rlt = bbt::core::net::CreateListen("", 10002, true);
+        if (rlt.IsErr())
+        {
+            BOOST_TEST_MESSAGE("[server] create listen failed, errno=" << rlt.Err().What());
+            BOOST_FAIL("create listen failed");
+        }
+
+        int fd = rlt.Ok();
+        BOOST_ASSERT(fd >= 0);
+        sockaddr_in cli_addr;
+        socklen_t len = sizeof(cli_addr);
+        int new_fd = ::accept(fd, (sockaddr *)(&cli_addr), &len);
+        BOOST_REQUIRE_GE(new_fd, 0);
+        ::close(new_fd);
+        ::close(fd);
+        l.Down();
+    };
+
+    bbtco[&l]()
+    {
+        ::sleep(1);
         sockaddr_in addr;
         addr.sin_addr.s_addr = inet_addr("127.0.0.1");
-        addr.sin_port = htons(22);
+        addr.sin_port = htons(10002);
         addr.sin_family = AF_INET;
 
         int fd = ::socket(AF_INET, SOCK_STREAM, 0);
         BOOST_ASSERT(fd >= 0);
         int ret = ::connect(fd, (sockaddr *)(&addr), sizeof(addr));
         BOOST_CHECK_MESSAGE(ret == 0, "errno=" << errno << "\tret=" << ret << "\tfd=" << fd);
+        ::close(fd);
         l.Down();
     };
 
@@ -204,6 +225,25 @@ BOOST_AUTO_TEST_CASE(t_bbtco_wait_for)
     };
 
     l.Wait();
+}
+
+BOOST_AUTO_TEST_CASE(t_bbtco_wait_for_timeout)
+{
+    bbt::core::thread::CountDownLatch l{1};
+    int pipefd[2];
+    BOOST_REQUIRE(::pipe(pipefd) == 0);
+
+    bbtco_ref {
+        auto begin = bbt::core::clock::gettime();
+        bbtco_wait_for(pipefd[0], bbtco_emev_readable | bbtco_emev_timeout, 50);
+        auto end = bbt::core::clock::gettime();
+        BOOST_CHECK_GE(end - begin, 50);
+        l.Down();
+    };
+
+    l.Wait();
+    ::close(pipefd[0]);
+    ::close(pipefd[1]);
 }
 
 BOOST_AUTO_TEST_CASE(test_env_unload)

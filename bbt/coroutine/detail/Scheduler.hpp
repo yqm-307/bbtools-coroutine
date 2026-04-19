@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 #include <bbt/core/clock/Clock.hpp>
 #include <bbt/core/thread/Lock.hpp>
 #include <bbt/coroutine/utils/lockfree/blockingconcurrentqueue.h>
@@ -46,6 +47,7 @@ public:
     bool                                        IsRunning() const noexcept { return m_is_running; }
 
 protected:
+    void                                        _DrainGlobalCoroutineQueue();
     /* 从全局队列中取一定数量的协程 */
     size_t                                      GetCoroutineFromGlobal(CoroutinePriority priority, CoroutineQueue& queue, size_t size);
     /**
@@ -79,15 +81,15 @@ private:
     /* Processer 管理 */
     std::map<ProcesserId, Processer::SPtr>      m_processer_map;
     std::vector<Processer::SPtr>                m_load_blance_vec;
-    uint32_t                                    m_load_idx{0};
-    uint32_t                                    m_steal_idx{0};
+    std::atomic_uint32_t                        m_load_idx{0};
+    std::atomic_uint32_t                        m_steal_idx{0};
     std::mutex                                  m_processer_map_mutex;
     bbt::core::thread::CountDownLatch           m_down_latch;
 
     /* coroutine全局队列 */
     CoPriorityQueue                             m_global_coroutine_queue;
-    volatile bool                               m_is_running{true};
-    volatile ScheudlerStatus                    m_run_status{ScheudlerStatus::SCHE_DEFAULT};
+    std::atomic_bool                            m_is_running{false};
+    std::atomic<ScheudlerStatus>                m_run_status{ScheudlerStatus::SCHE_DEFAULT};
 
     uint64_t                                    m_regist_coroutine_count{0};
 };

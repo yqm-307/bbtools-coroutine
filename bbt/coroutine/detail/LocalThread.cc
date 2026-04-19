@@ -24,12 +24,12 @@ std::shared_ptr<Processer> LocalThread::GetProcesser()
 
 void LocalThread::SetEnableUseCo(bool enable_use_coroutine)
 {
-    m_enable_use_co = enable_use_coroutine;
+    m_enable_use_co.store(enable_use_coroutine, std::memory_order_release);
 }
 
 bool LocalThread::EnableUseCo()
 {
-    return m_enable_use_co;
+    return m_enable_use_co.load(std::memory_order_acquire);
 }
 
 

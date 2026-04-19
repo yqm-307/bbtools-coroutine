@@ -109,6 +109,34 @@ BOOST_AUTO_TEST_CASE(t_cond_wait)
     BOOST_CHECK(ncount == nmax_co);
 }
 
+BOOST_AUTO_TEST_CASE(t_cond_notify_skips_expired_waiter)
+{
+    auto cond = sync::CoCond::Create();
+    std::atomic_int timeout_result{-2};
+    std::atomic_int wake_result{-2};
+    bbt::core::thread::CountDownLatch latch{2};
+
+    bbtco [cond, &timeout_result, &latch]() {
+        timeout_result = cond->WaitFor(20);
+        latch.Down();
+    };
+
+    bbtco [cond, &wake_result, &latch]() {
+        wake_result = cond->Wait();
+        latch.Down();
+    };
+
+    bbtco [cond]() {
+        bbtco_sleep(60);
+        BOOST_CHECK_EQUAL(cond->NotifyOne(), 0);
+    };
+
+    latch.Wait();
+
+    BOOST_CHECK_EQUAL(timeout_result.load(), 1);
+    BOOST_CHECK_EQUAL(wake_result.load(), 0);
+}
+
 BOOST_AUTO_TEST_CASE(t_end)
 {
     g_scheduler->Stop();

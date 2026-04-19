@@ -5,6 +5,7 @@
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
 #include <bbt/coroutine/detail/Processer.hpp>
 #include <bbt/coroutine/detail/Profiler.hpp>
+#include <bbt/coroutine/detail/WaitProtocol.hpp>
 
 namespace bbt::coroutine::sync
 {
@@ -108,22 +109,27 @@ void CoMutex::_SysUnLock()
 
 int CoMutex::_WaitUnLockUnitlTimeout(int timeout, const detail::CoroutineOnYieldCallback& cb)
 {
-    auto event = g_bbt_tls_coroutine_co->RegistCustom(detail::POLL_EVENT_CUSTOM_COMUTEX);
+    auto event = detail::WaitProtocolBridge::CreateCustomWait(*g_bbt_tls_coroutine_co,
+                                                              detail::POLL_EVENT_CUSTOM_COMUTEX,
+                                                              timeout);
+    if (event == nullptr)
+        return -1;
+
     m_wait_event_queue.push(event);
-    return g_bbt_tls_coroutine_co->YieldWithCallback([this, event, cb](){
-        event->Regist();
-        return cb();
-    });
+    auto result = detail::WaitProtocolBridge::AwaitArmedEvent(*g_bbt_tls_coroutine_co, event, cb);
+    return detail::WaitProtocolBridge::ToLegacyReturnCode(result);
 }
 
 int CoMutex::_WaitUnLock(const detail::CoroutineOnYieldCallback& cb)
 {
-    auto event = g_bbt_tls_coroutine_co->RegistCustom(detail::POLL_EVENT_CUSTOM_COMUTEX);
+    auto event = detail::WaitProtocolBridge::CreateCustomWait(*g_bbt_tls_coroutine_co,
+                                                              detail::POLL_EVENT_CUSTOM_COMUTEX);
+    if (event == nullptr)
+        return -1;
+
     m_wait_event_queue.push(event);
-    return g_bbt_tls_coroutine_co->YieldWithCallback([this, event, cb](){
-        event->Regist();
-        return cb();
-    });
+    auto result = detail::WaitProtocolBridge::AwaitArmedEvent(*g_bbt_tls_coroutine_co, event, cb);
+    return detail::WaitProtocolBridge::ToLegacyReturnCode(result);
 }
 
 void CoMutex::_NotifyOne()

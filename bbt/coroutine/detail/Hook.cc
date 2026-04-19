@@ -6,9 +6,12 @@
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
 #include <bbt/coroutine/detail/LocalThread.hpp>
 #include <bbt/coroutine/detail/Coroutine.hpp>
+#include <bbt/coroutine/detail/WaitProtocol.hpp>
 
 namespace bbt::coroutine::detail
 {
+
+using EventOpt = bbt::pollevent::EventOpt;
 
 int Hook_Socket(int domain, int type, int protocol)
 {
@@ -34,7 +37,8 @@ int Hook_Connect(int socket, const struct sockaddr *address, socklen_t address_l
         if (errno != EINTR && errno != EINPROGRESS && errno != EALREADY)
             return -1;
 
-        if (g_bbt_tls_coroutine_co->YieldUntilFdWriteable(socket) != 0)
+        if (WaitProtocolBridge::WaitFd(*g_bbt_tls_coroutine_co, socket, EventOpt::WRITEABLE | EventOpt::FINALIZE)
+            == WaitResult::WAIT_ERROR)
             return -1;
     }
 
@@ -52,7 +56,7 @@ int Hook_Sleep(int ms)
     if (ms <= 0)
         return -1;
 
-    return g_bbt_tls_coroutine_co->YieldUntilTimeout(ms);
+    return WaitProtocolBridge::ToLegacyReturnCode(WaitProtocolBridge::WaitTimeout(*g_bbt_tls_coroutine_co, ms));
 }
 
 ssize_t Hook_Read(int fd, void *buf, size_t nbytes)
@@ -64,7 +68,8 @@ ssize_t Hook_Read(int fd, void *buf, size_t nbytes)
             return -1;
 
         /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读 */
-        if (g_bbt_tls_coroutine_co->YieldUntilFdReadable(fd) != 0)
+        if (WaitProtocolBridge::WaitFd(*g_bbt_tls_coroutine_co, fd, EventOpt::READABLE | EventOpt::FINALIZE)
+            == WaitResult::WAIT_ERROR)
             return -1;
 
     }
@@ -81,7 +86,8 @@ ssize_t Hook_Write(int fd, const void *buf, size_t n)
             return -1;
 
         /* 对当前协程注册fd可写事件，挂起当前协程直到fd可写 */
-        if (g_bbt_tls_coroutine_co->YieldUntilFdWriteable(fd) != 0)
+        if (WaitProtocolBridge::WaitFd(*g_bbt_tls_coroutine_co, fd, EventOpt::WRITEABLE | EventOpt::FINALIZE)
+            == WaitResult::WAIT_ERROR)
             return -1;
     }
 
@@ -98,7 +104,8 @@ int Hook_Accept(int fd, struct sockaddr *addr, socklen_t *len)
             return -1;
 
         /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读 */
-        if (g_bbt_tls_coroutine_co->YieldUntilFdReadable(fd) != 0)
+        if (WaitProtocolBridge::WaitFd(*g_bbt_tls_coroutine_co, fd, EventOpt::READABLE | EventOpt::FINALIZE)
+            == WaitResult::WAIT_ERROR)
             return -1;
         
     }
@@ -120,7 +127,8 @@ ssize_t Hook_Send(int fd, const void *buf, size_t n, int flags)
             return -1;
 
         /* 对当前协程注册fd可写事件，挂起当前协程直到fd可写 */
-        if (g_bbt_tls_coroutine_co->YieldUntilFdWriteable(fd) != 0)
+        if (WaitProtocolBridge::WaitFd(*g_bbt_tls_coroutine_co, fd, EventOpt::WRITEABLE | EventOpt::FINALIZE)
+            == WaitResult::WAIT_ERROR)
             return -1;
     }
 
@@ -136,7 +144,8 @@ ssize_t Hook_Recv(int fd, void *buf, size_t n, int flags)
             return -1;
 
         /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读 */
-        if (g_bbt_tls_coroutine_co->YieldUntilFdReadable(fd) != 0)
+        if (WaitProtocolBridge::WaitFd(*g_bbt_tls_coroutine_co, fd, EventOpt::READABLE | EventOpt::FINALIZE)
+            == WaitResult::WAIT_ERROR)
             return -1;
     }
 

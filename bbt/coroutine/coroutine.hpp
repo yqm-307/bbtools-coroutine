@@ -14,14 +14,34 @@
 
 #include <bbt/coroutine/syntax/SyntaxMacro.hpp>
 
+/*
+ * Public runtime contract
+ *
+ * 1. Configure detail::GlobalConfig before the first g_scheduler->Start().
+ * 2. Start the scheduler before registering coroutines, creating CoPool workers,
+ *    or using syntax helpers that suspend/resume coroutines.
+ * 3. APIs that depend on coroutine-local state only have meaningful results on a
+ *    scheduler worker thread while a coroutine is running.
+ * 4. g_scheduler->Stop() is a lifecycle API for non-worker threads; calling it
+ *    from coroutine worker context raises std::runtime_error.
+ */
+
 namespace bbt
 {
 
 namespace coroutine
 {
 
-/* 获取当前运行的协程id，0为main线程中获取的id */
+/*
+ * 获取当前运行的协程 id。
+ * 在非协程上下文或非调度 worker 线程中返回 0。
+ */
 detail::CoroutineId GetLocalCoroutineId();
+
+/*
+ * 获取当前运行协程的栈大小。
+ * 在非协程上下文或非调度 worker 线程中返回 0。
+ */
 size_t GetLocalCoroutineStackSize();
 
 template<class TItem, int ItemMax>

@@ -8,28 +8,37 @@
 
 /**
  * @brief 注册一个协程任务
- * 
- * 协程任务一旦注册，会在任意时刻在任意线程中被执行
+ *
+ * 前置条件：scheduler 已启动。
+ * 失败模式：当 scheduler 未运行时，会沿用 RegistCoroutineTask 的
+ * std::runtime_error 失败路径。
+ * 调度语义：注册成功后，任务会在某个调度 worker 上异步执行，
+ * 不保证执行顺序，也不保证固定线程。
  */
 #define bbtco bbt::coroutine::_CoHelper()-
 
 /**
- * @brief 注册一个协程任务，默认使用引用捕获，其他和bbtco相同
+ * @brief 注册一个协程任务，默认使用引用捕获，其他契约与 bbtco 相同
  */
 #define bbtco_ref bbtco [&]()
 
 /**
- * @brief 注册一个协程任务，并且在注册时记录协程是否注册成功无异常
+ * @brief 注册一个协程任务，并在注册时记录是否成功
+ *
+ * 不抛出异常；注册失败时会把 succ 置为 false。
  */
 #define bbtco_noexcept(succ) bbt::coroutine::_CoHelper(succ)+ 
 
 /**
- * @brief 注册一个协程任务，实际上和bbtco一致，只是增强了可读性
+ * @brief 注册一个协程任务，实际上和 bbtco 一致，只是增强可读性
  */
 #define bbtco_desc(desc) bbtco
 
 /**
  * @brief 在协程中调用，使协程挂起一定时间后被唤醒
+ *
+ * 前置条件：当前必须处于协程上下文。
+ * 失败模式：非协程上下文会触发断言；ms <= 0 时返回失败码。
  */
 #define bbtco_sleep(ms) bbt::coroutine::detail::Hook_Sleep(ms)
 
@@ -47,7 +56,9 @@
     __bbtco_defer_ex [&]()
 
 /**
- * @brief 将当前协程挂起。协程立即进入就绪态，可能在任意时刻被唤醒
+ * @brief 将当前协程挂起。协程立即进入 runnable 路径，后续由 scheduler 重新调度
+ *
+ * 在非协程上下文中是 no-op，不会隐式创建协程或抛异常。
  */
 #define bbtco_yield \
 do \
@@ -76,12 +87,16 @@ do \
 #define bbtco_emev_persist  bbt::pollevent::EventOpt::PERSIST
 
 /**
- * @brief 函数可以在事件完成的时候，新建一个协程来处理事件或者copool中处理事件
- * 
+ * @brief 在事件完成时，通过 scheduler 或指定 CoPool 安排后续处理
+ *
+ * 前置条件：scheduler 与 poller 已经可用。
+ * 返回值：沿用事件注册返回码，0 为成功，负值为注册失败。
+ *
  * 函数格式：bbtco_ev_[event type]、bbtco_ev_[event type]_with_copool
- * 
+ *
  * with_copool版本会使用指定的协程池来注册事件。
- * 
+ * 回调不会内联执行，而是被投递到新的协程任务或 CoPool worker 中执行。
+ *
  * 支持以下事件：
  *  [w] 监听套接字可写
  *  [r] 监听套接字可读
@@ -111,9 +126,10 @@ do \
 
 /**
  * @brief 等待指定的文件描述符事件
- * 
- * 该函数会在协程中挂起，直到指定的文件描述符发生指定的事件。
- * 
+ *
+ * 该函数只允许在协程上下文中使用，会挂起当前协程直到指定事件发生。
+ * 若底层等待注册失败，会抛出 std::runtime_error。
+ *
  * @param fd 文件描述符
  * @param event 事件类型，参考bbtco_emev_*
  * @param ms 超时时间，单位毫秒

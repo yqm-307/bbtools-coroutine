@@ -25,10 +25,10 @@ Coroutine::Ptr Coroutine::Create(int stack_size, const CoroutineCallback& co_fun
 }
 
 Coroutine::Coroutine(int stack_size, const CoroutineCallback& co_func, bool need_protect):
-    m_context(stack_size, [=](){co_func(); m_run_status = CoroutineStatus::CO_FINAL; }, need_protect),
+    m_context(stack_size, [=](){co_func(); m_run_status.store(CoroutineStatus::CO_FINAL, std::memory_order_release); }, need_protect),
     m_id(_GenCoroutineId())
 {
-    m_run_status = CoroutineStatus::CO_RUNNABLE;
+    m_run_status.store(CoroutineStatus::CO_RUNNABLE, std::memory_order_release);
 #ifdef BBT_COROUTINE_PROFILE
     g_bbt_profiler->OnEvent_CreateCoroutine();
 #endif
@@ -45,8 +45,9 @@ Coroutine::~Coroutine()
 
 void Coroutine::Resume()
 {
-    Assert(m_run_status == CoroutineStatus::CO_RUNNABLE || m_run_status == CoroutineStatus::CO_SUSPEND);
-    m_run_status = CoroutineStatus::CO_RUNNING;
+    auto status = m_run_status.load(std::memory_order_acquire);
+    Assert(status == CoroutineStatus::CO_RUNNABLE || status == CoroutineStatus::CO_SUSPEND);
+    m_run_status.store(CoroutineStatus::CO_RUNNING, std::memory_order_release);
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
     g_bbt_dbgmgr->OnEvent_ResumeCo(shared_from_this());
 #endif
@@ -56,8 +57,8 @@ void Coroutine::Resume()
 
 void Coroutine::Yield()
 {
-    Assert(m_run_status == CoroutineStatus::CO_RUNNING);
-    m_run_status = CoroutineStatus::CO_SUSPEND;
+    Assert(m_run_status.load(std::memory_order_acquire) == CoroutineStatus::CO_RUNNING);
+    m_run_status.store(CoroutineStatus::CO_SUSPEND, std::memory_order_release);
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
     g_bbt_dbgmgr->OnEvent_YieldCo(shared_from_this());
 #endif
@@ -70,13 +71,17 @@ int Coroutine::YieldWithCallback(const CoroutineOnYieldCallback& cb)
     /**
      * 确保协程挂起后，才可以触发事件
      */
-    Assert(m_run_status == CoroutineStatus::CO_RUNNING);
-    m_run_status = CoroutineStatus::CO_SUSPEND;
+    Assert(m_run_status.load(std::memory_order_acquire) == CoroutineStatus::CO_RUNNING);
+    m_run_status.store(CoroutineStatus::CO_SUSPEND, std::memory_order_release);
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
     g_bbt_dbgmgr->OnEvent_YieldCo(shared_from_this());
 #endif
     g_bbt_dbgp_full(("[Coroutine::YieldWithCallback] co=" + std::to_string(GetId())).c_str());
-    return m_context.YieldWithCallback(cb);
+    int ret = m_context.YieldWithCallback(cb);
+    if (ret != 0)
+        m_run_status.store(CoroutineStatus::CO_RUNNING, std::memory_order_release);
+
+    return ret;
 }
 
 void Coroutine::YieldAndPushGCoQueue()
@@ -95,16 +100,26 @@ CoroutineId Coroutine::GetId() noexcept
 
 CoroutineStatus Coroutine::GetStatus() const noexcept
 {
-    return m_run_status;
+    return m_run_status.load(std::memory_order_acquire);
 }
 
 void Coroutine::OnException() noexcept
 {
-    m_run_status = CoroutineStatus::CO_FINAL;
+    m_run_status.store(CoroutineStatus::CO_FINAL, std::memory_order_release);
     if (m_await_event) {
         m_await_event->UnRegist();
         m_await_event = nullptr;
     }
+}
+
+void Coroutine::FinalizeForTeardown() noexcept
+{
+    m_run_status.store(CoroutineStatus::CO_FINAL, std::memory_order_release);
+    if (m_await_event) {
+        m_await_event->UnRegist();
+        m_await_event = nullptr;
+    }
+    m_last_resume_event = -1;
 }
 
 int Coroutine::YieldUntilTimeout(int ms)
@@ -240,6 +255,7 @@ void Coroutine::OnCoPollEvent(int event, int custom_key)
     Assert(m_await_event != nullptr);
 
     m_last_resume_event = event;
+    m_run_status.store(CoroutineStatus::CO_RUNNABLE, std::memory_order_release);
 
     // 先取消事件，然后push到全局队列中
     g_bbt_dbgp_full(("[CoEvent:Trigger] co=" + std::to_string(GetId()) + " trigger_event=" + std::to_string(event) + " id=" + std::to_string(m_await_event->GetId()) + " customkey=" + std::to_string(custom_key)).c_str());

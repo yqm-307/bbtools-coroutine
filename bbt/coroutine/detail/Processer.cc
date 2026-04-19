@@ -38,7 +38,7 @@ ProcesserId Processer::_GenProcesserId()
 Processer::Processer():
     m_id(_GenProcesserId())
 {
-    m_run_status = ProcesserStatus::PROC_SUSPEND;
+    m_run_status.store(ProcesserStatus::PROC_SUSPEND, std::memory_order_release);
 }
 
 Processer::~Processer()
@@ -47,7 +47,7 @@ Processer::~Processer()
 
 ProcesserStatus Processer::GetStatus()
 {
-    return m_run_status;
+    return m_run_status.load(std::memory_order_acquire);
 }
 
 size_t Processer::GetLoadValue()
@@ -76,17 +76,43 @@ void Processer::AddCoroutineTask(CoroutinePriority priority, Coroutine::Ptr coro
 {
     AssertWithInfo(coroutine != nullptr, "coroutine is nullptr!");
     AssertWithInfo(m_coroutine_queue[priority].enqueue(coroutine), "oom!");
-
-    bool need_notify = true;
-    if (m_run_status == ProcesserStatus::PROC_SUSPEND && m_run_cond_notify.compare_exchange_strong(need_notify, false))        
-        m_run_cond.notify_one();
+    m_run_cond.notify_one();
 }
 
 void Processer::_Init()
 {
-    m_run_status = ProcesserStatus::PROC_DEFAULT;
-    m_is_running = true;
+    _SetStatus(ProcesserStatus::PROC_DEFAULT);
+    m_is_running.store(true, std::memory_order_release);
     m_running_coroutine = nullptr;
+}
+
+void Processer::_SetStatus(ProcesserStatus status)
+{
+    {
+        std::lock_guard<std::mutex> lock(m_state_mutex);
+        m_run_status.store(status, std::memory_order_release);
+    }
+    m_state_cond.notify_all();
+}
+
+void Processer::_FinalizeCoroutine(Coroutine::Ptr coroutine)
+{
+    if (coroutine == nullptr)
+        return;
+
+    coroutine->FinalizeForTeardown();
+    delete coroutine;
+}
+
+void Processer::_DrainRunnableQueues()
+{
+    Coroutine::Ptr item = nullptr;
+    for (auto&& queue : m_coroutine_queue) {
+        while (queue.try_dequeue(item)) {
+            _FinalizeCoroutine(item);
+            item = nullptr;
+        }
+    }
 }
 
 void Processer::Start(bool background_thread)
@@ -120,9 +146,9 @@ void Processer::_Run()
      * XXX 这里也许可以优化的点：
      *      - 是否在空闲的时候降低调度频率？
      */
-    while (m_is_running)
+    while (m_is_running.load(std::memory_order_acquire))
     {
-        m_run_status = ProcesserStatus::PROC_RUNNING;
+        _SetStatus(ProcesserStatus::PROC_RUNNING);
 
         // 如果本地没有了，尝试去全局取
         if (GetExecutableNum() <= 0)
@@ -131,6 +157,9 @@ void Processer::_Run()
         // 对各个优先级任务进行执行，根据优先级自高到低依次执行
         for (auto&& p : {CO_PRIORITY_CRITICAL, CO_PRIORITY_HIGH, CO_PRIORITY_NORMAL, CO_PRIORITY_LOW})
         {
+            if (!m_is_running.load(std::memory_order_acquire))
+                break;
+
             while (true)
             {
                 /* 如果取不到或者取到空的，就退出循环 */
@@ -146,11 +175,19 @@ void Processer::_Run()
 #endif
                 m_running_coroutine->Resume();
                 if (m_running_coroutine->GetStatus() == CO_FINAL)
-                    delete m_running_coroutine;
+                    _FinalizeCoroutine(m_running_coroutine);
+
+                m_running_coroutine = nullptr;
+
+                if (!m_is_running.load(std::memory_order_acquire))
+                    break;
             }
         }
 
-        m_run_status = ProcesserStatus::PROC_SUSPEND;
+        if (!m_is_running.load(std::memory_order_acquire))
+            break;
+
+        _SetStatus(ProcesserStatus::PROC_SUSPEND);
         auto steal_num = g_scheduler->TryWorkSteal(shared_from_this());
 #ifdef BBT_COROUTINE_PROFILE
         m_steal_succ_times += steal_num;
@@ -163,31 +200,28 @@ void Processer::_Run()
 #endif
             std::unique_lock<std::mutex> lock_uptr(m_run_cond_mutex);
             m_run_cond.wait_for(lock_uptr, bbt::core::clock::us(g_bbt_coroutine_config->m_cfg_processer_proc_interval_us));
-            m_run_cond_notify.exchange(true);
 #ifdef BBT_COROUTINE_PROFILE
             m_suspend_cost_times += std::chrono::duration_cast<decltype(m_suspend_cost_times)>(bbt::core::clock::now<bbt::core::clock::microseconds>() - begin);
 #endif
         }
     }
 
-    m_run_status = ProcesserStatus::PROC_EXIT;
+    _FinalizeCoroutine(m_running_coroutine);
+    m_running_coroutine = nullptr;
+    _DrainRunnableQueues();
+    _SetStatus(ProcesserStatus::PROC_EXIT);
 }
 
 void Processer::Stop()
 {
-    Coroutine::Ptr item = nullptr;
+    m_is_running.store(false, std::memory_order_release);
+    _SetStatus(ProcesserStatus::PROC_STOPPING);
+    m_run_cond.notify_one();
 
-    do {
-        m_is_running = false;
-        std::this_thread::sleep_for(bbt::core::clock::milliseconds(50));
-        m_run_cond.notify_one();
-    } while (m_run_status != ProcesserStatus::PROC_EXIT);
-
-
-    /* 释放所有协程 */
-    for (auto && it : m_coroutine_queue)
-        while (it.try_dequeue(item))
-            item = nullptr;
+    std::unique_lock<std::mutex> lock(m_state_mutex);
+    m_state_cond.wait(lock, [this]() {
+        return m_run_status.load(std::memory_order_acquire) == ProcesserStatus::PROC_EXIT;
+    });
 
 }
 
