@@ -13,6 +13,41 @@ namespace bbt::coroutine::detail
 
 using EventOpt = bbt::pollevent::EventOpt;
 
+namespace
+{
+
+bool ShouldRetry(int err, std::initializer_list<int> retryable_errors)
+{
+    for (int candidate : retryable_errors) {
+        if (err == candidate)
+            return true;
+    }
+
+    return false;
+}
+
+WaitResult WaitFdReady(int fd, short event)
+{
+    return WaitProtocolBridge::WaitFd(*g_bbt_tls_coroutine_co, fd, event | EventOpt::FINALIZE);
+}
+
+template <typename Ret, typename Fn>
+Ret RetryFdIo(int fd, short event, std::initializer_list<int> retryable_errors, Fn&& fn)
+{
+    Ret io_ret = -1;
+    while ((io_ret = fn()) < 0) {
+        if (!ShouldRetry(errno, retryable_errors))
+            return -1;
+
+        if (WaitFdReady(fd, event) == WaitResult::WAIT_ERROR)
+            return -1;
+    }
+
+    return io_ret;
+}
+
+}
+
 int Hook_Socket(int domain, int type, int protocol)
 {
     int fd = -1;
@@ -31,14 +66,11 @@ int Hook_Socket(int domain, int type, int protocol)
 
 int Hook_Connect(int socket, const struct sockaddr *address, socklen_t address_len)
 {
-
     while (g_bbt_sys_hook_connect_func(socket, address, address_len) != 0) {
-        // 是否因为非阻塞导致没法立即完成
-        if (errno != EINTR && errno != EINPROGRESS && errno != EALREADY)
+        if (!ShouldRetry(errno, {EINTR, EINPROGRESS, EALREADY}))
             return -1;
 
-        if (WaitProtocolBridge::WaitFd(*g_bbt_tls_coroutine_co, socket, EventOpt::WRITEABLE | EventOpt::FINALIZE)
-            == WaitResult::WAIT_ERROR)
+        if (WaitFdReady(socket, EventOpt::WRITEABLE) == WaitResult::WAIT_ERROR)
             return -1;
     }
 
@@ -56,59 +88,33 @@ int Hook_Sleep(int ms)
     if (ms <= 0)
         return -1;
 
-    return WaitProtocolBridge::ToLegacyReturnCode(WaitProtocolBridge::WaitTimeout(*g_bbt_tls_coroutine_co, ms));
+    return WaitProtocolBridge::WaitTimeout(*g_bbt_tls_coroutine_co, ms) == WaitResult::WAIT_ERROR ? -1 : 0;
 }
 
 ssize_t Hook_Read(int fd, void *buf, size_t nbytes)
 {
-    ssize_t read_len = -1;
-    while ((read_len = g_bbt_sys_hook_read_func(fd, buf, nbytes)) < 0) {
-        /* 如果read没有立即成功，判断失败原因是否为正在执行读操作 */
-        if (errno != EAGAIN && errno != EINPROGRESS && errno != EINTR && errno != EWOULDBLOCK)
-            return -1;
-
-        /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读 */
-        if (WaitProtocolBridge::WaitFd(*g_bbt_tls_coroutine_co, fd, EventOpt::READABLE | EventOpt::FINALIZE)
-            == WaitResult::WAIT_ERROR)
-            return -1;
-
-    }
-
-    return read_len;
+    return RetryFdIo<ssize_t>(fd,
+                              EventOpt::READABLE,
+                              {EAGAIN, EINPROGRESS, EINTR, EWOULDBLOCK},
+                              [&]() { return g_bbt_sys_hook_read_func(fd, buf, nbytes); });
 }
 
 ssize_t Hook_Write(int fd, const void *buf, size_t n)
 {
-    ssize_t write_len = -1;
-    while ((write_len = g_bbt_sys_hook_write_func(fd, buf, n)) < 0) {
-        /* 如果write没有立即成功，判断失败原因是否为正在执行写操作 */
-        if (errno != EAGAIN && errno != EINTR && errno != EWOULDBLOCK)
-            return -1;
-
-        /* 对当前协程注册fd可写事件，挂起当前协程直到fd可写 */
-        if (WaitProtocolBridge::WaitFd(*g_bbt_tls_coroutine_co, fd, EventOpt::WRITEABLE | EventOpt::FINALIZE)
-            == WaitResult::WAIT_ERROR)
-            return -1;
-    }
-
-    return write_len;
+    return RetryFdIo<ssize_t>(fd,
+                              EventOpt::WRITEABLE,
+                              {EAGAIN, EINTR, EWOULDBLOCK},
+                              [&]() { return g_bbt_sys_hook_write_func(fd, buf, n); });
 }
 
 int Hook_Accept(int fd, struct sockaddr *addr, socklen_t *len)
 {
-    int new_cli_fd = -1;
-
-    while ((new_cli_fd = g_bbt_sys_hook_accept_func(fd, addr, len)) < 0) {
-        /* 如果accept没有立即成功，判断失败原因是否为设置非阻塞 */
-        if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)
-            return -1;
-
-        /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读 */
-        if (WaitProtocolBridge::WaitFd(*g_bbt_tls_coroutine_co, fd, EventOpt::READABLE | EventOpt::FINALIZE)
-            == WaitResult::WAIT_ERROR)
-            return -1;
-        
-    }
+    int new_cli_fd = RetryFdIo<int>(fd,
+                                    EventOpt::READABLE,
+                                    {EAGAIN, EWOULDBLOCK, EINTR},
+                                    [&]() { return g_bbt_sys_hook_accept_func(fd, addr, len); });
+    if (new_cli_fd < 0)
+        return -1;
 
     if (evutil_make_socket_nonblocking(new_cli_fd) != 0) {
         ::close(new_cli_fd);
@@ -120,36 +126,18 @@ int Hook_Accept(int fd, struct sockaddr *addr, socklen_t *len)
 
 ssize_t Hook_Send(int fd, const void *buf, size_t n, int flags)
 {
-    ssize_t send_len = -1;
-    while ((send_len = g_bbt_sys_hook_send_func(fd, buf, n, flags)) < 0) {
-        /* 如果write没有立即成功，判断失败原因是否为正在执行写操作 */
-        if (errno != EAGAIN && errno != EINTR && errno != EWOULDBLOCK)
-            return -1;
-
-        /* 对当前协程注册fd可写事件，挂起当前协程直到fd可写 */
-        if (WaitProtocolBridge::WaitFd(*g_bbt_tls_coroutine_co, fd, EventOpt::WRITEABLE | EventOpt::FINALIZE)
-            == WaitResult::WAIT_ERROR)
-            return -1;
-    }
-
-    return send_len;
+    return RetryFdIo<ssize_t>(fd,
+                              EventOpt::WRITEABLE,
+                              {EAGAIN, EINTR, EWOULDBLOCK},
+                              [&]() { return g_bbt_sys_hook_send_func(fd, buf, n, flags); });
 }
 
 ssize_t Hook_Recv(int fd, void *buf, size_t n, int flags)
 {
-    ssize_t recv_len = -1;
-    while ((recv_len = g_bbt_sys_hook_recv_func(fd, buf, n, flags)) < 0) {
-        /* 如果read没有立即成功，判断失败原因是否为正在执行读操作 */
-        if (errno != EAGAIN && errno != EINPROGRESS && errno != EINTR && errno != EWOULDBLOCK)
-            return -1;
-
-        /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读 */
-        if (WaitProtocolBridge::WaitFd(*g_bbt_tls_coroutine_co, fd, EventOpt::READABLE | EventOpt::FINALIZE)
-            == WaitResult::WAIT_ERROR)
-            return -1;
-    }
-
-    return recv_len;
+    return RetryFdIo<ssize_t>(fd,
+                              EventOpt::READABLE,
+                              {EAGAIN, EINPROGRESS, EINTR, EWOULDBLOCK},
+                              [&]() { return g_bbt_sys_hook_recv_func(fd, buf, n, flags); });
 }
 
 }

@@ -25,33 +25,31 @@ CoPool::CoPool(int max):
 
 CoPool::~CoPool()
 {
-    // 先释放所有任务
+    Release();
+
     Work* item = nullptr;
     while (m_works_queue.try_dequeue(item))
         delete item;
-
-    // 释放所有coroutine
-    Release();
 }
 
 int CoPool::Submit(const CoPoolWorkCallback& workfunc)
 {
-    BBTATTR_COMM_UNUSED auto* work = new Work(workfunc);
-    AssertWithInfo(m_works_queue.enqueue(work), "oom!");
-    m_cond->NotifyOne();
-    return 0;    
+    return _SubmitImpl(new Work(workfunc));
 }
 
 int CoPool::Submit(CoPoolWorkCallback&& workfunc)
 {
-    BBTATTR_COMM_UNUSED auto* work = new Work(std::forward<CoPoolWorkCallback&&>(workfunc));
-    AssertWithInfo(m_works_queue.enqueue(work), "oom!");
-    return 0;
+    return _SubmitImpl(new Work(std::forward<CoPoolWorkCallback>(workfunc)));
 }
 
 void CoPool::Release()
 {
-    m_is_running = false;
+    {
+        std::lock_guard<std::mutex> lock(m_cond_mtx);
+        if (!m_is_running.exchange(false))
+            return;
+    }
+
     while (m_running_co_num != 0 && g_scheduler->IsRunning()) {
         m_cond->NotifyAll();
 
@@ -64,6 +62,23 @@ void CoPool::Release()
     if (g_scheduler->IsRunning()) {
         m_latch.Wait();
     }
+}
+
+int CoPool::_SubmitImpl(Work* work)
+{
+    {
+        std::lock_guard<std::mutex> lock(m_cond_mtx);
+        if (!m_is_running) {
+            delete work;
+            return -1;
+        }
+
+        BBTATTR_COMM_UNUSED auto enqueue_ok = m_works_queue.enqueue(work);
+        AssertWithInfo(enqueue_ok, "oom!");
+    }
+
+    m_cond->NotifyOne();
+    return 0;
 }
 
 void CoPool::_Start()
@@ -86,15 +101,18 @@ void CoPool::_WorkCo()
 {
     m_running_co_num++;
 
-    while (m_is_running) {
+    while (true) {
         Work* work = nullptr;
-        if (!m_works_queue.try_dequeue(work)) {
-            m_cond->Wait();
+        if (m_works_queue.try_dequeue(work)) {
+            work->Invoke();
+            delete work;
             continue;
         }
 
-        work->Invoke();
-        delete work;
+        if (!m_is_running)
+            break;
+
+        m_cond->Wait();
     }
 
     m_running_co_num--;

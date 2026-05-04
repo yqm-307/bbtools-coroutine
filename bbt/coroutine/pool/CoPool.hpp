@@ -37,13 +37,14 @@ public:
      */
     virtual void            Release();
 protected:
+    int                     _SubmitImpl(Work* work);
     void                    _Start();
     /* 工作协程 */
     void                    _WorkCo();
     /* 监控协程 */
     void                    _MonitorCo();
 private:
-    volatile bool           m_is_running{true};
+    std::atomic_bool        m_is_running{true};
     const int               m_max_co_num{0};
     moodycamel::ConcurrentQueue<Work*> 
                             m_works_queue;
