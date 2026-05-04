@@ -25,6 +25,16 @@
 - 本 change 不直接实现运行时代码修复。
 - 本 change 不要求一次性改写现有所有测试。
 - 本 change 不要求在 spec 内定义微观实现方案，例如具体锁实现、具体原子类型或数据结构选型。
+- 本 change 不再作为阶段 1～5 的直接编码入口；这些实现阶段应在独立 change 中推进，并由本设计文档提供依赖顺序与验收边界。
+
+## 当前定位
+
+随着阶段 1～4 的实现被拆分到独立 change，这个 change 的职责已经收敛为两件事：
+
+- 维护按模块拆分的 runtime specs，作为后续实现 change 的行为基线
+- 维护跨阶段依赖关系、推荐拆分顺序与测试准入原则
+
+因此，这里的“阶段 1～5”内容应被理解为路线图与依赖图，而不是要求在本 change 中顺序勾完的编码任务。
 
 ## 设计决策
 
@@ -618,6 +628,16 @@ coroutine.hpp / syntax / examples / docs
 2. 后续任何针对 runtime 的实现 change，优先引用对应模块 spec，而不是重新定义行为边界。
 3. 对发现的高风险实现点，分模块提出独立 change，并引用 `runtime-test-matrix` 作为测试准入标准。
 4. 当实现与规格基本对齐后，再考虑将稳定 capability 归档到 `openspec/specs/` 的长期基线。
+
+## 当前拆分状态
+
+- `extract-runtime-wait-protocol`：已拆分并实现
+- `align-runtime-lifecycle-and-scheduler`：已拆分并实现
+- `migrate-sync-primitives-to-wait-protocol`：已拆分并实现
+- `stabilize-hook-and-copool-semantics`：已拆分并实现
+- `clean-public-api-and-syntax-surface`：仍应作为独立后续 change 推进
+
+这意味着本 change 当前不应该再直接承载实现任务，而应继续作为上层蓝图维护这些 capability、依赖关系与验收口径。
 
 ## 待确认问题
 
