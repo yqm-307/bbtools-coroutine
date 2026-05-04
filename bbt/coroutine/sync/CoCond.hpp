@@ -1,7 +1,7 @@
 #pragma once
-#include <mutex>
-#include <unordered_map>
 #include <bbt/core/thread/sync/Queue.hpp>
+#include <mutex>
+#include <queue>
 #include <bbt/coroutine/sync/CoWaiter.hpp>
 
 namespace bbt::coroutine::sync
@@ -50,10 +50,8 @@ public:
 protected:
     int                         _NotifyOne();
 private:
-    bbt::core::thread::Queue<CoWaiter*>         m_waiter_queue{8};
+    std::queue<CoWaiter::SPtr>                  m_waiter_queue;
     std::mutex                                  m_waiter_guard;
-    std::unordered_map<CoWaiter*, CoWaiter::SPtr>
-                                                m_waiter_holders;
 };
 
 } // namespace bbt::coroutine::sync

@@ -33,6 +33,15 @@
 - 公平性是代码细节，不是文档化策略。
 - timeout、取消、关闭和公平性之间的组合语义还没有被统一建模。
 
+## 当前推进状态快照
+
+| 区域 | 当前代码状态 | 重规划含义 |
+|------|--------------|------------|
+| `CoCond` | waiter 队列已改为持有 `CoWaiter::SPtr`，`NotifyAll()` / `_NotifyOne()` 按统一 `Notify()` 结果跳过失效 waiter | 视为已完成试点迁移，不再作为主要风险项 |
+| `CoMutex` | 等待路径已切换到 `CoWaiter`，并补了非 owner `UnLock()` 防护 | 视为已完成试点迁移，重点转为回归验证 |
+| `Chan` | `__TChan.hpp` 已开始显式恢复 reader 状态，并收敛 close / timeout 后的返回路径 | 视为已完成重对象迁移，后续只做必要回归 |
+| `CoRWMutex` | 仅补了写锁 owner 防护与两条公平性观测用例，核心公平性与 waiter 收口仍未稳定 | 成为阶段 3 唯一活跃的实现焦点 |
+
 ## 目标 / 非目标
 
 **目标：**
@@ -51,22 +60,19 @@
 
 ## 设计决策
 
-### 1. 迁移顺序固定为 CoWaiter / CoCond / CoMutex 先行，Chan / CoRWMutex 后行
+### 1. 重规划后只保留一个活跃实现目标：CoRWMutex
 
-阶段 3 不适合把四类原语并行推进。更合适的顺序是：
+原始迁移顺序 `CoWaiter -> CoCond -> CoMutex -> Chan -> CoRWMutex` 仍然成立，但现在前四步已经基本落地。重规划后的执行顺序应改为：
 
-1. 先把 `CoWaiter` 收敛为共享协议 façade
-2. 再迁移 `CoCond`
-3. 再迁移 `CoMutex`
-4. 最后迁移 `Chan`
-5. 最后迁移 `CoRWMutex`
+1. 冻结 `CoCond` / `CoMutex` / `Chan` 的已落地行为，只保留回归修补权。
+2. 把 `CoRWMutex` 作为阶段 3 唯一活跃的实现对象，显式固定公平性策略和唤醒边界。
+3. 在 `CoRWMutex` 稳定后，再做全局残留等待逻辑清理与阶段 4 衔接。
 
 决策理由：
 
-- `CoCond` 最能验证 waiter 生命周期与通知语义。
-- `CoMutex` 最能验证 timeout-aware custom wait 是否真的落地。
-- `Chan` 资源状态最重，不适合作为第一批协议 consumer。
-- `CoRWMutex` 的公平性问题应建立在等待协议和 close / timeout 语义已稳定的前提上。
+- 当前分支上的主要未完成风险几乎全部集中在 `CoRWMutex`。
+- 如果继续把四类原语并行看待，会稀释剩余风险并导致任务列表失真。
+- `Hook` / `CoPool` 下一阶段真正依赖的是“稳定的 sync 中层”，而不是继续改动已经迁移完成的对象。
 
 ### 2. 同步原语只表达资源条件，不再自己发明等待完成规则
 
@@ -85,7 +91,13 @@ timeout、close、cancel、destroy 谁结束等待，以及如何只结束一次
 
 ### 4. CoRWMutex 的公平性必须进入文档化策略
 
-阶段 3 不一定要立即决定最终是 strict writer-preferred、reader-preferred 还是 bounded fairness，但必须把公平性从“局部实现细节”提升为显式设计选择，并让测试围绕该选择组织。
+当前代码和测试已经显露出 writer-preferred 倾向：一旦 writer 开始等待，后来的 reader 不应继续插队。因此重规划后的默认方向是：
+
+- 保留 writer-preferred 作为阶段 3 的显式策略候选。
+- 至少固定“late reader 不得越过已等待 writer”这一最小可观测语义。
+- 若当前 public surface 尚无 timeout / cancel API，就不在本阶段发明新接口，而是先把既有等待队列与唤醒边界整理干净。
+
+阶段 3 不要求一步到位做出更复杂的 bounded fairness 设计，但必须把公平性从“局部实现细节”提升为显式设计选择，并让测试围绕该选择组织。
 
 ### 5. 阶段 3 只消费前两个阶段稳定面
 
@@ -129,21 +141,36 @@ timeout、close、cancel、destroy 谁结束等待，以及如何只结束一次
 - `t_rwmutex_timeout_does_not_leave_stale_waiter`
 - `t_rwmutex_read_write_competition_respects_policy`
 
+当前重构分支中该文件已经存在，但只覆盖了 writer-preferred 可观测性和 non-owner unlock 防护；重规划后需要把它补齐为 `CoRWMutex` 的主验证出口。
+
 `Test_sync_primitives_stress.cc`
 
 - `t_sync_wait_notify_stress`
 - `t_chan_competition_stress`
 - `t_mutex_rwmutex_long_run_stability`
 
-## 迁移计划
+## 重规划后的剩余执行顺序
 
-1. 先确认阶段 1 和阶段 2 的桥接稳定面、生命周期规则和 stop 协议已经冻结。
-2. 先把 `CoWaiter` 收敛为兼容 façade，再迁移 `CoCond` 与 `CoMutex`。
-3. 在试点验证通过后，再迁移 `Chan` 与 `CoRWMutex`，并显式固定其 close / timeout / fairness 语义。
-4. 当阶段 3 的 sync 稳定面成立后，再进入 Hook / CoPool 收敛阶段。
+1. 把 `CoCond`、`CoMutex`、`Chan` 视为已完成迁移对象，只在发现阻塞性回归时回改。
+2. 以 `CoRWMutex` 为唯一活跃实现目标，先固定 writer-preferred 语义、owner 规则与唤醒边界。
+3. 补齐 `Test_sync_rwmutex_fairness.cc`，让公平性、waiter 清理和长竞争都具备独立验证出口。
+4. 审计 `sync/*` 中残留的局部等待拼装逻辑，确认阶段 3 结束时不再混用旧路径。
+5. 以当前 sync 中层稳定面为输入，重新检查 `stabilize-hook-and-copool-semantics` 的依赖假设。
+
+## 阶段 4 交接约束
+
+阶段 3 完成后，阶段 4 只能依赖 sync 中层的稳定结果，而不能继续改写其基础语义。当前冻结的交接面如下：
+
+- `CoCond` / `CoMutex` / `Chan` / `CoRWMutex` 的等待注册统一通过 `CoWaiter` + wait protocol bridge 完成。
+- `CoRWMutex` 的公平性策略固定为 writer-preferred，late reader 不得越过已等待 writer。
+- `CoRWMutex` 的 owner 规则固定为：非 owner `UnLock()` 不会释放现有读锁或写锁。
+- `sync/*` notify 路径需要持续遵守“跳过失效 waiter，而不是重复恢复或访问失效状态”的统一规则。
+
+因此，`stabilize-hook-and-copool-semantics` 若发现 Hook 或 `CoPool` 仍依赖修改上述行为，应该回退为阶段边界问题，而不是在阶段 4 中直接改 sync。
 
 ## 风险 / 权衡
 
 - [风险] 如果 `Chan` 过早进入迁移，会把资源状态修复和等待协议迁移混成同一次高风险变更 → 缓解方式：坚持试点先行顺序。
 - [风险] 若 CoRWMutex 公平性不被显式化，后续测试仍然只能验证“看起来能跑” → 缓解方式：把公平性策略提升为设计决策和测试出口。
 - [风险] 若阶段 3 继续补基础等待语义，会打破前两个阶段的稳定面 → 缓解方式：任何基础协议回退都显式归类为前置阶段未完成。
+- [风险] 若重规划后仍把已完成对象和 `CoRWMutex` 混在一起推进，任务会继续失真，难以判断真正剩余工作量 → 缓解方式：明确把 `CoRWMutex` 设为唯一活跃迁移对象。

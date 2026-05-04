@@ -60,8 +60,7 @@ protected:
     void                        _OnLocked();
     void                        _OnUnLocked();
 private:
-    std::queue<std::shared_ptr<detail::CoPollEvent>> 
-                                m_wait_event_queue;
+    std::queue<CoWaiter::SPtr>  m_wait_event_queue;
     detail::Coroutine::Ptr
                                 m_locked_co{nullptr};
     std::mutex                  m_mutex;

@@ -86,6 +86,26 @@ add_executable(Test_chan Test_chan.cc)
 target_link_libraries(Test_chan ${MY_LIBS})
 add_test(NAME Test_chan COMMAND Test_chan)
 
+add_executable(Test_sync_chan_semantics Test_sync_chan_semantics.cc)
+target_link_libraries(Test_sync_chan_semantics ${MY_LIBS})
+add_test(NAME Test_sync_chan_semantics COMMAND Test_sync_chan_semantics)
+
+add_executable(Test_sync_cond_mutex_bridge Test_sync_cond_mutex_bridge.cc)
+target_link_libraries(Test_sync_cond_mutex_bridge ${MY_LIBS})
+add_test(NAME Test_sync_cond_mutex_bridge COMMAND Test_sync_cond_mutex_bridge)
+
+add_executable(Test_sync_waiter_lifetime Test_sync_waiter_lifetime.cc)
+target_link_libraries(Test_sync_waiter_lifetime ${MY_LIBS})
+add_test(NAME Test_sync_waiter_lifetime COMMAND Test_sync_waiter_lifetime)
+
+add_executable(Test_sync_rwmutex_fairness Test_sync_rwmutex_fairness.cc)
+target_link_libraries(Test_sync_rwmutex_fairness ${MY_LIBS})
+add_test(NAME Test_sync_rwmutex_fairness COMMAND Test_sync_rwmutex_fairness)
+
+add_executable(Test_sync_primitives_stress Test_sync_primitives_stress.cc)
+target_link_libraries(Test_sync_primitives_stress ${MY_LIBS})
+add_test(NAME Test_sync_primitives_stress COMMAND Test_sync_primitives_stress)
+
 add_executable(Test_comutex Test_comutex.cc)
 target_link_libraries(Test_comutex ${MY_LIBS})
 add_test(NAME Test_comutex COMMAND Test_comutex)

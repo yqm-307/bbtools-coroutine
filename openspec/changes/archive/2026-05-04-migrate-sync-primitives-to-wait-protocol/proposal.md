@@ -11,6 +11,20 @@
 
 这些问题不能再通过每个类局部打补丁来解决。阶段 3 的目标是把 `sync-primitives` 整体迁移到前两个阶段已经冻结的稳定面上，并把各原语的资源语义与等待语义明确分离。
 
+## 当前重构进度与重规划结论
+
+当前分支上的实际推进已经明显进入“后半程”：
+
+- `CoWaiter` / `CoCond` / `CoMutex` 已经完成试点迁移，等待对象生命周期不再依赖栈上地址外泄。
+- `Chan` 已经开始按资源状态 / 等待状态分离的方式收口，`close`、`timeout`、`state restore` 的典型回归用例也已独立成文件。
+- `unit_test/CMakeLists.txt` 已经接入阶段 3 的专项测试出口，`Test_sync_waiter_lifetime.cc`、`Test_sync_cond_mutex_bridge.cc`、`Test_sync_chan_semantics.cc`、`Test_sync_primitives_stress.cc` 均已落地。
+
+因此，这次重规划不再把阶段 3 视为“四个同步原语并行迁移”，而是把剩余工作收敛到三个焦点：
+
+1. 完成 `CoRWMutex` 的语义收口，把当前已经出现的 writer-preferred 倾向提升为显式策略。
+2. 清理 `sync` 层残留的局部等待拼装逻辑，避免新旧等待语义继续混用。
+3. 用阶段 3 产物明确阶段 4 `stabilize-hook-and-copool-semantics` 的依赖边界。
+
 ## 变更内容
 
 - 引入阶段 3 的独立 change，迁移 `CoCond`、`CoMutex`、`Chan` 与 `CoRWMutex` 到共享等待协议层。
@@ -18,6 +32,7 @@
 - 固定 `CoCond`、`CoMutex`、`Chan`、`CoRWMutex` 的迁移顺序，避免最复杂对象先行导致协议和资源语义混改。
 - 要求本阶段只消费阶段 1 的等待协议稳定面和阶段 2 的 runtime 内核稳定面，而不回头扩张或重写它们。
 - 要求本阶段同步交付 sync 专项测试，覆盖单元、竞争、回归和压力场景。
+- 重规划后，阶段 3 的剩余实现范围只保留 `CoRWMutex` 收口、旧等待拼装逻辑清理与阶段 4 衔接三条主线。
 
 ## 为什么现在做
 
@@ -35,6 +50,7 @@
 - 不在本 change 中收口 Hook、`CoPool`、`coroutine.hpp` 或 `syntax/*` 的最终外部行为。
 - 不要求在本阶段直接处理 `CoPool` 的 worker 唤醒或 release 契约漂移。
 - 不要求在本阶段引入新的 public API。
+- 除非 `CoRWMutex` 收口暴露出阻塞性缺口，否则不回头重开已经稳定的 `CoCond`、`CoMutex`、`Chan` 迁移范围。
 
 ## 能力域
 
@@ -50,3 +66,14 @@
 - 受影响代码：`bbt/coroutine/sync/CoWaiter.*`、`bbt/coroutine/sync/CoCond.*`、`bbt/coroutine/sync/CoMutex.*`、`bbt/coroutine/sync/CoRWMutex.*`、`bbt/coroutine/sync/Chan.*`、`bbt/coroutine/sync/__TChan.hpp`
 - 受影响测试：`unit_test/Test_cond.cc`、`unit_test/Test_comutex.cc`、`unit_test/Test_chan.cc`、`unit_test/Test_co_rwmutex.cc` 以及阶段 1 产出的协议桥接测试
 - 受影响流程：后续 `stabilize-hook-and-copool-semantics` 与 `clean-public-api-and-syntax-surface` 应把本 change 视为 sync 中层稳定面，而不是继续修改其基础等待语义
+
+## 阶段 4 依赖边界
+
+阶段 4 `stabilize-hook-and-copool-semantics` 现在只允许消费以下已经冻结的 sync 中层语义：
+
+- `CoCond`：waiter 生命周期由 `CoWaiter` 持有，`NotifyOne` / `NotifyAll` 会跳过过期 waiter。
+- `CoMutex`：`TryLock(int ms)` 走 timeout-aware wait protocol，非 owner `UnLock()` 不会释放锁。
+- `Chan`：close、timeout 与 reader state restore 已作为稳定行为对外可测。
+- `CoRWMutex`：默认策略显式为 writer-preferred；非 owner `UnLock()` 不得释放读锁或写锁；读写 waiter 队列统一走 `CoWaiter` 注册与 notify 语义。
+
+如果阶段 4 实现仍然需要回头修改这些语义，应判定为阶段 3 边界失效，而不是在 Hook / `CoPool` change 中继续补 sync 基础设施。

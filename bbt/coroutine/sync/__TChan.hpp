@@ -35,13 +35,18 @@ int Chan<TItem, Max>::Write(const ItemType& item)
     _Lock();
 
     /* 如果无法写入，协程挂起直到可写 */
-    if (m_item_queue.size() >= m_max_size) {
+    while (m_item_queue.size() >= m_max_size) {
         auto enable_write_cond = _CreateAndPushEnableWriteCond();
 
-        if (_WaitUntilEnableWrite(enable_write_cond, [this](){ _UnLock(); return true; }) != 0)
-            return -1;
+        int wait_ret = _WaitUntilEnableWrite(enable_write_cond, [this](){ _UnLock(); return true; });
+        if (wait_ret != 0)
+            return wait_ret;
 
         _Lock();
+        if (IsClosed()) {
+            _UnLock();
+            return -1;
+        }
     }
     
     m_item_queue.push(item);
@@ -63,23 +68,33 @@ int Chan<TItem, Max>::Read(ItemType& item)
     if (!m_is_reading.compare_exchange_strong(expect, true))
         return -1;
 
+    auto restore_read_state = [this]() {
+        m_is_reading.store(false);
+    };
+
     _Lock();
 
-    if (m_item_queue.empty()) {
-        if (_WaitUntilEnableRead([this](){ _UnLock(); return true; }) != 0)
-            return -1;
+    while (m_item_queue.empty() && !IsClosed()) {
+        int wait_ret = _WaitUntilEnableRead([this](){ _UnLock(); return true; });
+        if (wait_ret != 0) {
+            restore_read_state();
+            return wait_ret;
+        }
 
         _Lock();
     }
     
-    if (m_item_queue.empty() || IsClosed())
+    if (m_item_queue.empty() || IsClosed()) {
+        restore_read_state();
+        _UnLock();
         return -1;
+    }
 
     item = m_item_queue.front();
     m_item_queue.pop();
     // 唤醒一个等待写入的协程
     Assert(_OnEnableWrite() == 0);
-    m_is_reading.exchange(false);
+    restore_read_state();
     _UnLock();
     return 0;
 }
@@ -95,11 +110,18 @@ int Chan<TItem, Max>::ReadAll(std::vector<ItemType>& items)
     if (!m_is_reading.compare_exchange_strong(expect, true))
         return -1;
 
-    _Lock();
-    if (m_item_queue.empty()) {
+    auto restore_read_state = [this]() {
+        m_is_reading.store(false);
+    };
 
-        if (_WaitUntilEnableRead([this](){ _UnLock(); return true; }) != 0)
-            return -1;
+    _Lock();
+    while (m_item_queue.empty() && !IsClosed()) {
+
+        int wait_ret = _WaitUntilEnableRead([this](){ _UnLock(); return true; });
+        if (wait_ret != 0) {
+            restore_read_state();
+            return wait_ret;
+        }
 
         _Lock();
     }
@@ -109,7 +131,7 @@ int Chan<TItem, Max>::ReadAll(std::vector<ItemType>& items)
         m_item_queue.pop();
         Assert(_OnEnableWrite() == 0);
     }
-    m_is_reading = false;
+    restore_read_state();
 
     _UnLock();
     return 0;
@@ -137,17 +159,21 @@ int Chan<TItem, Max>::TryWrite(const ItemType& item)
 template<class TItem, int Max>
 int Chan<TItem, Max>::TryWrite(const ItemType& item, int timeout)
 {
-    int ret = 0;
-
     if (IsClosed())
         return -1;
 
     _Lock();
     if (m_item_queue.size() >= m_max_size) {
         auto enable_write_cond = _CreateAndPushEnableWriteCond();
-        ret = _WaitUntilEnableWriteOrTimeout(enable_write_cond, timeout, [this](){ _UnLock(); return true; });
+        int wait_ret = _WaitUntilEnableWriteOrTimeout(enable_write_cond, timeout, [this](){ _UnLock(); return true; });
+        if (wait_ret != 0)
+            return wait_ret;
 
         _Lock();
+        if (IsClosed() || m_item_queue.size() >= m_max_size) {
+            _UnLock();
+            return -1;
+        }
     }
 
     m_item_queue.push(item);
@@ -155,7 +181,7 @@ int Chan<TItem, Max>::TryWrite(const ItemType& item, int timeout)
         _OnEnableRead();
 
     _UnLock();
-    return ret;
+    return 0;
 }
 
 template<class TItem, int Max>
@@ -168,15 +194,23 @@ int Chan<TItem, Max>::TryRead(ItemType& item)
     if (!m_is_reading.compare_exchange_strong(expect, true))
         return -1;
 
+    auto restore_read_state = [this]() {
+        m_is_reading.store(false);
+    };
+
     _Lock();
 
-    if (m_item_queue.empty())
+    if (m_item_queue.empty()) {
+        restore_read_state();
+        _UnLock();
         return -1;
+    }
     
     item = m_item_queue.front();
     m_item_queue.pop();
     Assert(_OnEnableWrite() == 0);
 
+    restore_read_state();
     _UnLock();
 
     return 0;
@@ -192,16 +226,25 @@ int Chan<TItem, Max>::TryRead(ItemType& item, int timeout)
     if (!m_is_reading.compare_exchange_strong(expect, true))
         return -1;
 
-    _Lock();
-    if (m_item_queue.empty()) {
+    auto restore_read_state = [this]() {
+        m_is_reading.store(false);
+    };
 
-        if (_WaitUntilEnableReadOrTimeout(timeout, [this](){ _UnLock(); return true; }) != 0)
-            return -1;
+    _Lock();
+    while (m_item_queue.empty() && !IsClosed()) {
+
+        int wait_ret = _WaitUntilEnableReadOrTimeout(timeout, [this](){ _UnLock(); return true; });
+        if (wait_ret != 0) {
+            restore_read_state();
+            return wait_ret;
+        }
 
         _Lock();
     }
 
     if (m_item_queue.empty()) {
+        restore_read_state();
+        _UnLock();
         return -1;
     }
 
@@ -209,7 +252,7 @@ int Chan<TItem, Max>::TryRead(ItemType& item, int timeout)
     m_item_queue.pop();
     Assert(_OnEnableWrite() == 0);
 
-    m_is_reading = false;
+    restore_read_state();
     _UnLock();
 
     return 0;
@@ -273,12 +316,14 @@ int Chan<TItem, Max>::_OnEnableRead()
 template<class TItem, int Max>
 int Chan<TItem, Max>::_OnEnableWrite()
 {
-    if (m_enable_write_conds.empty())
-        return 0;
+    while (!m_enable_write_conds.empty()) {
+        auto enable_write_cond = m_enable_write_conds.front();
+        m_enable_write_conds.pop();
+        if (enable_write_cond->Notify() == 0)
+            return 0;
+    }
 
-    auto enable_write_cond = m_enable_write_conds.front();
-    m_enable_write_conds.pop();
-    return enable_write_cond->Notify();
+    return 0;
 }
 
 template<class TItem, int Max>
@@ -359,6 +404,14 @@ int Chan<TItem, 0>::Write(const ItemType& item)
 
     if (BaseType::_WaitUntilEnableWrite(enable_write_cond, [this](){ BaseType::_UnLock(); return true; }) != 0)
         return -1;
+
+    BaseType::_Lock();
+    bool consumed = (m_read_idx > is_writing_idx);
+    bool closed_without_consume = (BaseType::IsClosed() && !consumed);
+    BaseType::_UnLock();
+
+    if (closed_without_consume)
+        return -1;
     
     return 0;
 }
@@ -374,13 +427,26 @@ int Chan<TItem, 0>::Read(ItemType& item)
     if (!BaseType::m_is_reading.compare_exchange_strong(expect, true))
         return -1;
 
+    auto restore_read_state = [this]() {
+        BaseType::m_is_reading.store(false);
+    };
+
     BaseType::_Lock();
 
-    if (m_write_idx <= m_read_idx) {
-        if (BaseType::_WaitUntilEnableRead([this](){ BaseType::_UnLock(); return true; }) != 0)
-            return -1;
+    while (m_write_idx <= m_read_idx && !IsClosed()) {
+        int wait_ret = BaseType::_WaitUntilEnableRead([this](){ BaseType::_UnLock(); return true; });
+        if (wait_ret != 0) {
+            restore_read_state();
+            return wait_ret;
+        }
 
         BaseType::_Lock();
+    }
+
+    if (m_write_idx <= m_read_idx || m_item_cache_ref.empty() || IsClosed()) {
+        restore_read_state();
+        BaseType::_UnLock();
+        return -1;
     }
     
     item = m_item_cache_ref.front();
@@ -389,7 +455,7 @@ int Chan<TItem, 0>::Read(ItemType& item)
     /* 抛出队列可写 */
     Assert(BaseType::_OnEnableWrite() == 0);
 
-    BaseType::m_is_reading = false;
+    restore_read_state();
     BaseType::_UnLock();
 
     return 0;
@@ -404,6 +470,8 @@ void Chan<TItem, 0>::Close()
     BaseType::m_run_status = ChanStatus::CHAN_CLOSE;
 
     BaseType::_Lock();
+    while (!m_item_cache_ref.empty())
+        m_item_cache_ref.pop();
     /* 唤醒所有阻塞在Channel上的协程 */
     if (BaseType::m_is_reading) BaseType::_OnEnableRead();
 
