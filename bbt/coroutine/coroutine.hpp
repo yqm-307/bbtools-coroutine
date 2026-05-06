@@ -37,6 +37,12 @@ namespace coroutine
  * 在非协程上下文或非调度 worker 线程中返回 0。
  */
 detail::CoroutineId GetLocalCoroutineId();
+detail::ProcesserId GetLocalProcesserId();
+void SetCoroutineTraceFilter(const CoroutineTraceFilter& filter);
+void ResetCoroutineTraceFilter();
+CoroutineTraceSnapshot QueryCoroutineTrace(detail::CoroutineId id);
+std::vector<CoroutineTraceMeta> QueryActiveCoroutinesByDesc(const std::string& desc, bool prefix = false);
+std::string DumpCoroutineTrace(detail::CoroutineId id);
 
 /*
  * 获取当前运行协程的栈大小。

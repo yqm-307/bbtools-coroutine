@@ -28,6 +28,9 @@ option(DEBUG_INFO
 option(STRINGENT_DEBUG
     "启动严格dbg模式，带来性能开销极大" OFF)
 
+option(CO_TRACE
+    "启用 coroutine trace，记录单协程最近调度轨迹" OFF)
+
 message(
     "RELEASE: "         ${BUILD_TYPE_UPPER}
     "\nNEED_BENCHMARK: "  ${NEED_BENCHMARK}
@@ -36,6 +39,7 @@ message(
     "\nNEED_DEBUG: "      ${NEED_DEBUG}
     "\nPROFILE: "         ${PROFILE}
     "\nDEBUG_INFO: "      ${DEBUG_INFO}
+    "\nCO_TRACE: "        ${CO_TRACE}
 )
 ################################################################
 
@@ -67,6 +71,10 @@ endif()
 
 if (STRINGENT_DEBUG)
     add_definitions(-DBBT_COROUTINE_STRINGENT_DEBUG)
+endif()
+
+if (CO_TRACE)
+    add_definitions(-DBBT_COROUTINE_TRACE)
 endif()
 
 set(LIBRARY_OUTPUT_PATH ${PROJECT_BINARY_DIR}/lib) 

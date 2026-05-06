@@ -51,3 +51,6 @@ target_link_libraries(Debug_bbtcoevent ${MY_DBG_LIBS})
 
 add_executable(Debug_globalconfig Debug_globalconfig.cc)
 target_link_libraries(Debug_globalconfig ${MY_DBG_LIBS})
+
+add_executable(Debug_trace Debug_trace.cc)
+target_link_libraries(Debug_trace ${MY_DBG_LIBS})

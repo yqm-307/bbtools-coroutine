@@ -48,7 +48,7 @@ protected:
     void                            Stop();
     size_t                          GetLoadValue();
     size_t                          GetExecutableNum(); /* 可执行协程数 */
-    void                            AddCoroutineTask(CoroutinePriority priority, Coroutine::Ptr coroutine);
+    void                            AddCoroutineTask(CoroutinePriority priority, Coroutine::Ptr coroutine, int reason = TRACE_REASON_CREATE);
 
     uint64_t                        GetContextSwapTimes();  /* 协程上下文换出次数 */
     uint64_t                        GetSuspendCostTime();     /* 任务执行耗时，返回微秒 */

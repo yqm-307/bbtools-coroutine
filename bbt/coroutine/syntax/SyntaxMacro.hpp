@@ -32,7 +32,7 @@
 /**
  * @brief 注册一个协程任务，实际上和 bbtco 一致，只是增强可读性
  */
-#define bbtco_desc(desc) bbtco
+#define bbtco_desc(desc) bbt::coroutine::_CoHelper(nullptr, (desc))-
 
 /**
  * @brief 在协程中调用，使协程挂起一定时间后被唤醒
@@ -136,4 +136,3 @@ do \
  */
 #define bbtco_wait_for(fd, event, ms) \
     bbt::coroutine::_WaitForHelper __bbtco_joint_suffix(_WaitForHelper_, __COUNTER__){fd, event, ms}
-

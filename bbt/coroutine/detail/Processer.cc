@@ -4,6 +4,7 @@
 #include <bbt/coroutine/detail/Profiler.hpp>
 #include <bbt/coroutine/detail/Scheduler.hpp>
 #include <bbt/coroutine/detail/GlobalConfig.hpp>
+#include <bbt/coroutine/detail/Trace.hpp>
 
 namespace bbt::coroutine::detail
 {
@@ -72,10 +73,12 @@ ProcesserId Processer::GetId()
     return m_id;
 }
 
-void Processer::AddCoroutineTask(CoroutinePriority priority, Coroutine::Ptr coroutine)
+void Processer::AddCoroutineTask(CoroutinePriority priority, Coroutine::Ptr coroutine, int reason)
 {
     AssertWithInfo(coroutine != nullptr, "coroutine is nullptr!");
+    coroutine->SetLastResumeReason(reason);
     AssertWithInfo(m_coroutine_queue[priority].enqueue(coroutine), "oom!");
+    g_bbt_trace->OnCoroutineEnqueue(coroutine, m_id, reason);
     m_run_cond.notify_one();
 }
 
@@ -170,9 +173,11 @@ void Processer::_Run()
 
                 // 执行前设置当前协程缓存
                 m_running_coroutine_begin.exchange(bbt::core::clock::gettime_mono<>());
+                m_running_coroutine->SetLastProcesserId(m_id);
 #ifdef BBT_COROUTINE_PROFILE
             m_co_swap_times++;
 #endif
+                g_bbt_trace->OnCoroutineResume(m_running_coroutine, m_id);
                 m_running_coroutine->Resume();
                 if (m_running_coroutine->GetStatus() == CO_FINAL)
                     _FinalizeCoroutine(m_running_coroutine);
@@ -317,6 +322,10 @@ size_t Processer::Steal(Processer::SPtr thief)
                 break;
 
             AssertWithInfo(thief->m_coroutine_queue[p].enqueue(item), "oom!");
+            item->SetLastResumeReason(TRACE_REASON_WORK_STEAL);
+            item->SetLastProcesserId(thief->GetId());
+            g_bbt_trace->OnCoroutineMigrate(item, m_id, thief->GetId());
+            g_bbt_trace->OnCoroutineEnqueue(item, thief->GetId(), TRACE_REASON_WORK_STEAL);
             item = nullptr;
             ++count;
         }

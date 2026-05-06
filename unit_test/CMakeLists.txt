@@ -50,6 +50,10 @@ add_executable(Test_coroutine_lifecycle_stress Test_coroutine_lifecycle_stress.c
 target_link_libraries(Test_coroutine_lifecycle_stress ${MY_LIBS})
 add_test(NAME Test_coroutine_lifecycle_stress COMMAND Test_coroutine_lifecycle_stress)
 
+add_executable(Test_coroutine_trace Test_coroutine_trace.cc)
+target_link_libraries(Test_coroutine_trace ${MY_LIBS})
+add_test(NAME Test_coroutine_trace COMMAND Test_coroutine_trace)
+
 add_executable(Test_hook Test_hook.cc)
 target_link_libraries(Test_hook ${MY_LIBS})
 add_test(NAME Test_hook COMMAND Test_hook)

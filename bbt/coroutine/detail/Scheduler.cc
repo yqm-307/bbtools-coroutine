@@ -11,6 +11,7 @@
 #include <bbt/coroutine/detail/StackPool.hpp>
 #include <bbt/coroutine/detail/CoPoller.hpp>
 #include <bbt/coroutine/detail/debug/DebugMgr.hpp>
+#include <bbt/coroutine/detail/Trace.hpp>
 
 namespace bbt::coroutine::detail
 {
@@ -44,7 +45,7 @@ void Scheduler::_Init()
     m_down_latch.Reset(g_bbt_coroutine_config->m_cfg_static_thread_num);
 }
 
-void Scheduler::RegistCoroutineTask(const CoroutineCallback& handle)
+void Scheduler::RegistCoroutineTask(const CoroutineCallback& handle, const std::string& desc)
 {
     if (!IsRunning())
         throw std::runtime_error("scheduler is not running");
@@ -52,7 +53,8 @@ void Scheduler::RegistCoroutineTask(const CoroutineCallback& handle)
     auto coroutine_sptr = Coroutine::Create(
         g_bbt_coroutine_config->m_cfg_stack_size,
         handle,
-        g_bbt_coroutine_config->m_cfg_stack_protect);
+        g_bbt_coroutine_config->m_cfg_stack_protect,
+        desc);
 
     /* 尝试先找个Processer放进执行队列，失败放入全局队列 */
     AssertWithInfo(_LoadBlance2Proc(CO_PRIORITY_NORMAL, coroutine_sptr), "this is impossible!");    
@@ -61,11 +63,11 @@ void Scheduler::RegistCoroutineTask(const CoroutineCallback& handle)
 #endif
 }
 
-void Scheduler::RegistCoroutineTask(const CoroutineCallback& handle, bool& succ) noexcept
+void Scheduler::RegistCoroutineTask(const CoroutineCallback& handle, bool& succ, const std::string& desc) noexcept
 {
     try
     {
-        RegistCoroutineTask(handle);
+        RegistCoroutineTask(handle, desc);
         succ = true;
     }
     catch(std::runtime_error& e)
@@ -82,7 +84,7 @@ void Scheduler::RegistCoroutineTask(const CoroutineCallback& handle, bool& succ)
 }
 
 
-void Scheduler::OnActiveCoroutine(CoroutinePriority priority, Coroutine::Ptr coroutine)
+void Scheduler::OnActiveCoroutine(CoroutinePriority priority, Coroutine::Ptr coroutine, int reason)
 {
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
     g_bbt_dbgmgr->Check_IsResumedCo(coroutine->GetId());
@@ -96,7 +98,9 @@ void Scheduler::OnActiveCoroutine(CoroutinePriority priority, Coroutine::Ptr cor
         return;
     }
 
+    coroutine->SetLastResumeReason(reason);
     AssertWithInfo(m_global_coroutine_queue[priority].enqueue(coroutine), "oom!");
+    g_bbt_trace->OnCoroutineEnqueue(coroutine, BBT_COROUTINE_INVALID_PROCESSER_ID, reason);
 }
 
 void Scheduler::_FixTimingScan()
@@ -305,7 +309,7 @@ bool Scheduler::_LoadBlance2Proc(CoroutinePriority priority, Coroutine::Ptr co)
 
     index %= g_bbt_coroutine_config->m_cfg_static_thread_num;
     auto proc = m_load_blance_vec[index];
-    proc->AddCoroutineTask(priority, co);
+    proc->AddCoroutineTask(priority, co, TRACE_REASON_CREATE);
 
     return true;
 }

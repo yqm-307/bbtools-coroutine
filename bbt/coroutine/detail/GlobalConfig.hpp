@@ -37,6 +37,7 @@ public:
     size_t                                      m_cfg_scan_interval_ms{1};                  // scheduler 扫描间隔
     size_t                                      m_cfg_static_thread_num{0};                 // 静态线程数，如果不指定则默认是 std::thread::hardware_concurrency()
     const size_t                                m_cfg_profile_printf_ms{1000};              // 打印profile间隔，0不打印
+    size_t                                      m_cfg_trace_history_limit{64};              // trace 最近事件保留数量
 
     /* Processer */
     const size_t                                m_cfg_processer_get_co_from_g_count{16};   // 每次从g队列获取任务数量

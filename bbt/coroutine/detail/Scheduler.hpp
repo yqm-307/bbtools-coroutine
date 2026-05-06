@@ -40,10 +40,10 @@ public:
     void                                        Stop();
     void                                        LoopOnce();
 
-    void                                        RegistCoroutineTask(const CoroutineCallback& handle);
-    void                                        RegistCoroutineTask(const CoroutineCallback& handle, bool& succ) noexcept;
+    void                                        RegistCoroutineTask(const CoroutineCallback& handle, const std::string& desc = "");
+    void                                        RegistCoroutineTask(const CoroutineCallback& handle, bool& succ, const std::string& desc = "") noexcept;
     /* 协程被激活，重新加入全局队列 */
-    void                                        OnActiveCoroutine(CoroutinePriority priority, Coroutine::Ptr coroutine);
+    void                                        OnActiveCoroutine(CoroutinePriority priority, Coroutine::Ptr coroutine, int reason = TRACE_REASON_NONE);
     bool                                        IsRunning() const noexcept { return m_is_running; }
 
 protected:

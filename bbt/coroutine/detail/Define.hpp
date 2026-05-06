@@ -40,6 +40,8 @@
 
 #define g_bbt_dbgmgr                (bbt::coroutine::detail::DebugMgr::GetInstance())
 
+#define g_bbt_trace                 (bbt::coroutine::detail::Trace::GetInstance())
+
 namespace bbt::coroutine
 {
 
@@ -245,6 +247,16 @@ enum CoroutinePriority : int32_t
     CO_PRIORITY_COUNT     = 4,  // 优先级数量
 };
 
+enum CoroutineTraceReason : int32_t
+{
+    TRACE_REASON_NONE = 0,
+    TRACE_REASON_CREATE = 1,
+    TRACE_REASON_YIELD = 2,
+    TRACE_REASON_EVENT = 3,
+    TRACE_REASON_WORK_STEAL = 4,
+    TRACE_REASON_TEARDOWN = 5,
+};
+
 class Coroutine;    // 协程
 class Scheduler;    // 调度器
 class Processer;    // 执行器
@@ -254,6 +266,7 @@ class GlobalConfig; // 全局配置
 class LocalThread;  // 线程局部数据辅助类
 class DebugMgr;     // dbg管理器
 class Defer;        // Defer helper
+class Trace;        // coroutine trace
 
 
 typedef uint64_t CoroutineId;
@@ -283,5 +296,55 @@ typedef std::function<void(std::shared_ptr<CoPollEvent>, int /*events*/, int)> C
 #undef MOODYCAMEL_CPP11_THREAD_LOCAL_SUPPORTED
 
 } // namespace bbt::coroutine::detail
+
+enum class TraceEventKind : uint8_t
+{
+    CREATE = 0,
+    ENQUEUE,
+    RESUME,
+    YIELD,
+    EVENT_REGISTER,
+    EVENT_TRIGGER,
+    MIGRATE,
+    FINISH,
+    TEARDOWN,
+};
+
+struct CoroutineTraceEvent
+{
+    TraceEventKind                   kind{TraceEventKind::CREATE};
+    uint64_t                         timestamp_us{0};
+    detail::CoroutineStatus          status{detail::CoroutineStatus::CO_DEFAULT};
+    detail::ProcesserId              processer_id{BBT_COROUTINE_INVALID_PROCESSER_ID};
+    detail::CoPollEventId            poll_event_id{BBT_COROUTINE_INVALID_COPOLLEVENT_ID};
+    int                              detail_value{0};
+};
+
+struct CoroutineTraceMeta
+{
+    detail::CoroutineId              id{BBT_COROUTINE_INVALID_COROUTINE_ID};
+    std::string                      desc;
+    uint64_t                         created_at_us{0};
+    detail::CoroutineStatus          status{detail::CoroutineStatus::CO_DEFAULT};
+    int                              last_resume_reason{0};
+    int                              last_resume_event{0};
+    detail::ProcesserId              last_processer_id{BBT_COROUTINE_INVALID_PROCESSER_ID};
+    bool                             traced{false};
+};
+
+struct CoroutineTraceSnapshot
+{
+    bool                             found{false};
+    bool                             active{false};
+    CoroutineTraceMeta               meta;
+    std::vector<CoroutineTraceEvent> recent_events;
+};
+
+struct CoroutineTraceFilter
+{
+    std::vector<detail::CoroutineId> ids;
+    std::vector<std::string>         descs;
+    std::vector<std::string>         desc_prefixes;
+};
 
 } // namespace bbt::coroutine

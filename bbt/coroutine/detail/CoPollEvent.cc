@@ -11,6 +11,7 @@
 #include <bbt/coroutine/detail/Profiler.hpp>
 #include <bbt/coroutine/detail/debug/DebugMgr.hpp>
 #include <bbt/coroutine/detail/GlobalConfig.hpp>
+#include <bbt/coroutine/detail/Trace.hpp>
 
 namespace bbt::coroutine::detail
 {
@@ -85,6 +86,7 @@ int CoPollEvent::Trigger(short trigger_events)
 
         try
         {
+            g_bbt_trace->OnEventTrigger(m_co_id, GetId(), trigger_events, m_custom_key);
             m_onevent_callback(shared_from_this(), trigger_events, m_custom_key);
         }
         catch(const std::exception& e)
@@ -177,6 +179,7 @@ int CoPollEvent::Regist()
 #ifdef BBT_COROUTINE_PROFILE
     g_bbt_profiler->OnEvent_RegistCoPollEvent();
 #endif
+    g_bbt_trace->OnEventRegister(m_co_id, GetId(), GetEvent(), m_custom_key);
 
 
     return 0;

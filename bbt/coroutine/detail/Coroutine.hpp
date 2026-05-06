@@ -1,6 +1,7 @@
 #pragma once
 #include <atomic>
 #include <memory>
+#include <string>
 #include <bbt/core/Attribute.hpp>
 #include <bbt/coroutine/detail/interface/ICoroutine.hpp>
 #include <bbt/coroutine/detail/Context.hpp>
@@ -37,10 +38,10 @@ class Coroutine:
 public:
     typedef Coroutine* Ptr;
 
-    Coroutine(int stack_size, const CoroutineCallback& co_func, bool need_protect);
+    Coroutine(int stack_size, const CoroutineCallback& co_func, bool need_protect, std::string desc = "");
     virtual ~Coroutine();
     
-    static Ptr                      Create(int stack_size, const CoroutineCallback& co_func, bool need_protect = true);
+    static Ptr                      Create(int stack_size, const CoroutineCallback& co_func, bool need_protect = true, std::string desc = "");
     /**
      * @brief 唤醒协程。切换到协程的上下文中执行。
      */
@@ -75,7 +76,16 @@ public:
     virtual CoroutineId             GetId() noexcept override;
     CoroutineStatus                 GetStatus() const noexcept;
     int                             GetLastResumeEvent() const noexcept;
+    int                             GetLastResumeReason() const noexcept;
+    ProcesserId                     GetLastProcesserId() const noexcept;
     size_t                          GetStackSize() const noexcept;
+    const std::string&              GetDesc() const noexcept;
+    uint64_t                        GetCreatedAtUs() const noexcept;
+    bool                            IsTraceEnabled() const noexcept;
+    void                            SetLastResumeReason(int reason) noexcept;
+    void                            SetLastProcesserId(ProcesserId id) noexcept;
+    void                            SetTraceEnabled(bool enabled) noexcept;
+    CoroutineTraceMeta              BuildTraceMeta() const;
     void                            OnException() noexcept;
     void                            FinalizeForTeardown() noexcept;
 
@@ -144,6 +154,11 @@ private:
     CoroutineOnYieldCallback        m_co_onyield_callback{nullptr};
 
     int                             m_last_resume_event{-1};    // 最后一次导致此协程唤醒的事件
+    int                             m_last_resume_reason{TRACE_REASON_NONE};
+    ProcesserId                     m_last_processer_id{BBT_COROUTINE_INVALID_PROCESSER_ID};
+    const uint64_t                  m_created_at_us{0};
+    std::string                     m_desc;
+    bool                            m_trace_enabled{false};
 };
 
 }
