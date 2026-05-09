@@ -1,6 +1,12 @@
 # bbtools-coroutine · Copilot 指南
 - 仅支持 Linux 的 Go 风格协程运行时，基于 boost.context 实现，并与 bbtools-core 的日志、计时、线程工具和事件循环深度集成。
 
+## 语言约定
+- 除非用户明确要求使用英文或其他语言，否则所有说明、分析、总结、提问与最终回复默认使用简体中文。
+- 代码、命令、配置键、协议字段、API 名称、库名、文件名及其他技术标识保持原文，不做强制翻译。
+- 当输出同时包含自然语言与代码时，自然语言部分使用简体中文，代码保持原始语法与命名。
+- 当需要生成、建议或实际执行 `git commit` 时，提交信息默认使用简体中文；仅在用户明确要求其他语言或仓库已有明确提交规范冲突时例外。
+
 ## 架构
 - 核心实现位于 `bbt/coroutine/detail/...`，`Scheduler` 负责协调各 `Processer` 线程、`CoPoller`、`Coroutine`、`StackPool` 以及 `Profiler`。
 - `Scheduler` 为每个优先级维护一组 `moodycamel::BlockingConcurrentQueue`，并通过 `Processer::Steal` 做任务窃取以平衡负载。

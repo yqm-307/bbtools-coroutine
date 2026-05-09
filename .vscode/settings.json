@@ -97,5 +97,8 @@
         "-DCMAKE_BUILD_TYPE=Release",
         "-DDEBUG_INFO=OFF",
         "-DSTRINGENT_DEBUG=OFF",
-    ]
+    ],
+    "chat.tools.terminal.autoApprove": {
+        "openspec": true
+    }
 }
