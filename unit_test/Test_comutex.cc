@@ -78,40 +78,6 @@ BOOST_AUTO_TEST_CASE(t_try_lock)
     l.Wait();
 }
 
-BOOST_AUTO_TEST_CASE(t_try_lock_timeout_result)
-{
-    auto mutex = bbtco_make_comutex();
-    std::atomic_bool locked{false};
-    std::atomic_int result{-2};
-    std::atomic_int elapsed_ms{0};
-    bbt::core::thread::CountDownLatch latch{2};
-
-    bbtco [mutex, &locked, &latch]() {
-        mutex->Lock();
-        locked = true;
-        bbtco_sleep(80);
-        mutex->UnLock();
-        latch.Down();
-    };
-
-    bbtco [mutex, &locked, &result, &elapsed_ms, &latch]() {
-        while (!locked.load()) {
-            bbtco_sleep(1);
-        }
-
-        auto begin = bbt::core::clock::gettime();
-        result = mutex->TryLock(20);
-        auto end = bbt::core::clock::gettime();
-        elapsed_ms = static_cast<int>(end - begin);
-        latch.Down();
-    };
-
-    latch.Wait();
-
-    BOOST_CHECK_EQUAL(result.load(), 1);
-    BOOST_CHECK_GE(elapsed_ms.load(), 20);
-}
-
 BOOST_AUTO_TEST_CASE(t_scheudler_end)
 {
     g_scheduler->Stop();

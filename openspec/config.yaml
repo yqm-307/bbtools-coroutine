@@ -9,9 +9,6 @@ schema: spec-driven
 #     We use conventional commits
 #     Domain: e-commerce platform
 
-context: |
-  OpenSpec 相关工件默认使用简体中文撰写，除非需要保留代码、命令、路径、协议名或外部专有术语原文。
-
 # Per-artifact rules (optional)
 # Add custom rules for specific artifacts.
 # Example:
@@ -21,12 +18,3 @@ context: |
 #       - Always include a "Non-goals" section
 #     tasks:
 #       - Break tasks into chunks of max 2 hours
-rules:
-  proposal:
-    - 输出内容必须使用简体中文；仅代码、命令、路径、协议名和必要专有名词保留原文。
-  design:
-    - 输出内容必须使用简体中文；仅代码、命令、路径、协议名和必要专有名词保留原文。
-  tasks:
-    - 输出内容必须使用简体中文；仅代码、命令、路径、协议名和必要专有名词保留原文。
-  specs:
-    - 输出内容必须使用简体中文；仅代码、命令、路径、协议名和必要专有名词保留原文。

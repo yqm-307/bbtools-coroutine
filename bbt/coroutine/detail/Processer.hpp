@@ -1,5 +1,4 @@
 #pragma once
-#include <atomic>
 #include <condition_variable>
 #include <bbt/core/clock/Clock.hpp>
 #include <bbt/coroutine/detail/Coroutine.hpp>
@@ -67,24 +66,18 @@ protected:
     size_t                          _TryGetCoroutineFromGlobal();
     void                            _Run();
 private:
-    void                            _SetStatus(ProcesserStatus status);
-    void                            _FinalizeCoroutine(Coroutine::Ptr coroutine);
-    void                            _DrainRunnableQueues();
-
-private:
     /* 控制信息 */
     const ProcesserId               m_id{BBT_COROUTINE_INVALID_PROCESSER_ID};
-    std::atomic<ProcesserStatus>    m_run_status{ProcesserStatus::PROC_DEFAULT};
-    std::condition_variable         m_state_cond;
-    std::mutex                      m_state_mutex;
+    volatile ProcesserStatus        m_run_status{ProcesserStatus::PROC_DEFAULT};
 
     /* 调度相关 */
     CoPriorityQueue                 m_coroutine_queue;
     std::condition_variable         m_run_cond;
+    std::atomic_bool                m_run_cond_notify{false}; // 是否需要唤醒
     std::mutex                      m_run_cond_mutex;
 
     /* 运行时相关 */
-    std::atomic_bool                m_is_running{true};
+    volatile bool                   m_is_running{true};
     Coroutine::Ptr                  m_running_coroutine{nullptr};   // processer当前运行中的协程
     std::atomic_uint64_t            m_running_coroutine_begin{0};   // 当前运行协程开始执行的时间 
 

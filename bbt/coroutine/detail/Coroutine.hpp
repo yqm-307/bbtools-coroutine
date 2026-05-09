@@ -1,5 +1,4 @@
 #pragma once
-#include <atomic>
 #include <memory>
 #include <bbt/core/Attribute.hpp>
 #include <bbt/coroutine/detail/interface/ICoroutine.hpp>
@@ -77,7 +76,6 @@ public:
     int                             GetLastResumeEvent() const noexcept;
     size_t                          GetStackSize() const noexcept;
     void                            OnException() noexcept;
-    void                            FinalizeForTeardown() noexcept;
 
     /**
      * YieldUnitl事件
@@ -125,7 +123,7 @@ protected:
 private:
     Context                         m_context;
     const CoroutineId               m_id{BBT_COROUTINE_INVALID_COROUTINE_ID};
-    std::atomic<CoroutineStatus>    m_run_status{CoroutineStatus::CO_DEFAULT};
+    volatile CoroutineStatus        m_run_status{CoroutineStatus::CO_DEFAULT};
 
     /**
      * 这是协程调度的核心

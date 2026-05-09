@@ -36,19 +36,14 @@ Scheduler::~Scheduler()
 void Scheduler::_Init()
 {
     m_sche_thread = nullptr;
-    m_is_running.store(true, std::memory_order_release);
-    m_run_status.store(SCHE_DEFAULT, std::memory_order_release);
-    m_load_idx.store(0, std::memory_order_release);
-    m_steal_idx.store(0, std::memory_order_release);
+    m_is_running = true;
+    m_run_status = SCHE_DEFAULT;
     m_regist_coroutine_count = 0;
     m_down_latch.Reset(g_bbt_coroutine_config->m_cfg_static_thread_num);
 }
 
 void Scheduler::RegistCoroutineTask(const CoroutineCallback& handle)
 {
-    if (!IsRunning())
-        throw std::runtime_error("scheduler is not running");
-
     auto coroutine_sptr = Coroutine::Create(
         g_bbt_coroutine_config->m_cfg_stack_size,
         handle,
@@ -89,13 +84,6 @@ void Scheduler::OnActiveCoroutine(CoroutinePriority priority, Coroutine::Ptr cor
 #endif
     AssertWithInfo(priority >= CO_PRIORITY_LOW && priority < CO_PRIORITY_COUNT, "invalid priority!");
     AssertWithInfo(coroutine != nullptr, "coroutine is nullptr!");
-
-    if (!IsRunning()) {
-        coroutine->FinalizeForTeardown();
-        delete coroutine;
-        return;
-    }
-
     AssertWithInfo(m_global_coroutine_queue[priority].enqueue(coroutine), "oom!");
 }
 
@@ -143,8 +131,7 @@ void Scheduler::_Run()
 #ifdef BBT_COROUTINE_PROFILE
     g_bbt_profiler->OnEvent_StartScheudler();
 #endif
-    m_run_status.store(SCHE_RUNNING, std::memory_order_release);
-    while(m_is_running.load(std::memory_order_acquire))
+    while(m_is_running)
     {
         _OnUpdate();
 
@@ -197,17 +184,9 @@ void Scheduler::LoopOnce()
 
 void Scheduler::Stop()
 {
-    if (g_bbt_tls_processer != nullptr) {
-        throw std::runtime_error("scheduler stop cannot be called from coroutine worker context");
-    }
+    m_is_running = false;
 
-    if (!m_is_running.exchange(false, std::memory_order_acq_rel))
-        return;
-
-    m_run_status.store(ScheudlerStatus::SCHE_STOPPING, std::memory_order_release);
-
-    for (auto& item : m_processer_map)
-        item.second->Stop();
+    _DestoryProcessers();
     
     if (m_sche_thread != nullptr) {
         if (m_sche_thread->joinable())
@@ -216,29 +195,18 @@ void Scheduler::Stop()
     }
 
     m_sche_thread = nullptr;
+    Coroutine::Ptr item = nullptr;
+    for (auto && queue : m_global_coroutine_queue)
+        while (queue.try_dequeue(item))
+            item = nullptr;
 
-    _DestoryProcessers();
-    _DrainGlobalCoroutineQueue();
-
-    m_run_status.store(ScheudlerStatus::SCHE_EXIT, std::memory_order_release);
+    m_run_status = ScheudlerStatus::SCHE_EXIT;
 #ifdef BBT_COROUTINE_PROFILE
     std::string profileinfo;
     g_bbt_profiler->ProfileInfo(profileinfo);
     bbt::core::log::DebugPrint(profileinfo.c_str());
 #endif
 
-}
-
-void Scheduler::_DrainGlobalCoroutineQueue()
-{
-    Coroutine::Ptr item = nullptr;
-    for (auto&& queue : m_global_coroutine_queue) {
-        while (queue.try_dequeue(item)) {
-            item->FinalizeForTeardown();
-            delete item;
-            item = nullptr;
-        }
-    }
 }
 
 size_t Scheduler::GetCoroutineFromGlobal(CoroutinePriority priority, CoroutineQueue& queue, size_t size)
@@ -284,6 +252,12 @@ void Scheduler::_CreateProcessers()
 
 void Scheduler::_DestoryProcessers()
 {
+    /* 停止所有执行processer */
+    for (auto item : m_processer_map)
+        item.second->Stop();
+    m_processer_map.clear();
+    m_load_blance_vec.clear();
+
     /* 释放所有执行processer的线程 */
     for (auto&& proc_thread : m_proc_threads) {
         if (proc_thread->joinable())
@@ -292,8 +266,6 @@ void Scheduler::_DestoryProcessers()
     }
 
     m_proc_threads.clear();
-    m_processer_map.clear();
-    m_load_blance_vec.clear();
 }
 
 bool Scheduler::_LoadBlance2Proc(CoroutinePriority priority, Coroutine::Ptr co)
@@ -301,7 +273,8 @@ bool Scheduler::_LoadBlance2Proc(CoroutinePriority priority, Coroutine::Ptr co)
     if (m_load_blance_vec.empty())
         return false;
 
-    uint32_t index = m_load_idx.fetch_add(1, std::memory_order_relaxed);
+    uint32_t index = m_load_idx;
+    m_load_idx++;
 
     index %= g_bbt_coroutine_config->m_cfg_static_thread_num;
     auto proc = m_load_blance_vec[index];
@@ -320,12 +293,13 @@ int Scheduler::TryWorkSteal(Processer::SPtr thief)
      * 都算是原子的
      * 
      */
-    uint32_t index = m_steal_idx.load(std::memory_order_relaxed);
+    uint32_t index = m_steal_idx;
     int steal_num = 0;
     int max_processer_num = m_processer_map.size();
 
     for (int i = 0; i < max_processer_num; i++) {
-        index = m_steal_idx.fetch_add(1, std::memory_order_relaxed) % max_processer_num;
+        m_steal_idx++;
+        index = m_steal_idx % max_processer_num;
         auto proc = m_load_blance_vec[index];
         Assert(proc != nullptr);
         if (proc->GetId() == thief->GetId())

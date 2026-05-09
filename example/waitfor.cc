@@ -3,9 +3,9 @@
 
 /**
  * bbtco_wait_for 函数提供了对协程等待的支持。
- *
- * 前置条件：必须运行在协程上下文里。
- * 语义：把当前协程挂起到 scheduler 的 wait path，直到 fd 事件或 timeout 发生。
+ * 
+ * 使用起来非常简单，通过参数告知等待的fd、事件类型和超时时间（可选）
+ * 即可让当前协程等待直到事件发生后被唤醒。
  */
 
 void CoReadable()
@@ -49,7 +49,6 @@ void CoTimeout()
 
 int main()
 {
-    // wait_for 只是 public syntax，仍然依赖 scheduler 先启动。
     g_scheduler->Start();
 
     printf("=============== readable ================\n");

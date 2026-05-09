@@ -15,37 +15,26 @@ CoCond::CoCond(PrivateTag)
 
 CoCond::~CoCond()
 {
-    NotifyAll();
-    {
-        std::lock_guard<std::mutex> lock(m_waiter_guard);
-        m_waiter_holders.clear();
-    }
+    if (!m_waiter_queue.Empty())
+        g_bbt_dbgp_full((std::to_string(m_waiter_queue.Size()) + " coroutine maybe have been lost permanently!").c_str());
 }
 
 int CoCond::Wait()
 {
-    auto waiter = CoWaiter::Create();
+    auto waiter = CoWaiter{};
 
-    return waiter->WaitWithCallback([this, waiter](){
-        {
-            std::lock_guard<std::mutex> lock(m_waiter_guard);
-            m_waiter_holders[waiter.get()] = waiter;
-        }
-        m_waiter_queue.Push(waiter.get());
+    return waiter.WaitWithCallback([&](){
+        m_waiter_queue.Push(&waiter);
         return true;
-    });
+    });;
 }
 
 int CoCond::WaitFor(int ms)
 {
-    auto waiter = CoWaiter::Create();
+    auto waiter = CoWaiter{};
     
-    return waiter->WaitWithTimeoutAndCallback(ms, [this, waiter](){
-        {
-            std::lock_guard<std::mutex> lock(m_waiter_guard);
-            m_waiter_holders[waiter.get()] = waiter;
-        }
-        m_waiter_queue.Push(waiter.get());
+    return waiter.WaitWithTimeoutAndCallback(ms, [&](){
+        m_waiter_queue.Push(&waiter);
         return true;
     });
 }
@@ -68,20 +57,8 @@ int CoCond::_NotifyOne()
         CoWaiter* waiter = nullptr;
         if (m_waiter_queue.Pop(waiter))
         {
-            CoWaiter::SPtr holder = nullptr;
-            {
-                std::lock_guard<std::mutex> lock(m_waiter_guard);
-                auto iter = m_waiter_holders.find(waiter);
-                if (iter == m_waiter_holders.end())
-                    continue;
-
-                holder = iter->second;
-                m_waiter_holders.erase(iter);
-            }
-
-            ret = holder->Notify();
-            if (ret == 0)
-                break;
+            ret = waiter->Notify();
+            break;
         }
     }
 

@@ -6,7 +6,6 @@
 #include <bbt/coroutine/detail/Scheduler.hpp>
 #include <bbt/coroutine/detail/Coroutine.hpp>
 #include <bbt/coroutine/detail/LocalThread.hpp>
-#include <bbt/coroutine/detail/WaitProtocol.hpp>
 
 namespace bbt::coroutine::sync
 {
@@ -38,19 +37,21 @@ int CoWaiter::Wait()
         return -1;
     }
 
-    m_co_event = WaitProtocolBridge::CreateCustomWait(*g_bbt_tls_coroutine_co,
-                                                      detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND);
+    m_co_event = g_bbt_tls_coroutine_co->RegistCustom(detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND);
     if (m_co_event == nullptr) {
         return -1;
     }
 
     m_run_status = COND_WAIT;
 
-    auto result = WaitProtocolBridge::AwaitArmedEvent(*g_bbt_tls_coroutine_co, m_co_event);
+    g_bbt_tls_coroutine_co->YieldWithCallback([this](){ 
+        Assert(m_co_event->Regist() == 0);
+        return true; 
+    });
 
     m_co_event = nullptr;
     m_run_status = COND_FREE;
-    return WaitProtocolBridge::ToLegacyReturnCode(result);
+    return 0;
 }
 
 int CoWaiter::WaitWithCallback(const detail::CoroutineOnYieldCallback& cb)
@@ -62,65 +63,82 @@ int CoWaiter::WaitWithCallback(const detail::CoroutineOnYieldCallback& cb)
         return -1;
     }
         
-    m_co_event = WaitProtocolBridge::CreateCustomWait(*g_bbt_tls_coroutine_co,
-                                                      detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND);
+    m_co_event = g_bbt_tls_coroutine_co->RegistCustom(detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND);
     if (m_co_event == nullptr) {
         return -1;
     }
         
     m_run_status = COND_WAIT;
 
-    auto result = WaitProtocolBridge::AwaitArmedEvent(*g_bbt_tls_coroutine_co, m_co_event, cb);
+    int ret = g_bbt_tls_coroutine_co->YieldWithCallback([this, cb](){
+        Assert(m_co_event->Regist() == 0);
+        cb();
+        return true; 
+    });
 
     m_co_event = nullptr;
     m_run_status = COND_FREE;
-    return WaitProtocolBridge::ToLegacyReturnCode(result);
+    return ret;
 }
 
 int CoWaiter::WaitWithTimeout(int ms)
 {
     AssertWithInfo(g_bbt_tls_helper->EnableUseCo(), "not in coroutine!");
+    int ret = 0;
+
+
     if (m_co_event != nullptr) {
         return -1;
     }
 
-    m_co_event = WaitProtocolBridge::CreateCustomWait(*g_bbt_tls_coroutine_co,
-                                                      detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND,
-                                                      ms);
+    m_co_event = g_bbt_tls_coroutine_co->RegistCustom(detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND, ms);
     if (m_co_event == nullptr) {
         return -1;
     }
     
     m_run_status = COND_WAIT;
 
-    auto result = WaitProtocolBridge::AwaitArmedEvent(*g_bbt_tls_coroutine_co, m_co_event);
+    ret = g_bbt_tls_coroutine_co->YieldWithCallback([this](){
+        Assert(m_co_event->Regist() == 0);
+        return true; 
+    });
+
+    if (g_bbt_tls_coroutine_co->GetLastResumeEvent() & POLL_EVENT_TIMEOUT)
+        ret = 1;
 
     m_co_event = nullptr;
     m_run_status = COND_FREE;
-    return WaitProtocolBridge::ToLegacyReturnCode(result);
+    return ret;
 }
 
 int CoWaiter::WaitWithTimeoutAndCallback(int ms, const detail::CoroutineOnYieldCallback& cb)
 {
     AssertWithInfo(g_bbt_tls_helper->EnableUseCo(), "not in coroutine!");
+    int ret = 0;
+
     if (m_co_event != nullptr) {
         return -1;
     }
 
-    m_co_event = WaitProtocolBridge::CreateCustomWait(*g_bbt_tls_coroutine_co,
-                                                      detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND,
-                                                      ms);
+    m_co_event = g_bbt_tls_coroutine_co->RegistCustom(detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND, ms);
     if (m_co_event == nullptr) {
         return -1;
     }
 
     m_run_status = COND_WAIT;
 
-    auto result = WaitProtocolBridge::AwaitArmedEvent(*g_bbt_tls_coroutine_co, m_co_event, cb);
+    ret = g_bbt_tls_coroutine_co->YieldWithCallback([this, cb](){
+        Assert(m_co_event->Regist() == 0);
+        cb();
+        return true;
+    });
+
+    if (ret == 0 && g_bbt_tls_coroutine_co->GetLastResumeEvent() & POLL_EVENT_TIMEOUT)
+        ret = 1;
     
     m_co_event = nullptr;
     m_run_status = COND_FREE;
-    return WaitProtocolBridge::ToLegacyReturnCode(result);
+    return ret;
 }
 
 int CoWaiter::Notify()

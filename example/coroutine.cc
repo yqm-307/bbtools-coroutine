@@ -7,8 +7,8 @@ using namespace bbt::coroutine;
 void Normal()
 {
     /**
-     * 最基础的使用方式，通过 bbtco 注册一个异步协程任务。
-     * 前置条件是 scheduler 已经启动。
+     * 最基础的使用方式，通过bbtco 来创建一个协程。
+     * 可能在之后的任意时刻执行此函数。
      */
     bbtco [](){
         printf("i am a common coroutine!\n");
@@ -16,13 +16,13 @@ void Normal()
 
 
     /**
-        * bbtco_desc 只是可读性包装，不改变调度和 failure 语义。
+     * bbtco_desc可以增加可读性，后续考虑保存在Coroutine中去
+     * 
+     * 完全等同于
+     * 
+     * bbtco [](){};
      */
     bbtco_desc("desc") [](){};
-
-        bool succ = false;
-        bbtco_noexcept(&succ) [](){};
-        printf("bbtco_noexcept register succ=%d\n", succ ? 1 : 0);
 
     sleep(1);
 
@@ -30,8 +30,14 @@ void Normal()
     /**
      * 我们还可以通过协程来达到在函数执行过程中让出cpu的效果。
      * 
-     * bbtco_yield 只是把当前协程重新交给 scheduler，
-     * 不承诺之后在哪个时刻、哪个 worker 上恢复。
+     * 使得两个协程交替执行。
+     * 这种方式可以用来模拟协程的协作式调度。但是执行顺序是不保证的
+     * 
+     * ps：重要的事情说三遍
+     * 
+     *  注册后的协程不保证执行顺序！！！
+     *  注册后的协程不保证执行顺序！！！
+     *  注册后的协程不保证执行顺序！！！
      */
     bbtco [](){
         printf("i am common coroutine %lu\n", bbt::co::GetLocalCoroutineId());
@@ -103,18 +109,21 @@ void SleepHook()
     printf("SleepHook begin\n");
 
     /**
-     * bbtco_sleep 只应该在协程上下文里使用；它挂起当前协程，
-     * 而不是阻塞整个 worker 线程。
+     * bbtco_sleep可以用来在协程中挂起当前协程，
+     * 使得其他协程可以继续执行。
+     * 
+     * 注意：在Processer线程中，sleep会挂起当前协程，
+     * 而不是整个线程。
      */
     bbtco [](){
         printf("[%d] sleep before!, now=%ld\n", bbt::coroutine::GetLocalCoroutineId(), bbt::core::clock::now<>().time_since_epoch().count());
-        bbtco_sleep(1000);
+        sleep(1);
         printf("[%d] sleep end!, now=%ld\n", bbt::coroutine::GetLocalCoroutineId(), bbt::core::clock::now<>().time_since_epoch().count());
     };
 
     bbtco [](){
         printf("[%d] sleep before!, now=%ld\n", bbt::coroutine::GetLocalCoroutineId(), bbt::core::clock::now<>().time_since_epoch().count());
-        bbtco_sleep(1000);
+        sleep(1);
         printf("[%d] sleep end!, now=%ld\n", bbt::coroutine::GetLocalCoroutineId(), bbt::core::clock::now<>().time_since_epoch().count());
     };
 
@@ -125,7 +134,6 @@ void SleepHook()
 
 int main()
 {
-    // 所有依赖协程调度的 public API 都要求先启动 scheduler。
     g_scheduler->Start();
 
     Normal();

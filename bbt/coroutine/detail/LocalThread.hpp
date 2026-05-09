@@ -1,5 +1,4 @@
 #pragma once
-#include <atomic>
 #include <bbt/coroutine/detail/Define.hpp>
 
 namespace bbt::coroutine::detail
@@ -42,7 +41,7 @@ public:
      */
     bool EnableUseCo();
 private:
-    std::atomic_bool            m_enable_use_co{false};
+    volatile bool               m_enable_use_co{false};
 
 };
 

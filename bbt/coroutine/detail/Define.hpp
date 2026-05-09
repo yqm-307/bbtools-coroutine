@@ -184,8 +184,7 @@ enum ProcesserStatus : int32_t
     PROC_DEFAULT = 0,    // 默认。尚未初始化
     PROC_SUSPEND = 1,    // 挂起中
     PROC_RUNNING = 2,    // 运行中。在执行任务
-    PROC_STOPPING = 3,   // 停止中
-    PROC_EXIT    = 4,    // 运行结束
+    PROC_EXIT    = 3,    // 运行结束
 };
 
 enum ScheudlerStatus: int32_t
@@ -193,8 +192,7 @@ enum ScheudlerStatus: int32_t
     SCHE_DEFAULT = 0,   // 默认
     SCHE_RUNNING = 1,   // 执行中
     SCHE_SUSPEND = 2,   // 挂起
-    SCHE_STOPPING = 3,  // 停止中
-    SCHE_EXIT    = 4,   // 结束
+    SCHE_EXIT    = 3,   // 结束
 };
 
 /*
