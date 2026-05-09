@@ -15,7 +15,6 @@
 - 让 `event-hooking` spec 中的 fd / timeout / retry 语义在 Hook 实现层具备稳定落点。
 - 让 `coroutine-pool-and-api` spec 中关于 `Submit` 等价性、worker 唤醒和 `Release` drain/shutdown 语义具备稳定落点。
 - 要求本阶段只消费前 3 个阶段冻结的稳定面，而不回头修改基础等待或 lifecycle 协议。
-- 其中阶段 3 的 sync 输入边界已明确冻结为：`CoCond` expired waiter 跳过、`CoMutex` timeout-aware `TryLock`、`Chan` close/timeout/state-restore 语义，以及 `CoRWMutex` writer-preferred + owner 校验规则。
 
 ## 能力域
 
@@ -32,12 +31,3 @@
 - 受影响代码：`bbt/coroutine/detail/Hook.*`、`bbt/coroutine/pool/CoPool.*`、`bbt/coroutine/syntax/_EventHelper.*`、`bbt/coroutine/syntax/_WaitForHelper.*`
 - 受影响测试：`unit_test/Test_hook.cc`、`unit_test/Test_coevent.cc`、`unit_test/Test_copool.cc` 以及后续新增的 Hook / CoPool 专项测试
 - 受影响流程：后续 `clean-public-api-and-syntax-surface` 应把本 change 视为中上层行为稳定面，而不是继续修改其基础语义
-
-## 已冻结的阶段 3 前置面
-
-阶段 4 不应再修改以下 sync 语义，只能直接消费：
-
-- `CoCond`：统一 waiter 生命周期与 expired waiter 跳过。
-- `CoMutex`：owner 校验、timeout-aware `TryLock(int ms)` 与统一 notify 语义。
-- `Chan`：buffered / unbuffered close、timeout 与状态恢复。
-- `CoRWMutex`：writer-preferred、公平性可观测性、非 owner 读写 unlock 防护与统一 waiter queue 语义。

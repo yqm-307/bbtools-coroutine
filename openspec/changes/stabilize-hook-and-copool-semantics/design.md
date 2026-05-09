@@ -25,17 +25,6 @@
 
 ## 设计决策
 
-### 0. 阶段 4 不再回写 sync 中层语义
-
-阶段 3 已经把以下语义冻结为阶段 4 输入，而不是可继续修改的实现细节：
-
-- `CoCond` 的 expired waiter 跳过与 destroy/notify flush 规则。
-- `CoMutex` 的 owner 规则与 timeout-aware `TryLock(int ms)` 结果语义。
-- `Chan` 的 close、timeout、single-reader / rendezvous 与 state restore 语义。
-- `CoRWMutex` 的 writer-preferred、公平性可观测性、非 owner unlock 防护与统一 waiter queue 规则。
-
-如果阶段 4 的 Hook / `CoPool` 实现需要改变这些行为，应回退到阶段 3 change，而不是在本阶段直接补 sync。
-
 ### 1. Hook 验证必须优先清除宿主环境依赖
 
 阶段 4 的 Hook 测试必须优先依赖 `pipe`、自建 listener 和确定性 timeout 场景，而不是宿主 `ssh`、固定服务端口或不受控外部服务。

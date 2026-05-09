@@ -2,8 +2,10 @@
 #include <bbt/coroutine/sync/CoMutex.hpp>
 #include <bbt/coroutine/detail/LocalThread.hpp>
 #include <bbt/coroutine/detail/Coroutine.hpp>
+#include <bbt/coroutine/detail/CoPollEvent.hpp>
 #include <bbt/coroutine/detail/Processer.hpp>
 #include <bbt/coroutine/detail/Profiler.hpp>
+#include <bbt/coroutine/detail/WaitProtocol.hpp>
 
 namespace bbt::coroutine::sync
 {
@@ -46,13 +48,6 @@ void CoMutex::Lock()
 void CoMutex::UnLock()
 {
     _SysLock();
-
-    if (m_status != CoMutexStatus::COMUTEX_LOCKED ||
-        m_locked_co != g_bbt_tls_coroutine_co)
-    {
-        _SysUnLock();
-        return;
-    }
 
     _OnUnLocked();
 
@@ -114,41 +109,36 @@ void CoMutex::_SysUnLock()
 
 int CoMutex::_WaitUnLockUnitlTimeout(int timeout, const detail::CoroutineOnYieldCallback& cb)
 {
-    auto waiter = CoWaiter::Create();
-    if (waiter == nullptr)
+    auto event = detail::WaitProtocolBridge::CreateCustomWait(*g_bbt_tls_coroutine_co,
+                                                              detail::POLL_EVENT_CUSTOM_COMUTEX,
+                                                              timeout);
+    if (event == nullptr)
         return -1;
 
-    return waiter->WaitWithTimeoutAndCallback(timeout, [this, waiter, cb]() {
-        m_wait_event_queue.push(waiter);
-        if (cb == nullptr)
-            return true;
-
-        return cb();
-    });
+    m_wait_event_queue.push(event);
+    auto result = detail::WaitProtocolBridge::AwaitArmedEvent(*g_bbt_tls_coroutine_co, event, cb);
+    return detail::WaitProtocolBridge::ToLegacyReturnCode(result);
 }
 
 int CoMutex::_WaitUnLock(const detail::CoroutineOnYieldCallback& cb)
 {
-    auto waiter = CoWaiter::Create();
-    if (waiter == nullptr)
+    auto event = detail::WaitProtocolBridge::CreateCustomWait(*g_bbt_tls_coroutine_co,
+                                                              detail::POLL_EVENT_CUSTOM_COMUTEX);
+    if (event == nullptr)
         return -1;
 
-    return waiter->WaitWithCallback([this, waiter, cb]() {
-        m_wait_event_queue.push(waiter);
-        if (cb == nullptr)
-            return true;
-
-        return cb();
-    });
+    m_wait_event_queue.push(event);
+    auto result = detail::WaitProtocolBridge::AwaitArmedEvent(*g_bbt_tls_coroutine_co, event, cb);
+    return detail::WaitProtocolBridge::ToLegacyReturnCode(result);
 }
 
 void CoMutex::_NotifyOne()
 {
     while (!m_wait_event_queue.empty()) {
-        auto waiter = m_wait_event_queue.front();
+        auto co_sptr = m_wait_event_queue.front();
         m_wait_event_queue.pop();
-        Assert(waiter != nullptr);
-        if (waiter->Notify() == 0)
+        Assert(co_sptr != nullptr);
+        if (co_sptr->Trigger(detail::POLL_EVENT_CUSTOM) == 0)
             break;
     }
 }

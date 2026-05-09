@@ -16,6 +16,10 @@ CoCond::CoCond(PrivateTag)
 CoCond::~CoCond()
 {
     NotifyAll();
+    {
+        std::lock_guard<std::mutex> lock(m_waiter_guard);
+        m_waiter_holders.clear();
+    }
 }
 
 int CoCond::Wait()
@@ -23,8 +27,11 @@ int CoCond::Wait()
     auto waiter = CoWaiter::Create();
 
     return waiter->WaitWithCallback([this, waiter](){
-        std::lock_guard<std::mutex> lock(m_waiter_guard);
-        m_waiter_queue.push(waiter);
+        {
+            std::lock_guard<std::mutex> lock(m_waiter_guard);
+            m_waiter_holders[waiter.get()] = waiter;
+        }
+        m_waiter_queue.Push(waiter.get());
         return true;
     });
 }
@@ -34,16 +41,19 @@ int CoCond::WaitFor(int ms)
     auto waiter = CoWaiter::Create();
     
     return waiter->WaitWithTimeoutAndCallback(ms, [this, waiter](){
-        std::lock_guard<std::mutex> lock(m_waiter_guard);
-        m_waiter_queue.push(waiter);
+        {
+            std::lock_guard<std::mutex> lock(m_waiter_guard);
+            m_waiter_holders[waiter.get()] = waiter;
+        }
+        m_waiter_queue.Push(waiter.get());
         return true;
     });
 }
 
 void CoCond::NotifyAll()
 {
-    while (_NotifyOne() == 0) {
-    }
+    while (!m_waiter_queue.Empty())
+        _NotifyOne();
 }
 
 int CoCond::NotifyOne()
@@ -54,20 +64,25 @@ int CoCond::NotifyOne()
 int CoCond::_NotifyOne()
 {
     int ret = -1;
-    while (true) {
-        CoWaiter::SPtr waiter = nullptr;
+    while (!m_waiter_queue.Empty()) {
+        CoWaiter* waiter = nullptr;
+        if (m_waiter_queue.Pop(waiter))
         {
-            std::lock_guard<std::mutex> lock(m_waiter_guard);
-            if (m_waiter_queue.empty())
+            CoWaiter::SPtr holder = nullptr;
+            {
+                std::lock_guard<std::mutex> lock(m_waiter_guard);
+                auto iter = m_waiter_holders.find(waiter);
+                if (iter == m_waiter_holders.end())
+                    continue;
+
+                holder = iter->second;
+                m_waiter_holders.erase(iter);
+            }
+
+            ret = holder->Notify();
+            if (ret == 0)
                 break;
-
-            waiter = m_waiter_queue.front();
-            m_waiter_queue.pop();
         }
-
-        ret = waiter->Notify();
-        if (ret == 0)
-            break;
     }
 
     return ret;
