@@ -41,7 +41,15 @@ int Chan<TItem, Max>::Write(const ItemType& item)
         if (_WaitUntilEnableWrite(enable_write_cond, [this](){ _UnLock(); return true; }) != 0)
             return -1;
 
+        if (IsClosed())
+            return -1;
+
         _Lock();
+
+        if (m_item_queue.size() >= m_max_size) {
+            _UnLock();
+            return -1;
+        }
     }
     
     m_item_queue.push(item);
@@ -66,14 +74,19 @@ int Chan<TItem, Max>::Read(ItemType& item)
     _Lock();
 
     if (m_item_queue.empty()) {
-        if (_WaitUntilEnableRead([this](){ _UnLock(); return true; }) != 0)
+        if (_WaitUntilEnableRead([this](){ _UnLock(); return true; }) != 0) {
+            m_is_reading = false;
             return -1;
+        }
 
         _Lock();
     }
     
-    if (m_item_queue.empty() || IsClosed())
+    if (m_item_queue.empty() || IsClosed()) {
+        m_is_reading = false;
+        _UnLock();
         return -1;
+    }
 
     item = m_item_queue.front();
     m_item_queue.pop();
@@ -98,8 +111,10 @@ int Chan<TItem, Max>::ReadAll(std::vector<ItemType>& items)
     _Lock();
     if (m_item_queue.empty()) {
 
-        if (_WaitUntilEnableRead([this](){ _UnLock(); return true; }) != 0)
+        if (_WaitUntilEnableRead([this](){ _UnLock(); return true; }) != 0) {
+            m_is_reading = false;
             return -1;
+        }
 
         _Lock();
     }
@@ -137,17 +152,26 @@ int Chan<TItem, Max>::TryWrite(const ItemType& item)
 template<class TItem, int Max>
 int Chan<TItem, Max>::TryWrite(const ItemType& item, int timeout)
 {
-    int ret = 0;
-
     if (IsClosed())
         return -1;
 
     _Lock();
     if (m_item_queue.size() >= m_max_size) {
         auto enable_write_cond = _CreateAndPushEnableWriteCond();
-        ret = _WaitUntilEnableWriteOrTimeout(enable_write_cond, timeout, [this](){ _UnLock(); return true; });
+        int ret = _WaitUntilEnableWriteOrTimeout(enable_write_cond, timeout, [this](){ _UnLock(); return true; });
+
+        if (ret != 0)
+            return ret;
+
+        if (IsClosed())
+            return -1;
 
         _Lock();
+
+        if (m_item_queue.size() >= m_max_size) {
+            _UnLock();
+            return -1;
+        }
     }
 
     m_item_queue.push(item);
@@ -155,7 +179,7 @@ int Chan<TItem, Max>::TryWrite(const ItemType& item, int timeout)
         _OnEnableRead();
 
     _UnLock();
-    return ret;
+    return 0;
 }
 
 template<class TItem, int Max>
@@ -170,12 +194,16 @@ int Chan<TItem, Max>::TryRead(ItemType& item)
 
     _Lock();
 
-    if (m_item_queue.empty())
+    if (m_item_queue.empty()) {
+        m_is_reading = false;
+        _UnLock();
         return -1;
+    }
     
     item = m_item_queue.front();
     m_item_queue.pop();
     Assert(_OnEnableWrite() == 0);
+    m_is_reading = false;
 
     _UnLock();
 
@@ -195,13 +223,17 @@ int Chan<TItem, Max>::TryRead(ItemType& item, int timeout)
     _Lock();
     if (m_item_queue.empty()) {
 
-        if (_WaitUntilEnableReadOrTimeout(timeout, [this](){ _UnLock(); return true; }) != 0)
+        if (_WaitUntilEnableReadOrTimeout(timeout, [this](){ _UnLock(); return true; }) != 0) {
+            m_is_reading = false;
             return -1;
+        }
 
         _Lock();
     }
 
     if (m_item_queue.empty()) {
+        m_is_reading = false;
+        _UnLock();
         return -1;
     }
 
