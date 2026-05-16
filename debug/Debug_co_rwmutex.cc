@@ -21,7 +21,7 @@ void rwlock_test()
                     rwlock->RLock();
                     Assert(n == m);
                     vec[i]++;
-                    rwlock->UnLock();
+                    rwlock->RUnLock();
                     // bbtco_sleep(1);
                     bbtco_yield;
                 }    
@@ -35,7 +35,7 @@ void rwlock_test()
                     Assert(n == m);
                     n++;
                     m++;
-                    rwlock->UnLock();
+                    rwlock->WUnLock();
                     bbtco_yield;
                 }
             };

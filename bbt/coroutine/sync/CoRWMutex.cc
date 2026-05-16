@@ -39,7 +39,7 @@ int CoRWMutex::WLock()
     _SysLock();
     while (m_status != CORWMUTEX_FREE) {
         m_has_wait_wlock = true;
-        _WaitWLock([&](){
+        _WaitWLock([this](){
             _SysUnLock();
             return true;
         });
@@ -53,51 +53,154 @@ int CoRWMutex::WLock()
     return 0;
 }
 
-int CoRWMutex::UnLock()
+int CoRWMutex::RUnLock()
 {
     _SysLock();
 
-    _NotifyOne();
+    m_rlock_hold_num--;
+    m_status = (m_rlock_hold_num == 0) ? CORWMUTEX_FREE : CORWMUTEX_RLOCKED;
 
-    /* 如果解锁前是被读锁持有，则根据读锁持有数量判断锁状态；如果解锁前是写锁被持有，则释放时是空闲状态 */
-    if (m_status == CORWMUTEX_RLOCKED) {
-        /* 如果被读锁持有，那么就减少持有数，并根据以持有读锁的协程数来判断状态 */
-        m_rlock_hold_num--;
-        m_status = (m_rlock_hold_num == 0) ? CORWMUTEX_FREE : CORWMUTEX_RLOCKED;
-    }
-    else if (m_status == CORWMUTEX_WLOCKED) {
-        /* 如果此锁被写锁持有，写锁只能有一个协程持有，所以锁状态直接进入free */
-        m_status = CORWMUTEX_FREE;
+    if (m_status == CORWMUTEX_FREE)
+        _NotifyOne();
+
+    _SysUnLock();
+    return 0;
+}
+
+int CoRWMutex::WUnLock()
+{
+    _SysLock();
+
+    m_status = CORWMUTEX_FREE;
+
+    if (!m_wait_writelock_queue.empty())
+        _NotifyOne();
+    else if (!m_wait_readlock_queue.empty())
+        _NotifyAll(true);
+
+    _SysUnLock();
+    return 0;
+}
+
+int CoRWMutex::TryRLock()
+{
+    _SysLock();
+    if (m_status == CORWMUTEX_WLOCKED || m_has_wait_wlock) {
+        _SysUnLock();
+        return -1;
     }
 
+    m_status = CORWMUTEX_RLOCKED;
+    m_rlock_hold_num++;
+
+    if (!m_has_wait_wlock)
+        _NotifyAll(true);
+
+    _SysUnLock();
+    return 0;
+}
+
+int CoRWMutex::TryRLock(int ms)
+{
+    _SysLock();
+    if (m_status != CORWMUTEX_WLOCKED && !m_has_wait_wlock) {
+        m_status = CORWMUTEX_RLOCKED;
+        m_rlock_hold_num++;
+
+        if (!m_has_wait_wlock)
+            _NotifyAll(true);
+
+        _SysUnLock();
+        return 0;
+    }
+
+    int ret = _WaitRLockWithTimeout(ms, [this](){
+        _SysUnLock();
+        return true;
+    });
+
+    _SysLock();
+    if (ret != 0) {
+        _SysUnLock();
+        return ret;
+    }
+
+    if (m_status == CORWMUTEX_WLOCKED || m_has_wait_wlock) {
+        _SysUnLock();
+        return -1;
+    }
+
+    m_status = CORWMUTEX_RLOCKED;
+    m_rlock_hold_num++;
+
+    if (!m_has_wait_wlock)
+        _NotifyAll(true);
+
+    _SysUnLock();
+    return 0;
+}
+
+int CoRWMutex::TryWLock()
+{
+    _SysLock();
+    if (m_status != CORWMUTEX_FREE) {
+        _SysUnLock();
+        return -1;
+    }
+
+    m_status = CORWMUTEX_WLOCKED;
+    _SysUnLock();
+    return 0;
+}
+
+int CoRWMutex::TryWLock(int ms)
+{
+    _SysLock();
+    if (m_status == CORWMUTEX_FREE) {
+        m_status = CORWMUTEX_WLOCKED;
+        _SysUnLock();
+        return 0;
+    }
+
+    m_has_wait_wlock = true;
+    int ret = _WaitWLockWithTimeout(ms, [this](){
+        _SysUnLock();
+        return true;
+    });
+
+    _SysLock();
+    if (ret != 0) {
+        m_has_wait_wlock = false;
+        _SysUnLock();
+        return ret;
+    }
+
+    if (m_status != CORWMUTEX_FREE) {
+        m_has_wait_wlock = false;
+        _SysUnLock();
+        return -1;
+    }
+
+    m_has_wait_wlock = false;
+    m_status = CORWMUTEX_WLOCKED;
     _SysUnLock();
     return 0;
 }
 
 int CoRWMutex::_NotifyOne()
 {
-    /**
-     * 读写锁使用一般在读 “远大于” 写的情况使用
-     * 所以实现读写锁自然是假设读操作频率远高于写操作
-     * 
-     * 为了防止“写饿死”
-     * 
-     */
-
-    /* 解锁一个写锁 */
-    if (!m_wait_writelock_queue.empty()) {
+    while (!m_wait_writelock_queue.empty()) {
         auto waiter = m_wait_writelock_queue.front();
         m_wait_writelock_queue.pop();
-        waiter->Notify();
-        return 0;
+        if (waiter->Notify() == 0)
+            return 0;
     }
 
-    /* 解锁一个读锁 */
-    if (!m_wait_readlock_queue.empty()) {
+    while (!m_wait_readlock_queue.empty()) {
         auto waiter = m_wait_readlock_queue.front();
         m_wait_readlock_queue.pop();
-        waiter->Notify();
-        return 0;
+        if (waiter->Notify() == 0)
+            return 0;
     }
 
     return -1;
@@ -105,11 +208,8 @@ int CoRWMutex::_NotifyOne()
 
 int CoRWMutex::_NotifyAll(bool reader)
 {
-    auto& notify_queue_ref = reader ? m_wait_readlock_queue : m_wait_writelock_queue; 
-    if (notify_queue_ref.empty())
-        return 0;
+    auto& notify_queue_ref = reader ? m_wait_readlock_queue : m_wait_writelock_queue;
 
-    /* 唤醒所有等待的协程 */
     while (!notify_queue_ref.empty()) {
         auto waiter = notify_queue_ref.front();
         notify_queue_ref.pop();
@@ -132,6 +232,20 @@ int CoRWMutex::_WaitWLock(detail::CoroutineOnYieldCallback&& cb)
     auto waiter = CoWaiter::Create();
     m_wait_writelock_queue.push(waiter);
     return waiter->WaitWithCallback(std::forward<detail::CoroutineOnYieldCallback&&>(cb));
+}
+
+int CoRWMutex::_WaitRLockWithTimeout(int ms, detail::CoroutineOnYieldCallback&& cb)
+{
+    auto waiter = CoWaiter::Create();
+    m_wait_readlock_queue.push(waiter);
+    return waiter->WaitWithTimeoutAndCallback(ms, std::forward<detail::CoroutineOnYieldCallback&&>(cb));
+}
+
+int CoRWMutex::_WaitWLockWithTimeout(int ms, detail::CoroutineOnYieldCallback&& cb)
+{
+    auto waiter = CoWaiter::Create();
+    m_wait_writelock_queue.push(waiter);
+    return waiter->WaitWithTimeoutAndCallback(ms, std::forward<detail::CoroutineOnYieldCallback&&>(cb));
 }
 
 void CoRWMutex::_SysLock()
