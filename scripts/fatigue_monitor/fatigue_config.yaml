@@ -1,0 +1,32 @@
+# Fatigue Test Monitor Configuration
+# ------------------------------------------------
+# build_dir: relative path from project root to cmake build directory
+build_dir: build
+
+# List of fatigue test processes to launch & monitor
+#   name:    display name (used in dashboard chart legend)
+#   binary:  executable filename (relative to build_dir/bin/benchmark_test/)
+#   args:    optional extra CLI arguments (default: none)
+#   enabled: whether to launch this process (default: true)
+processes:
+  - name: fatigue_coroutine
+    binary: fatigue_coroutine
+
+  - name: fatigue_chan
+    binary: fatigue_chan
+
+  - name: fatigue_copool
+    binary: fatigue_copool
+
+  - name: fatigue_cocond
+    binary: fatigue_cocond
+
+  - name: fatigue_comutex
+    binary: fatigue_comutex
+
+  - name: fatigue_corwmutex
+    binary: fatigue_corwmutex
+
+  - name: fatigue_std_uniquelock
+    binary: fatigue_std_uniquelock
+    # enabled: false  # uncomment to skip this process

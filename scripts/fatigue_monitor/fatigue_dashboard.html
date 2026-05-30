@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fatigue Test Monitor</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root { --bg: #0d1117; --card: #161b22; --border: #30363d;
+          --text: #c9d1d9; --text-dim: #8b949e; --green: #3fb950;
+          --red: #f85149; --blue: #58a6ff; --orange: #d2991d;
+          --purple: #bc8cff; --cyan: #39d2c0; --pink: #f778ba; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system,
+         BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 20px;
+         min-height: 100vh; }
+  header { display: flex; justify-content: space-between; align-items: center;
+           margin-bottom: 20px; flex-wrap: wrap; gap: 12px; }
+  header h1 { font-size: 1.5rem; font-weight: 600; }
+  .status-bar { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  .status-dot.connected { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .status-dot.disconnected { background: var(--red); box-shadow: 0 0 6px var(--red); }
+  .tag { background: var(--card); border: 1px solid var(--border); padding: 4px 10px;
+         border-radius: 14px; font-size: 0.8rem; color: var(--text-dim); }
+  .summary { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+             gap: 12px; margin-bottom: 20px; }
+  .summary .proc-card { background: var(--card); border: 1px solid var(--border);
+    border-radius: 8px; padding: 16px; }
+  .proc-card .name { font-weight: 600; font-size: 1rem; margin-bottom: 8px; }
+  .proc-card .metrics { display: flex; gap: 20px; }
+  .proc-card .metric-label { font-size: 0.7rem; color: var(--text-dim);
+    text-transform: uppercase; }
+  .proc-card .metric-val { font-size: 1.3rem; font-weight: 700; }
+  .proc-card.alive .metric-val.cpu { color: var(--blue); }
+  .proc-card.alive .metric-val.mem { color: var(--green); }
+  .proc-card.dead { opacity: 0.5; }
+  .charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(500px, 1fr));
+            gap: 16px; }
+  .chart-box { background: var(--card); border: 1px solid var(--border);
+               border-radius: 8px; padding: 12px; }
+  .chart-box h3 { font-size: 0.9rem; margin-bottom: 8px; color: var(--text-dim); }
+  .chart-box canvas { width: 100% !important; height: 220px !important; }
+  .chart-box .chart-dual { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .chart-dual h4 { font-size: 0.75rem; text-align: center; color: var(--text-dim);
+    margin-bottom: 4px; }
+  .empty-state { text-align: center; padding: 80px 20px; color: var(--text-dim); }
+  .empty-state p { font-size: 1.1rem; }
+  .time-range { display: flex; gap: 4px; }
+  .time-range button { background: var(--card); border: 1px solid var(--border);
+    color: var(--text-dim); padding: 4px 12px; border-radius: 6px; cursor: pointer;
+    font-size: 0.78rem; transition: all 0.15s; }
+  .time-range button:hover { border-color: var(--blue); color: var(--text); }
+  .time-range button.active { background: var(--blue); border-color: var(--blue);
+    color: #fff; }
+  .controls { display: flex; gap: 6px; }
+  .controls button { padding: 4px 14px; border-radius: 6px; cursor: pointer;
+    font-size: 0.78rem; font-weight: 500; border: 1px solid transparent;
+    transition: all 0.15s; }
+  .controls .btn-start-all { background: var(--green); color: #0d1117; }
+  .controls .btn-start-all:hover { filter: brightness(1.2); }
+  .controls .btn-stop-all { background: var(--red); color: #fff; }
+  .controls .btn-stop-all:hover { filter: brightness(1.2); }
+  .proc-card .actions { display: flex; gap: 4px; margin-top: 10px; }
+  .proc-card .actions button { padding: 2px 8px; border-radius: 4px; cursor: pointer;
+    font-size: 0.7rem; border: 1px solid var(--border); background: transparent;
+    color: var(--text-dim); transition: all 0.15s; }
+  .proc-card .actions button:hover { border-color: var(--text); color: var(--text); }
+  .proc-card .actions .btn-start { border-color: var(--green); color: var(--green); }
+  .proc-card .actions .btn-start:hover { background: var(--green); color: #0d1117; }
+  .proc-card .actions .btn-stop { border-color: var(--red); color: var(--red); }
+  .proc-card .actions .btn-stop:hover { background: var(--red); color: #fff; }
+  .proc-card .actions .btn-restart { border-color: var(--orange); color: var(--orange); }
+  .proc-card .actions .btn-restart:hover { background: var(--orange); color: #0d1117; }
+  .proc-card.dead .actions .btn-start { border-color: var(--blue); color: var(--blue); }
+  .proc-card.dead .actions .btn-start:hover { background: var(--blue); color: #fff; }
+</style>
+</head>
+<body>
+<header>
+  <h1>⚡ Fatigue Test Monitor</h1>
+  <div class="controls">
+    <button class="btn-start-all" onclick="startAll()">▶ Start All</button>
+    <button class="btn-stop-all" onclick="stopAll()">■ Stop All</button>
+  </div>
+  <div class="time-range" id="time-range">
+    <button data-range="300">5m</button>
+    <button data-range="900">15m</button>
+    <button data-range="1800">30m</button>
+    <button data-range="3600">1h</button>
+    <button data-range="7200">2h</button>
+    <button data-range="0" class="active">All</button>
+  </div>
+  <div class="status-bar">
+    <span id="conn-status">
+      <span class="status-dot disconnected" id="conn-dot"></span>
+      <span id="conn-text">Disconnected</span>
+    </span>
+    <span class="tag" id="uptime">--</span>
+    <span class="tag" id="proc-count">0 processes</span>
+  </div>
+</header>
+
+<div class="summary" id="summary"></div>
+<div class="charts" id="charts"></div>
+<div class="empty-state" id="empty-state">
+  <p>Waiting for data...</p>
+  <small>Ensure fatigue_monitor.py is running and processes are launched.</small>
+</div>
+
+<script>
+const PALETTE = ['#58a6ff','#3fb950','#d2991d','#f85149','#bc8cff',
+                 '#39d2c0','#f778ba','#ffa657','#7ee787','#a5d6ff'];
+
+let charts = {};
+let startTime = null;
+let currentRange = Infinity;
+
+document.querySelectorAll('#time-range button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#time-range button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const range = parseInt(btn.dataset.range);
+    currentRange = range === 0 ? Infinity : range;
+    reloadHistory();
+  });
+});
+
+async function reloadHistory() {
+  let url = '/history';
+  if (currentRange !== Infinity) {
+    const since = Date.now() / 1000 - currentRange;
+    url += `?since=${since}`;
+  }
+  const resp = await fetch(url);
+  const data = await resp.json();
+  if (!data.length) return;
+
+  document.getElementById('empty-state').style.display = 'none';
+  startTime = Date.now() / 1000;
+
+  for (const [name, m] of Object.entries(charts)) {
+    m.data = [];
+    m.cpuChart.data.labels = [];
+    m.cpuChart.data.datasets[0].data = [];
+    m.memChart.data.labels = [];
+    m.memChart.data.datasets[0].data = [];
+  }
+
+  for (const proc of data) {
+    ensureChart(proc.name);
+    const m = charts[proc.name];
+    const timestamps = proc.timestamps || [];
+    for (let i = 0; i < timestamps.length; i++) {
+      m.data.push([timestamps[i], proc.cpu[i] || 0, proc.mem[i] || 0]);
+    }
+    m.alive = proc.alive;
+  }
+  refreshCharts();
+  updateSummary(data);
+}
+
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const ws = new WebSocket(`${proto}://${location.host}/ws`);
+
+  ws.onopen = () => {
+    document.getElementById('conn-dot').className = 'status-dot connected';
+    document.getElementById('conn-text').textContent = 'Connected';
+  };
+
+  ws.onmessage = (evt) => {
+    const msg = JSON.parse(evt.data);
+    if (msg.done) { return; }
+    if (!startTime) startTime = msg.ts;
+    update(msg);
+  };
+
+  ws.onclose = () => {
+    document.getElementById('conn-dot').className = 'status-dot disconnected';
+    document.getElementById('conn-text').textContent = 'Reconnecting...';
+    setTimeout(connect, 2000);
+  };
+
+  ws.onerror = () => ws.close();
+}
+
+function ensureChart(name) {
+  if (charts[name]) return;
+
+  const container = document.getElementById('charts');
+  const box = document.createElement('div');
+  box.className = 'chart-box';
+  box.id = `box-${CSS.escape(name)}`;
+  box.innerHTML = `
+    <h3>${name}</h3>
+    <div class="chart-dual">
+      <div><h4>CPU %</h4><canvas id="cpu-${CSS.escape(name)}"></canvas></div>
+      <div><h4>Memory (MB)</h4><canvas id="mem-${CSS.escape(name)}"></canvas></div>
+    </div>`;
+  container.appendChild(box);
+  document.getElementById('empty-state').style.display = 'none';
+
+  const colorIdx = Object.keys(charts).length % PALETTE.length;
+  const color = PALETTE[colorIdx];
+
+  const cpuCtx = document.getElementById(`cpu-${CSS.escape(name)}`).getContext('2d');
+  const cpuChart = new Chart(cpuCtx, {
+    type: 'line',
+    data: { labels: [], datasets: [{
+      label: 'CPU %', data: [], borderColor: color,
+      backgroundColor: color + '33', pointRadius: 0, borderWidth: 1.5,
+      tension: 0.3, fill: true
+    }]},
+    options: {
+      responsive: true, animation: false,
+      scales: {
+        x: { display: false },
+        y: { beginAtZero: true, suggestedMax: 100,
+             ticks: { color: '#8b949e', font: { size: 10 } },
+             grid: { color: '#30363d33' } }
+      },
+      plugins: { legend: { display: false },
+                 tooltip: { mode: 'index', intersect: false } }
+    }
+  });
+
+  const memCtx = document.getElementById(`mem-${CSS.escape(name)}`).getContext('2d');
+  const memChart = new Chart(memCtx, {
+    type: 'line',
+    data: { labels: [], datasets: [{
+      label: 'Memory MB', data: [], borderColor: '#3fb950',
+      backgroundColor: '#3fb95033', pointRadius: 0, borderWidth: 1.5,
+      tension: 0.3, fill: true
+    }]},
+    options: {
+      responsive: true, animation: false,
+      scales: {
+        x: { display: false },
+        y: { beginAtZero: true,
+             ticks: { color: '#8b949e', font: { size: 10 } },
+             grid: { color: '#30363d33' } }
+      },
+      plugins: { legend: { display: false },
+                 tooltip: { mode: 'index', intersect: false } }
+    }
+  });
+
+  charts[name] = {
+    cpuChart, memChart,
+    data: [],
+    alive: true,
+    lastCpu: 0, lastMem: 0,
+    pid: 0,
+  };
+}
+
+function hexToTimeAgo(ts) {
+  if (!ts) return '--';
+  const elapsed = Math.max(0, Date.now() / 1000 - ts);
+  const h = Math.floor(elapsed / 3600);
+  const m = Math.floor((elapsed % 3600) / 60);
+  const s = Math.floor(elapsed % 60);
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+
+function refreshCharts() {
+  const now = startTime ? Date.now()/1000 - startTime : 0;
+  const cutoff = currentRange !== Infinity ? Date.now() / 1000 - currentRange : 0;
+  for (const [name, m] of Object.entries(charts)) {
+    if (m.data.length === 0) continue;
+
+    let visible = m.data;
+    if (currentRange !== Infinity) {
+      visible = m.data.filter(d => d[0] >= cutoff);
+    }
+
+    const labels = visible.map(d => hexToTimeAgo(d[0]));
+    const cpuData = visible.map(d => d[1]);
+    const memData = visible.map(d => d[2]);
+
+    m.cpuChart.data.labels = labels;
+    m.cpuChart.data.datasets[0].data = cpuData;
+    m.cpuChart.update('none');
+
+    m.memChart.data.labels = labels;
+    m.memChart.data.datasets[0].data = memData;
+    m.memChart.update('none');
+  }
+  scheduleRefresh();
+}
+
+let refreshTimeout = null;
+function scheduleRefresh() {
+  if (refreshTimeout) return;
+  refreshTimeout = setTimeout(() => { refreshTimeout = null; refreshCharts(); }, 1000);
+}
+
+function update(msg) {
+  document.getElementById('empty-state').style.display = 'none';
+
+  for (const snap of msg.data) {
+    ensureChart(snap.name);
+    const m = charts[snap.name];
+    m.lastCpu = snap.cpu;
+    m.lastMem = snap.mem;
+    m.pid = snap.pid;
+    m.alive = snap.alive;
+    m.data.push([msg.ts, snap.cpu, snap.mem]);
+  }
+
+  updateSummary(msg.data);
+  document.getElementById('uptime').textContent =
+    startTime ? hexToTimeAgo(startTime) : '--';
+}
+
+function updateSummary(snapshots) {
+  const container = document.getElementById('summary');
+  const allNames = new Set();
+
+  for (const snap of snapshots) {
+    allNames.add(snap.name);
+    const m = charts[snap.name];
+    if (m) {
+      m.lastCpu = snap.cpu;
+      m.lastMem = snap.mem;
+      m.pid = snap.pid;
+      m.alive = snap.alive;
+    }
+  }
+
+  let html = '';
+  for (const [name, m] of Object.entries(charts)) {
+    const cls = m.alive ? 'alive' : 'dead';
+    let actions = '';
+    if (m.alive) {
+      actions = `<div class="actions">
+        <button class="btn-stop" onclick="stopProcess('${name}')">Stop</button>
+        <button class="btn-restart" onclick="restartProcess('${name}')">Restart</button>
+      </div>`;
+    } else {
+      actions = `<div class="actions">
+        <button class="btn-start" onclick="startProcess('${name}')">Start</button>
+      </div>`;
+    }
+    html += `
+      <div class="proc-card ${cls}">
+        <div class="name">${name}</div>
+        <div style="font-size:0.7rem;color:var(--text-dim);margin-bottom:6px;">
+          ${m.alive ? `PID ${m.pid} ● Running` : '● Exited'}
+        </div>
+        <div class="metrics">
+          <div>
+            <div class="metric-label">CPU</div>
+            <div class="metric-val cpu">${m.lastCpu.toFixed(1)}%</div>
+          </div>
+          <div>
+            <div class="metric-label">Memory</div>
+            <div class="metric-val mem">${m.lastMem.toFixed(1)} MB</div>
+          </div>
+        </div>
+        ${actions}
+      </div>`;
+  }
+
+  container.innerHTML = html;
+  document.getElementById('proc-count').textContent =
+    `${Object.keys(charts).length} processes`;
+}
+
+async function apiPost(url) {
+  try {
+    const resp = await fetch(url, { method: 'POST' });
+    return await resp.json();
+  } catch (e) {
+    console.error('API error:', e);
+    return { ok: false, error: e.message };
+  }
+}
+
+async function startAll()  { await apiPost('/api/processes/start-all'); }
+async function stopAll()   { await apiPost('/api/processes/stop-all'); }
+async function startProcess(name)  { await apiPost(`/api/process/${encodeURIComponent(name)}/start`); }
+async function stopProcess(name)   { await apiPost(`/api/process/${encodeURIComponent(name)}/stop`); }
+async function restartProcess(name){ await apiPost(`/api/process/${encodeURIComponent(name)}/restart`); }
+
+connect();
+reloadHistory();
+</script>
+</body>
+</html>
