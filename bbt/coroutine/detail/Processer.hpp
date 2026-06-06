@@ -68,7 +68,7 @@ protected:
 private:
     /* 控制信息 */
     const ProcesserId               m_id{BBT_COROUTINE_INVALID_PROCESSER_ID};
-    volatile ProcesserStatus        m_run_status{ProcesserStatus::PROC_DEFAULT};
+    std::atomic<ProcesserStatus>    m_run_status{ProcesserStatus::PROC_DEFAULT};
 
     /* 调度相关 */
     CoPriorityQueue                 m_coroutine_queue;

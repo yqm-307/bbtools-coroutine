@@ -270,6 +270,7 @@ void Scheduler::_DestoryProcessers()
 
 bool Scheduler::_LoadBlance2Proc(CoroutinePriority priority, Coroutine::Ptr co)
 {
+    std::lock_guard<std::mutex> _(m_processer_map_mutex);
     if (m_load_blance_vec.empty())
         return false;
 
