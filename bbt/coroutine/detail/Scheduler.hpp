@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 #include <bbt/core/clock/Clock.hpp>
 #include <bbt/core/thread/Lock.hpp>
 #include <bbt/coroutine/utils/lockfree/blockingconcurrentqueue.h>
@@ -79,8 +80,8 @@ private:
     /* Processer 管理 */
     std::map<ProcesserId, Processer::SPtr>      m_processer_map;
     std::vector<Processer::SPtr>                m_load_blance_vec;
-    uint32_t                                    m_load_idx{0};
-    uint32_t                                    m_steal_idx{0};
+    std::atomic<uint32_t>                       m_load_idx{0};
+    std::atomic<uint32_t>                       m_steal_idx{0};
     std::mutex                                  m_processer_map_mutex;
     bbt::core::thread::CountDownLatch           m_down_latch;
 
