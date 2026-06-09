@@ -1,4 +1,5 @@
 #pragma once
+#include <bbt/core/clock/Clock.hpp>
 #include <bbt/core/util/Assert.hpp>
 #include <bbt/coroutine/sync/Chan.hpp>
 #include <bbt/coroutine/detail/CoPoller.hpp>
@@ -35,7 +36,7 @@ int Chan<TItem, Max>::Write(const ItemType& item)
     _Lock();
 
     /* 如果无法写入，协程挂起直到可写 */
-    if (m_item_queue.size() >= m_max_size) {
+    while (m_item_queue.size() >= m_max_size) {
         auto enable_write_cond = _CreateAndPushEnableWriteCond();
 
         if (_WaitUntilEnableWrite(enable_write_cond, [this](){ _UnLock(); return true; }) != 0)
@@ -45,11 +46,6 @@ int Chan<TItem, Max>::Write(const ItemType& item)
             return -1;
 
         _Lock();
-
-        if (m_item_queue.size() >= m_max_size) {
-            _UnLock();
-            return -1;
-        }
     }
     
     m_item_queue.push(item);
@@ -155,10 +151,18 @@ int Chan<TItem, Max>::TryWrite(const ItemType& item, int timeout)
     if (IsClosed())
         return -1;
 
+    auto start = bbt::core::clock::gettime_mono();
+
     _Lock();
-    if (m_item_queue.size() >= m_max_size) {
+    while (m_item_queue.size() >= m_max_size) {
+        // 计算剩余超时时间
+        int elapsed = bbt::core::clock::gettime_mono() - start;
+        int remaining = timeout - elapsed;
+        if (remaining <= 0)
+            return 1;  // 超时
+
         auto enable_write_cond = _CreateAndPushEnableWriteCond();
-        int ret = _WaitUntilEnableWriteOrTimeout(enable_write_cond, timeout, [this](){ _UnLock(); return true; });
+        int ret = _WaitUntilEnableWriteOrTimeout(enable_write_cond, remaining, [this](){ _UnLock(); return true; });
 
         if (ret != 0)
             return ret;
@@ -167,11 +171,6 @@ int Chan<TItem, Max>::TryWrite(const ItemType& item, int timeout)
             return -1;
 
         _Lock();
-
-        if (m_item_queue.size() >= m_max_size) {
-            _UnLock();
-            return -1;
-        }
     }
 
     m_item_queue.push(item);
