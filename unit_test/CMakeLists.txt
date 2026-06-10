@@ -61,3 +61,7 @@ add_test(NAME Test_coevent COMMAND Test_coevent)
 add_executable(Test_copool Test_copool.cc)
 target_link_libraries(Test_copool ${MY_LIBS})
 add_test(NAME Test_copool COMMAND Test_copool)
+
+add_executable(Test_smoke Test_smoke.cc)
+target_link_libraries(Test_smoke ${MY_LIBS})
+add_test(NAME Test_smoke COMMAND Test_smoke)

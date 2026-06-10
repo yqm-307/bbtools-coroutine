@@ -33,3 +33,16 @@
 
 build
 **/bin
+
+tmp
+log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+*.egg

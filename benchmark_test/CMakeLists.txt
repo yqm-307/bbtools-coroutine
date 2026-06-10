@@ -42,3 +42,6 @@ target_link_libraries(benchmark_chan ${MY_LIBS})
 
 add_executable(benchmark_comutex benchmark_comutex.cc)
 target_link_libraries(benchmark_comutex ${MY_LIBS})
+
+add_executable(fatigue_corwmutex fatigue_corwmutex.cc)
+target_link_libraries(fatigue_corwmutex ${MY_LIBS})

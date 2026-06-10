@@ -17,13 +17,25 @@ public:
 
     int RLock();
     int WLock();
-    int UnLock();
+
+    int RUnLock();
+    int WUnLock();
+
+    // Try-lock: non-blocking (0 = success, -1 = would block)
+    int TryRLock();
+    int TryWLock();
+
+    // Try-lock with timeout (0 = success, 1 = timeout, -1 = error)
+    int TryRLock(int ms);
+    int TryWLock(int ms);
 
 protected:
     int _NotifyOne();
     int _NotifyAll(bool reader);
     int _WaitRLock(detail::CoroutineOnYieldCallback&& cb);
     int _WaitWLock(detail::CoroutineOnYieldCallback&& cb);
+    int _WaitRLockWithTimeout(int ms, detail::CoroutineOnYieldCallback&& cb);
+    int _WaitWLockWithTimeout(int ms, detail::CoroutineOnYieldCallback&& cb);
 
     void _SysLock();
     void _SysUnLock();

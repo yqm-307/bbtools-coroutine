@@ -173,12 +173,16 @@ class Chan<TItem, 0>:
      * 为什么不在带缓冲队列的Chan适配？
      * 感觉代码会不好看，而且如何暴露接口也是个问题。
      */
-    protected Chan<TItem, 1>
+    private Chan<TItem, 1>
 {
 public:
     typedef Chan<TItem, 1>                      BaseType;
     typedef typename BaseType::ItemType         ItemType;
     typedef std::shared_ptr<Chan<TItem, 0>>     SPtr;
+
+    using BaseType::TryRead;
+    using BaseType::TryWrite;
+    using BaseType::ReadAll;
 
     /**
      * @brief 向Chan中写入一个元素，阻塞直到读端读取数据
