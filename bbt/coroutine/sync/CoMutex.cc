@@ -108,12 +108,17 @@ void CoMutex::_SysUnLock()
 
 int CoMutex::_WaitUnLockUnitlTimeout(int timeout, const detail::CoroutineOnYieldCallback& cb)
 {
-    auto event = g_bbt_tls_coroutine_co->RegistCustom(detail::POLL_EVENT_CUSTOM_COMUTEX);
+    auto event = g_bbt_tls_coroutine_co->RegistCustom(detail::POLL_EVENT_CUSTOM_COMUTEX, timeout);
     m_wait_event_queue.push(event);
-    return g_bbt_tls_coroutine_co->YieldWithCallback([this, event, cb](){
+    int ret = g_bbt_tls_coroutine_co->YieldWithCallback([this, event, cb](){
         event->Regist();
         return cb();
     });
+
+    if (g_bbt_tls_coroutine_co->GetLastResumeEvent() & detail::POLL_EVENT_TIMEOUT)
+        return 1;  // timeout
+
+    return ret;
 }
 
 int CoMutex::_WaitUnLock(const detail::CoroutineOnYieldCallback& cb)
