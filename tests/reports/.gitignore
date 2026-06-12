@@ -1,0 +1,5 @@
+# 忽略自动生成的报告数据，保留目录结构
+*/
+!README.md
+!latest
+latest
