@@ -45,7 +45,6 @@ BOOST_AUTO_TEST_CASE(t_rlock_block)
     
     sleep(1);
     l.Wait();
-    // printf("xxx\n");
 }
 
 BOOST_AUTO_TEST_CASE(t_rlock_wlock_block)
@@ -277,6 +276,102 @@ BOOST_AUTO_TEST_CASE(t_timeout_recovery)
 
         bbtco_sleep(100);
         BOOST_ASSERT(n == 1);
+        l.Down();
+    };
+
+    l.Wait();
+}
+
+// =================== P0: TryWLock(ms) 超时后脏状态验证 ===================
+
+// TryWLock(ms) 超时后 WLock 仍可正常获取（m_has_wait_wlock 标志正确清除）
+BOOST_AUTO_TEST_CASE(t_try_wlock_timeout_then_wlock)
+{
+    bbt::core::thread::CountDownLatch l{1};
+
+    bbtco_desc("main") [&](){
+        auto rwlock = bbt::coroutine::sync::CoRWMutex::Create();
+
+        // 持有读锁
+        rwlock->RLock();
+
+        // TryWLock 超时
+        int ret = rwlock->TryWLock(50);
+        BOOST_ASSERT(ret == 1);
+
+        // 释放读锁后，WLock 应该可以正常获取（m_has_wait_wlock 已清除）
+        rwlock->RUnLock();
+
+        bbtco_sleep(20);
+        rwlock->WLock();
+        rwlock->WUnLock();
+
+        BOOST_TEST(true);
+        l.Down();
+    };
+
+    l.Wait();
+}
+
+// TryWLock(ms) 超时后 reader 不受影响（m_has_wait_wlock 标志正确清除）
+BOOST_AUTO_TEST_CASE(t_try_wlock_timeout_then_rlock)
+{
+    bbt::core::thread::CountDownLatch l{1};
+    int nread = 0;
+
+    bbtco_desc("main") [&](){
+        auto rwlock = bbt::coroutine::sync::CoRWMutex::Create();
+
+        // 持有读锁
+        rwlock->RLock();
+
+        // TryWLock 超时
+        int ret = rwlock->TryWLock(50);
+        BOOST_ASSERT(ret == 1);
+
+        rwlock->RUnLock();
+
+        // 其他 reader 应该可以正常获取读锁（不被假 writer 阻塞）
+        bbtco [rwlock, &nread]() {
+            rwlock->RLock();
+            nread++;
+            rwlock->RUnLock();
+        };
+
+        bbtco_sleep(50);
+        BOOST_TEST(nread == 1);
+        l.Down();
+    };
+
+    l.Wait();
+}
+
+// 多次 TryWLock(ms) 超时后锁仍正常工作
+BOOST_AUTO_TEST_CASE(t_try_wlock_multiple_timeouts)
+{
+    bbt::core::thread::CountDownLatch l{1};
+
+    bbtco_desc("main") [&](){
+        auto rwlock = bbt::coroutine::sync::CoRWMutex::Create();
+
+        // 持有读锁，连续多次 TryWLock 超时
+        rwlock->RLock();
+
+        for (int i = 0; i < 5; ++i) {
+            int ret = rwlock->TryWLock(20);
+            BOOST_ASSERT(ret == 1);
+        }
+
+        rwlock->RUnLock();
+
+        // 释放后所有操作正常
+        BOOST_ASSERT(rwlock->TryWLock() == 0);
+        rwlock->WUnLock();
+
+        BOOST_ASSERT(rwlock->TryRLock() == 0);
+        rwlock->RUnLock();
+
+        BOOST_TEST(true);
         l.Down();
     };
 

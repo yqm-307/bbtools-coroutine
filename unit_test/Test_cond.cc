@@ -48,15 +48,11 @@ BOOST_AUTO_TEST_CASE(t_cond_multi)
         co2->Notify();
     };
 
-    // 非阻塞情况下程序最多活10s
     auto max_end_ts = bbt::core::clock::nowAfter(bbt::core::clock::milliseconds(100));
-
-    /* 开始轮询，探测完成的事件并回调通知到协程事件完成 */
     while (!bbt::core::clock::is_expired<bbt::core::clock::milliseconds>(max_end_ts))
     {
         std::this_thread::sleep_for(bbt::core::clock::milliseconds(10));
     }
-
 }
 
 BOOST_AUTO_TEST_CASE(t_cond_wait_with_timeout)
@@ -73,10 +69,7 @@ BOOST_AUTO_TEST_CASE(t_cond_wait_with_timeout)
         BOOST_CHECK_GE(end - begin, wait_ms);
     };
 
-    // 非阻塞情况下程序最多活1s
     auto max_end_ts = bbt::core::clock::nowAfter(bbt::core::clock::milliseconds(500));
-
-    /* 开始轮询，探测完成的事件并回调通知到协程事件完成 */
     while (a <= 0 && !bbt::core::clock::is_expired<bbt::core::clock::milliseconds>(max_end_ts))
         std::this_thread::sleep_for(bbt::core::clock::milliseconds(10));
 
@@ -107,6 +100,148 @@ BOOST_AUTO_TEST_CASE(t_cond_wait)
 
     l2.Wait();
     BOOST_CHECK(ncount == nmax_co);
+}
+
+// =================== P1: WaitFor(ms) ===================
+
+// WaitFor(ms) 超时后正常返回
+BOOST_AUTO_TEST_CASE(t_waitfor_timeout)
+{
+    bbt::core::thread::CountDownLatch l{1};
+    int result = -999;
+
+    bbtco [&](){
+        auto cond = sync::CoCond::Create();
+        auto begin = bbt::core::clock::gettime_mono();
+        result = cond->WaitFor(100);
+        auto elapsed = bbt::core::clock::gettime_mono() - begin;
+
+        BOOST_TEST(result != 0);     // 超时不应返回 0
+        BOOST_TEST(elapsed >= 90);    // 至少等了 ~100ms
+        BOOST_TEST(elapsed < 1000);   // 不应等太久
+        l.Down();
+    };
+
+    l.Wait();
+    BOOST_TEST(result != 0);
+}
+
+// WaitFor(ms) 在 NotifyOne 之前被唤醒
+BOOST_AUTO_TEST_CASE(t_waitfor_notifyone)
+{
+    bbt::core::thread::CountDownLatch l{1};
+    int result = -999;
+
+    bbtco [&](){
+        auto cond = sync::CoCond::Create();
+
+        bbtco [cond, &result, &l](){
+            auto begin = bbt::core::clock::gettime_mono();
+            result = cond->WaitFor(500);
+            auto elapsed = bbt::core::clock::gettime_mono() - begin;
+            BOOST_TEST(elapsed < 400); // 应该在 500ms 前被唤醒
+            l.Down();
+        };
+
+        bbtco_sleep(50);
+        cond->NotifyOne();
+    };
+
+    l.Wait();
+    BOOST_TEST(result == 0); // NotifyOne 唤醒，返回 0
+}
+
+// WaitFor(ms) 在 NotifyAll 之前被唤醒
+BOOST_AUTO_TEST_CASE(t_waitfor_notifyall)
+{
+    const int n = 50;
+    bbt::core::thread::CountDownLatch l{n};
+    std::atomic_int woken{0};
+
+    bbtco [&](){
+        auto cond = sync::CoCond::Create();
+
+        for (int i = 0; i < n; ++i) {
+            bbtco [cond, &woken, &l](){
+                int ret = cond->WaitFor(500);
+                if (ret == 0) woken++;
+                l.Down();
+            };
+        }
+
+        bbtco_sleep(100);
+        cond->NotifyAll();
+    };
+
+    l.Wait();
+    BOOST_TEST(woken == n);
+}
+
+// =================== P1: NotifyOne 空队列 ===================
+
+// NotifyOne 空队列返回 -1
+BOOST_AUTO_TEST_CASE(t_notifyone_empty)
+{
+    bbt::core::thread::CountDownLatch l{1};
+
+    bbtco [&](){
+        auto cond = sync::CoCond::Create();
+        int ret = cond->NotifyOne();
+        BOOST_TEST(ret == -1); // 空队列返回 -1
+        l.Down();
+    };
+
+    l.Wait();
+}
+
+// NotifyOne 后 WaitFor 仍可正常使用
+BOOST_AUTO_TEST_CASE(t_notifyone_empty_then_use)
+{
+    bbt::core::thread::CountDownLatch l{1};
+
+    bbtco [&](){
+        auto cond = sync::CoCond::Create();
+
+        // 空队列 NotifyOne 应该返回 -1
+        int ret = cond->NotifyOne();
+        BOOST_TEST(ret == -1);
+
+        // 之后正常 WaitFor + NotifyOne 仍然工作
+        bbtco [cond](){
+            bbtco_sleep(50);
+            cond->NotifyOne();
+        };
+
+        ret = cond->WaitFor(200);
+        BOOST_TEST(ret == 0);
+        l.Down();
+    };
+
+    l.Wait();
+}
+
+// Wait + NotifyOne 单协程
+BOOST_AUTO_TEST_CASE(t_wait_notifyone_single)
+{
+    bbt::core::thread::CountDownLatch l{1};
+    int woken = 0;
+
+    bbtco [&](){
+        auto cond = sync::CoCond::Create();
+
+        bbtco [cond, &woken, &l](){
+            cond->Wait();
+            woken = 1;
+            l.Down();
+        };
+
+        bbtco_sleep(30);
+        int ret = cond->NotifyOne();
+        BOOST_TEST(ret == 0);
+    };
+
+    l.Wait();
+    BOOST_TEST(woken == 1);
 }
 
 BOOST_AUTO_TEST_CASE(t_end)
