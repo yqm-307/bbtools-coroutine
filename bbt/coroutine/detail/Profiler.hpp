@@ -42,6 +42,9 @@ public:
 
     void                        ProfileInfo(std::string& info);
 
+    // 紧凑格式输出到 stderr，用于压测时每秒采样
+    void                        DumpStderr();
+
     struct ProcesserProfile
     {
         ProcesserId id;

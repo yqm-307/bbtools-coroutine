@@ -117,4 +117,28 @@ void Profiler::ProfileInfo(std::string& info)
     }
 }
 
+void Profiler::DumpStderr()
+{
+    auto elapsed_ms = (bbt::core::clock::now<>() - m_scheduler_begin_timestamp).count();
+    fprintf(stderr,
+        "[PROFILE] t=%llums event_reg=%llu event_trig=%llu steal=%llu co_done=%llu\n",
+        (unsigned long long)elapsed_ms,
+        (unsigned long long)m_regist_event_count.load(),
+        (unsigned long long)m_trigger_event_count.load(),
+        (unsigned long long)m_total_steal_count.load(),
+        (unsigned long long)m_total_done_co_count.load());
+
+    std::unique_lock<std::mutex> _(m_processer_map_mutex);
+    for (auto&& proc : m_processer_map) {
+        fprintf(stderr,
+            "  PID=%llu q=%zu swap=%llu steal=%llu/%llu suspend_ms=%llu\n",
+            (unsigned long long)proc.second->GetId(),
+            proc.second->GetExecutableNum(),
+            (unsigned long long)proc.second->GetContextSwapTimes(),
+            (unsigned long long)proc.second->GetStealSuccTimes(),
+            (unsigned long long)proc.second->GetStealCount(),
+            (unsigned long long)(proc.second->GetSuspendCostTime() / 1000));
+    }
+}
+
 } // namespace bbt::coroutine::detail
