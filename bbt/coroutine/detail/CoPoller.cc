@@ -40,10 +40,7 @@ std::shared_ptr<bbt::pollevent::Event> CoPoller::CreateEvent(int fd, short event
 bool CoPoller::PollOnce()
 {
     errno = 0;
-    int before_num = m_event_loop->GetEventNum();
-    bool ret = (m_event_loop->StartLoop(bbt::pollevent::EventLoopOpt::LOOP_NONBLOCK) == 0);
-
-    return (ret && m_event_loop->GetEventNum() != before_num);
+    return (m_event_loop->StartLoop(bbt::pollevent::EventLoopOpt::LOOP_NONBLOCK) == 0);
 }
 
 int CoPoller::NotifyCustomEvent(std::shared_ptr<CoPollEvent> event)
