@@ -5,7 +5,7 @@
 
 set -e
 DUR=${1:-3600}
-THREADS=${2:-2}
+THREADS=${2:-$(nproc)}
 BIN="./build/bin/benchmark_test/unified_stress"
 OUTDIR="tests/reports/$(date +%Y-%m-%d_%H-%M-%S)"
 MODULES=(comutex corwmutex cocond chan copool coroutine)
