@@ -7,7 +7,6 @@ if [ ! -d "${workpath}" ];then
 fi
 
 echo enter ${workpath}
-
 cd ${workpath}
 
 if [ -d "${workpath}/build" ];then
@@ -17,15 +16,15 @@ fi
 
 mkdir build && cd build
 
-cmake -DNEED_TEST=ON ..
+cmake .. -G Ninja -DNEED_TEST=ON -DNEED_BENCHMARK=ON
 if [ $? != 0 ];then
     echo ERROR cmake error
     exit -1
 fi
 
-make -j2
+ninja -j$(nproc)
 if [ $? != 0 ];then
-    echo ERROR make error
+    echo ERROR ninja error
     exit -1
 fi
 

@@ -1,35 +1,48 @@
-# 工作流名字
-name: do-unit-test
+# 工作流：每次 PR/提交 跑 ctest + 冒烟，合并到 main 跑 1h 并行压测
 
-# 工作流触发条件
+name: CI
+
 on:
-    pull_request:
-        branches: [main]
-    push:
-        branches: [main]
-    schedule:
-        - cron: "30 14 * * *"
-    
-# 工作流
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
 jobs:
-    job_1:
-        name: "初始化测试环境"
-        runs-on: ["self-hosted", "linux"]
-        steps: 
-            -   name: "拉取代码库"
-                uses: actions/checkout@v4
-                with:
-                    ssh-user: "yqm-307"
-                    submodules: "recursive"
-                    github-server-url: "https://github.com"
-            -   name: "编译测试文件"
-                run: pwd | xargs ./shell/workflow/unit_test/compile_code.sh
-    job_2:
-        name: "运行测试"
-        needs: [job_1]
-        runs-on: ["self-hosted", "linux"]
-        steps:
-            -   name: "运行测试"
-                run: | 
-                    cd build/unit_test
-                    ctest
+  # ── 每次提交：编译 + ctest + 冒烟 ──
+  build-and-test:
+    name: "编译 & 单元测试 & 冒烟"
+    runs-on: ["self-hosted", "linux"]
+    steps:
+      - name: "拉取代码库"
+        uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
+
+      - name: "编译"
+        run: pwd | xargs ./shell/workflow/unit_test/compile_code.sh
+
+      - name: "ctest"
+        run: cd build && ctest --output-on-failure
+
+      - name: "冒烟测试"
+        run: build/bin/unit_test/Test_smoke --log_level=test_suite
+
+  # ── 仅 push main：1h 并行压测 ──
+  stress-test:
+    name: "1h 并行疲劳压测"
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [build-and-test]
+    runs-on: ["self-hosted", "linux"]
+    timeout-minutes: 90
+    steps:
+      - name: "拉取代码库"
+        uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
+
+      - name: "编译"
+        run: pwd | xargs ./shell/workflow/unit_test/compile_code.sh
+
+      - name: "1h 并行压测"
+        run: INTERVAL=60 bash scripts/run_parallel_stress.sh 3600 2

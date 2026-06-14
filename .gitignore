@@ -32,6 +32,12 @@
 *.app
 
 build
+build_cov/
+coverage_report/
+
+# Test reports
+tests/reports/*
+!tests/reports/README.md
 **/bin
 
 tmp
