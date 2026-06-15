@@ -113,6 +113,7 @@ void Profiler::ProfileInfo(std::string& info)
                 "\t上下文切换次数："          + std::to_string(processer.second->GetContextSwapTimes()) +
                 "\t挂起时间(ms)："            + std::to_string(processer.second->GetSuspendCostTime() / 1000) +
                 "\tSteal数量(偷/被偷)："           + std::to_string(processer.second->GetStealSuccTimes()) + "/" + std::to_string(processer.second->GetStealCount()) +
+                "\t空队列循环数："                 + std::to_string(processer.second->GetStallLoopCount()) +
                 '\n';
     }
 }
@@ -131,13 +132,14 @@ void Profiler::DumpStderr()
     std::unique_lock<std::mutex> _(m_processer_map_mutex);
     for (auto&& proc : m_processer_map) {
         fprintf(stderr,
-            "  PID=%llu q=%zu swap=%llu steal=%llu/%llu suspend_ms=%llu\n",
+            "  PID=%llu q=%zu swap=%llu steal=%llu/%llu suspend_ms=%llu stall=%llu\n",
             (unsigned long long)proc.second->GetId(),
             proc.second->GetExecutableNum(),
             (unsigned long long)proc.second->GetContextSwapTimes(),
             (unsigned long long)proc.second->GetStealSuccTimes(),
             (unsigned long long)proc.second->GetStealCount(),
-            (unsigned long long)(proc.second->GetSuspendCostTime() / 1000));
+            (unsigned long long)(proc.second->GetSuspendCostTime() / 1000),
+            (unsigned long long)proc.second->GetStallLoopCount());
     }
 }
 

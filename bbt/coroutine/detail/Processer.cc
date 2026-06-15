@@ -129,6 +129,7 @@ void Processer::_Run()
             _TryGetCoroutineFromGlobal();
 
         // 对各个优先级任务进行执行，根据优先级自高到低依次执行
+        bool any_dequeued = false;
         for (auto&& p : {CO_PRIORITY_CRITICAL, CO_PRIORITY_HIGH, CO_PRIORITY_NORMAL, CO_PRIORITY_LOW})
         {
             while (true)
@@ -136,6 +137,7 @@ void Processer::_Run()
                 /* 如果取不到或者取到空的，就退出循环 */
                 if (!m_coroutine_queue[p].try_dequeue(m_running_coroutine) || m_running_coroutine == nullptr)
                     break;
+                any_dequeued = true;
 
                 AssertWithInfo(m_running_coroutine->GetStatus() != CO_RUNNING && m_running_coroutine->GetStatus() != CO_FINAL, "bad coroutine status!");
 
@@ -149,6 +151,17 @@ void Processer::_Run()
                     delete m_running_coroutine;
             }
         }
+
+        // 检测 size_approx 假阳性：认为有任务但取不到任何协程
+        if (!any_dequeued && GetExecutableNum() > 0) {
+#ifdef BBT_COROUTINE_PROFILE
+            m_stall_loop_count++;
+#endif
+        }
+
+        // 如果本周期没取到任何协程，检查全局队列
+        if (!any_dequeued)
+            _TryGetCoroutineFromGlobal();
 
         m_run_status = ProcesserStatus::PROC_SUSPEND;
         auto steal_num = g_scheduler->TryWorkSteal(shared_from_this());
@@ -245,6 +258,15 @@ uint64_t Processer::GetStealCount()
 {
 #ifdef BBT_COROUTINE_PROFILE
     return m_steal_count;
+#else
+    return 0;
+#endif
+}
+
+uint64_t Processer::GetStallLoopCount()
+{
+#ifdef BBT_COROUTINE_PROFILE
+    return m_stall_loop_count;
 #else
     return 0;
 #endif
