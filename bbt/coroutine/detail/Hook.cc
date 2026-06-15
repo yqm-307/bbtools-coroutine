@@ -1,5 +1,5 @@
 #include <stdio.h>
-#include <event2/util.h>
+#include <fcntl.h>
 #include <bbt/coroutine/detail/Hook.hpp>
 #include <bbt/coroutine/detail/Processer.hpp>
 #include <bbt/coroutine/detail/CoPoller.hpp>
@@ -18,7 +18,7 @@ int Hook_Socket(int domain, int type, int protocol)
     if (fd < 0)
         return -1;
 
-    if (evutil_make_socket_nonblocking(fd) != 0) {
+    if (fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK) != 0) {
         ::close(fd);
         return -1;
     }
@@ -103,7 +103,7 @@ int Hook_Accept(int fd, struct sockaddr *addr, socklen_t *len)
         
     }
 
-    if (evutil_make_socket_nonblocking(new_cli_fd) != 0) {
+    if (fcntl(new_cli_fd, F_SETFL, fcntl(new_cli_fd, F_GETFL, 0) | O_NONBLOCK) != 0) {
         ::close(new_cli_fd);
         new_cli_fd = -1;
     }

@@ -53,6 +53,7 @@ protected:
     uint64_t                        GetSuspendCostTime();     /* 任务执行耗时，返回微秒 */
     uint64_t                        GetStealSuccTimes(); /* 窃取他人成功次数 */
     uint64_t                        GetStealCount(); /* 被窃取次数 */
+    uint64_t                        GetStallLoopCount(); /* 空队列但size_approx非零的循环数 */
     /**
      * @brief 从Processer中窃取任务（线程安全）
      * 
@@ -87,6 +88,7 @@ private:
     bbt::core::clock::us            m_suspend_cost_times{0};
     uint64_t                        m_steal_succ_times{0};  // 偷取数量
     uint64_t                        m_steal_count{0};       // 被偷取数量
+    uint64_t                        m_stall_loop_count{0};  // 本地队列空但size_approx非零的次数
 #endif
 };
 
