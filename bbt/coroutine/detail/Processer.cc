@@ -128,11 +128,14 @@ void Processer::_Run()
         if (GetExecutableNum() <= 0)
             _TryGetCoroutineFromGlobal();
 
-        // 对各个优先级任务进行执行，根据优先级自高到低依次执行
+        // 对各个优先级任务进行执行，按加权轮转配额
+        // CRITICAL: 不限, HIGH: 128, NORMAL: 64, LOW: 16
         bool any_dequeued = false;
+        static constexpr int kPriorityQuota[] = {16, 64, 128, 999999}; // LOW, NORMAL, HIGH, CRITICAL
         for (auto&& p : {CO_PRIORITY_CRITICAL, CO_PRIORITY_HIGH, CO_PRIORITY_NORMAL, CO_PRIORITY_LOW})
         {
-            while (true)
+            int quota = kPriorityQuota[p];
+            for (int i = 0; i < quota; ++i)
             {
                 /* 如果取不到或者取到空的，就退出循环 */
                 if (!m_coroutine_queue[p].try_dequeue(m_running_coroutine) || m_running_coroutine == nullptr)
@@ -147,8 +150,13 @@ void Processer::_Run()
             m_co_swap_times++;
 #endif
                 m_running_coroutine->Resume();
-                if (m_running_coroutine->GetStatus() == CO_FINAL)
+                // MLFQ: 记录运行时长，供后续降级判断
+                m_running_coroutine->SetLastRunTimeUs(
+                    bbt::core::clock::gettime_mono<>() - m_running_coroutine_begin.load());
+                if (m_running_coroutine->GetStatus() == CO_FINAL) {
                     delete m_running_coroutine;
+                    m_running_coroutine = nullptr;
+                }
             }
         }
 
@@ -159,9 +167,12 @@ void Processer::_Run()
 #endif
         }
 
-        // 如果本周期没取到任何协程，检查全局队列
-        if (!any_dequeued)
+        // 每 CHECK_INTERVAL 轮无条件检查全局队列
+        // spin worker 会让本地队列 size_approx 始终非零
+        if (++m_global_check_counter >= kGlobalCheckInterval) {
+            m_global_check_counter = 0;
             _TryGetCoroutineFromGlobal();
+        }
 
         m_run_status = ProcesserStatus::PROC_SUSPEND;
         auto steal_num = g_scheduler->TryWorkSteal(shared_from_this());

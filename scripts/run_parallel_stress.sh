@@ -4,6 +4,7 @@
 # 用法: ./scripts/run_parallel_stress.sh [duration_s] [threads_per_module]
 
 set -e
+ulimit -c unlimited
 DUR=${1:-3600}
 THREADS=${2:-$(nproc)}
 BIN="./build/bin/benchmark_test/unified_stress"

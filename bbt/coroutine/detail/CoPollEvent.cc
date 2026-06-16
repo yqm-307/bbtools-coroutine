@@ -53,21 +53,17 @@ CoPollEvent::~CoPollEvent()
 
 int CoPollEvent::Trigger(short trigger_events)
 {
-    /**
-     * 触发事件实际操作由创建者定义，实现完全解耦。
-     * 
-     * 对于CoPoller、CoPollEvent来说，都不需要关心事件完成后
-     * 到底执行什么样的操作了，只由外部创建者定义。
-     */
-
     std::unique_lock lock{m_onevent_callback_mtx};
 
     if (m_run_status != CoPollEventStatus::POLLEVENT_LISTEN)
         return -1;
 
     m_run_status = CoPollEventStatus::POLLEVENT_TRIGGER;
-    if (_CannelAllFdEvent() != 0)
-        g_bbt_dbgp_full("");
+    // 将 Event 转移到延迟销毁队列，确保只在 Scheduler 线程（PollOnce）析构，
+    // 避免在 Processer 线程上 cancel ASIO 描述符与 Scheduler 线程 poll() 竞态。
+    if (m_event) {
+        g_bbt_poller->DeferDestroyEvent(std::move(m_event));
+    }
 
 #ifdef BBT_COROUTINE_PROFILE
     g_bbt_profiler->OnEvent_TriggerCoPollEvent();
@@ -131,8 +127,9 @@ int CoPollEvent::InitFdEvent(int fd, short events, int timeout)
     m_timeout = timeout;
     auto weakthis = weak_from_this();
     m_event = g_bbt_poller->CreateEvent(fd, events, [weakthis](int fd, short events, bbt::pollevent::EventId eventid){
-        Assert(!weakthis.expired());
+        if (weakthis.expired()) return;
         auto pthis = weakthis.lock();
+        if (pthis == nullptr) return;
         pthis->Trigger(events);
     });
 
