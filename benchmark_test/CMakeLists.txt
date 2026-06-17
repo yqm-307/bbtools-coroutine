@@ -48,3 +48,6 @@ target_link_libraries(fatigue_corwmutex ${MY_LIBS})
 
 add_executable(unified_stress unified_stress.cc)
 target_link_libraries(unified_stress ${MY_LIBS} pthread)
+
+add_executable(cocond_queue_stress cocond_queue_stress.cc)
+target_link_libraries(cocond_queue_stress ${MY_LIBS} pthread)
