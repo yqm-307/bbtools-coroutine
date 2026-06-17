@@ -31,6 +31,8 @@ Scheduler::Scheduler():
 
 Scheduler::~Scheduler()
 {
+    if (m_is_running || m_sche_thread != nullptr)
+        Stop();
 }
 
 void Scheduler::_Init()

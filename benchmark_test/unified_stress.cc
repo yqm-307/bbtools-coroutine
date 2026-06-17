@@ -137,12 +137,12 @@ int main(int argc,char**argv){
 
     printf("[unified_stress] started\n");
     for(int i=0;i<dur&&g_running;++i){
-        sleep(1);
+        std::this_thread::sleep_for(std::chrono::seconds(1));
 #ifdef BBT_COROUTINE_PROFILE
         if (i % 10 == 0) g_bbt_profiler->DumpStderr();
 #endif
     }
-    g_running=0;sleep(1);
+    g_running=0;std::this_thread::sleep_for(std::chrono::seconds(1));
     stop_all();g_scheduler->Stop();
     printf("[unified_stress] done\n");
     return 0;

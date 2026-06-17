@@ -200,7 +200,14 @@ struct Metrics {
 
     void reporter_loop(int interval_s) {
         while (reporter_running.load(std::memory_order_relaxed)) {
-            std::this_thread::sleep_for(std::chrono::seconds(interval_s));
+            // 用小步长睡眠，快速响应 stop 信号
+            auto step = std::chrono::milliseconds(100);
+            auto total = std::chrono::seconds(interval_s);
+            auto elapsed = std::chrono::milliseconds(0);
+            while (elapsed < total && reporter_running.load(std::memory_order_relaxed)) {
+                std::this_thread::sleep_for(step);
+                elapsed += step;
+            }
             if (reporter_running.load(std::memory_order_relaxed)) {
                 dump_json();
             }
