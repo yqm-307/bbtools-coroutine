@@ -25,7 +25,7 @@ BOOST_AUTO_TEST_CASE(t_readlock_basic)
 
     bbtco [rwlock, &l]()
     {
-        CoReadLock guard(*rwlock);
+        CoReadLock guard(rwlock);
         BOOST_TEST(guard.owns_lock());
         BOOST_TEST(guard.owns_lock());
         l.Down();
@@ -46,7 +46,7 @@ BOOST_AUTO_TEST_CASE(t_readlock_multi_reader)
     for (int i = 0; i < nreaders; ++i) {
         bbtco [rwlock, &readers_inside, &max_concurrent, &l]()
         {
-            CoReadLock guard(*rwlock);
+            CoReadLock guard(rwlock);
             readers_inside++;
             if (readers_inside > max_concurrent)
                 max_concurrent = readers_inside;
@@ -70,12 +70,12 @@ BOOST_AUTO_TEST_CASE(t_readlock_releases_for_write)
     bbtco [rwlock, &l, &write_ok]()
     {
         {
-            CoReadLock guard(*rwlock);
+            CoReadLock guard(rwlock);
             BOOST_TEST(guard.owns_lock());
         } // 释放读锁
 
         // 读锁释放后可以获取写锁
-        CoWriteLock wguard(*rwlock);
+        CoWriteLock wguard(rwlock);
         write_ok = true;
         l.Down();
     };
@@ -92,7 +92,7 @@ BOOST_AUTO_TEST_CASE(t_readlock_try_to_lock)
 
     bbtco [rwlock, &l]()
     {
-        CoReadLock guard(*rwlock, std::try_to_lock);
+        CoReadLock guard(rwlock, std::try_to_lock);
         BOOST_TEST(guard.owns_lock()); // 初始应成功
         l.Down();
     };
@@ -108,7 +108,7 @@ BOOST_AUTO_TEST_CASE(t_readlock_try_lock_for)
 
     bbtco [rwlock, &l]()
     {
-        CoReadLock guard(*rwlock, std::defer_lock);
+        CoReadLock guard(rwlock, std::defer_lock);
         bool ok = guard.try_lock_for(100);
         BOOST_TEST(ok);
         BOOST_TEST(guard.owns_lock());
@@ -126,7 +126,7 @@ BOOST_AUTO_TEST_CASE(t_readlock_defer_lock)
 
     bbtco [rwlock, &l]()
     {
-        CoReadLock guard(*rwlock, std::defer_lock);
+        CoReadLock guard(rwlock, std::defer_lock);
         BOOST_TEST(!guard.owns_lock());
 
         guard.lock();
@@ -150,7 +150,7 @@ BOOST_AUTO_TEST_CASE(t_readlock_move)
     {
         CoReadLock inner;
         {
-            CoReadLock outer(*rwlock);
+            CoReadLock outer(rwlock);
             BOOST_TEST(outer.owns_lock());
             inner = std::move(outer);
             BOOST_TEST(!outer.owns_lock());
@@ -172,7 +172,7 @@ BOOST_AUTO_TEST_CASE(t_writelock_basic)
 
     bbtco [rwlock, &l]()
     {
-        CoWriteLock guard(*rwlock);
+        CoWriteLock guard(rwlock);
         BOOST_TEST(guard.owns_lock());
         BOOST_TEST(guard.owns_lock());
         l.Down();
@@ -192,7 +192,7 @@ BOOST_AUTO_TEST_CASE(t_writelock_mutual_exclusion)
     // 写者 1：持锁一会儿
     bbtco [rwlock, &inside, &max_inside, &l]()
     {
-        CoWriteLock guard(*rwlock);
+        CoWriteLock guard(rwlock);
         inside = 1;
         if (inside > max_inside) max_inside = inside;
         bbtco_sleep(100);
@@ -204,7 +204,7 @@ BOOST_AUTO_TEST_CASE(t_writelock_mutual_exclusion)
     bbtco [rwlock, &inside, &max_inside, &l]()
     {
         bbtco_sleep(10);
-        CoWriteLock guard(*rwlock);
+        CoWriteLock guard(rwlock);
         inside = 1;
         if (inside > max_inside) max_inside = inside;
         bbtco_sleep(10);
@@ -224,7 +224,7 @@ BOOST_AUTO_TEST_CASE(t_writelock_try_to_lock)
 
     bbtco [rwlock, &l]()
     {
-        CoWriteLock guard(*rwlock, std::try_to_lock);
+        CoWriteLock guard(rwlock, std::try_to_lock);
         BOOST_TEST(guard.owns_lock());
         l.Down();
     };
@@ -240,7 +240,7 @@ BOOST_AUTO_TEST_CASE(t_writelock_try_to_lock_conflict)
 
     bbtco [rwlock, &l]()
     {
-        CoWriteLock guard(*rwlock);
+        CoWriteLock guard(rwlock);
         bbtco_sleep(200);
         l.Down();
     };
@@ -248,7 +248,7 @@ BOOST_AUTO_TEST_CASE(t_writelock_try_to_lock_conflict)
     bbtco [rwlock, &l]()
     {
         bbtco_sleep(10);
-        CoWriteLock guard(*rwlock, std::try_to_lock);
+        CoWriteLock guard(rwlock, std::try_to_lock);
         BOOST_TEST(!guard.owns_lock()); // 应失败，写锁已被持有
         l.Down();
     };
@@ -264,7 +264,7 @@ BOOST_AUTO_TEST_CASE(t_writelock_try_lock_for)
 
     bbtco [rwlock, &l]()
     {
-        CoWriteLock guard(*rwlock, std::defer_lock);
+        CoWriteLock guard(rwlock, std::defer_lock);
         bool ok = guard.try_lock_for(100);
         BOOST_TEST(ok);
         BOOST_TEST(guard.owns_lock());
@@ -282,7 +282,7 @@ BOOST_AUTO_TEST_CASE(t_writelock_defer_lock)
 
     bbtco [rwlock, &l]()
     {
-        CoWriteLock guard(*rwlock, std::defer_lock);
+        CoWriteLock guard(rwlock, std::defer_lock);
         BOOST_TEST(!guard.owns_lock());
 
         guard.lock();
@@ -306,7 +306,7 @@ BOOST_AUTO_TEST_CASE(t_read_then_write)
     bbtco [rwlock, &shared, &l]()
     {
         {
-            CoReadLock guard(*rwlock);
+            CoReadLock guard(rwlock);
             BOOST_TEST(shared == 0); // 读时不应有写者
             bbtco_sleep(50);
         }
@@ -315,7 +315,7 @@ BOOST_AUTO_TEST_CASE(t_read_then_write)
 
     bbtco [rwlock, &shared, &l]()
     {
-        CoWriteLock guard(*rwlock);
+        CoWriteLock guard(rwlock);
         shared = 42;
         bbtco_sleep(20);
         l.Down();
@@ -335,7 +335,7 @@ BOOST_AUTO_TEST_CASE(t_writelock_move)
     {
         CoWriteLock inner;
         {
-            CoWriteLock outer(*rwlock);
+            CoWriteLock outer(rwlock);
             inner = std::move(outer);
             BOOST_TEST(!outer.owns_lock());
         }
@@ -355,7 +355,7 @@ BOOST_AUTO_TEST_CASE(t_readlock_exception_safety)
     bbtco [rwlock, &l]()
     {
         try {
-            CoReadLock guard(*rwlock);
+            CoReadLock guard(rwlock);
             throw std::runtime_error("test");
         } catch (...) {}
         l.Down();
@@ -363,7 +363,7 @@ BOOST_AUTO_TEST_CASE(t_readlock_exception_safety)
 
     bbtco [rwlock, &l]()
     {
-        CoReadLock guard(*rwlock);
+        CoReadLock guard(rwlock);
         BOOST_TEST(guard.owns_lock());
         l.Down();
     };
@@ -380,7 +380,7 @@ BOOST_AUTO_TEST_CASE(t_writelock_exception_safety)
     bbtco [rwlock, &l]()
     {
         try {
-            CoWriteLock guard(*rwlock);
+            CoWriteLock guard(rwlock);
             throw std::runtime_error("test");
         } catch (...) {}
         l.Down();
@@ -388,7 +388,7 @@ BOOST_AUTO_TEST_CASE(t_writelock_exception_safety)
 
     bbtco [rwlock, &l]()
     {
-        CoWriteLock guard(*rwlock);
+        CoWriteLock guard(rwlock);
         BOOST_TEST(guard.owns_lock());
         l.Down();
     };
@@ -406,7 +406,7 @@ BOOST_AUTO_TEST_CASE(t_readlock_adopt_lock)
     {
         rwlock->RLock();
         {
-            CoReadLock guard(*rwlock, std::adopt_lock);
+            CoReadLock guard(rwlock, std::adopt_lock);
             BOOST_TEST(guard.owns_lock());
         }
         l.Down();
@@ -424,7 +424,7 @@ BOOST_AUTO_TEST_CASE(t_writelock_adopt_lock)
     {
         rwlock->WLock();
         {
-            CoWriteLock guard(*rwlock, std::adopt_lock);
+            CoWriteLock guard(rwlock, std::adopt_lock);
             BOOST_TEST(guard.owns_lock());
         }
         l.Down();
@@ -458,7 +458,7 @@ BOOST_AUTO_TEST_CASE(t_write_trylock_during_read)
 
     bbtco [rwlock, &l]()
     {
-        CoReadLock guard(*rwlock);
+        CoReadLock guard(rwlock);
         bbtco_sleep(100);
         l.Down();
     };
@@ -466,7 +466,7 @@ BOOST_AUTO_TEST_CASE(t_write_trylock_during_read)
     bbtco [rwlock, &l]()
     {
         bbtco_sleep(10);
-        CoWriteLock guard(*rwlock, std::try_to_lock);
+        CoWriteLock guard(rwlock, std::try_to_lock);
         BOOST_TEST(!guard.owns_lock()); // 有 reader 时写锁应失败
         l.Down();
     };

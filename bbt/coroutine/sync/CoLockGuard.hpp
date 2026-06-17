@@ -165,51 +165,51 @@ private:
 /**
  * @brief RAII 读锁守卫
  * 
- * 构造时调用 CoRWMutex::RLock()，析构时调用 RUnLock() (noexcept)。
+ * 持有 CoRWMutex::SPtr 保证锁生命周期。
+ * 构造时调用 RLock()，析构时调用 RUnLock() (noexcept)。
  * 支持 defer_lock / try_to_lock / adopt_lock / try_lock_for(ms) / 移动语义。
  * 
- * 不可拷贝，支持移动。
- * 
- * @note ReadGuard 作用域内获取写锁会触发 CoRWMutex 内部死锁检测 assert。
+ * @note ReadGuard 作用域内获取写锁会触发 CoRWMutex 内部 assert。
  */
 class CoReadLock
 {
 public:
+    using SPtr = std::shared_ptr<CoRWMutex>;
+
     CoReadLock() noexcept
         : m_mutex(nullptr)
         , m_owns(false)
     {}
 
-    explicit CoReadLock(CoRWMutex& m) noexcept(false)
-        : m_mutex(&m)
+    explicit CoReadLock(const SPtr& m) noexcept(false)
+        : m_mutex(m)
         , m_owns(false)
     {
         m_mutex->RLock();
         m_owns = true;
     }
 
-    CoReadLock(CoRWMutex& m, std::defer_lock_t) noexcept
-        : m_mutex(&m)
+    CoReadLock(const SPtr& m, std::defer_lock_t) noexcept
+        : m_mutex(m)
         , m_owns(false)
     {}
 
-    CoReadLock(CoRWMutex& m, std::try_to_lock_t) noexcept
-        : m_mutex(&m)
+    CoReadLock(const SPtr& m, std::try_to_lock_t) noexcept
+        : m_mutex(m)
         , m_owns(false)
     {
         m_owns = (m_mutex->TryRLock() == 0);
     }
 
-    CoReadLock(CoRWMutex& m, std::adopt_lock_t) noexcept
-        : m_mutex(&m)
+    CoReadLock(const SPtr& m, std::adopt_lock_t) noexcept
+        : m_mutex(m)
         , m_owns(true)
     {}
 
     CoReadLock(CoReadLock&& other) noexcept
-        : m_mutex(other.m_mutex)
+        : m_mutex(std::move(other.m_mutex))
         , m_owns(other.m_owns)
     {
-        other.m_mutex = nullptr;
         other.m_owns = false;
     }
 
@@ -217,16 +217,15 @@ public:
     {
         if (m_owns)
             m_mutex->RUnLock();
-        m_mutex = other.m_mutex;
+        m_mutex = std::move(other.m_mutex);
         m_owns = other.m_owns;
-        other.m_mutex = nullptr;
         other.m_owns = false;
         return *this;
     }
 
     ~CoReadLock() noexcept
     {
-        if (m_owns)
+        if (m_owns && m_mutex)
             m_mutex->RUnLock();
     }
 
@@ -267,61 +266,61 @@ public:
 
     bool owns_lock() const noexcept { return m_owns; }
     explicit operator bool() const noexcept { return m_owns; }
-    CoRWMutex* mutex() const noexcept { return m_mutex; }
+    SPtr mutex() const noexcept { return m_mutex; }
 
 private:
-    CoRWMutex* m_mutex;
-    bool       m_owns;
+    SPtr m_mutex;
+    bool m_owns;
 };
 
 /**
  * @brief RAII 写锁守卫
  * 
- * 构造时调用 CoRWMutex::WLock()，析构时调用 WUnLock() (noexcept)。
+ * 持有 CoRWMutex::SPtr 保证锁生命周期。
+ * 构造时调用 WLock()，析构时调用 WUnLock() (noexcept)。
  * 支持 defer_lock / try_to_lock / adopt_lock / try_lock_for(ms) / 移动语义。
  * 
- * 不可拷贝，支持移动。
- * 
- * @note 持有读锁时再获取写锁会触发 CoRWMutex 内部死锁检测 assert（不允许读锁升级）。
+ * @note 持有读锁时再获取写锁会触发 CoRWMutex 内部 assert（不允许读锁升级）。
  */
 class CoWriteLock
 {
 public:
+    using SPtr = std::shared_ptr<CoRWMutex>;
+
     CoWriteLock() noexcept
         : m_mutex(nullptr)
         , m_owns(false)
     {}
 
-    explicit CoWriteLock(CoRWMutex& m) noexcept(false)
-        : m_mutex(&m)
+    explicit CoWriteLock(const SPtr& m) noexcept(false)
+        : m_mutex(m)
         , m_owns(false)
     {
         m_mutex->WLock();
         m_owns = true;
     }
 
-    CoWriteLock(CoRWMutex& m, std::defer_lock_t) noexcept
-        : m_mutex(&m)
+    CoWriteLock(const SPtr& m, std::defer_lock_t) noexcept
+        : m_mutex(m)
         , m_owns(false)
     {}
 
-    CoWriteLock(CoRWMutex& m, std::try_to_lock_t) noexcept
-        : m_mutex(&m)
+    CoWriteLock(const SPtr& m, std::try_to_lock_t) noexcept
+        : m_mutex(m)
         , m_owns(false)
     {
         m_owns = (m_mutex->TryWLock() == 0);
     }
 
-    CoWriteLock(CoRWMutex& m, std::adopt_lock_t) noexcept
-        : m_mutex(&m)
+    CoWriteLock(const SPtr& m, std::adopt_lock_t) noexcept
+        : m_mutex(m)
         , m_owns(true)
     {}
 
     CoWriteLock(CoWriteLock&& other) noexcept
-        : m_mutex(other.m_mutex)
+        : m_mutex(std::move(other.m_mutex))
         , m_owns(other.m_owns)
     {
-        other.m_mutex = nullptr;
         other.m_owns = false;
     }
 
@@ -329,16 +328,15 @@ public:
     {
         if (m_owns)
             m_mutex->WUnLock();
-        m_mutex = other.m_mutex;
+        m_mutex = std::move(other.m_mutex);
         m_owns = other.m_owns;
-        other.m_mutex = nullptr;
         other.m_owns = false;
         return *this;
     }
 
     ~CoWriteLock() noexcept
     {
-        if (m_owns)
+        if (m_owns && m_mutex)
             m_mutex->WUnLock();
     }
 
@@ -379,11 +377,11 @@ public:
 
     bool owns_lock() const noexcept { return m_owns; }
     explicit operator bool() const noexcept { return m_owns; }
-    CoRWMutex* mutex() const noexcept { return m_mutex; }
+    SPtr mutex() const noexcept { return m_mutex; }
 
 private:
-    CoRWMutex* m_mutex;
-    bool       m_owns;
+    SPtr m_mutex;
+    bool m_owns;
 };
 
 } // namespace bbt::coroutine::sync
