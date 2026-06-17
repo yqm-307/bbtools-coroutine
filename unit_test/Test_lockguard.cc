@@ -31,7 +31,7 @@ BOOST_AUTO_TEST_CASE(t_lockguard_basic)
         bbtco [mutex, &a, begin, nsec, &l]()
         {
             while ((bbt::core::clock::gettime_mono() - begin) < nsec) {
-                CoLockGuard<CoMutex> guard(*mutex);
+                CoLockGuard<CoMutex> guard(mutex);
                 a++;
             }
             l.Down();
@@ -43,29 +43,25 @@ BOOST_AUTO_TEST_CASE(t_lockguard_basic)
 }
 
 // CoLockGuard 释放后其他协程可以获取锁
+// CoLockGuard 释放后可以重新获取锁
 BOOST_AUTO_TEST_CASE(t_lockguard_releases_lock)
 {
     auto mutex = bbtco_make_comutex();
-    int shared = 0;
-    bbt::core::thread::CountDownLatch l{2};
+    bbt::core::thread::CountDownLatch l{1};
 
-    bbtco [mutex, &shared, &l]()
+    bbtco [mutex, &l]()
     {
         {
-            CoLockGuard<CoMutex> guard(*mutex);
-            shared = 42;
-        } // guard 析构，释放锁
-        l.Down();
-    };
-
-    bbtco [mutex, &shared, &l]()
-    {
-        CoLockGuard<CoMutex> guard(*mutex);
-        BOOST_TEST(shared == 42);
+            CoLockGuard<CoMutex> guard(mutex);
+        }
+        {
+            CoLockGuard<CoMutex> guard(mutex);
+        }
         l.Down();
     };
 
     l.Wait();
+}
 }
 
 // ============ CoUniqueLock ============
@@ -87,10 +83,10 @@ BOOST_AUTO_TEST_CASE(t_unique_lock_basic)
 
     bbtco [mutex, &l]()
     {
-        CoUniqueLock<CoMutex> lock(*mutex);
+        CoUniqueLock<CoMutex> lock(mutex);
         BOOST_TEST(lock.owns_lock());
         BOOST_TEST(lock.owns_lock());
-        BOOST_TEST(lock.mutex() == mutex.get());
+        BOOST_TEST(lock.mutex() == mutex);
         l.Down();
     };
 
@@ -105,7 +101,7 @@ BOOST_AUTO_TEST_CASE(t_unique_defer_lock)
 
     bbtco [mutex, &l]()
     {
-        CoUniqueLock<CoMutex> lock(*mutex, std::defer_lock);
+        CoUniqueLock<CoMutex> lock(mutex, std::defer_lock);
         BOOST_TEST(!lock.owns_lock());
 
         lock.lock();
@@ -127,7 +123,7 @@ BOOST_AUTO_TEST_CASE(t_unique_try_to_lock)
 
     bbtco [mutex, &l]()
     {
-        CoUniqueLock<CoMutex> lock(*mutex, std::try_to_lock);
+        CoUniqueLock<CoMutex> lock(mutex, std::try_to_lock);
         // 初始状态锁是空闲的，应该成功
         BOOST_TEST(lock.owns_lock());
         l.Down();
@@ -145,7 +141,7 @@ BOOST_AUTO_TEST_CASE(t_unique_try_lock_for_timeout)
     // 协程 A：持有锁一段时间
     bbtco [mutex, &l]()
     {
-        CoUniqueLock<CoMutex> lock(*mutex);
+        CoUniqueLock<CoMutex> lock(mutex);
         BOOST_TEST(lock.owns_lock());
         bbtco_sleep(200); // 持有 200ms
         l.Down();
@@ -156,7 +152,7 @@ BOOST_AUTO_TEST_CASE(t_unique_try_lock_for_timeout)
     {
         // 等一会儿确保 A 先获得锁
         bbtco_sleep(10);
-        CoUniqueLock<CoMutex> lock(*mutex, std::defer_lock);
+        CoUniqueLock<CoMutex> lock(mutex, std::defer_lock);
         bool got = lock.try_lock_for(50);
         BOOST_TEST(!got);
         BOOST_TEST(!lock.owns_lock());
@@ -174,7 +170,7 @@ BOOST_AUTO_TEST_CASE(t_unique_try_lock_for_success)
 
     bbtco [mutex, &l]()
     {
-        CoUniqueLock<CoMutex> lock(*mutex, std::defer_lock);
+        CoUniqueLock<CoMutex> lock(mutex, std::defer_lock);
         bool got = lock.try_lock_for(500);
         BOOST_TEST(got);
         BOOST_TEST(lock.owns_lock());
@@ -194,11 +190,11 @@ BOOST_AUTO_TEST_CASE(t_unique_adopt_lock)
     {
         mutex->Lock();
         {
-            CoUniqueLock<CoMutex> lock(*mutex, std::adopt_lock);
+            CoUniqueLock<CoMutex> lock(mutex, std::adopt_lock);
             BOOST_TEST(lock.owns_lock());
         } // 析构时 UnLock
         // 验证锁已释放：可以再次获取
-        CoUniqueLock<CoMutex> lock2(*mutex);
+        CoUniqueLock<CoMutex> lock2(mutex);
         BOOST_TEST(lock2.owns_lock());
         l.Down();
     };
@@ -214,14 +210,14 @@ BOOST_AUTO_TEST_CASE(t_unique_move_ctor)
 
     bbtco [mutex, &l]()
     {
-        CoUniqueLock<CoMutex> lock1(*mutex);
+        CoUniqueLock<CoMutex> lock1(mutex);
         BOOST_TEST(lock1.owns_lock());
 
         CoUniqueLock<CoMutex> lock2(std::move(lock1));
         BOOST_TEST(!lock1.owns_lock());
         BOOST_TEST(lock1.mutex() == nullptr);
         BOOST_TEST(lock2.owns_lock());
-        BOOST_TEST(lock2.mutex() == mutex.get());
+        BOOST_TEST(lock2.mutex() == mutex);
         l.Down();
     };
 
@@ -236,7 +232,7 @@ BOOST_AUTO_TEST_CASE(t_unique_move_assign)
 
     bbtco [mutex, &l]()
     {
-        CoUniqueLock<CoMutex> lock1(*mutex);
+        CoUniqueLock<CoMutex> lock1(mutex);
         CoUniqueLock<CoMutex> lock2;
 
         lock2 = std::move(lock1);
@@ -256,7 +252,7 @@ BOOST_AUTO_TEST_CASE(t_unique_move_assign_release)
 
     bbtco [mutex, &l]()
     {
-        CoUniqueLock<CoMutex> lock1(*mutex);
+        CoUniqueLock<CoMutex> lock1(mutex);
         BOOST_TEST(lock1.owns_lock());
 
         CoUniqueLock<CoMutex> lock2;
@@ -278,7 +274,7 @@ BOOST_AUTO_TEST_CASE(t_unique_destructor_unlocks)
     bbtco [mutex, &l]()
     {
         {
-            CoUniqueLock<CoMutex> lock(*mutex);
+            CoUniqueLock<CoMutex> lock(mutex);
             BOOST_TEST(lock.owns_lock());
         } // 析构释放锁
         l.Down();
@@ -286,7 +282,7 @@ BOOST_AUTO_TEST_CASE(t_unique_destructor_unlocks)
 
     bbtco [mutex, &l]()
     {
-        CoUniqueLock<CoMutex> lock(*mutex);
+        CoUniqueLock<CoMutex> lock(mutex);
         BOOST_TEST(lock.owns_lock());
         l.Down();
     };
@@ -303,7 +299,7 @@ BOOST_AUTO_TEST_CASE(t_unique_exception_safety)
     bbtco [mutex, &l]()
     {
         try {
-            CoUniqueLock<CoMutex> lock(*mutex);
+            CoUniqueLock<CoMutex> lock(mutex);
             throw std::runtime_error("test exception");
         } catch (...) {
             // lock 析构已释放锁
@@ -313,7 +309,7 @@ BOOST_AUTO_TEST_CASE(t_unique_exception_safety)
 
     bbtco [mutex, &l]()
     {
-        CoUniqueLock<CoMutex> lock(*mutex);
+        CoUniqueLock<CoMutex> lock(mutex);
         BOOST_TEST(lock.owns_lock());
         l.Down();
     };
@@ -331,7 +327,7 @@ BOOST_AUTO_TEST_CASE(t_unique_move_then_release)
     {
         CoUniqueLock<CoMutex> inner;
         {
-            CoUniqueLock<CoMutex> outer(*mutex);
+            CoUniqueLock<CoMutex> outer(mutex);
             inner = std::move(outer);
         } // outer 析构（已不持有锁，安全）
         BOOST_TEST(inner.owns_lock());
@@ -341,7 +337,7 @@ BOOST_AUTO_TEST_CASE(t_unique_move_then_release)
     // 验证锁已释放：另一个协程可以获取
     bbtco [mutex, &l]()
     {
-        CoUniqueLock<CoMutex> lock(*mutex);
+        CoUniqueLock<CoMutex> lock(mutex);
         BOOST_TEST(lock.owns_lock());
         l.Down();
     };
@@ -358,7 +354,7 @@ BOOST_AUTO_TEST_CASE(t_lockguard_exception_safety)
     bbtco [mutex, &l]()
     {
         try {
-            CoLockGuard<CoMutex> guard(*mutex);
+            CoLockGuard<CoMutex> guard(mutex);
             throw std::runtime_error("test");
         } catch (...) {}
         l.Down();
@@ -366,7 +362,7 @@ BOOST_AUTO_TEST_CASE(t_lockguard_exception_safety)
 
     bbtco [mutex, &l]()
     {
-        CoLockGuard<CoMutex> guard(*mutex);
+        CoLockGuard<CoMutex> guard(mutex);
         BOOST_TEST(true);
         l.Down();
     };

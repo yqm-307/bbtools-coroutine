@@ -1,5 +1,6 @@
 #pragma once
 #include <bbt/core/util/Assert.hpp>
+#include <memory>
 #include <utility>
 
 namespace bbt::coroutine::sync
@@ -8,7 +9,7 @@ namespace bbt::coroutine::sync
 /**
  * @brief RAII 协程锁守卫，构造时 Lock，析构时 UnLock
  * 
- * 类似 std::lock_guard，但适用于协程同步原语（CoMutex 等）。
+ * 类似 std::lock_guard，持有 shared_ptr 保证锁生命周期。
  * 不可拷贝、不可移动。
  * 
  * 析构函数 noexcept — 异常路径下也不会抛异常。
@@ -20,28 +21,30 @@ template<typename Mutex>
 class CoLockGuard
 {
 public:
-    explicit CoLockGuard(Mutex& m) noexcept(false)
+    explicit CoLockGuard(const std::shared_ptr<Mutex>& m) noexcept(false)
         : m_mutex(m)
     {
-        m_mutex.Lock();
+        m_mutex->Lock();
     }
 
     ~CoLockGuard() noexcept
     {
-        m_mutex.UnLock();
+        if (m_mutex)
+            m_mutex->UnLock();
     }
 
     CoLockGuard(const CoLockGuard&) = delete;
     CoLockGuard& operator=(const CoLockGuard&) = delete;
 
 private:
-    Mutex& m_mutex;
+    std::shared_ptr<Mutex> m_mutex;
 };
 
 /**
  * @brief RAII 协程锁，支持延迟锁定、try_lock、移动语义
  * 
- * 类似 std::unique_lock，提供更灵活的锁管理：
+ * 类似 std::unique_lock，持有 shared_ptr 保证锁生命周期。
+ * 提供更灵活的锁管理：
  * - 延迟锁定（defer_lock）
  * - 尝试锁定（try_to_lock / try_lock_for）
  * - 移动语义（可在作用域间转移锁所有权）
@@ -60,56 +63,52 @@ public:
         , m_owns(false)
     {}
 
-    explicit CoUniqueLock(Mutex& m) noexcept(false)
-        : m_mutex(&m)
+    explicit CoUniqueLock(const std::shared_ptr<Mutex>& m) noexcept(false)
+        : m_mutex(m)
         , m_owns(false)
     {
         m_mutex->Lock();
         m_owns = true;
     }
 
-    CoUniqueLock(Mutex& m, std::defer_lock_t) noexcept
-        : m_mutex(&m)
+    CoUniqueLock(const std::shared_ptr<Mutex>& m, std::defer_lock_t) noexcept
+        : m_mutex(m)
         , m_owns(false)
     {}
 
-    CoUniqueLock(Mutex& m, std::try_to_lock_t) noexcept
-        : m_mutex(&m)
+    CoUniqueLock(const std::shared_ptr<Mutex>& m, std::try_to_lock_t) noexcept
+        : m_mutex(m)
         , m_owns(false)
     {
         m_owns = (m_mutex->TryLock() == 0);
     }
 
-    CoUniqueLock(Mutex& m, std::adopt_lock_t) noexcept
-        : m_mutex(&m)
+    CoUniqueLock(const std::shared_ptr<Mutex>& m, std::adopt_lock_t) noexcept
+        : m_mutex(m)
         , m_owns(true)
     {}
 
     CoUniqueLock(CoUniqueLock&& other) noexcept
-        : m_mutex(other.m_mutex)
+        : m_mutex(std::move(other.m_mutex))
         , m_owns(other.m_owns)
     {
-        other.m_mutex = nullptr;
         other.m_owns = false;
     }
 
     CoUniqueLock& operator=(CoUniqueLock&& other) noexcept
     {
-        if (m_owns) {
+        if (m_owns)
             m_mutex->UnLock();
-        }
-        m_mutex = other.m_mutex;
+        m_mutex = std::move(other.m_mutex);
         m_owns = other.m_owns;
-        other.m_mutex = nullptr;
         other.m_owns = false;
         return *this;
     }
 
     ~CoUniqueLock() noexcept
     {
-        if (m_owns) {
+        if (m_owns && m_mutex)
             m_mutex->UnLock();
-        }
     }
 
     CoUniqueLock(const CoUniqueLock&) = delete;
@@ -148,14 +147,12 @@ public:
     }
 
     bool owns_lock() const noexcept { return m_owns; }
-
     explicit operator bool() const noexcept { return m_owns; }
-
-    Mutex* mutex() const noexcept { return m_mutex; }
+    std::shared_ptr<Mutex> mutex() const noexcept { return m_mutex; }
 
 private:
-    Mutex* m_mutex;
-    bool   m_owns;
+    std::shared_ptr<Mutex> m_mutex;
+    bool                   m_owns;
 };
 
 } // namespace bbt::coroutine::sync
