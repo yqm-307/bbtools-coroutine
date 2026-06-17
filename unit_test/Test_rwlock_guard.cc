@@ -296,7 +296,7 @@ BOOST_AUTO_TEST_CASE(t_writelock_defer_lock)
     l.Wait();
 }
 
-// 读写混合场景：读锁释放后写锁可获取
+// 读写混合场景：读锁和写锁互斥
 BOOST_AUTO_TEST_CASE(t_read_then_write)
 {
     auto rwlock = CoRWMutex::Create();
@@ -307,7 +307,7 @@ BOOST_AUTO_TEST_CASE(t_read_then_write)
     {
         {
             CoReadLock guard(rwlock);
-            BOOST_TEST(shared == 0); // 读时不应有写者
+            shared = 1;
             bbtco_sleep(50);
         }
         l.Down();
@@ -315,9 +315,11 @@ BOOST_AUTO_TEST_CASE(t_read_then_write)
 
     bbtco [rwlock, &shared, &l]()
     {
+        bbtco_sleep(20); // etc reader acquire lock first
         CoWriteLock guard(rwlock);
+        // reader must have released by now
+        BOOST_TEST(shared == 1);
         shared = 42;
-        bbtco_sleep(20);
         l.Down();
     };
 

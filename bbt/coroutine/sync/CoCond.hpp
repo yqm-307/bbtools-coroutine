@@ -1,5 +1,6 @@
 #pragma once
-#include <bbt/core/thread/sync/Queue.hpp>
+#include <queue>
+#include <mutex>
 #include <bbt/coroutine/sync/CoWaiter.hpp>
 
 namespace bbt::coroutine::sync
@@ -48,7 +49,11 @@ public:
 protected:
     int                         _NotifyOne();
 private:
-    bbt::core::thread::Queue<CoWaiter*>         m_waiter_queue{8};
+    void                        _SysLock()   { m_mutex.lock(); }
+    void                        _SysUnLock() { m_mutex.unlock(); }
+
+    std::queue<std::shared_ptr<CoWaiter>> m_waiter_queue;
+    std::mutex                            m_mutex;
 };
 
 } // namespace bbt::coroutine::sync
