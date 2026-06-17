@@ -42,7 +42,6 @@ BOOST_AUTO_TEST_CASE(t_lockguard_basic)
     BOOST_TEST(a > 0);
 }
 
-// CoLockGuard 释放后其他协程可以获取锁
 // CoLockGuard 释放后可以重新获取锁
 BOOST_AUTO_TEST_CASE(t_lockguard_releases_lock)
 {
@@ -53,7 +52,8 @@ BOOST_AUTO_TEST_CASE(t_lockguard_releases_lock)
     {
         {
             CoLockGuard<CoMutex> guard(mutex);
-        }
+        } // guard 析构，释放锁
+        // 可以重新获取
         {
             CoLockGuard<CoMutex> guard(mutex);
         }
@@ -61,7 +61,6 @@ BOOST_AUTO_TEST_CASE(t_lockguard_releases_lock)
     };
 
     l.Wait();
-}
 }
 
 // ============ CoUniqueLock ============

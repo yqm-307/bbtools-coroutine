@@ -50,6 +50,10 @@ add_executable(Test_lockguard Test_lockguard.cc)
 target_link_libraries(Test_lockguard ${MY_LIBS})
 add_test(NAME Test_lockguard COMMAND Test_lockguard)
 
+add_executable(Test_rwlock_guard Test_rwlock_guard.cc)
+target_link_libraries(Test_rwlock_guard ${MY_LIBS})
+add_test(NAME Test_rwlock_guard COMMAND Test_rwlock_guard)
+
 add_executable(Test_defer Test_defer.cc)
 target_link_libraries(Test_defer ${MY_LIBS})
 add_test(NAME Test_defer COMMAND Test_defer)

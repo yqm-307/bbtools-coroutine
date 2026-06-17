@@ -6,6 +6,9 @@
 namespace bbt::coroutine::sync
 {
 
+// 前向声明，供 CoReadLock / CoWriteLock 使用
+class CoRWMutex;
+
 /**
  * @brief RAII 协程锁守卫，构造时 Lock，析构时 UnLock
  * 
@@ -153,6 +156,232 @@ public:
 private:
     std::shared_ptr<Mutex> m_mutex;
     bool                   m_owns;
+};
+
+// ============================================================================
+// CoRWMutex 专用 RAII 守卫
+// ============================================================================
+
+/**
+ * @brief RAII 读锁守卫
+ * 
+ * 持有 CoRWMutex::SPtr 保证锁生命周期。
+ * 构造时调用 RLock()，析构时调用 RUnLock() (noexcept)。
+ * 支持 defer_lock / try_to_lock / adopt_lock / try_lock_for(ms) / 移动语义。
+ * 
+ * @note ReadGuard 作用域内获取写锁会触发 CoRWMutex 内部 assert。
+ */
+class CoReadLock
+{
+public:
+    using SPtr = std::shared_ptr<CoRWMutex>;
+
+    CoReadLock() noexcept
+        : m_mutex(nullptr)
+        , m_owns(false)
+    {}
+
+    explicit CoReadLock(const SPtr& m) noexcept(false)
+        : m_mutex(m)
+        , m_owns(false)
+    {
+        m_mutex->RLock();
+        m_owns = true;
+    }
+
+    CoReadLock(const SPtr& m, std::defer_lock_t) noexcept
+        : m_mutex(m)
+        , m_owns(false)
+    {}
+
+    CoReadLock(const SPtr& m, std::try_to_lock_t) noexcept
+        : m_mutex(m)
+        , m_owns(false)
+    {
+        m_owns = (m_mutex->TryRLock() == 0);
+    }
+
+    CoReadLock(const SPtr& m, std::adopt_lock_t) noexcept
+        : m_mutex(m)
+        , m_owns(true)
+    {}
+
+    CoReadLock(CoReadLock&& other) noexcept
+        : m_mutex(std::move(other.m_mutex))
+        , m_owns(other.m_owns)
+    {
+        other.m_owns = false;
+    }
+
+    CoReadLock& operator=(CoReadLock&& other) noexcept
+    {
+        if (m_owns)
+            m_mutex->RUnLock();
+        m_mutex = std::move(other.m_mutex);
+        m_owns = other.m_owns;
+        other.m_owns = false;
+        return *this;
+    }
+
+    ~CoReadLock() noexcept
+    {
+        if (m_owns && m_mutex)
+            m_mutex->RUnLock();
+    }
+
+    CoReadLock(const CoReadLock&) = delete;
+    CoReadLock& operator=(const CoReadLock&) = delete;
+
+    void lock() noexcept(false)
+    {
+        AssertWithInfo(m_mutex != nullptr, "CoReadLock::lock(): no associated mutex");
+        AssertWithInfo(!m_owns, "CoReadLock::lock(): already owns the read lock");
+        m_mutex->RLock();
+        m_owns = true;
+    }
+
+    bool try_lock() noexcept
+    {
+        AssertWithInfo(m_mutex != nullptr, "CoReadLock::try_lock(): no associated mutex");
+        AssertWithInfo(!m_owns, "CoReadLock::try_lock(): already owns the read lock");
+        m_owns = (m_mutex->TryRLock() == 0);
+        return m_owns;
+    }
+
+    bool try_lock_for(int ms) noexcept
+    {
+        AssertWithInfo(m_mutex != nullptr, "CoReadLock::try_lock_for(): no associated mutex");
+        AssertWithInfo(!m_owns, "CoReadLock::try_lock_for(): already owns the read lock");
+        m_owns = (m_mutex->TryRLock(ms) == 0);
+        return m_owns;
+    }
+
+    void unlock() noexcept
+    {
+        AssertWithInfo(m_mutex != nullptr, "CoReadLock::unlock(): no associated mutex");
+        AssertWithInfo(m_owns, "CoReadLock::unlock(): does not own the read lock");
+        m_mutex->RUnLock();
+        m_owns = false;
+    }
+
+    bool owns_lock() const noexcept { return m_owns; }
+    explicit operator bool() const noexcept { return m_owns; }
+    SPtr mutex() const noexcept { return m_mutex; }
+
+private:
+    SPtr m_mutex;
+    bool m_owns;
+};
+
+/**
+ * @brief RAII 写锁守卫
+ * 
+ * 持有 CoRWMutex::SPtr 保证锁生命周期。
+ * 构造时调用 WLock()，析构时调用 WUnLock() (noexcept)。
+ * 支持 defer_lock / try_to_lock / adopt_lock / try_lock_for(ms) / 移动语义。
+ * 
+ * @note 持有读锁时再获取写锁会触发 CoRWMutex 内部 assert（不允许读锁升级）。
+ */
+class CoWriteLock
+{
+public:
+    using SPtr = std::shared_ptr<CoRWMutex>;
+
+    CoWriteLock() noexcept
+        : m_mutex(nullptr)
+        , m_owns(false)
+    {}
+
+    explicit CoWriteLock(const SPtr& m) noexcept(false)
+        : m_mutex(m)
+        , m_owns(false)
+    {
+        m_mutex->WLock();
+        m_owns = true;
+    }
+
+    CoWriteLock(const SPtr& m, std::defer_lock_t) noexcept
+        : m_mutex(m)
+        , m_owns(false)
+    {}
+
+    CoWriteLock(const SPtr& m, std::try_to_lock_t) noexcept
+        : m_mutex(m)
+        , m_owns(false)
+    {
+        m_owns = (m_mutex->TryWLock() == 0);
+    }
+
+    CoWriteLock(const SPtr& m, std::adopt_lock_t) noexcept
+        : m_mutex(m)
+        , m_owns(true)
+    {}
+
+    CoWriteLock(CoWriteLock&& other) noexcept
+        : m_mutex(std::move(other.m_mutex))
+        , m_owns(other.m_owns)
+    {
+        other.m_owns = false;
+    }
+
+    CoWriteLock& operator=(CoWriteLock&& other) noexcept
+    {
+        if (m_owns)
+            m_mutex->WUnLock();
+        m_mutex = std::move(other.m_mutex);
+        m_owns = other.m_owns;
+        other.m_owns = false;
+        return *this;
+    }
+
+    ~CoWriteLock() noexcept
+    {
+        if (m_owns && m_mutex)
+            m_mutex->WUnLock();
+    }
+
+    CoWriteLock(const CoWriteLock&) = delete;
+    CoWriteLock& operator=(const CoWriteLock&) = delete;
+
+    void lock() noexcept(false)
+    {
+        AssertWithInfo(m_mutex != nullptr, "CoWriteLock::lock(): no associated mutex");
+        AssertWithInfo(!m_owns, "CoWriteLock::lock(): already owns the write lock");
+        m_mutex->WLock();
+        m_owns = true;
+    }
+
+    bool try_lock() noexcept
+    {
+        AssertWithInfo(m_mutex != nullptr, "CoWriteLock::try_lock(): no associated mutex");
+        AssertWithInfo(!m_owns, "CoWriteLock::try_lock(): already owns the write lock");
+        m_owns = (m_mutex->TryWLock() == 0);
+        return m_owns;
+    }
+
+    bool try_lock_for(int ms) noexcept
+    {
+        AssertWithInfo(m_mutex != nullptr, "CoWriteLock::try_lock_for(): no associated mutex");
+        AssertWithInfo(!m_owns, "CoWriteLock::try_lock_for(): already owns the write lock");
+        m_owns = (m_mutex->TryWLock(ms) == 0);
+        return m_owns;
+    }
+
+    void unlock() noexcept
+    {
+        AssertWithInfo(m_mutex != nullptr, "CoWriteLock::unlock(): no associated mutex");
+        AssertWithInfo(m_owns, "CoWriteLock::unlock(): does not own the write lock");
+        m_mutex->WUnLock();
+        m_owns = false;
+    }
+
+    bool owns_lock() const noexcept { return m_owns; }
+    explicit operator bool() const noexcept { return m_owns; }
+    SPtr mutex() const noexcept { return m_mutex; }
+
+private:
+    SPtr m_mutex;
+    bool m_owns;
 };
 
 } // namespace bbt::coroutine::sync
