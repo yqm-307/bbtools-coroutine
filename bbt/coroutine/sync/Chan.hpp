@@ -24,8 +24,6 @@ namespace bbt::coroutine::sync
  *      （1）Write族函数：无法写入会挂起直到可写。
  *      （2）Read族函数：无法读取会挂起直到可读
  *  ps：无法读取的原因：缓冲区满（空）、Chan关闭
- *
- * todo：异常安全
  * 
  * @tparam TItem 元素类型，建议不要使用平凡类类型，推荐使用指针类型 
  * @tparam Max 缓冲队列最大长度，0 < Max < (1 << 32 - 1)
@@ -47,7 +45,7 @@ public:
      *  此函数会导致协程挂起，当队列缓冲区已满时，写入操作会导致协程挂起，直到读端读取元素
      *  导致可写。
      * @param item 要写入Chan的元素
-     * @return 0表示成功，-1表示失败
+     * @return 0表示成功，-1表示Chan已关闭且无数据，-2表示错误
      */
     virtual int                             Write(const ItemType& item) override;
 
@@ -56,7 +54,7 @@ public:
      *  此函数会导致协程挂起，当队列缓冲区为空时，读取操作会阻塞直到写端写入元素。
      *  此函数只允许一个写操作进入，当一个写操作正在进行时，其他写操作会失败。
      * @param item 读取元素
-     * @return 0表示成功，-1表示失败
+     * @return 0表示成功，-1表示Chan已关闭且无数据，-2表示错误
      */
     virtual int                             Read(ItemType& item) override;
 
@@ -64,14 +62,14 @@ public:
      * @brief 从Chan（有缓冲队列）中读取所有元素
      *  此函数会导致协程挂起
      * @param items 读取元素数组
-     * @return 0表示成功，-1表示失败
+     * @return 0表示成功，-1表示Chan已关闭且无数据，-2表示错误
      */
     virtual int                             ReadAll(std::vector<ItemType>& items) override;
 
     /**
      * @brief 尝试从Chan（有缓存）中读取一个元素，失败立即返回
      * @param item 读取元素对象
-     * @return 0表示成功，-1表示失败
+     * @return 0表示成功，-1表示Chan已关闭且无数据，-2表示错误
      */
     virtual int                             TryRead(ItemType& item) override;
 
@@ -79,14 +77,14 @@ public:
      * @brief 尝试从Chan（有缓存）中读取一个元素，如果无法立即读取挂起直到超时
      * @param item 
      * @param timeout 最大挂起时间
-     * @return 0表示成功，-1表示失败
+     * @return 0表示成功，-1表示Chan已关闭且无数据，-2表示错误
      */
     virtual int                             TryRead(ItemType& item, int timeout) override;
 
     /**
      * @brief 尝试向Chan（有缓存）中写入一个元素，失败立即返回
      * @param item 
-     * @return 0表示成功，-1表示失败 
+     * @return 0表示成功，-1表示Chan已关闭且无数据，-2表示错误 
      */
     virtual int                             TryWrite(const ItemType& item) override;
 
@@ -94,11 +92,21 @@ public:
      * @brief 尝试向Chan（有缓存）中写入一个元素，如果无法立即写入挂起直到超时
      * @param item 
      * @param timeout 
-     * @return 0表示成功，-1表示失败
+     * @return 0表示成功，-1表示Chan已关闭且无数据，-2表示错误
      */
     virtual int                             TryWrite(const ItemType& item, int timeout) override;
     virtual void                            Close() override;
     virtual bool                            IsClosed() override;
+
+    /**
+     * @brief 当前缓冲队列中的元素数量
+     */
+    size_t                                  size() const { return m_item_queue.size(); }
+
+    /**
+     * @brief 缓冲队列最大容量
+     */
+    size_t                                  capacity() const { return (size_t)m_max_size; }
 protected:
     /**
      * @brief 挂起协程直到可读或者eof
@@ -187,14 +195,14 @@ public:
     /**
      * @brief 向Chan中写入一个元素，阻塞直到读端读取数据
      * @param item 
-     * @return 始终返回0 
+     * @return 0表示成功，-1表示Chan已关闭且无数据，-2表示错误
      */
     virtual int                             Write(const ItemType& item) override;
 
     /**
      * @brief 从Chan中读取一个元素，阻塞直到写端写入数据
      * @param item 
-     * @return 始终返回0
+     * @return 0表示成功，-1表示Chan已关闭且无数据，-2表示错误
      */
     virtual int                             Read(ItemType& item) override;
 
@@ -204,6 +212,52 @@ private:
     std::queue<ItemType>                    m_item_cache_ref;
     uint64_t                                m_read_idx{0};
     uint64_t                                m_write_idx{0};
+};
+
+/**
+ * @brief Chan 写端 — 编译期禁止 Read
+ * 
+ * 用法：WriteChan<int, 10> w(ch);  w << 42;
+ */
+template<class TItem, int Max>
+class WriteChan : boost::noncopyable {
+public:
+    typedef typename Chan<TItem, Max>::ItemType ItemType;
+
+    explicit WriteChan(std::shared_ptr<Chan<TItem, Max>> chan) : m_chan(chan) {}
+
+    int Write(const ItemType& item)          { return m_chan->Write(item); }
+    int TryWrite(const ItemType& item)       { return m_chan->TryWrite(item); }
+    int TryWrite(const ItemType& item, int ms) { return m_chan->TryWrite(item, ms); }
+    void Close()                             { m_chan->Close(); }
+    bool IsClosed()                          { return m_chan->IsClosed(); }
+    bool operator<<(const ItemType& item)    { return *m_chan << item; }
+
+private:
+    std::shared_ptr<Chan<TItem, Max>> m_chan;
+};
+
+/**
+ * @brief Chan 读端 — 编译期禁止 Write
+ * 
+ * 用法：ReadChan<int, 10> r(ch);  r >> val;  if (r.Read(val) == -1) // closed
+ */
+template<class TItem, int Max>
+class ReadChan : boost::noncopyable {
+public:
+    typedef typename Chan<TItem, Max>::ItemType ItemType;
+
+    explicit ReadChan(std::shared_ptr<Chan<TItem, Max>> chan) : m_chan(chan) {}
+
+    int Read(ItemType& item)                 { return m_chan->Read(item); }
+    int TryRead(ItemType& item)              { return m_chan->TryRead(item); }
+    int TryRead(ItemType& item, int ms)      { return m_chan->TryRead(item, ms); }
+    int ReadAll(std::vector<ItemType>& items){ return m_chan->ReadAll(items); }
+    bool IsClosed()                          { return m_chan->IsClosed(); }
+    bool operator>>(ItemType& item)          { return *m_chan >> item; }
+
+private:
+    std::shared_ptr<Chan<TItem, Max>> m_chan;
 };
 
 } // namespace bbt::coroutine::sync
