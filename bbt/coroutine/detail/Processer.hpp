@@ -79,6 +79,7 @@ private:
 
     /* 运行时相关 */
     volatile bool                   m_is_running{true};
+    volatile bool                   m_is_shutdown{false};  // 强制关闭标志，跳过协程执行
     Coroutine::Ptr                  m_running_coroutine{nullptr};   // processer当前运行中的协程
     std::atomic_uint64_t            m_running_coroutine_begin{0};   // 当前运行协程开始执行的时间 
     static constexpr int            kGlobalCheckInterval = 4;       // 每N轮无条件检查全局队列

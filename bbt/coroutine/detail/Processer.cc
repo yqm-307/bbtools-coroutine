@@ -142,6 +142,13 @@ void Processer::_Run()
                     break;
                 any_dequeued = true;
 
+                /* 强制关闭模式：跳过协程执行，直接回收 */
+                if (m_is_shutdown) {
+                    delete m_running_coroutine;
+                    m_running_coroutine = nullptr;
+                    continue;
+                }
+
                 AssertWithInfo(m_running_coroutine->GetStatus() != CO_RUNNING && m_running_coroutine->GetStatus() != CO_FINAL, "bad coroutine status!");
 
                 // 执行前设置当前协程缓存
@@ -201,12 +208,24 @@ void Processer::Stop()
 {
     Coroutine::Ptr item = nullptr;
 
-    do {
-        m_is_running = false;
-        std::this_thread::sleep_for(bbt::core::clock::milliseconds(50));
-        m_run_cond.notify_one();
-    } while (m_run_status != ProcesserStatus::PROC_EXIT);
+    m_is_running = false;
 
+    /* 等待 _Run 循环退出（最多 5 秒） */
+    constexpr int kMaxRetries = 100;
+    for (int retry = 0; retry < kMaxRetries; ++retry) {
+        if (m_run_status == ProcesserStatus::PROC_EXIT)
+            break;
+        m_run_cond.notify_one();
+        std::this_thread::sleep_for(bbt::core::clock::milliseconds(50));
+    }
+
+    /* 超时强杀：直接回收协程 */
+    if (m_run_status != ProcesserStatus::PROC_EXIT) {
+        // 设置 shutdown 标志，_Run 循环检测到此标志时跳过协程执行
+        m_is_shutdown = true;
+        m_run_cond.notify_one();
+        std::this_thread::sleep_for(bbt::core::clock::milliseconds(100));
+    }
 
     /* 释放所有协程 */
     for (auto && it : m_coroutine_queue)
