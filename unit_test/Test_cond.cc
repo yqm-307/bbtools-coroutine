@@ -244,6 +244,19 @@ BOOST_AUTO_TEST_CASE(t_wait_notifyone_single)
     BOOST_TEST(woken == 1);
 }
 
+// 异常安全：已 Cancel 的 Waiter 不会被 Notify 唤醒
+BOOST_AUTO_TEST_CASE(t_cancelled_waiter_skipped)
+{
+    using namespace bbt::coroutine::sync;
+
+    auto waiter = CoWaiter::Create();
+    waiter->Cancel(); // 模拟异常路径取消
+
+    // Notify 应返回 -1（跳过已取消的 waiter）
+    int ret = waiter->Notify();
+    BOOST_TEST(ret == -1);
+}
+
 BOOST_AUTO_TEST_CASE(t_end)
 {
     g_scheduler->Stop();

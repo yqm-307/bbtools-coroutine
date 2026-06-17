@@ -58,6 +58,11 @@ public:
      * @return  0表示成功，-1表示事件已经触发
      */
     int                                 Notify();
+
+    /**
+     * @brief 标记此 Waiter 为已取消，Notify 将跳过
+     */
+    void                                Cancel() { m_run_status = COND_FREE; }
 protected:
     std::mutex                          m_notify_mutex;
     std::shared_ptr<detail::CoPollEvent> m_co_event{nullptr};
