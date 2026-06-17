@@ -16,8 +16,6 @@ jobs:
     steps:
       - name: "拉取代码库"
         uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
 
       - name: "编译"
         run: pwd | xargs ./shell/workflow/unit_test/compile_code.sh
@@ -38,8 +36,6 @@ jobs:
     steps:
       - name: "拉取代码库"
         uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
 
       - name: "编译"
         run: pwd | xargs ./shell/workflow/unit_test/compile_code.sh

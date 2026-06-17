@@ -40,6 +40,11 @@ std::shared_ptr<bbt::pollevent::Event> CoPoller::CreateEvent(int fd, short event
 bool CoPoller::PollOnce()
 {
     errno = 0;
+    // 在 EventLoop 线程（Scheduler）安全销毁积压的 Event
+    {
+        std::lock_guard<std::mutex> lock(m_deferred_mutex);
+        m_deferred_destroy.clear();
+    }
     return (m_event_loop->StartLoop(bbt::pollevent::EventLoopOpt::LOOP_NONBLOCK) == 0);
 }
 
@@ -47,6 +52,13 @@ int CoPoller::NotifyCustomEvent(std::shared_ptr<CoPollEvent> event)
 {
     Assert(event != nullptr);
     return event->Trigger(POLL_EVENT_CUSTOM);
+}
+
+void CoPoller::DeferDestroyEvent(std::shared_ptr<bbt::pollevent::Event> event)
+{
+    if (event == nullptr) return;
+    std::lock_guard<std::mutex> lock(m_deferred_mutex);
+    m_deferred_destroy.push_back(std::move(event));
 }
 
 std::shared_ptr<bbt::pollevent::EventLoop> CoPoller::GetEventLoop() const

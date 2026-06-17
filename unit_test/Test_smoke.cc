@@ -260,25 +260,28 @@ BOOST_AUTO_TEST_CASE(smoke_corwmutex_write_lock_unlock)
     auto& sche = detail::Scheduler::GetInstance();
     sche->Stop();
     sche->Start();
+    std::this_thread::sleep_for(std::chrono::milliseconds(1)); // 确保 Processer 启动完毕
 
     auto rwmtx = sync::CoRWMutex::Create();
     std::atomic_int shared{0};
+    std::promise<void> done;
+    auto fut = done.get_future();
 
     sche->RegistCoroutineTask([&]() {
         rwmtx->WLock();
         shared = 42;
         rwmtx->WUnLock();
-    });
 
-    sche->RegistCoroutineTask([&]() {
         rwmtx->WLock();
         shared = shared + 1;
         rwmtx->WUnLock();
+        done.set_value();
     });
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    sche->Stop();
+    // 等待协程执行完毕，最多 3 秒
+    BOOST_REQUIRE(fut.wait_for(std::chrono::seconds(3)) == std::future_status::ready);
 
+    sche->Stop();
     BOOST_CHECK_EQUAL(shared, 43);
 }
 

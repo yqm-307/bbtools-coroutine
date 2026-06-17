@@ -59,6 +59,7 @@ public:
      */
     int                                 Notify();
 protected:
+    std::mutex                          m_notify_mutex;
     std::shared_ptr<detail::CoPollEvent> m_co_event{nullptr};
     volatile CoCondStatus               m_run_status{COND_DEFAULT};
 };

@@ -36,10 +36,16 @@ public:
 
     /* 线程安全的，多次调用仅第一次有效 */
     int                             NotifyCustomEvent(std::shared_ptr<CoPollEvent> event);
+
+    /* 延迟销毁 Event —— 在 Scheduler 线程安全执行 */
+    void                            DeferDestroyEvent(std::shared_ptr<bbt::pollevent::Event> event);
+
     std::shared_ptr<bbt::pollevent::EventLoop>
                                     GetEventLoop() const;
 private:
     std::shared_ptr<bbt::pollevent::EventLoop> m_event_loop{nullptr};
+    std::vector<std::shared_ptr<bbt::pollevent::Event>> m_deferred_destroy;
+    std::mutex                      m_deferred_mutex;
 };
 
 }

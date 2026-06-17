@@ -81,6 +81,8 @@ private:
     volatile bool                   m_is_running{true};
     Coroutine::Ptr                  m_running_coroutine{nullptr};   // processer当前运行中的协程
     std::atomic_uint64_t            m_running_coroutine_begin{0};   // 当前运行协程开始执行的时间 
+    static constexpr int            kGlobalCheckInterval = 4;       // 每N轮无条件检查全局队列
+    int                             m_global_check_counter{0};
 
     // XXX 可以优化到profiler中
 #ifdef BBT_COROUTINE_PROFILE

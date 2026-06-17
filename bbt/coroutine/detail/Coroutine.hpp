@@ -77,6 +77,13 @@ public:
     size_t                          GetStackSize() const noexcept;
     void                            OnException() noexcept;
 
+    /** MLFQ 调度支持 */
+    uint64_t                        GetLastRunTimeUs() const noexcept { return m_last_run_us; }
+    void                            SetLastRunTimeUs(uint64_t us) { m_last_run_us = us; }
+    int                             GetMlfqDemotions() const noexcept { return m_mlfq_demotions; }
+    void                            IncrementDemotions() { m_mlfq_demotions++; }
+    void                            ResetDemotions() { m_mlfq_demotions = 0; }
+
     /**
      * YieldUnitl事件
      * 
@@ -142,6 +149,8 @@ private:
     CoroutineOnYieldCallback        m_co_onyield_callback{nullptr};
 
     int                             m_last_resume_event{-1};    // 最后一次导致此协程唤醒的事件
+    uint64_t                        m_last_run_us{0};           // 上次运行时长（微秒），用于 MLFQ
+    int                             m_mlfq_demotions{0};        // MLFQ 连续降级次数
 };
 
 }

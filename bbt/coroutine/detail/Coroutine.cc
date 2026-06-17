@@ -237,6 +237,20 @@ void Coroutine::OnCoPollEvent(int event, int custom_key)
 {
     CoroutinePriority priority = CO_PRIORITY_NORMAL;
 
+    // MLFQ: 运行时长超过时间片 → 降级以让出 CPU 给其他协程
+    constexpr uint64_t kMlfqTimeSliceUs = 1000; // 1ms
+    if (m_last_run_us > kMlfqTimeSliceUs)
+    {
+        if (m_mlfq_demotions < 3)
+            m_mlfq_demotions++;
+        priority = CO_PRIORITY_LOW;
+    }
+    else if (m_mlfq_demotions > 0)
+    {
+        // 运行时间收敛 → 逐步恢复优先级
+        m_mlfq_demotions--;
+    }
+
     Assert(m_await_event != nullptr);
 
     m_last_resume_event = event;
@@ -245,7 +259,7 @@ void Coroutine::OnCoPollEvent(int event, int custom_key)
     g_bbt_dbgp_full(("[CoEvent:Trigger] co=" + std::to_string(GetId()) + " trigger_event=" + std::to_string(event) + " id=" + std::to_string(m_await_event->GetId()) + " customkey=" + std::to_string(custom_key)).c_str());
     m_await_event = nullptr;
 
-    // 超时任务优先级高一些
+    // 超时任务优先级最高，覆盖 MLFQ 判定
     if (event & EventOpt::TIMEOUT)
         priority = CO_PRIORITY_CRITICAL;
 
