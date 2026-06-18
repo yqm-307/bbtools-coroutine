@@ -52,7 +52,8 @@ int Chan<TItem, Max>::Write(const ItemType& item)
     while (m_item_queue.size() >= (size_t)m_max_size) {
         auto enable_write_cond = _CreateAndPushEnableWriteCond();
 
-        if (_WaitUntilEnableWrite(enable_write_cond, [&lock](){ lock.unlock(); return true; }) != 0)
+        lock.unlock();
+        if (_WaitUntilEnableWrite(enable_write_cond, [](){ return true; }) != 0)
             return -2;
 
         if (IsClosed())
@@ -88,7 +89,8 @@ int Chan<TItem, Max>::Read(ItemType& item)
     std::unique_lock<std::mutex> lock(m_item_queue_mutex);
 
     while (m_item_queue.empty() && !IsClosed()) {
-        if (_WaitUntilEnableRead([&lock](){ lock.unlock(); return true; }) != 0)
+        lock.unlock();
+        if (_WaitUntilEnableRead([](){ return true; }) != 0)
             return -2;
         lock.lock();
     }
@@ -120,7 +122,8 @@ int Chan<TItem, Max>::ReadAll(std::vector<ItemType>& items)
     std::unique_lock<std::mutex> lock(m_item_queue_mutex);
 
     while (m_item_queue.empty() && !IsClosed()) {
-        if (_WaitUntilEnableRead([&lock](){ lock.unlock(); return true; }) != 0)
+        lock.unlock();
+        if (_WaitUntilEnableRead([](){ return true; }) != 0)
             return -2;
         lock.lock();
     }
@@ -170,9 +173,10 @@ int Chan<TItem, Max>::TryWrite(const ItemType& item, int timeout)
             return 1;  // 超时
 
         auto enable_write_cond = _CreateAndPushEnableWriteCond();
+        lock.unlock();
         int ret = _WaitUntilEnableWriteOrTimeout(
             enable_write_cond, remaining,
-            [&lock](){ lock.unlock(); return true; });
+            [](){ return true; });
 
         if (ret != 0)
             return (ret == 1) ? 1 : -2;
@@ -229,8 +233,9 @@ int Chan<TItem, Max>::TryRead(ItemType& item, int timeout)
     std::unique_lock<std::mutex> lock(m_item_queue_mutex);
 
     while (m_item_queue.empty() && !IsClosed()) {
+        lock.unlock();
         if (_WaitUntilEnableReadOrTimeout(timeout,
-                [&lock](){ lock.unlock(); return true; }) != 0)
+                [](){ return true; }) != 0)
             return -2;
 
         lock.lock();
@@ -330,18 +335,6 @@ int Chan<TItem, Max>::_WaitUntilEnableReadOrTimeout(
     return m_enable_read_cond->WaitWithTimeoutAndCallback(timeout_ms, cb);
 }
 
-template<class TItem, int Max>
-void Chan<TItem, Max>::_Lock()
-{
-    m_item_queue_mutex.lock();
-}
-
-template<class TItem, int Max>
-void Chan<TItem, Max>::_UnLock()
-{
-    m_item_queue_mutex.unlock();
-}
-
 // ============================================================
 // stream operators
 // ============================================================
@@ -394,8 +387,9 @@ int Chan<TItem, 0>::Write(const ItemType& item)
 
     auto enable_write_cond = BaseType::_CreateAndPushEnableWriteCond();
 
+    lock.unlock();
     if (BaseType::_WaitUntilEnableWrite(enable_write_cond,
-            [&lock](){ lock.unlock(); return true; }) != 0)
+            [](){ return true; }) != 0)
         return -2;
 
     return 0;
@@ -419,8 +413,9 @@ int Chan<TItem, 0>::Read(ItemType& item)
     std::unique_lock<std::mutex> lock(BaseType::m_item_queue_mutex);
 
     while (m_write_idx <= m_read_idx && !IsClosed()) {
+        lock.unlock();
         if (BaseType::_WaitUntilEnableRead(
-                [&lock](){ lock.unlock(); return true; }) != 0)
+                [](){ return true; }) != 0)
             return -2;
         lock.lock();
     }

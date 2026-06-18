@@ -149,9 +149,6 @@ protected:
 
     /* 创建一个可写事件 */
     CoWaiter::SPtr                            _CreateAndPushEnableWriteCond();
-
-    void                                    _Lock();
-    void                                    _UnLock();
 protected:
     const int                               m_max_size{-1};
     std::queue<ItemType>                    m_item_queue;
@@ -263,3 +260,4 @@ private:
 } // namespace bbt::coroutine::sync
 
 #include <bbt/coroutine/sync/__TChan.hpp>
+
