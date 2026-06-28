@@ -77,7 +77,7 @@ public:
      * @brief 尝试从Chan（有缓存）中读取一个元素，如果无法立即读取挂起直到超时
      * @param item 
      * @param timeout 最大挂起时间
-     * @return 0表示成功，-1表示Chan已关闭且无数据，-2表示错误
+     * @return 0表示成功，1表示超时，-1表示Chan已关闭且无数据，-2表示错误
      */
     virtual int                             TryRead(ItemType& item, int timeout) override;
 
@@ -92,7 +92,7 @@ public:
      * @brief 尝试向Chan（有缓存）中写入一个元素，如果无法立即写入挂起直到超时
      * @param item 
      * @param timeout 
-     * @return 0表示成功，-1表示Chan已关闭且无数据，-2表示错误
+     * @return 0表示成功，1表示超时，-1表示Chan已关闭且无数据，-2表示错误
      */
     virtual int                             TryWrite(const ItemType& item, int timeout) override;
     virtual void                            Close() override;
@@ -101,7 +101,7 @@ public:
     /**
      * @brief 当前缓冲队列中的元素数量
      */
-    size_t                                  size() const { return m_item_queue.size(); }
+    size_t                                  size() const { std::lock_guard<std::mutex> lock(m_item_queue_mutex); return m_item_queue.size(); }
 
     /**
      * @brief 缓冲队列最大容量

@@ -72,31 +72,50 @@ int Chan<TItem, Max>::Write(const ItemType& item)
 template<class TItem, int Max>
 int Chan<TItem, Max>::Read(ItemType& item)
 {
-    // 已关闭且缓冲空 → 直接返回关闭
+    std::unique_lock<std::mutex> lock(m_item_queue_mutex);
+
+    if (IsClosed() && m_item_queue.empty())
+        return -1;
+
+    // Fast path: data already available — CAS needed for mutual exclusion
+    if (!m_item_queue.empty()) {
+        bool expect = false;
+        if (!m_is_reading.compare_exchange_strong(expect, true))
+            return -2;
+        ChanReadGuard guard{m_is_reading};
+
+        item = m_item_queue.front();
+        m_item_queue.pop();
+        _OnEnableWrite();
+        return 0;
+    }
+
+    // Slow path: wait for writer. CAS m_is_reading under lock
+    // so that writer's _OnEnableRead() Notify cannot race with our CoWaiter setup.
     bool expect = false;
     if (!m_is_reading.compare_exchange_strong(expect, true))
         return -2;
-
     ChanReadGuard guard{m_is_reading};
 
-    if (IsClosed()) {
-        std::lock_guard<std::mutex> lock(m_item_queue_mutex);
-        if (m_item_queue.empty())
-            return -1;
-        // 关闭了但还有缓冲数据 → 继续读
+    // Double-check after CAS — writer may have pushed between our first check and CAS
+    if (!m_item_queue.empty()) {
+        item = m_item_queue.front();
+        m_item_queue.pop();
+        _OnEnableWrite();
+        return 0;
     }
-
-    std::unique_lock<std::mutex> lock(m_item_queue_mutex);
 
     while (m_item_queue.empty() && !IsClosed()) {
         lock.unlock();
-        if (_WaitUntilEnableRead([](){ return true; }) != 0)
-            return -2;
+        // Use timeout-based wait as safety net:
+        // if Notify() races and is lost, the 10ms timeout triggers a queue re-check.
+        int ret = _WaitUntilEnableReadOrTimeout(10, [](){ return true; });
         lock.lock();
+        if (ret != 0 && ret != 1)
+            return -2;
     }
 
     if (m_item_queue.empty()) {
-        // IsClosed() 必然为 true
         return -1;
     }
 
@@ -113,19 +132,48 @@ int Chan<TItem, Max>::Read(ItemType& item)
 template<class TItem, int Max>
 int Chan<TItem, Max>::ReadAll(std::vector<ItemType>& items)
 {
+    std::unique_lock<std::mutex> lock(m_item_queue_mutex);
+
+    if (IsClosed() && m_item_queue.empty())
+        return -1;
+
+    // Fast path: data already available
+    if (!m_item_queue.empty()) {
+        bool expect = false;
+        if (!m_is_reading.compare_exchange_strong(expect, true))
+            return -2;
+        ChanReadGuard guard{m_is_reading};
+
+        while (!m_item_queue.empty()) {
+            items.push_back(m_item_queue.front());
+            m_item_queue.pop();
+            _OnEnableWrite();
+        }
+        return 0;
+    }
+
+    // Slow path: wait for writer
     bool expect = false;
     if (!m_is_reading.compare_exchange_strong(expect, true))
         return -2;
-
     ChanReadGuard guard{m_is_reading};
 
-    std::unique_lock<std::mutex> lock(m_item_queue_mutex);
+    // Double-check
+    if (!m_item_queue.empty()) {
+        while (!m_item_queue.empty()) {
+            items.push_back(m_item_queue.front());
+            m_item_queue.pop();
+            _OnEnableWrite();
+        }
+        return 0;
+    }
 
     while (m_item_queue.empty() && !IsClosed()) {
         lock.unlock();
-        if (_WaitUntilEnableRead([](){ return true; }) != 0)
-            return -2;
+        int ret = _WaitUntilEnableReadOrTimeout(10, [](){ return true; });
         lock.lock();
+        if (ret != 0 && ret != 1)
+            return -2;
     }
 
     if (m_item_queue.empty())
@@ -230,15 +278,21 @@ int Chan<TItem, Max>::TryRead(ItemType& item, int timeout)
 
     ChanReadGuard guard{m_is_reading};
 
+    auto start = bbt::core::clock::gettime_mono();
     std::unique_lock<std::mutex> lock(m_item_queue_mutex);
 
     while (m_item_queue.empty() && !IsClosed()) {
-        lock.unlock();
-        if (_WaitUntilEnableReadOrTimeout(timeout,
-                [](){ return true; }) != 0)
-            return -2;
+        int elapsed = bbt::core::clock::gettime_mono() - start;
+        int remaining = timeout - elapsed;
+        if (remaining <= 0)
+            return 1;  // 超时
 
+        lock.unlock();
+        int ret = _WaitUntilEnableReadOrTimeout(remaining,
+                [](){ return true; });
         lock.lock();
+        if (ret != 0 && ret != 1)
+            return -2;
     }
 
     if (m_item_queue.empty())

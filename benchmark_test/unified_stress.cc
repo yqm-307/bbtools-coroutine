@@ -82,7 +82,7 @@ static void stress_chan_close(){
     // 测试 Close 后读缓冲语义：Close 不应丢弃数据，读空后才返回 -1
     static Chan<uint64_t,500> g_close_buf;
     static std::atomic_bool g_phase1_done{false};
-    static const int n_writers=3, n_readers=5, n_fill=400;
+    static const int n_fill=400;
 
     // Phase 1: 填充缓冲 → Close → 读者应能读完
     bbtco_ref{
