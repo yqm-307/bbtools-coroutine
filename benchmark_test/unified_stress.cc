@@ -78,6 +78,30 @@ static void stress_chan(){
     for(int i=0;i<3;++i)bbtco_ref{uint64_t v;while(g_running){g_ch_nb.Read(v);g_mt_chan.chan_reads++;cpu_yield();g_mt_chan.ops_total++;};};
 }
 
+static void stress_chan_close(){
+    // 测试 Close 后读缓冲语义：Close 不应丢弃数据，读空后才返回 -1
+    static Chan<uint64_t,500> g_close_buf;
+    static std::atomic_bool g_phase1_done{false};
+    static const int n_fill=400;
+
+    // Phase 1: 填充缓冲 → Close → 读者应能读完
+    bbtco_ref{
+        for(int i=0;i<n_fill;++i) g_close_buf.Write(i);
+        g_close_buf.Close();
+        g_phase1_done=true;
+    };
+    bbtco_ref{
+        while(!g_phase1_done) bbtco_sleep(1);
+        uint64_t v; int n=0; int ret=0;
+        while((ret=g_close_buf.Read(v))==0){
+            n++; g_mt_chan.ops_total++;
+        }
+        // ret == -1: 关闭+空 ✅
+        if(ret==-1) g_mt_chan.chan_reads++;
+        else g_mt_chan.errors++;
+    };
+}
+
 static void stress_copool(){
     g_ps_pool=bbtco_make_copool(20);
     bbtco_ref{while(g_running){g_ps_pool->Submit([](){volatile int x=0;for(int j=0;j<100;++j)x+=j;});g_mt_copool.pool_tasks++;g_mt_copool.ops_total++;bbtco_sleep(1);};};
@@ -124,6 +148,7 @@ int main(int argc,char**argv){
     RUN_MOD(corwmutex);
     RUN_MOD(cocond);
     RUN_MOD(chan);
+    RUN_MOD(chan_close);
     RUN_MOD(copool);
     RUN_MOD(coroutine);
 #undef RUN_MOD

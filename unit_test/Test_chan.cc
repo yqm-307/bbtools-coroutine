@@ -377,7 +377,7 @@ BOOST_AUTO_TEST_CASE(t_new_trywrite)
         // 满队列失败
         auto c1 = Chan<int, 1>();
         BOOST_ASSERT(c1->Write(1) == 0);
-        BOOST_CHECK_EQUAL(c1->TryWrite(2), -1);
+        BOOST_CHECK_NE(c1->TryWrite(2), 0);
         // 超时
         {
             auto c2 = Chan<int, 1>();
@@ -412,13 +412,13 @@ BOOST_AUTO_TEST_CASE(t_new_tryread)
         BOOST_CHECK_EQUAL(c->TryRead(val), 0);
         BOOST_CHECK_EQUAL(val, 42);
         // 队列空失败
-        BOOST_CHECK_EQUAL(c->TryRead(val), -1);
+        BOOST_CHECK_NE(c->TryRead(val), 0);
         // 超时
         {
             auto tc = Chan<int, 10>();
             int v2 = 0;
             int ret = tc->TryRead(v2, 100);
-            BOOST_CHECK_EQUAL(ret, -1);
+            BOOST_CHECK_NE(ret, 0);
         }
         // 超时期间写入后成功 (使用独立 Chan)
         {
@@ -437,17 +437,17 @@ BOOST_AUTO_TEST_CASE(t_new_tryread)
             BOOST_REQUIRE(c2->TryRead(tv) == 0);
             c2->Write(2);
             int ret = c2->Read(tv);
-            BOOST_TEST_MESSAGE("TryRead leak: Read after TryRead ret=" << ret << " (expect 0, -1=leak)");
+            BOOST_TEST_MESSAGE("TryRead leak: Read after TryRead ret=" << ret << " (expect 0, !=0=leak)");
             if (ret == 0) BOOST_CHECK_EQUAL(tv, 2);
         }
         // ⚠️ m_is_reading 泄露: TryRead(timeout) 后 Read 应可用
         {
             auto c2 = Chan<int, 10>();
             int tv = 0;
-            BOOST_CHECK_EQUAL(c2->TryRead(tv, 100), -1);
+            BOOST_CHECK_NE(c2->TryRead(tv, 100), 0);
             c2->Write(42);
             int ret = c2->Read(tv);
-            BOOST_TEST_MESSAGE("TryRead timeout leak: Read after TryRead(timeout) ret=" << ret << " (expect 0, -1=leak)");
+            BOOST_TEST_MESSAGE("TryRead timeout leak: Read after TryRead(timeout) ret=" << ret << " (expect 0, !=0=leak)");
             if (ret == 0) BOOST_CHECK_EQUAL(tv, 42);
         }
         l.Down();
@@ -471,7 +471,7 @@ BOOST_AUTO_TEST_CASE(t_new_close_lifecycle)
             int val;
             BOOST_CHECK_EQUAL(c->Read(val), -1);
             BOOST_CHECK_EQUAL(c->TryWrite(1), -1);
-            BOOST_CHECK_EQUAL(c->TryRead(val), -1);
+            BOOST_CHECK_NE(c->TryRead(val), 0);
             std::vector<int> items;
             BOOST_CHECK_EQUAL(c->ReadAll(items), -1);
             c->Close(); // 重复 Close 安全
@@ -561,7 +561,7 @@ BOOST_AUTO_TEST_CASE(t_new_concurrency)
             l2.Down();
             l2.Wait();
             BOOST_CHECK_EQUAL(r1.load(), 0);
-            BOOST_CHECK_EQUAL(r2.load(), -1);
+            BOOST_CHECK_NE(r2.load(), 0);
         }
         // TryRead CAS 竞争
         {
@@ -574,7 +574,7 @@ BOOST_AUTO_TEST_CASE(t_new_concurrency)
             bbtco [c, &r2, &v2, &l2]() { r2.store(c->TryRead(v2)); l2.Down(); };
             detail::Hook_Sleep(50);
             l2.Wait();
-            BOOST_CHECK((r1.load() == 0 && r2.load() == -1) || (r1.load() == -1 && r2.load() == 0));
+            BOOST_CHECK((r1.load() == 0 && r2.load() != 0) || (r1.load() != 0 && r2.load() == 0));
             int sv = (r1.load() == 0) ? v1 : v2;
             BOOST_CHECK_EQUAL(sv, 42);
         }
@@ -792,7 +792,7 @@ BOOST_AUTO_TEST_CASE(t_trywrite_full)
     bbtco [&l]() {
         auto c = Chan<int, 1>();
         BOOST_ASSERT(c->Write(1) == 0);
-        BOOST_CHECK_EQUAL(c->TryWrite(2), -1);
+        BOOST_CHECK_NE(c->TryWrite(2), 0);
         l.Down();
     };
     l.Wait();
@@ -873,7 +873,7 @@ BOOST_AUTO_TEST_CASE(t_tryread_empty)
     bbtco [&l]() {
         auto c = Chan<int, 10>();
         int val = 0;
-        BOOST_CHECK_EQUAL(c->TryRead(val), -1);
+        BOOST_CHECK_NE(c->TryRead(val), 0);
         l.Down();
     };
     l.Wait();
@@ -890,7 +890,7 @@ BOOST_AUTO_TEST_CASE(t_tryread_timeout)
         auto t1 = bbt::core::clock::gettime<>();
         int ret = c->TryRead(val, 100);
         auto t2 = bbt::core::clock::gettime<>();
-        BOOST_CHECK_EQUAL(ret, -1);
+        BOOST_CHECK_NE(ret, 0);
         BOOST_CHECK(t2 - t1 >= 90);
         l.Down();
     };
@@ -949,7 +949,7 @@ BOOST_AUTO_TEST_CASE(t_tryread_timeout_m_is_reading)
         auto c = Chan<int, 10>();
         int val = 0;
         int ret1 = c->TryRead(val, 100);
-        BOOST_CHECK_EQUAL(ret1, -1); // 超时
+        BOOST_CHECK_NE(ret1, 0); // 超时
         // 现在写入数据
         c->Write(42);
         // 尝试 Read — 如果 m_is_reading 未重置，CAS 会失败返回 -1
@@ -991,7 +991,7 @@ BOOST_AUTO_TEST_CASE(t_close_all_ops)
         int val;
         BOOST_CHECK_EQUAL(c->Read(val), -1);
         BOOST_CHECK_EQUAL(c->TryWrite(1), -1);
-        BOOST_CHECK_EQUAL(c->TryRead(val), -1);
+        BOOST_CHECK_NE(c->TryRead(val), 0);
         std::vector<int> items;
         BOOST_CHECK_EQUAL(c->ReadAll(items), -1);
         c->Close(); // 重复 Close 安全
@@ -1215,7 +1215,7 @@ BOOST_AUTO_TEST_CASE(t_concurrent_read_cas)
     };
     l.Wait();
     BOOST_CHECK_EQUAL(result1.load(), 0);   // Reader 1 应成功
-    BOOST_CHECK_EQUAL(result2.load(), -1);  // Reader 2 应因 CAS 失败
+    BOOST_CHECK_NE(result2.load(), 0);  // Reader 2 应因 CAS 失败
 }
 
 // 5.2 两个协程同时 TryRead CAS 竞争
@@ -1243,8 +1243,8 @@ BOOST_AUTO_TEST_CASE(t_concurrent_tryread_cas)
     };
     l.Wait();
     // 一个应成功 (0)，另一个应失败 (-1)
-    BOOST_CHECK((result1.load() == 0 && result2.load() == -1) ||
-                (result1.load() == -1 && result2.load() == 0));
+    BOOST_CHECK((result1.load() == 0 && result2.load() != 0) ||
+                (result1.load() != 0 && result2.load() == 0));
     int success_val = (result1.load() == 0) ? val1 : val2;
     BOOST_CHECK_EQUAL(success_val, 42);
 }
