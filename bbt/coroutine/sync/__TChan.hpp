@@ -417,10 +417,11 @@ int Chan<TItem, 0>::Read(ItemType& item)
 
     while (m_write_idx <= m_read_idx && !IsClosed()) {
         lock.unlock();
-        if (BaseType::_WaitUntilEnableRead(
-                [](){ return true; }) != 0)
-            return -2;
+        int ret = BaseType::_WaitUntilEnableReadOrTimeout(500,
+                [](){ return true; });
         lock.lock();
+        if (ret != 0 && ret != 1)
+            return -2;
     }
 
     if (m_write_idx <= m_read_idx)
