@@ -1,4 +1,11 @@
-# 工作流：每次 PR/提交 跑 ctest + 冒烟，合并到 main 跑 1h 并行压测
+# CI：bbtools-coroutine 三级门禁流水线
+#
+# Layer 1 (每次 PR/commit): 编译 → ctest → Test_smoke → Test_reliability      ~90s
+# Layer 2 (每次 PR):        快速性能回归检查（unified_stress 45s/模块）        ~5min
+# Layer 3 (push main only): 1h 并行疲劳压测 + 记录新基线                       ~70min
+#
+# 契约参考: docs/testing-contract-spec.md §4
+# ADR:      docs/adr/0001-testing-contract.md
 
 name: CI
 
@@ -8,25 +15,73 @@ on:
   push:
     branches: [main]
 
+env:
+  BUILD_DIR: ${{ github.workspace }}/build
+  BASELINE_DIR: ${{ github.workspace }}/tests/baselines
+
 jobs:
-  # ── 每次提交：编译 + ctest + 冒烟 ──
+  # ════════════════════════════════════════════════════════
+  # Layer 1: 编译 + 单元测试 + 冒烟测试 + 可靠性测试
+  # 每次 PR/commit 必跑，~90s
+  # ════════════════════════════════════════════════════════
   build-and-test:
-    name: "编译 & 单元测试 & 冒烟"
+    name: "编译 & 单元测试"
     runs-on: ["self-hosted", "linux"]
     steps:
       - name: "拉取代码库"
         uses: actions/checkout@v4
 
       - name: "编译"
-        run: pwd | xargs ./shell/workflow/unit_test/compile_code.sh
+        run: |
+          rm -rf build && mkdir build && cd build
+          cmake .. -G Ninja -DNEED_TEST=ON -DNEED_BENCHMARK=ON
+          ninja -j$(nproc)
 
-      - name: "ctest"
-        run: cd build && ctest --output-on-failure
+      - name: "ctest（全部单元测试）"
+        run: cd build && timeout --signal=KILL 280 ctest --timeout 30 --output-on-failure
+        timeout-minutes: 5
 
-      - name: "冒烟测试"
+      - name: "冒烟测试（Test_smoke）"
         run: build/bin/unit_test/Test_smoke --log_level=test_suite
 
-  # ── 仅 push main：1h 并行压测 ──
+      - name: "可靠性测试（Test_reliability）"
+        run: build/bin/unit_test/Test_reliability --log_level=test_suite
+
+  # ════════════════════════════════════════════════════════
+  # Layer 2: 快速性能回归检查（仅 PR）
+  # 每模块 45s 串行，~5min
+  # ════════════════════════════════════════════════════════
+  perf-regression:
+    name: "性能回归检查"
+    if: github.event_name == 'pull_request'
+    needs: [build-and-test]
+    runs-on: ["self-hosted", "linux"]
+    timeout-minutes: 15
+    steps:
+      - name: "拉取代码库"
+        uses: actions/checkout@v4
+
+      - name: "编译（复用 build 产物？不 — 独立 build 目录保证一致性）"
+        run: |
+          rm -rf build && mkdir build && cd build
+          cmake .. -G Ninja -DNEED_TEST=ON -DNEED_BENCHMARK=ON
+          ninja -j$(nproc)
+
+      - name: "快速性能回归检查"
+        run: python3 scripts/ci_perf_check.py --threads=2 --duration=45
+
+      - name: "上传压测日志"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-regression-logs
+          path: /tmp/asan_report.*
+          if-no-files-found: ignore
+          retention-days: 3
+
+  # ════════════════════════════════════════════════════════
+  # Layer 3: 1h 并行疲劳压测 + 基线记录（仅 push main）
+  # ════════════════════════════════════════════════════════
   stress-test:
     name: "1h 并行疲劳压测"
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -38,7 +93,62 @@ jobs:
         uses: actions/checkout@v4
 
       - name: "编译"
-        run: pwd | xargs ./shell/workflow/unit_test/compile_code.sh
+        run: |
+          rm -rf build && mkdir build && cd build
+          cmake .. -G Ninja -DNEED_TEST=ON -DNEED_BENCHMARK=ON
+          ninja -j$(nproc)
 
       - name: "1h 并行压测"
         run: INTERVAL=60 bash scripts/run_parallel_stress.sh 3600 2
+
+      - name: "上传压测报告"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stress-test-report
+          path: tests/reports/latest/
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: "记录性能基线"
+        if: success()
+        run: |
+          python3 scripts/record_baseline.py record --threads=2 --dur=60 --quick
+          echo "Baseline recorded:"
+          ls -la tests/baselines/*/
+
+      - name: "上传基线"
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-baseline
+          path: tests/baselines/
+          retention-days: 30
+
+  # ════════════════════════════════════════════════════════
+  # Layer 2b: Sanitizer 检查（仅 workflow_dispatch 手动触发）
+  # ASAN+UBSAN 构建，每模块 10min，~1h
+  # ════════════════════════════════════════════════════════
+  sanitizer-check:
+    name: "Sanitizer 检查（ASAN+UBSAN）"
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ["self-hosted", "linux"]
+    timeout-minutes: 90
+    steps:
+      - name: "拉取代码库"
+        uses: actions/checkout@v4
+
+      - name: "构建 Sanitizer 版"
+        run: bash scripts/build_sanitizer.sh build
+
+      - name: "运行 Sanitizer 测试（6 模块 × 10min）"
+        run: bash scripts/build_sanitizer.sh run 600
+
+      - name: "上传 ASAN 报告"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sanitizer-reports
+          path: /tmp/asan_report.*
+          if-no-files-found: warn
+          retention-days: 7
