@@ -1,4 +1,23 @@
-# 工作流：每次 PR/提交 跑 ctest + 冒烟，合并到 main 跑 1h 并行压测
+# 三级门禁 CI 流水线
+#
+# Layer 1  build-and-test   ── 编译 + ctest + Test_smoke + Test_reliability (~90s)
+#   └─ PR 触发 + push main 触发
+# Layer 2  perf-regression  ── unified_stress 6模块快速回归 + 基线对比 (~5min)
+#   └─ PR 触发 (needs Layer 1)
+# Layer 3  stress-test      ── 1h 并行疲劳压测 + 记录新基线 (~70min)
+#   └─ push main 触发 (needs Layer 1)
+#
+# workflow_dispatch: sanitizer-check ── ASAN+UBSAN 构建 + 全模块压测 (~1h)
+#   └─ 手动触发
+#
+# 门禁阈值 (ADR D6):
+#   <10%      → PASS
+#   10%~20%   → WARN  (拦截PR，需ADR)
+#   >20%      → FAIL  (拦截PR，升级事故)
+#   CoCond >30% → FAIL
+#   死锁冻结   → FAIL
+#   lock_avg_us +>20% → WARN
+#   无基线     → PASS_NO_BASELINE (首次运行)
 
 name: CI
 
@@ -7,17 +26,34 @@ on:
     branches: [main]
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: '运行模式'
+        required: false
+        default: 'sanitizer'
+        type: choice
+        options:
+          - sanitizer
+          - stress-only
+          - perf-only
 
 jobs:
-  # ── 每次提交：编译 + ctest + 冒烟 ──
+  # ═══════════════════════════════════════════════════
+  # Layer 1: 编译 + ctest + 冒烟 + 可靠性
+  # ═══════════════════════════════════════════════════
   build-and-test:
-    name: "编译 & 单元测试 & 冒烟"
+    name: "编译 & 单元测试 (Layer 1)"
     runs-on: ["self-hosted", "linux"]
+    timeout-minutes: 10
+    outputs:
+      build_ok: ${{ steps.build.outcome == 'success' }}
     steps:
       - name: "拉取代码库"
         uses: actions/checkout@v4
 
       - name: "编译"
+        id: build
         run: pwd | xargs ./shell/workflow/unit_test/compile_code.sh
 
       - name: "ctest"
@@ -26,10 +62,49 @@ jobs:
       - name: "冒烟测试"
         run: build/bin/unit_test/Test_smoke --log_level=test_suite
 
-  # ── 仅 push main：1h 并行压测 ──
+      - name: "可靠性测试"
+        run: build/bin/unit_test/Test_reliability --log_level=test_suite
+
+  # ═══════════════════════════════════════════════════
+  # Layer 2: 性能回归 (PR only)
+  # ═══════════════════════════════════════════════════
+  perf-regression:
+    name: "性能回归检查 (Layer 2)"
+    if: github.event_name == 'pull_request'
+    needs: [build-and-test]
+    runs-on: ["self-hosted", "linux"]
+    timeout-minutes: 15
+    steps:
+      - name: "拉取代码库"
+        uses: actions/checkout@v4
+
+      - name: "编译 (含 benchmark)"
+        run: pwd | xargs ./shell/workflow/unit_test/compile_code.sh
+
+      - name: "性能回归检查"
+        id: perf
+        run: python3 scripts/ci_perf_check.py --dur=45 --threads=2
+        continue-on-error: true
+
+      - name: "检查结果"
+        run: |
+          EXIT=${{ steps.perf.outcome == 'success' && 0 || steps.perf.conclusion == 'failure' && 2 || 1 }}
+          if [ "$EXIT" = "2" ]; then
+            echo "::error::Performance regression FAIL (>{20}% decline)"
+            exit 2
+          elif [ "$EXIT" = "1" ]; then
+            echo "::warning::Performance regression WARN (>{10}% decline)"
+          fi
+          exit 0  # WARN 不阻塞 CI，仅标注
+
+  # ═══════════════════════════════════════════════════
+  # Layer 3: 1h 疲劳压测 (push main only)
+  # ═══════════════════════════════════════════════════
   stress-test:
-    name: "1h 并行疲劳压测"
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    name: "1h 并行疲劳压测 (Layer 3)"
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'stress-only')
     needs: [build-and-test]
     runs-on: ["self-hosted", "linux"]
     timeout-minutes: 90
@@ -37,8 +112,45 @@ jobs:
       - name: "拉取代码库"
         uses: actions/checkout@v4
 
-      - name: "编译"
+      - name: "编译 (含 benchmark)"
         run: pwd | xargs ./shell/workflow/unit_test/compile_code.sh
 
       - name: "1h 并行压测"
         run: INTERVAL=60 bash scripts/run_parallel_stress.sh 3600 2
+
+      - name: "更新性能基线"
+        run: python3 scripts/record_baseline.py record --quick
+
+      - name: "上传压测日志"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stress-logs
+          path: /tmp/stress_*.log
+          retention-days: 7
+
+  # ═══════════════════════════════════════════════════
+  # Sanitizer 检查 (手动触发)
+  # ═══════════════════════════════════════════════════
+  sanitizer-check:
+    name: "ASAN + UBSan 检查"
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'sanitizer'
+    runs-on: ["self-hosted", "linux"]
+    timeout-minutes: 120
+    steps:
+      - name: "拉取代码库"
+        uses: actions/checkout@v4
+
+      - name: "构建 ASAN+UBSAN"
+        run: bash scripts/build_sanitizer.sh build
+
+      - name: "运行全模块 sanitizer"
+        run: bash scripts/build_sanitizer.sh run 600
+
+      - name: "上传 ASAN 报告"
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: asan-reports
+          path: /tmp/asan_report.*
+          retention-days: 14

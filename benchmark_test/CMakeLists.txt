@@ -51,3 +51,6 @@ target_link_libraries(unified_stress ${MY_LIBS} pthread)
 
 add_executable(cocond_queue_stress cocond_queue_stress.cc)
 target_link_libraries(cocond_queue_stress ${MY_LIBS} pthread)
+
+add_executable(micro_co_switch micro_co_switch.cc)
+target_link_libraries(micro_co_switch ${MY_LIBS} pthread)
