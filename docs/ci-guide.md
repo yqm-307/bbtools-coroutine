@@ -115,6 +115,7 @@ Test_co_rwmutex        Test_coevent     Test_copool                Test_smoke
 **产物：**
 - 汇总报告 `tests/reports/<timestamp>/summary.txt` — 各模块最终 ops + errors
 - 每模块独立日志 `tests/reports/<timestamp>/<module>.log`
+- 当前 CI 不自动上传产物（reports 仅保留在 runner 本地磁盘），需手动从 runner 拉取
 
 ---
 
@@ -177,6 +178,8 @@ Test project /path/to/build
 - ops > 0 且 errors = 0 → 正常
 - ops = 0 → 冻结（协程全员卡死），需排查
 - errors > 0 → CoCond 的 timeout 丢失，检查调度公平性
+
+**性能回归：** CI 目前不做自动性能回归检测（无基线对比）。若需判定回归，对比该模块历史最近的压测 ops 数据——下降 >30% 需排查。未来可引入性能基线自动对比。
 
 ---
 
@@ -259,7 +262,7 @@ ASAN+UBSAN 用于检测 use-after-free、buffer overflow 等：
 ```bash
 # 构建
 mkdir build_san && cd build_san
-cmake .. -DCMAKE_BUILD_TYPE=Debug -DNEED_BENCHMARK=ON \
+cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Debug -DNEED_BENCHMARK=ON \
   -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -g" \
   -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
 ninja -j$(nproc)
@@ -412,7 +415,7 @@ target_link_libraries(Test_my_module ${MY_LIBS})
 add_test(NAME Test_my_module COMMAND Test_my_module)
 ```
 
-其中 `MY_LIBS` 变量统一管理依赖（`bbt_coroutine` + `boost_unit_test_framework`）。
+其中 `MY_LIBS` 变量统一管理依赖（`bbt_coroutine` + `boost_unit_test_framework` + `boost_test_executor_monitor`）。
 
 **验证：** 重新编译后 `ctest --output-on-failure` 检查新测试是否通过。
 
