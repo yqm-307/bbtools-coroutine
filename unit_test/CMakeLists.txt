@@ -73,3 +73,7 @@ add_test(NAME Test_copool COMMAND Test_copool)
 add_executable(Test_smoke Test_smoke.cc)
 target_link_libraries(Test_smoke ${MY_LIBS})
 add_test(NAME Test_smoke COMMAND Test_smoke)
+
+add_executable(Test_reliability Test_reliability.cc)
+target_link_libraries(Test_reliability ${MY_LIBS})
+add_test(NAME Test_reliability COMMAND Test_reliability)

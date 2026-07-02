@@ -3,13 +3,18 @@
 #include <boost/test/included/unit_test.hpp>
 
 #include <bbt/coroutine/coroutine.hpp>
+#include <thread>
 
 
 BOOST_AUTO_TEST_SUITE(CoRWMutexTest)
 
 BOOST_AUTO_TEST_CASE(t_start_scheduler)
 {
+    // 使用安全的协程栈大小，避免 ASAN 检测到的 stack-buffer-overflow
+    // （默认 12KB 在某些协程操作中不足，导致间歇性 crash）
+    g_bbt_coroutine_config->m_cfg_stack_size = 64 * 1024;  // 64KB
     g_scheduler->Start();
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
 }
 
 /* 测试读锁非阻塞 */
@@ -434,6 +439,9 @@ BOOST_AUTO_TEST_CASE(t_rwlock_multi_co_stress)
 BOOST_AUTO_TEST_CASE(t_stop_scheduler)
 {
     g_scheduler->Stop();
+    // 等待所有 processer 线程完全退出，避免 Boost.Test 全局析构竞态
+    // （未加等待时 Test_co_rwmutex 间歇性 segfault @0x2b8, ~20% 失败率）
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

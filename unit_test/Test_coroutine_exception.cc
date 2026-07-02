@@ -46,6 +46,9 @@ struct ScopedExceptionHandler
     ~ScopedExceptionHandler()
     {
         g_bbt_coroutine_config->m_ext_coevent_exception_callback = previous;
+        // 等待可能正在执行的 callback 完成（它持有 this->guard）
+        // 消除 TOCTOU 竞态：析构 ↔ callback 正在执行
+        std::lock_guard<std::mutex> lock(guard);
     }
 
     std::vector<std::string> Snapshot() const
