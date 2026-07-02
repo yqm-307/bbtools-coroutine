@@ -812,7 +812,13 @@ BOOST_AUTO_TEST_CASE(t_EX_02_chan_close_raii_guard)
 
     int val = 0;
     BOOST_TEST(ch.Write(999) == -1);
-    BOOST_TEST(ch.Read(val) == -1);
+    // Read 可能在 CAS m_is_reading 竞争时返回 -2（另一个 reader 仍在执行）
+    // Close 后重试直到返回 -1（channel 已关闭+队列空）
+    int ret, attempts = 0;
+    while ((ret = ch.Read(val)) == -2 && attempts++ < 20) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    BOOST_TEST(ret == -1);
 
     BOOST_TEST_MESSAGE("[EX-02] writes=" << write_results.load()
         << " reads=" << read_results.load()

@@ -18,7 +18,7 @@ using namespace bbt::coroutine::detail;
 
 namespace
 {
-struct ScopedExceptionHandler
+struct ScopedExceptionHandler : std::enable_shared_from_this<ScopedExceptionHandler>
 {
     ExceptionHandleCallback previous;
     std::vector<std::string> messages;
@@ -29,26 +29,34 @@ struct ScopedExceptionHandler
         notify(std::move(on_notify))
     {
         previous = g_bbt_coroutine_config->m_ext_coevent_exception_callback;
-        g_bbt_coroutine_config->m_ext_coevent_exception_callback = [this](const bbt::core::errcode::IErrcode& err) {
+    }
+
+    // 安装 callback（必须在 shared_ptr 管理后调用，for weak_ptr capture）
+    void Install()
+    {
+        std::weak_ptr<ScopedExceptionHandler> wp = shared_from_this();
+        g_bbt_coroutine_config->m_ext_coevent_exception_callback = [wp](const bbt::core::errcode::IErrcode& err) {
+            auto sp = wp.lock();
+            if (!sp) return;  // handler 已析构 — 安全忽略
+
             {
-                std::lock_guard<std::mutex> lock(guard);
-                messages.emplace_back(err.What());
+                std::lock_guard<std::mutex> lock(sp->guard);
+                sp->messages.emplace_back(err.What());
             }
 
-            if (notify)
-                notify();
+            if (sp->notify)
+                sp->notify();
 
-            if (previous)
-                previous(err);
+            if (sp->previous)
+                sp->previous(err);
         };
     }
 
     ~ScopedExceptionHandler()
     {
+        // 恢复 previous — 注意：callback 已捕获 weak_ptr，不再引用裸 this
+        // 无需 lock_guard — 无法再产生 UAF（weak_ptr::lock 提供保护）
         g_bbt_coroutine_config->m_ext_coevent_exception_callback = previous;
-        // 等待可能正在执行的 callback 完成（它持有 this->guard）
-        // 消除 TOCTOU 竞态：析构 ↔ callback 正在执行
-        std::lock_guard<std::mutex> lock(guard);
     }
 
     std::vector<std::string> Snapshot() const
@@ -99,7 +107,7 @@ BOOST_AUTO_TEST_CASE(t_coroutine_throw_without_handler)
     auto status_future = status_promise.get_future();
     std::atomic_bool status_set{false};
 
-    ScopedExceptionHandler handler([&]() {
+    auto handler = std::make_shared<ScopedExceptionHandler>([&]() {
         if (status_set.exchange(true))
             return;
 
@@ -109,6 +117,7 @@ BOOST_AUTO_TEST_CASE(t_coroutine_throw_without_handler)
         else
             status_promise.set_value(CoroutineStatus::CO_DEFAULT);
     });
+    handler->Install();
 
     g_scheduler->RegistCoroutineTask([]() {
         throw std::runtime_error("co panic");
@@ -118,7 +127,7 @@ BOOST_AUTO_TEST_CASE(t_coroutine_throw_without_handler)
     BOOST_REQUIRE(wait_result == std::future_status::ready);
 
     auto status = status_future.get();
-    auto messages = handler.Snapshot();
+    auto messages = handler->Snapshot();
 
     BOOST_REQUIRE_EQUAL(messages.size(), 1u);
     BOOST_CHECK_EQUAL(messages.front(), std::string("co panic"));
