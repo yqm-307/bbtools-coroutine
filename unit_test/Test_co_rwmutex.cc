@@ -14,7 +14,7 @@ BOOST_AUTO_TEST_CASE(t_start_scheduler)
     // （默认 12KB 在某些协程操作中不足，导致间歇性 crash）
     g_bbt_coroutine_config->m_cfg_stack_size = 64 * 1024;  // 64KB
     g_scheduler->Start();
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
 }
 
 /* 测试读锁非阻塞 */

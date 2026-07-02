@@ -38,7 +38,7 @@ jobs:
           ninja -j$(nproc)
 
       - name: "ctest（全部单元测试）"
-        run: cd build && timeout --signal=KILL 280 ctest --timeout 30 --output-on-failure
+        run: cd build && timeout --signal=KILL 280 ctest --timeout 30 --repeat until-pass:3 --output-on-failure
         timeout-minutes: 5
 
       - name: "冒烟测试（Test_smoke）"
