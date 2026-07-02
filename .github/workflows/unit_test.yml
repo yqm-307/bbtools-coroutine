@@ -38,7 +38,14 @@ jobs:
           ninja -j$(nproc)
 
       - name: "ctest（全部单元测试）"
-        run: cd build && timeout --signal=KILL 280 ctest --timeout 30 --repeat until-pass:3 --output-on-failure
+        run: |
+          cd build
+          # 重试最多 3 次，应对间歇性 flaky 测试（如 Test_co_rwmutex 的 scheduler 线程问题）
+          for i in 1 2 3; do
+            timeout --signal=KILL 280 ctest --timeout 30 --output-on-failure && exit 0
+            echo "ctest attempt $i failed, retrying..."
+          done
+          exit 1
         timeout-minutes: 5
 
       - name: "冒烟测试（Test_smoke）"
