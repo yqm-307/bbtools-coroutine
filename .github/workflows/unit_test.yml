@@ -40,13 +40,15 @@ jobs:
       - name: "ctest（全部单元测试）"
         run: |
           cd build
-          # 重试最多 3 次，应对间歇性 flaky 测试（如 Test_co_rwmutex 的 scheduler 线程问题）
+          # 重试最多 3 次，应对间歇性 flaky 测试
+          # 注意：CI 环境性能较差，ctest 耗时显著高于本地（~180s vs ~60s）
+          # 用 step 级 timeout-minutes 控制总时长，不过度限制单次 ctest
           for i in 1 2 3; do
-            timeout --signal=KILL 280 ctest --timeout 45 --output-on-failure && exit 0
+            ctest --timeout 60 --output-on-failure && exit 0
             echo "ctest attempt $i failed, retrying..."
           done
           exit 1
-        timeout-minutes: 5
+        timeout-minutes: 10
 
       - name: "冒烟测试（Test_smoke）"
         run: build/bin/unit_test/Test_smoke --log_level=test_suite
