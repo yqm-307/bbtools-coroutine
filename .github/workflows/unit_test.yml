@@ -37,6 +37,14 @@ jobs:
           cmake .. -G Ninja -DNEED_TEST=ON -DNEED_BENCHMARK=ON
           ninja -j$(nproc)
 
+      - name: "采集 runner 调度能力"
+        if: always()
+        run: |
+          printf 'runner=%s\n' "$RUNNER_NAME"
+          nproc
+          ulimit -r || true
+          grep -E 'Cap(Prm|Eff|Bnd)' /proc/self/status || true
+
       - name: "ctest（全部单元测试）"
         run: |
           cd build
@@ -51,10 +59,12 @@ jobs:
         timeout-minutes: 10
 
       - name: "冒烟测试（Test_smoke）"
-        run: build/bin/unit_test/Test_smoke --log_level=test_suite
+        run: timeout --signal=TERM --kill-after=10s 90s build/bin/unit_test/Test_smoke --log_level=test_suite
+        timeout-minutes: 2
 
       - name: "可靠性测试（Test_reliability）"
-        run: build/bin/unit_test/Test_reliability --log_level=test_suite
+        run: timeout --signal=TERM --kill-after=10s 120s build/bin/unit_test/Test_reliability --log_level=test_suite
+        timeout-minutes: 3
 
   # ════════════════════════════════════════════════════════
   # Layer 2: 快速性能回归检查（仅 PR）
