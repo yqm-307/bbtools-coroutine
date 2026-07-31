@@ -4,8 +4,8 @@ on:
     workflow_dispatch:
     # schedule 默认在默认分支工作
     schedule:
-        # 每周5下午5点半
-        -   cron: "30 17 * * 5"
+        # 每周五 17:30（UTC+8）→ 09:30 UTC
+        -   cron: "30 9 * * 5"
 
 env:
     MEMCHECK_EXEC_PATH: build/bin/benchmark_test/mem_check_test
