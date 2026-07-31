@@ -26,6 +26,7 @@ BOOST_AUTO_TEST_CASE(t_poller_timeout_event_single)
 
     BOOST_ASSERT(event->InitFdEvent(-1, bbt::pollevent::EventOpt::TIMEOUT, timeout_ms) == 0);
     BOOST_ASSERT(event->Regist() == 0);
+    BOOST_REQUIRE(!event->CommitPark());
 
     while (count != 1)
     {
@@ -71,6 +72,7 @@ BOOST_AUTO_TEST_CASE(t_poller_timerout_event_multi)
         /* 初始化并注册事件 */
         BOOST_ASSERT(event->InitFdEvent(-1, bbt::pollevent::EventOpt::TIMEOUT, 500) == 0);
         BOOST_ASSERT(event->Regist() == 0);
+        BOOST_REQUIRE(!event->CommitPark());
         events.push_back(event);
     }
 
@@ -111,6 +113,7 @@ BOOST_AUTO_TEST_CASE(t_poller_timerout_event_multi_thread)
 
                 BOOST_ASSERT(event->InitFdEvent(-1, bbt::pollevent::EventOpt::TIMEOUT, m_timeout_ms) == 0);
                 BOOST_ASSERT(event->Regist() == 0);
+                BOOST_REQUIRE(!event->CommitPark());
 
                 events_mutex.lock();
                 events.push_back(event);
@@ -120,20 +123,20 @@ BOOST_AUTO_TEST_CASE(t_poller_timerout_event_multi_thread)
         threads.push_back(t);
     }
 
-    // 非阻塞情况下程序最多活10s
-    auto max_end_ts = bbt::core::clock::nowAfter(bbt::core::clock::seconds(2));
-
-    /* 开始轮询，探测完成的事件并回调通知到协程事件完成 */
-    while (!bbt::core::clock::is_expired<bbt::core::clock::milliseconds>(max_end_ts))
-    {
-        CoPoller::GetInstance()->PollOnce();
-        std::this_thread::sleep_for(bbt::core::clock::microseconds(2));
-    }
-
     for (auto&& item : threads)
     {
         if (item->joinable())
             item->join();
+    }
+
+    // 非阻塞情况下程序最多活10s
+    auto max_end_ts = bbt::core::clock::nowAfter(bbt::core::clock::seconds(2));
+
+    /* 所有注册线程完成后，单线程轮询并回调通知到协程事件完成 */
+    while (!bbt::core::clock::is_expired<bbt::core::clock::milliseconds>(max_end_ts))
+    {
+        CoPoller::GetInstance()->PollOnce();
+        std::this_thread::sleep_for(bbt::core::clock::microseconds(2));
     }
 
     BOOST_CHECK_EQUAL(count, 10000);

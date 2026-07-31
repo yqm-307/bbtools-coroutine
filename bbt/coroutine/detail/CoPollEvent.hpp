@@ -42,27 +42,26 @@ public:
     int                             Trigger(short trigger_events);
     int                             Regist();
     int                             UnRegist();
+    bool                            CommitPark();
 
 protected:
-    // int                             _RegistCustomEvent();
     int                             _RegistFdEvent();
     int                             _CannelAllFdEvent();
-
-    void                            _OnListen();
-    void                            _OnFinal();
+    int                             _Complete(short trigger_events);
     static CoPollEventId            _GenerateId();
 private:
     CoroutineId                     m_co_id{0};
     std::shared_ptr<bbt::pollevent::Event>
                                     m_event{nullptr};
+    int                             m_fd{-1};
+    short                           m_listen_events{0};
     int                             m_timeout{-1};
     bool                            m_has_custom_event{false};
     int                             m_custom_key{-1};
     CoPollEventId                   m_event_id{BBT_COROUTINE_INVALID_COPOLLEVENT_ID};
 
     CoPollEventCallback             m_onevent_callback{nullptr};
-    CoPollEventStatus               m_run_status{CoPollEventStatus::POLLEVENT_DEFAULT};
-    std::mutex                      m_onevent_callback_mtx;
+    std::atomic<uint64_t>           m_state{PackCoPollEventState(CoPollEventPhase::INITED)};
 };
 
 }

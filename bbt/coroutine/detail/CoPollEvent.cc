@@ -1,5 +1,7 @@
 #include <stdio.h>
 #include <fcntl.h>
+#include <exception>
+#include <string>
 #include <bbt/core/util/Assert.hpp>
 #include <bbt/core/clock/Clock.hpp>
 #include <bbt/core/log/DebugPrint.hpp>
@@ -20,16 +22,16 @@ int TransformToPollEventType(short pollevent_type, bool has_custom)
     int ret = 0x0;
     if (pollevent_type & pollevent::EventOpt::READABLE)
         ret |= PollEventType::POLL_EVENT_READABLE;
-    
+
     if (pollevent_type & pollevent::EventOpt::WRITEABLE)
         ret |= PollEventType::POLL_EVENT_WRITEABLE;
 
     if (pollevent_type & pollevent::EventOpt::TIMEOUT)
         ret |= PollEventType::POLL_EVENT_TIMEOUT;
-    
+
     if (has_custom)
         ret |= PollEventType::POLL_EVENT_CUSTOM;
-    
+
     return ret;
 }
 
@@ -44,72 +46,45 @@ CoPollEvent::CoPollEvent(CoroutineId id, const CoPollEventCallback& cb):
     m_onevent_callback(cb)
 {
     Assert(m_onevent_callback != nullptr);
-    m_run_status = CoPollEventStatus::POLLEVENT_INITED;
 }
 
 CoPollEvent::~CoPollEvent()
 {
+    // 已 arm 的 Event 只能在 PollOnce 线程析构，避免与 event loop 竞态。
+    _CannelAllFdEvent();
 }
 
 int CoPollEvent::Trigger(short trigger_events)
 {
-    std::unique_lock lock{m_onevent_callback_mtx};
-
-    if (m_run_status != CoPollEventStatus::POLLEVENT_LISTEN)
+    if (trigger_events == 0)
         return -1;
 
-    m_run_status = CoPollEventStatus::POLLEVENT_TRIGGER;
-    // 将 Event 转移到延迟销毁队列，确保只在 Scheduler 线程（PollOnce）析构，
-    // 避免在 Processer 线程上 cancel ASIO 描述符与 Scheduler 线程 poll() 竞态。
-    if (m_event) {
-        g_bbt_poller->DeferDestroyEvent(std::move(m_event));
+    uint64_t state = m_state.load(std::memory_order_acquire);
+    for (;;)
+    {
+        const auto phase = GetCoPollEventPhase(state);
+        if (phase == CoPollEventPhase::INITED ||
+            phase == CoPollEventPhase::ARMING ||
+            phase == CoPollEventPhase::ARMED)
+        {
+            const uint64_t pending = PackCoPollEventState(CoPollEventPhase::PENDING, trigger_events);
+            if (m_state.compare_exchange_weak(state, pending,
+                                              std::memory_order_acq_rel,
+                                              std::memory_order_acquire))
+                return 0;
+            continue;
+        }
+
+        if (phase != CoPollEventPhase::PARKED)
+            return -1;
+
+        const uint64_t triggering = PackCoPollEventState(CoPollEventPhase::TRIGGERING,
+                                                           trigger_events);
+        if (m_state.compare_exchange_weak(state, triggering,
+                                          std::memory_order_acq_rel,
+                                          std::memory_order_acquire))
+            return _Complete(trigger_events);
     }
-
-#ifdef BBT_COROUTINE_PROFILE
-    g_bbt_profiler->OnEvent_TriggerCoPollEvent();
-#endif
-#ifdef BBT_COROUTINE_STRINGENT_DEBUG
-    // g_bbt_dbgmgr->Check_Trigger(GetId());
-    g_bbt_dbgmgr->OnEvent_TriggerEvent(shared_from_this());
-#endif
-
-    std::exception_ptr pending_exception{nullptr};
-    if (m_onevent_callback != nullptr) {
-        BBTATTR_COMM_UNUSED int event = TransformToPollEventType(trigger_events, trigger_events & POLL_EVENT_CUSTOM);
-        AssertWithInfo(event > 0, "may be has a bug! trigger event must greater then 0!"); // 事件触发必须有原因
-        lock.unlock();
-
-        try
-        {
-            m_onevent_callback(shared_from_this(), trigger_events, m_custom_key);
-        }
-        catch(const std::exception& e)
-        {
-            if (g_bbt_coroutine_config->m_ext_coevent_exception_callback != nullptr)
-                g_bbt_coroutine_config->m_ext_coevent_exception_callback(core::errcode::Errcode(e.what()));
-            else
-                pending_exception = std::current_exception();
-        }
-        catch(...)
-        {
-            if (g_bbt_coroutine_config->m_ext_coevent_exception_callback != nullptr)
-                g_bbt_coroutine_config->m_ext_coevent_exception_callback(core::errcode::Errcode("unknown exception"));
-            else
-                pending_exception = std::current_exception();
-        }
-
-        lock.lock();
-    }
-
-    _OnFinal();
-    if (pending_exception)
-        std::rethrow_exception(pending_exception);
-    return 0;
-}
-
-void CoPollEvent::_OnFinal()
-{
-    m_run_status = CoPollEventStatus::POLLEVENT_FINAL;
 }
 
 CoPollEventId CoPollEvent::_GenerateId()
@@ -120,10 +95,12 @@ CoPollEventId CoPollEvent::_GenerateId()
 
 int CoPollEvent::InitFdEvent(int fd, short events, int timeout)
 {
-    int ret = 0;
-    if (m_run_status >= CoPollEventStatus::POLLEVENT_LISTEN || timeout < 0)
+    if (GetCoPollEventPhase(m_state.load(std::memory_order_acquire)) != CoPollEventPhase::INITED ||
+        timeout < 0 || m_event != nullptr)
         return -1;
-    
+
+    m_fd = fd;
+    m_listen_events = events;
     m_timeout = timeout;
     auto weakthis = weak_from_this();
     m_event = g_bbt_poller->CreateEvent(fd, events, [weakthis](int fd, short events, bbt::pollevent::EventId eventid){
@@ -133,112 +110,236 @@ int CoPollEvent::InitFdEvent(int fd, short events, int timeout)
         pthis->Trigger(events);
     });
 
-    return ret;
+    return m_event == nullptr ? -1 : 0;
 }
 
 int CoPollEvent::InitCustomEvent(int key, void* args)
 {
-    if (m_run_status >= CoPollEventStatus::POLLEVENT_LISTEN || m_has_custom_event)
+    BBTATTR_COMM_UNUSED void* unused_args = args;
+    if (GetCoPollEventPhase(m_state.load(std::memory_order_acquire)) != CoPollEventPhase::INITED ||
+        m_has_custom_event)
         return -1;
 
     m_has_custom_event = true;
     m_custom_key = key;
-    // m_type |= PollEventType::POLL_EVENT_CUSTOM;
     return 0;
 }
 
 int CoPollEvent::Regist()
 {
-
-    std::unique_lock lock{m_onevent_callback_mtx};
-
+    uint64_t state = m_state.load(std::memory_order_acquire);
+    if (GetCoPollEventPhase(state) == CoPollEventPhase::PENDING) {
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
-    g_bbt_dbgmgr->OnEvent_RegistEvent(shared_from_this());
+        g_bbt_dbgmgr->OnEvent_RegistEvent(shared_from_this());
 #endif
+        return 0;
+    }
 
-    _OnListen();
-
-    if (m_event != nullptr && (_RegistFdEvent() != 0)) {
+    uint64_t expected = PackCoPollEventState(CoPollEventPhase::INITED);
+    if (!m_state.compare_exchange_strong(expected, PackCoPollEventState(CoPollEventPhase::ARMING),
+                                         std::memory_order_acq_rel,
+                                         std::memory_order_acquire))
+    {
+        if (GetCoPollEventPhase(expected) == CoPollEventPhase::PENDING) {
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
-    g_bbt_dbgmgr->OnEvent_TriggerEvent(shared_from_this());
+            g_bbt_dbgmgr->OnEvent_RegistEvent(shared_from_this());
 #endif
-        m_run_status = CoPollEventStatus::POLLEVENT_INITED;
+            return 0;
+        }
         return -1;
     }
 
-    std::string event = m_event == nullptr ? "-1" : std::to_string(m_event->GetEvents());
+    auto keep_alive = shared_from_this();
+    int regist_ret = 0;
+    try
+    {
+        if (m_event != nullptr)
+            regist_ret = _RegistFdEvent();
+    }
+    catch (...)
+    {
+        // StartListen() 抛出时仍由 ARMING 持有者收敛状态并转移 Event。
+        state = m_state.load(std::memory_order_acquire);
+        while (GetCoPollEventPhase(state) == CoPollEventPhase::ARMING) {
+            if (m_state.compare_exchange_weak(state, PackCoPollEventState(CoPollEventPhase::CANCELLED),
+                                              std::memory_order_acq_rel,
+                                               std::memory_order_acquire))
+                break;
+        }
+        _CannelAllFdEvent();
+        if (GetCoPollEventPhase(state) == CoPollEventPhase::PENDING) {
+#ifdef BBT_COROUTINE_STRINGENT_DEBUG
+            g_bbt_dbgmgr->OnEvent_RegistEvent(keep_alive);
+#endif
+            return 0;
+        }
+        return -1;
+    }
+
+    if (regist_ret != 0) {
+        state = m_state.load(std::memory_order_acquire);
+        while (GetCoPollEventPhase(state) == CoPollEventPhase::ARMING) {
+            if (m_state.compare_exchange_weak(state, PackCoPollEventState(CoPollEventPhase::CANCELLED),
+                                              std::memory_order_acq_rel,
+                                              std::memory_order_acquire))
+                break;
+        }
+        _CannelAllFdEvent();
+        if (GetCoPollEventPhase(state) == CoPollEventPhase::PENDING) {
+#ifdef BBT_COROUTINE_STRINGENT_DEBUG
+            g_bbt_dbgmgr->OnEvent_RegistEvent(keep_alive);
+#endif
+            return 0;
+        }
+        return -1;
+    }
+
+    expected = PackCoPollEventState(CoPollEventPhase::ARMING);
+    if (!m_state.compare_exchange_strong(expected, PackCoPollEventState(CoPollEventPhase::ARMED),
+                                         std::memory_order_acq_rel,
+                                         std::memory_order_acquire))
+    {
+        _CannelAllFdEvent();
+        if (GetCoPollEventPhase(expected) == CoPollEventPhase::PENDING) {
+#ifdef BBT_COROUTINE_STRINGENT_DEBUG
+            g_bbt_dbgmgr->OnEvent_RegistEvent(keep_alive);
+#endif
+            return 0;
+        }
+        return -1;
+    }
+
+#ifdef BBT_COROUTINE_STRINGENT_DEBUG
+    g_bbt_dbgmgr->OnEvent_RegistEvent(keep_alive);
+#endif
     g_bbt_dbgp_full(("[CoEvent:Regist] co=" + std::to_string(m_co_id) +
-                                     " event=" + event +
+                                     " event=" + std::to_string(m_listen_events) +
                                      " id=" + std::to_string(GetId()) +
                                      " customkey=" + std::to_string(m_custom_key)).c_str());
 #ifdef BBT_COROUTINE_PROFILE
     g_bbt_profiler->OnEvent_RegistCoPollEvent();
 #endif
-
-
     return 0;
 }
 
-void CoPollEvent::_OnListen()
+bool CoPollEvent::CommitPark()
 {
-    m_run_status = CoPollEventStatus::POLLEVENT_LISTEN;
+    /*
+     * Context 已切回 Processer，注册回调也已完成；此处才是协程真正提交等待的边界。
+     * ARMED 表示尚未触发，发布 PARKED 后触发方可直接完成；PENDING 表示触发已先胜，
+     * 必须由当前 Processer 消费其 flags。FINAL/CANCELLED 等终态不再产生回调。
+     */
+    uint64_t state = m_state.load(std::memory_order_acquire);
+    for (;;)
+    {
+        const auto phase = GetCoPollEventPhase(state);
+        if (phase == CoPollEventPhase::ARMED) {
+            // 发布 PARKED 是尾操作；成功后 Processer 不得再访问关联 Coroutine。
+            if (m_state.compare_exchange_weak(state, PackCoPollEventState(CoPollEventPhase::PARKED),
+                                               std::memory_order_acq_rel,
+                                               std::memory_order_acquire))
+                return false;
+            continue;
+        }
+
+        if (phase != CoPollEventPhase::PENDING)
+            return false;
+
+        // 提前触发的 flags 已随状态字发布，只有 CAS 胜者可以执行完成回调。
+        const short trigger_events = GetCoPollEventFlags(state);
+        if (m_state.compare_exchange_weak(state,
+                                          PackCoPollEventState(CoPollEventPhase::TRIGGERING,
+                                                               trigger_events),
+                                          std::memory_order_acq_rel,
+                                          std::memory_order_acquire))
+        {
+            // pending 完成运行在 Processer 线程，不能让 callback 异常逃出。
+            try
+            {
+                _Complete(trigger_events);
+            }
+            catch (...)
+            {
+            }
+            return true;
+        }
+    }
 }
 
 int CoPollEvent::UnRegist()
 {
-    std::unique_lock lock{m_onevent_callback_mtx};
+    uint64_t state = m_state.load(std::memory_order_acquire);
+    for (;;)
+    {
+        const auto phase = GetCoPollEventPhase(state);
+        if (phase != CoPollEventPhase::INITED &&
+            phase != CoPollEventPhase::ARMING &&
+            phase != CoPollEventPhase::ARMED &&
+            phase != CoPollEventPhase::PARKED)
+            return -1;
 
-    /* 只能对监听中的任务执行操作 */
-    if (m_run_status != CoPollEventStatus::POLLEVENT_LISTEN)
-        return -1;
+        if (!m_state.compare_exchange_weak(state, PackCoPollEventState(CoPollEventPhase::CANCELLED),
+                                           std::memory_order_acq_rel,
+                                           std::memory_order_acquire))
+            continue;
 
-    m_event->CancelListen();
-    m_run_status = CoPollEventStatus::POLLEVENT_CANNEL;
-
-    return 0;
+        // ARMING 的 Regist() 仍可能在 StartListen() 内部，资源清理由它完成。
+        if (phase != CoPollEventPhase::ARMING)
+            _CannelAllFdEvent();
+        return 0;
+    }
 }
-
-// int CoPollEvent::_RegistCustomEvent()
-// {
-    // return 0;
-// }
 
 int CoPollEvent::_RegistFdEvent()
 {
     return m_event->StartListen((m_timeout < 0 ? 0 : m_timeout));
 }
 
-
 int CoPollEvent::_CannelAllFdEvent()
 {
-    int ret = 0;
-    
-    if (m_event != nullptr) {
-        m_event = nullptr;
-    }
-
-    return ret;
+    if (m_event != nullptr)
+        g_bbt_poller->DeferDestroyEvent(std::move(m_event));
+    return 0;
 }
 
 int CoPollEvent::GetEvent() const
 {
-    short event = m_event->GetEvents();
-    return TransformToPollEventType(event, m_has_custom_event);
+    return TransformToPollEventType(m_listen_events, m_has_custom_event);
 }
 
 bool CoPollEvent::IsListening() const
 {
-    return (m_run_status == CoPollEventStatus::POLLEVENT_LISTEN);
+    const auto phase = GetCoPollEventPhase(m_state.load(std::memory_order_acquire));
+    return phase == CoPollEventPhase::ARMING ||
+        phase == CoPollEventPhase::ARMED ||
+        phase == CoPollEventPhase::PARKED;
 }
 
 bool CoPollEvent::IsFinal() const
 {
-    return (m_run_status == CoPollEventStatus::POLLEVENT_FINAL);
+    const auto phase = GetCoPollEventPhase(m_state.load(std::memory_order_acquire));
+    return phase == CoPollEventPhase::FINAL || phase == CoPollEventPhase::CANCELLED;
 }
 
 CoPollEventStatus CoPollEvent::GetStatus() const
 {
-    return m_run_status;
+    switch (GetCoPollEventPhase(m_state.load(std::memory_order_acquire)))
+    {
+    case CoPollEventPhase::INITED:
+        return CoPollEventStatus::POLLEVENT_INITED;
+    case CoPollEventPhase::ARMING:
+    case CoPollEventPhase::ARMED:
+    case CoPollEventPhase::PARKED:
+        return CoPollEventStatus::POLLEVENT_LISTEN;
+    case CoPollEventPhase::PENDING:
+    case CoPollEventPhase::TRIGGERING:
+        return CoPollEventStatus::POLLEVENT_TRIGGER;
+    case CoPollEventPhase::FINAL:
+        return CoPollEventStatus::POLLEVENT_FINAL;
+    case CoPollEventPhase::CANCELLED:
+        return CoPollEventStatus::POLLEVENT_CANNEL;
+    }
+    return CoPollEventStatus::POLLEVENT_DEFAULT;
 }
 
 CoPollEventId CoPollEvent::GetId() const
@@ -248,13 +349,53 @@ CoPollEventId CoPollEvent::GetId() const
 
 int CoPollEvent::GetFd() const
 {
-    return m_event->GetSocket();
+    return m_fd;
 }
 
 int64_t CoPollEvent::GetTimeout() const
 {
-    return m_event->GetTimeoutMs();
+    return m_timeout;
 }
 
+int CoPollEvent::_Complete(short trigger_events)
+{
+    auto keep_alive = shared_from_this();
+    _CannelAllFdEvent();
+    m_state.store(PackCoPollEventState(CoPollEventPhase::FINAL, trigger_events),
+                  std::memory_order_release);
+
+#ifdef BBT_COROUTINE_PROFILE
+    g_bbt_profiler->OnEvent_TriggerCoPollEvent();
+#endif
+#ifdef BBT_COROUTINE_STRINGENT_DEBUG
+    g_bbt_dbgmgr->OnEvent_TriggerEvent(keep_alive);
+#endif
+
+    const auto callback = m_onevent_callback;
+    const int custom_key = m_custom_key;
+    std::exception_ptr pending_exception{nullptr};
+    try
+    {
+        callback(keep_alive, trigger_events, custom_key);
+    }
+    catch(const std::exception& e)
+    {
+        if (g_bbt_coroutine_config->m_ext_coevent_exception_callback != nullptr)
+            g_bbt_coroutine_config->m_ext_coevent_exception_callback(core::errcode::Errcode(e.what()));
+        else
+            pending_exception = std::current_exception();
+    }
+    catch(...)
+    {
+        if (g_bbt_coroutine_config->m_ext_coevent_exception_callback != nullptr)
+            g_bbt_coroutine_config->m_ext_coevent_exception_callback(core::errcode::Errcode("unknown exception"));
+        else
+            pending_exception = std::current_exception();
+    }
+
+    if (pending_exception)
+        std::rethrow_exception(pending_exception);
+    return 0;
+}
 
 }

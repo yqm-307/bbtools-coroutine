@@ -216,6 +216,43 @@ enum CoPollEventStatus : int32_t
     POLLEVENT_CANNEL  = 5, // 取消事件
 };
 
+/*
+ * CoPollEvent 内部阶段；flags 与阶段必须保存在同一个状态字中。
+ * 正常：INITED -> ARMING -> ARMED -> PARKED -> TRIGGERING -> FINAL。
+ * 提前触发：ARMING/ARMED -> PENDING -> TRIGGERING -> FINAL；取消进入 CANCELLED。
+ */
+enum class CoPollEventPhase : uint8_t
+{
+    INITED      = 0, // 已初始化，尚未注册底层事件
+    ARMING      = 1, // 正在注册，底层事件仅由注册方持有
+    ARMED       = 2, // 注册完成，等待 Processer 提交 park
+    PARKED      = 3, // 协程已 park，可由触发方完成
+    PENDING     = 4, // park 前已触发，等待 Processer 消费
+    TRIGGERING  = 5, // 完成权已被唯一触发方取得
+    FINAL       = 6, // 完成回调已提交，终态
+    CANCELLED   = 7, // 已取消，终态
+};
+
+constexpr uint64_t CO_POLLEVENT_PHASE_MASK = 0xffULL;
+constexpr uint64_t CO_POLLEVENT_FLAGS_SHIFT = 8ULL;
+constexpr uint64_t CO_POLLEVENT_FLAGS_MASK = 0xffffULL << CO_POLLEVENT_FLAGS_SHIFT;
+
+constexpr uint64_t PackCoPollEventState(CoPollEventPhase phase, short flags = 0)
+{
+    return static_cast<uint64_t>(phase) |
+        (static_cast<uint64_t>(static_cast<uint16_t>(flags)) << CO_POLLEVENT_FLAGS_SHIFT);
+}
+
+constexpr CoPollEventPhase GetCoPollEventPhase(uint64_t state)
+{
+    return static_cast<CoPollEventPhase>(state & CO_POLLEVENT_PHASE_MASK);
+}
+
+constexpr short GetCoPollEventFlags(uint64_t state)
+{
+    return static_cast<short>((state & CO_POLLEVENT_FLAGS_MASK) >> CO_POLLEVENT_FLAGS_SHIFT);
+}
+
 /* PollEventType表示触发的事件类型 */
 enum PollEventType
 {
