@@ -14,6 +14,15 @@ enum FollowEventStatus
     READABLE = 2,
 };
 
+/* 仅用于 Processer 在上下文切回后决定 Coroutine 的交接方式。 */
+enum class CoroutineYieldDisposition
+{
+    MANUAL,
+    READY,
+    EVENT_WAIT,
+    FINAL,
+};
+
 /**
  * @brief
  *
@@ -70,6 +79,9 @@ public:
      * @brief 挂起协程，并将协程加入到全局就绪队列中去
      */
     virtual void                    YieldAndPushGCoQueue();
+
+    /* Processer 完成运行统计后调用；发布后不得再次访问 Coroutine。 */
+    CoroutineYieldDisposition       CommitYield();
 
     virtual CoroutineId             GetId() noexcept override;
     CoroutineStatus                 GetStatus() const noexcept;
@@ -128,6 +140,9 @@ protected:
     static CoroutineId              _GenCoroutineId();
 
 private:
+    bool                            _RegistAwaitEvent();
+
+private:
     Context                         m_context;
     const CoroutineId               m_id{BBT_COROUTINE_INVALID_COROUTINE_ID};
     volatile CoroutineStatus        m_run_status{CoroutineStatus::CO_DEFAULT};
@@ -147,6 +162,7 @@ private:
      */
     std::shared_ptr<CoPollEvent>    m_await_event{nullptr};
     CoroutineOnYieldCallback        m_co_onyield_callback{nullptr};
+    CoroutineYieldDisposition       m_yield_disposition{CoroutineYieldDisposition::MANUAL};
 
     int                             m_last_resume_event{-1};    // 最后一次导致此协程唤醒的事件
     uint64_t                        m_last_run_us{0};           // 上次运行时长（微秒），用于 MLFQ

@@ -25,7 +25,11 @@ Coroutine::Ptr Coroutine::Create(int stack_size, const CoroutineCallback& co_fun
 }
 
 Coroutine::Coroutine(int stack_size, const CoroutineCallback& co_func, bool need_protect):
-    m_context(stack_size, [=](){co_func(); m_run_status = CoroutineStatus::CO_FINAL; }, need_protect),
+    m_context(stack_size, [=](){
+        co_func();
+        m_yield_disposition = CoroutineYieldDisposition::FINAL;
+        m_run_status = CoroutineStatus::CO_FINAL;
+    }, need_protect),
     m_id(_GenCoroutineId())
 {
     m_run_status = CoroutineStatus::CO_RUNNABLE;
@@ -57,6 +61,7 @@ void Coroutine::Resume()
 void Coroutine::Yield()
 {
     Assert(m_run_status == CoroutineStatus::CO_RUNNING);
+    m_yield_disposition = CoroutineYieldDisposition::MANUAL;
     m_run_status = CoroutineStatus::CO_SUSPEND;
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
     g_bbt_dbgmgr->OnEvent_YieldCo(shared_from_this());
@@ -71,6 +76,8 @@ int Coroutine::YieldWithCallback(const CoroutineOnYieldCallback& cb)
      * 确保协程挂起后，才可以触发事件
      */
     Assert(m_run_status == CoroutineStatus::CO_RUNNING);
+    m_yield_disposition = m_await_event == nullptr ?
+        CoroutineYieldDisposition::MANUAL : CoroutineYieldDisposition::EVENT_WAIT;
     m_run_status = CoroutineStatus::CO_SUSPEND;
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
     g_bbt_dbgmgr->OnEvent_YieldCo(shared_from_this());
@@ -81,10 +88,14 @@ int Coroutine::YieldWithCallback(const CoroutineOnYieldCallback& cb)
 
 void Coroutine::YieldAndPushGCoQueue()
 {
-    Assert(YieldWithCallback([this](){
-        g_scheduler->OnActiveCoroutine(CO_PRIORITY_NORMAL, this);
-        return true;
-    }) == 0);
+    Assert(m_run_status == CoroutineStatus::CO_RUNNING);
+    m_yield_disposition = CoroutineYieldDisposition::READY;
+    m_run_status = CoroutineStatus::CO_SUSPEND;
+#ifdef BBT_COROUTINE_STRINGENT_DEBUG
+    g_bbt_dbgmgr->OnEvent_YieldCo(shared_from_this());
+#endif
+    g_bbt_dbgp_full(("[Coroutine::YieldAndPushGCoQueue] co=" + std::to_string(GetId())).c_str());
+    m_context.Yield();
 }
 
 
@@ -100,6 +111,7 @@ CoroutineStatus Coroutine::GetStatus() const noexcept
 
 void Coroutine::OnException() noexcept
 {
+    m_yield_disposition = CoroutineYieldDisposition::FINAL;
     m_run_status = CoroutineStatus::CO_FINAL;
     if (m_await_event) {
         m_await_event->UnRegist();
@@ -114,11 +126,13 @@ int Coroutine::YieldUntilTimeout(int ms)
         OnCoPollEvent(event, custom_key);
     });
 
-    if (m_await_event->InitFdEvent(-1, EventOpt::TIMEOUT, ms) != 0)
+    if (m_await_event->InitFdEvent(-1, EventOpt::TIMEOUT, ms) != 0) {
+        m_await_event = nullptr;
         return -1;
+    }
 
     return YieldWithCallback([this](){
-        return (m_await_event->Regist() == 0);
+        return _RegistAwaitEvent();
     });
 }
 
@@ -131,8 +145,10 @@ std::shared_ptr<CoPollEvent> Coroutine::RegistCustom(int key)
         OnCoPollEvent(event, custom_key);
     });
 
-    if (m_await_event->InitCustomEvent(key, NULL) != 0)
+    if (m_await_event->InitCustomEvent(key, nullptr) != 0) {
+        m_await_event = nullptr;
         return nullptr;
+    }
     
     return m_await_event;
 }
@@ -146,11 +162,15 @@ std::shared_ptr<CoPollEvent> Coroutine::RegistCustom(int key, int timeout_ms)
         OnCoPollEvent(event, custom_key);
     });
 
-    if (m_await_event->InitCustomEvent(key, NULL) != 0)
+    if (m_await_event->InitCustomEvent(key, nullptr) != 0) {
+        m_await_event = nullptr;
         return nullptr;
+    }
     
-    if (m_await_event->InitFdEvent(-1, EventOpt::TIMEOUT, timeout_ms) != 0)
+    if (m_await_event->InitFdEvent(-1, EventOpt::TIMEOUT, timeout_ms) != 0) {
+        m_await_event = nullptr;
         return nullptr;
+    }
     
     return m_await_event;
 }
@@ -162,11 +182,13 @@ int Coroutine::YieldUntilFdReadable(int fd)
         OnCoPollEvent(event, custom_key);
     });
 
-    if (m_await_event->InitFdEvent(fd, EventOpt::READABLE | EventOpt::FINALIZE, 0) != 0)
+    if (m_await_event->InitFdEvent(fd, EventOpt::READABLE | EventOpt::FINALIZE, 0) != 0) {
+        m_await_event = nullptr;
         return -1;
+    }
     
     return YieldWithCallback([this](){
-        return (m_await_event->Regist() == 0);
+        return _RegistAwaitEvent();
     });
 }
 
@@ -178,11 +200,13 @@ int Coroutine::YieldUntilFdReadable(int fd, int timeout_ms)
         OnCoPollEvent(event, custom_key);
     });
 
-    if (m_await_event->InitFdEvent(fd, EventOpt::READABLE | EventOpt::TIMEOUT | EventOpt::FINALIZE, timeout_ms) != 0)
+    if (m_await_event->InitFdEvent(fd, EventOpt::READABLE | EventOpt::TIMEOUT | EventOpt::FINALIZE, timeout_ms) != 0) {
+        m_await_event = nullptr;
         return -1;
+    }
 
     return YieldWithCallback([this](){
-        return (m_await_event->Regist() == 0);
+        return _RegistAwaitEvent();
     });
 }
 
@@ -193,11 +217,13 @@ int Coroutine::YieldUntilFdWriteable(int fd)
         OnCoPollEvent(event, custom_key);
     });
 
-    if (m_await_event->InitFdEvent(fd, EventOpt::WRITEABLE | EventOpt::FINALIZE, 0) != 0)
+    if (m_await_event->InitFdEvent(fd, EventOpt::WRITEABLE | EventOpt::FINALIZE, 0) != 0) {
+        m_await_event = nullptr;
         return -1;
+    }
 
     return YieldWithCallback([this](){
-        return (m_await_event->Regist() == 0);
+        return _RegistAwaitEvent();
     });
 }
 
@@ -208,11 +234,13 @@ int Coroutine::YieldUntilFdWriteable(int fd, int timeout_ms)
         OnCoPollEvent(event, custom_key);
     });
 
-    if (m_await_event->InitFdEvent(fd, EventOpt::WRITEABLE | EventOpt::TIMEOUT | EventOpt::FINALIZE, timeout_ms) != 0)
+    if (m_await_event->InitFdEvent(fd, EventOpt::WRITEABLE | EventOpt::TIMEOUT | EventOpt::FINALIZE, timeout_ms) != 0) {
+        m_await_event = nullptr;
         return -1;
+    }
 
     return YieldWithCallback([this](){
-        return (m_await_event->Regist() == 0);
+        return _RegistAwaitEvent();
     });
 }
 
@@ -224,12 +252,42 @@ int Coroutine::YieldUntilFdEx(int fd, short events, int timeout_ms)
     });
 
     /* 绝对不可以反复触发 */
-    if (m_await_event->InitFdEvent(fd, events & ~pollevent::EventOpt::PERSIST, timeout_ms) != 0)
+    if (m_await_event->InitFdEvent(fd, events & ~pollevent::EventOpt::PERSIST, timeout_ms) != 0) {
+        m_await_event = nullptr;
         return -1;
+    }
 
     return YieldWithCallback([this](){
-        return (m_await_event->Regist() == 0);
+        return _RegistAwaitEvent();
     });
+}
+
+bool Coroutine::_RegistAwaitEvent()
+{
+    auto await_event = m_await_event;
+    if (await_event != nullptr && await_event->Regist() == 0)
+        return true;
+
+    m_await_event = nullptr;
+    m_yield_disposition = CoroutineYieldDisposition::MANUAL;
+    return false;
+}
+
+CoroutineYieldDisposition Coroutine::CommitYield()
+{
+    if (m_run_status == CoroutineStatus::CO_FINAL) {
+        m_yield_disposition = CoroutineYieldDisposition::FINAL;
+        return CoroutineYieldDisposition::FINAL;
+    }
+
+    const auto disposition = m_yield_disposition;
+    if (disposition == CoroutineYieldDisposition::EVENT_WAIT) {
+        auto await_event = m_await_event;
+        Assert(await_event != nullptr);
+        await_event->CommitPark();
+    }
+
+    return disposition;
 }
 
 
@@ -258,6 +316,7 @@ void Coroutine::OnCoPollEvent(int event, int custom_key)
     // 先取消事件，然后push到全局队列中
     g_bbt_dbgp_full(("[CoEvent:Trigger] co=" + std::to_string(GetId()) + " trigger_event=" + std::to_string(event) + " id=" + std::to_string(m_await_event->GetId()) + " customkey=" + std::to_string(custom_key)).c_str());
     m_await_event = nullptr;
+    m_yield_disposition = CoroutineYieldDisposition::MANUAL;
 
     // 超时任务优先级最高，覆盖 MLFQ 判定
     if (event & EventOpt::TIMEOUT)

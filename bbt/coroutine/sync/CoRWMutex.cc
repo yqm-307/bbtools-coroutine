@@ -15,6 +15,7 @@ int CoRWMutex::RLock()
     // 如果获取不到锁则持续挂起，直到获取到锁
     while (m_status == CORWMUTEX_WLOCKED || m_has_wait_wlock) {
         _WaitRLock([this](){
+            _OnReaderBlocked();
             _SysUnLock();
             return true;
         });
@@ -40,6 +41,7 @@ int CoRWMutex::WLock()
     while (m_status != CORWMUTEX_FREE) {
         m_has_wait_wlock = true;
         _WaitWLock([this](){
+            _OnWriterQueued();
             _SysUnLock();
             return true;
         });
@@ -115,6 +117,7 @@ int CoRWMutex::TryRLock(int ms)
     }
 
     int ret = _WaitRLockWithTimeout(ms, [this](){
+        _OnReaderBlocked();
         _SysUnLock();
         return true;
     });
@@ -164,6 +167,7 @@ int CoRWMutex::TryWLock(int ms)
 
     m_has_wait_wlock = true;
     int ret = _WaitWLockWithTimeout(ms, [this](){
+        _OnWriterQueued();
         _SysUnLock();
         return true;
     });
@@ -246,6 +250,34 @@ int CoRWMutex::_WaitWLockWithTimeout(int ms, detail::CoroutineOnYieldCallback&& 
     auto waiter = CoWaiter::Create();
     m_wait_writelock_queue.push(waiter);
     return waiter->WaitWithTimeoutAndCallback(ms, std::forward<detail::CoroutineOnYieldCallback&&>(cb));
+}
+
+void CoRWMutex::_OnWriterQueued() noexcept
+{
+    if (m_writer_queued_callback == nullptr)
+        return;
+
+    try
+    {
+        m_writer_queued_callback();
+    }
+    catch (...)
+    {
+    }
+}
+
+void CoRWMutex::_OnReaderBlocked() noexcept
+{
+    if (m_reader_blocked_callback == nullptr)
+        return;
+
+    try
+    {
+        m_reader_blocked_callback();
+    }
+    catch (...)
+    {
+    }
 }
 
 void CoRWMutex::_SysLock()

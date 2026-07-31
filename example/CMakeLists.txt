@@ -38,8 +38,11 @@ add_executable(co_with_hiredis redis/co_with_hiredis.cc)
 # 注意：bbt_coroutine 需要在 hiredis 之前，这样 hook 函数能够正确覆盖系统调用
 target_link_libraries(co_with_hiredis ${MY_LIBS} hiredis dl)
 
-add_executable(co_with_httpserver http/co_with_httpserver.cc)
-target_link_libraries(co_with_httpserver ${MY_LIBS} bbt_http dl)
+# 暂时隔离：bbtools-http 仍依赖旧版 libevent EventBase::GetRawBase()，
+# 与当前 bbtools-core 的 Boost.Asio EventBase 不兼容。
+# 待 bbtools-http 完成事件后端迁移后恢复构建。
+# add_executable(co_with_httpserver http/co_with_httpserver.cc)
+# target_link_libraries(co_with_httpserver ${MY_LIBS} bbt_http dl)
 
 add_executable(co_with_mysql mysqlpp/co_with_mysql.cc)
 target_link_libraries(co_with_mysql ${MY_LIBS} pthread mysqlclient dl)

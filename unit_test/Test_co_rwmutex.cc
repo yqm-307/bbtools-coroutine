@@ -2,9 +2,27 @@
 #define BOOST_TEST_MAIN
 #include <boost/test/included/unit_test.hpp>
 
+#include <atomic>
 #include <bbt/coroutine/coroutine.hpp>
+#include <memory>
 #include <thread>
 
+namespace bbt::coroutine::sync
+{
+
+class CoRWMutexTestAccess
+{
+public:
+    static void SetWaitCallbacks(CoRWMutex& rwlock,
+                                 const std::function<void()>& writer_queued,
+                                 const std::function<void()>& reader_blocked)
+    {
+        rwlock.m_writer_queued_callback = writer_queued;
+        rwlock.m_reader_blocked_callback = reader_blocked;
+    }
+};
+
+}
 
 BOOST_AUTO_TEST_SUITE(CoRWMutexTest)
 
@@ -130,40 +148,72 @@ BOOST_AUTO_TEST_CASE(t_rwlock_multi_co)
 /* 测试写优先：有 writer 排队时，新 reader 不得获取锁 */
 BOOST_AUTO_TEST_CASE(t_writer_priority)
 {
-    bbt::core::thread::CountDownLatch l{1};
+    struct CaseState
+    {
+        bbt::coroutine::sync::CoRWMutex::SPtr rwlock{
+            bbt::coroutine::sync::CoRWMutex::Create()};
+        bbt::core::thread::CountDownLatch completed{1};
+        std::atomic_bool reader_holding{false};
+        std::atomic_bool writer_queued{false};
+        std::atomic_bool reader_blocked{false};
+        std::atomic_bool release_reader{false};
+        std::atomic_bool writer_finished{false};
+        std::atomic_bool reader_acquired_after_writer{false};
+        std::atomic_int child_completed{0};
+    };
+    auto state = std::make_shared<CaseState>();
+    std::weak_ptr<CaseState> weak_state{state};
+    bbt::coroutine::sync::CoRWMutexTestAccess::SetWaitCallbacks(*state->rwlock,
+        [weak_state] {
+            if (auto shared_state = weak_state.lock())
+                shared_state->writer_queued.store(true, std::memory_order_release);
+        },
+        [weak_state] {
+            if (auto shared_state = weak_state.lock())
+                shared_state->reader_blocked.store(true, std::memory_order_release);
+        });
 
-    bbtco_desc("main") [&](){
-        auto rwlock = bbt::coroutine::sync::CoRWMutex::Create();
-        std::atomic_int reader2_status{0};
-        bbt::core::thread::CountDownLatch writer_done{1};
-
-        bbtco_desc("reader1") [&]() {
-            rwlock->RLock();
-            bbtco_sleep(100);
-            rwlock->RUnLock();
-        };
-
-        bbtco_desc("writer") [&]() {
-            rwlock->WLock();
-            bbtco_sleep(20);
-            rwlock->WUnLock();
-            writer_done.Down();
-        };
-
-        bbtco_desc("reader2") [rwlock, &reader2_status]() {
-            bbtco_sleep(10);
-            rwlock->RLock();
-            reader2_status = 1;
-            rwlock->RUnLock();
-        };
-
-        writer_done.Wait();
-        bbtco_sleep(50);
-        BOOST_ASSERT(reader2_status == 1);
-        l.Down();
+    bbtco [state] {
+        state->rwlock->RLock();
+        state->reader_holding.store(true, std::memory_order_release);
+        while (!state->release_reader.load(std::memory_order_acquire))
+            bbtco_yield;
+        state->rwlock->RUnLock();
+        state->child_completed.fetch_add(1, std::memory_order_release);
     };
 
-    l.Wait();
+    bbtco [state] {
+        while (!state->reader_holding.load(std::memory_order_acquire))
+            bbtco_yield;
+        state->rwlock->WLock();
+        state->writer_finished.store(true, std::memory_order_release);
+        state->rwlock->WUnLock();
+        state->child_completed.fetch_add(1, std::memory_order_release);
+    };
+
+    bbtco [state] {
+        while (!state->writer_queued.load(std::memory_order_acquire))
+            bbtco_yield;
+        state->rwlock->RLock();
+        state->reader_acquired_after_writer.store(
+            state->writer_finished.load(std::memory_order_acquire),
+            std::memory_order_release);
+        state->rwlock->RUnLock();
+        state->child_completed.fetch_add(1, std::memory_order_release);
+    };
+
+    bbtco [state] {
+        while (!state->reader_blocked.load(std::memory_order_acquire))
+            bbtco_yield;
+        state->release_reader.store(true, std::memory_order_release);
+        while (state->child_completed.load(std::memory_order_acquire) != 3)
+            bbtco_yield;
+        state->completed.Down();
+    };
+
+    state->completed.Wait();
+    BOOST_CHECK(state->writer_finished.load(std::memory_order_acquire));
+    BOOST_CHECK(state->reader_acquired_after_writer.load(std::memory_order_acquire));
 }
 
 /* 测试 TryRLock 非阻塞获取 */

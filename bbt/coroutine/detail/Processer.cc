@@ -160,10 +160,14 @@ void Processer::_Run()
                 // MLFQ: 记录运行时长，供后续降级判断
                 m_running_coroutine->SetLastRunTimeUs(
                     bbt::core::clock::gettime_mono<>() - m_running_coroutine_begin.load());
-                if (m_running_coroutine->GetStatus() == CO_FINAL) {
-                    delete m_running_coroutine;
-                    m_running_coroutine = nullptr;
+                const auto disposition = m_running_coroutine->CommitYield();
+                if (disposition == CoroutineYieldDisposition::READY) {
+                    g_scheduler->OnActiveCoroutine(CO_PRIORITY_NORMAL, m_running_coroutine);
                 }
+                else if (disposition == CoroutineYieldDisposition::FINAL) {
+                    delete m_running_coroutine;
+                }
+                m_running_coroutine = nullptr;
             }
         }
 

@@ -28,20 +28,25 @@
 
 # Executables
 *.exe
-*.out
 *.app
 
-build
-build_cov/
-coverage_report/
+# CMake and local build outputs
+/build/
+/build_cov/
+/coverage_report/
 
-# Test reports
-tests/reports/*
+# Test and benchmark outputs
+/tests/reports/*
 !tests/reports/README.md
-**/bin
+/benchmark_test/compare/bin/
 
-tmp
-log
+# Runtime logs and temporary files
+/tmp/
+/log/
+/nohup.out
+
+# Local documentation
+/docs/
 
 # Python
 __pycache__/

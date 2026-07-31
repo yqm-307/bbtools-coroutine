@@ -1,4 +1,5 @@
 #pragma once
+#include <functional>
 #include <bbt/coroutine/sync/CoWaiter.hpp>
 #include <bbt/coroutine/sync/CoCond.hpp>
 
@@ -9,6 +10,7 @@ class CoRWMutex
 {
     struct PrivateTag {};
 public:
+    friend class CoRWMutexTestAccess;
     typedef std::shared_ptr<CoRWMutex> SPtr;
     static SPtr Create();
     BBTATTR_FUNC_CTOR_HIDDEN 
@@ -39,6 +41,8 @@ protected:
 
     void _SysLock();
     void _SysUnLock();
+    void _OnWriterQueued() noexcept;
+    void _OnReaderBlocked() noexcept;
 private:
     std::queue<std::shared_ptr<CoWaiter>>
                                 m_wait_readlock_queue;
@@ -50,6 +54,8 @@ private:
 
     std::mutex                  m_mutex;
     CoRWMutexStatus             m_status{CORWMUTEX_FREE};
+    std::function<void()>       m_writer_queued_callback{nullptr};
+    std::function<void()>       m_reader_blocked_callback{nullptr};
 };
 
 } // bbt::coroutine::sync

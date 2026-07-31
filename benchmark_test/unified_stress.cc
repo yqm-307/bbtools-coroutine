@@ -67,7 +67,7 @@ static void stress_corwmutex(){
 
 static void stress_cocond(){
     g_ds_cond=bbtco_make_cocond();g_ds_alive.reset(new std::atomic_int[g_ds_nco]());g_ds_frame=0;
-    for(int i=0;i<g_ds_nco;++i)bbtco_ref{int _i=i;while(g_running){g_ds_alive[_i].store(g_ds_frame.load());g_ds_cond->Wait();g_mt_cocond.cond_waits++;g_mt_cocond.ops_total++;};};
+    for(int i=0;i<g_ds_nco;++i)bbtco [index = i]{while(g_running){g_ds_alive[index].store(g_ds_frame.load());g_ds_cond->Wait();g_mt_cocond.cond_waits++;g_mt_cocond.ops_total++;};};
     bbtco_ref{while(g_running){g_ds_cond->NotifyAll();g_mt_cocond.cond_signals++;int lost=0;for(int i=0;i<g_ds_nco&&g_running;++i)if(g_ds_frame-g_ds_alive[i]>10){lost++;g_mt_cocond.errors++;}if(lost)printf("[cocond] WARN:%d lost\n",lost);g_ds_frame++;bbtco_sleep(500);};};
 }
 
