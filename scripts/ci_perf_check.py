@@ -16,7 +16,7 @@ CI 集成:
   CoCond >30% → FAIL (exit 2) — CoCond 放宽阈值
   死锁冻结  → FAIL (exit 2) — ops 停滞 >2 采样周期
   lock_avg_us +>20% → WARN (exit 1)
-  无基线    → PASS_NO_BASELINE (exit 0) — 首次运行，记录基线
+  无基线    → PASS_NO_BASELINE (exit 0) — 首次运行放行，基线由 push main 的 Layer 3 记录
 """
 import argparse
 import json
@@ -315,17 +315,10 @@ def main():
             "latency_warn": latency_warn,
         })
 
-    # Phase 5: 无基线时记录首次基线
-    if overall_worst == "PASS" and baseline is None and not args.quick_smoke:
-        print("\n[baseline] First pass — recording baseline...")
-        try:
-            subprocess.run(
-                [sys.executable, os.path.join(PROJECT_DIR, "scripts", "record_baseline.py"),
-                 "record", "--quick", f"--threads={args.threads}"],
-                cwd=PROJECT_DIR, timeout=360
-            )
-        except Exception as e:
-            print(f"[baseline] Record failed: {e}")
+    # 无基线时不做自动记录：
+    # 基线统一由 workflow Layer 3（push main）的 record_baseline.py 记录，
+    # 避免 PR 上重复记录（基线 commit 会变成 PR SHA，且 6×60s 超出本 job 时限）。
+    # 无基线 → PASS_NO_BASELINE 放行，等 main 合入后 Layer 3 建立基线。
 
     # 输出摘要
     write_github_summary(results)
