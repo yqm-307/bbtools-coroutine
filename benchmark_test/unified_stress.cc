@@ -168,6 +168,11 @@ int main(int argc,char**argv){
 #endif
     }
     g_running=0;std::this_thread::sleep_for(std::chrono::seconds(1));
+    // 显式释放协程池，避免静态析构顺序 UB：
+    // g_ps_pool（文件级 static）析构晚于 g_scheduler（函数级 static 单例），
+    // 若依赖隐式析构，CoPool::Release() 会访问已析构的 g_scheduler（use-after-free），
+    // 在无优化构建下表现为 5ms 死循环（CI 复现）。
+    g_ps_pool.reset();
     stop_all();g_scheduler->Stop();
     printf("[unified_stress] done\n");
     return 0;
