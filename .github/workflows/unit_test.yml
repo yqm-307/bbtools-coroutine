@@ -87,7 +87,7 @@ jobs:
           ninja -j$(nproc)
 
       - name: "快速性能回归检查"
-        run: python3 scripts/ci_perf_check.py --threads=2 --duration=45
+        run: python3 scripts/ci_perf_check.py --threads=2 --dur=45
 
       - name: "上传压测日志"
         if: always()
