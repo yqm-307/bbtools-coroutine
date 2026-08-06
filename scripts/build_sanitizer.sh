@@ -7,8 +7,7 @@
 #   bash scripts/build_sanitizer.sh run-module <module> [dur]  # 运行单模块
 #   bash scripts/build_sanitizer.sh clean        # 清理 build_san/
 #
-# 契约参考: docs/testing-contract-spec.md §4.5
-# ADR:       docs/adr/0001-testing-contract.md D4 (TSan 不纳入 CI)
+# 契约参考: docs/ci-guide.md
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

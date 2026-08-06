@@ -4,8 +4,7 @@
 # Layer 2 (每次 PR):        快速性能回归检查（unified_stress 45s/模块）        ~5min
 # Layer 3 (push main only): 1h 并行疲劳压测 + 记录新基线                       ~70min
 #
-# 契约参考: docs/testing-contract-spec.md §4
-# ADR:      docs/adr/0001-testing-contract.md
+# 契约参考: docs/ci-guide.md
 
 name: CI
 

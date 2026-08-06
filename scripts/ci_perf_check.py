@@ -16,7 +16,8 @@ CI 集成:
   CoCond >30% → FAIL (exit 2) — CoCond 放宽阈值
   死锁冻结  → FAIL (exit 2) — ops 停滞 >2 采样周期
   lock_avg_us +>20% → WARN (exit 1)
-  无基线    → PASS_NO_BASELINE (exit 0) — 首次运行放行，基线由 push main 的 Layer 3 记录
+  无基线    → PASS_NO_BASELINE (exit 0) — 门禁暂空转（基线持久化方案未落地，
+  基线记录/比对仅在同一 checkout 内有效，跨 job 会被 checkout clean 清除）
 """
 import argparse
 import json
@@ -253,7 +254,7 @@ def main():
                 baseline = json.load(f)
             print(f"Baseline: {os.path.basename(baseline_path)}")
         else:
-            print("No baseline found — will record first baseline on pass")
+            print("No baseline found — gate idle (PASS_NO_BASELINE); baseline persistence not yet implemented")
 
     results = []
     overall_worst = "PASS"

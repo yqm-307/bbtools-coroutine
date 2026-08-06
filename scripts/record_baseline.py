@@ -8,8 +8,10 @@ record_baseline.py — 记录 bbtools-coroutine 性能基线
 
 输出: tests/baselines/<machine>/<timestamp>.json
 
-契约参考: docs/testing-contract-spec.md §2.9
-ADR:       docs/adr/0001-testing-contract.md D3 (per-machine baselines)
+注意: tests/baselines/ 未被 git 跟踪，基线仅在同一 checkout 内有效（跨 job
+会被 checkout clean 清除）；基线持久化方案未落地前，性能门禁以
+PASS_NO_BASELINE 放行。
+契约参考: docs/ci-guide.md
 """
 import argparse
 import json
