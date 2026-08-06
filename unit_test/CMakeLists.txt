@@ -5,8 +5,9 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti ${Wall_Flag}")
 set(EXECUTABLE_OUTPUT_PATH ${PROJECT_BINARY_DIR}/bin/unit_test)
 
 set(MY_LIBS
-    libboost_unit_test_framework.so
-    libboost_test_exec_monitor.so
+    # 测试文件通过 BOOST_TEST_MAIN + boost/test/included/unit_test.hpp 静态内嵌 Boost.Test，
+    # 不得再链接 libboost_unit_test_framework.so：共享库与二进制各持一份框架全局状态，
+    # ELF 符号插入使 .so 析构释放二进制已释放的对象，__cxa_finalize 阶段 double-free。
     bbt_coroutine
 )
 
