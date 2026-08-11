@@ -4,7 +4,7 @@
  *
  * 冒烟测试设计原则：
  *  - 每个模块只测最基本 happy-path（创建、使用、销毁）
- *  - 全量运行 < 5秒
+ *  - 全量运行约 20 秒（含 Scheduler 64 轮冷重启回归，CTest 超时 30 秒）
  *  - 不测边界、并发、压力（留给单元测试/疲劳测试）
  *  - 任一用例失败 = 库有根本性问题，不应继续跑其他测试
  */
@@ -33,6 +33,22 @@ BOOST_AUTO_TEST_CASE(smoke_scheduler_start_stop)
     BOOST_CHECK(sche->IsRunning());
     sche->Stop();
     BOOST_CHECK(!sche->IsRunning());
+}
+
+BOOST_AUTO_TEST_CASE(smoke_scheduler_repeated_start_stop)
+{
+    auto& sche = detail::Scheduler::GetInstance();
+    BOOST_REQUIRE(sche != nullptr);
+
+    constexpr int kRestartRounds = 64;
+    sche->Stop();
+    for (int round = 0; round < kRestartRounds; ++round)
+    {
+        sche->Start();
+        BOOST_REQUIRE(sche->IsRunning());
+        sche->Stop();
+        BOOST_CHECK(!sche->IsRunning());
+    }
 }
 
 BOOST_AUTO_TEST_CASE(smoke_scheduler_regist_run_coroutine)

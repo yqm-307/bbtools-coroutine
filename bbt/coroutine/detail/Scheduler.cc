@@ -31,14 +31,14 @@ Scheduler::Scheduler():
 
 Scheduler::~Scheduler()
 {
-    if (m_is_running || m_sche_thread != nullptr)
+    if (m_is_running.load(std::memory_order_acquire) || m_sche_thread != nullptr)
         Stop();
 }
 
 void Scheduler::_Init()
 {
     m_sche_thread = nullptr;
-    m_is_running = true;
+    m_is_running.store(true, std::memory_order_release);
     m_run_status = SCHE_DEFAULT;
     m_regist_coroutine_count = 0;
     m_down_latch.Reset(g_bbt_coroutine_config->m_cfg_static_thread_num);
@@ -133,7 +133,7 @@ void Scheduler::_Run()
 #ifdef BBT_COROUTINE_PROFILE
     g_bbt_profiler->OnEvent_StartScheudler();
 #endif
-    while(m_is_running)
+    while(m_is_running.load(std::memory_order_acquire))
     {
         _OnUpdate();
 
@@ -186,7 +186,7 @@ void Scheduler::LoopOnce()
 
 void Scheduler::Stop()
 {
-    m_is_running = false;
+    m_is_running.store(false, std::memory_order_release);
 
     _DestoryProcessers();
     
@@ -242,9 +242,13 @@ void Scheduler::_CreateProcessers()
                 this->m_processer_map.insert(std::make_pair(processer->GetId(), processer));
                 m_load_blance_vec.push_back(processer);
             }
+            // 时序约束：必须在 latch 放行前完成初始化。latch 放行表示 Start() 即将返回，
+            // 调用方随后可能立即 Stop()；若初始化延后到放行后，会把 Stop() 已发布的
+            // 停止标志重置为 true，导致该 Processer 在空闲等待中永久挂起。
+            processer->_Init();
             this->m_down_latch.Down();
             this->m_down_latch.Wait();
-            processer->Start(false);
+            processer->_Run();
         });
         m_proc_threads.push_back(t);
     }
