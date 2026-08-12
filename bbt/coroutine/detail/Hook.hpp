@@ -33,6 +33,8 @@ using g_bbt_sys_hook_write_fn_t     = ssize_t       (*) (int /*fd*/, const void 
 using g_bbt_sys_hook_accept_fn_t    = int           (*) (int /*fd*/, __SOCKADDR_ARG /*addr*/, socklen_t *__restrict /*addr_len*/);
 using g_bbt_sys_hook_send_fn_t      = ssize_t       (*)(int /*fd*/, const void * /*buf*/, size_t /*len*/, int /*flags*/);
 using g_bbt_sys_hook_recv_fn_t      = ssize_t       (*)(int /*fd*/, void * /*buf*/, size_t /*len*/, int /*flags*/);
+using g_bbt_sys_hook_sendto_fn_t    = ssize_t       (*)(int /*fd*/, const void * /*buf*/, size_t /*len*/, int /*flags*/, const struct sockaddr* /*dest_addr*/, socklen_t /*addrlen*/);
+using g_bbt_sys_hook_recvfrom_fn_t  = ssize_t       (*)(int /*fd*/, void * /*buf*/, size_t /*len*/, int /*flags*/, struct sockaddr* /*src_addr*/, socklen_t* /*addrlen*/);
 
 static auto g_bbt_sys_hook_socket_func      = (g_bbt_sys_hook_socket_fn_t)dlsym(RTLD_NEXT, "socket");
 static auto g_bbt_sys_hook_connect_func     = (g_bbt_sys_hook_connect_fn_t)dlsym(RTLD_NEXT, "connect");
@@ -43,6 +45,8 @@ static auto g_bbt_sys_hook_write_func       = (g_bbt_sys_hook_write_fn_t)dlsym(R
 static auto g_bbt_sys_hook_accept_func      = (g_bbt_sys_hook_accept_fn_t)dlsym(RTLD_NEXT, "accept");
 static auto g_bbt_sys_hook_send_func        = (g_bbt_sys_hook_send_fn_t)dlsym(RTLD_NEXT, "send");
 static auto g_bbt_sys_hook_recv_func        = (g_bbt_sys_hook_recv_fn_t)dlsym(RTLD_NEXT, "recv");
+static auto g_bbt_sys_hook_sendto_func      = (g_bbt_sys_hook_sendto_fn_t)dlsym(RTLD_NEXT, "sendto");
+static auto g_bbt_sys_hook_recvfrom_func    = (g_bbt_sys_hook_recvfrom_fn_t)dlsym(RTLD_NEXT, "recvfrom");
 
 namespace bbt::coroutine
 {
@@ -58,6 +62,8 @@ extern ssize_t Hook_Write(int fd, const void* buf, size_t n);
 extern int Hook_Accept(int fd, struct sockaddr* addr, socklen_t* len);
 extern ssize_t Hook_Send(int fd, const void *buf, size_t len, int flags);
 extern ssize_t Hook_Recv(int fd, void *buf, size_t len, int flags);
+extern ssize_t Hook_SendTo(int fd, const void *buf, size_t len, int flags, const struct sockaddr* dest_addr, socklen_t addrlen);
+extern ssize_t Hook_RecvFrom(int fd, void *buf, size_t len, int flags, struct sockaddr* src_addr, socklen_t* addrlen);
 }
 
 }
@@ -74,4 +80,6 @@ extern "C" {
     int accept(int fd, __SOCKADDR_ARG addr, socklen_t *__restrict addr_len);
     ssize_t send(int fd, const void *buf, size_t len, int flags);
     ssize_t recv(int fd, void *buf, size_t len, int flags);
+    ssize_t sendto(int fd, const void *buf, size_t len, int flags, const struct sockaddr* dest_addr, socklen_t addrlen);
+    ssize_t recvfrom(int fd, void *buf, size_t len, int flags, struct sockaddr* src_addr, socklen_t* addrlen);
 }
