@@ -90,14 +90,34 @@ void Profiler::OnEvent_CoMutexLockYield()
 }
 
 
+void Profiler::Reset()
+{
+    m_total_regist_co_count.store(0);
+    m_total_done_co_count.store(0);
+    m_create_coroutine_count.store(0);
+    m_destory_coroutine_count.store(0);
+    m_total_steal_count.store(0);
+    m_regist_event_count.store(0);
+    m_trigger_event_count.store(0);
+    m_stack_release_count.store(0);
+    m_stack_alloc_count.store(0);
+    m_comutex_lock_count.store(0);
+    m_scheduler_begin_timestamp = bbt::core::clock::Timestamp<>{};
+}
+
 void Profiler::ProfileInfo(std::string& info)
 {
+    auto elapsed_ms = (bbt::core::clock::now<>() - m_scheduler_begin_timestamp).count();
+    // OnEvent_StartScheudler 后立即调用时 elapsed 为 0，除零属 UB
+    if (elapsed_ms <= 0)
+        elapsed_ms = 1;
+
     info.clear();
     info += "================== Scheduler ProfileInfo ==================\n";
-    info += "已运行时间(ms)："  + std::to_string((bbt::core::clock::now<>() - m_scheduler_begin_timestamp).count()) + '\n';
+    info += "已运行时间(ms)："  + std::to_string(elapsed_ms) + '\n';
     info += "完成协程数："      + std::to_string(m_total_done_co_count.load())  + '\n';
     info += "注册协程数："      + std::to_string(m_total_regist_co_count.load()) + '\n';
-    info += "执行速率(n/ms)："  + std::to_string(m_total_done_co_count.load() / (bbt::core::clock::now<>() - m_scheduler_begin_timestamp).count()) + '\n';
+    info += "执行速率(n/ms)："  + std::to_string(m_total_done_co_count.load() / elapsed_ms) + '\n';
     info += "未释放协程数："    + std::to_string(m_create_coroutine_count.load() - m_destory_coroutine_count.load()) + '\n';
     info += "Steal数量："       + std::to_string(m_total_steal_count.load()) + '\n';
     info += "StackPool大小："   + std::to_string(g_bbt_stackpoll->AllocSize()) + '\n';
