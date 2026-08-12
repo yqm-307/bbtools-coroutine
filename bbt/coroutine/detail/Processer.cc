@@ -84,8 +84,10 @@ void Processer::AddCoroutineTask(CoroutinePriority priority, Coroutine::Ptr coro
 
 void Processer::_Init()
 {
-    m_run_status = ProcesserStatus::PROC_DEFAULT;
-    m_is_running = true;
+    m_run_status.store(ProcesserStatus::PROC_DEFAULT, std::memory_order_release);
+    m_is_shutdown.store(false, std::memory_order_release);
+    m_is_running.store(true, std::memory_order_release);
+    m_run_cond_notify.store(true, std::memory_order_release);
     m_running_coroutine = nullptr;
 }
 
@@ -120,7 +122,7 @@ void Processer::_Run()
      * XXX 这里也许可以优化的点：
      *      - 是否在空闲的时候降低调度频率？
      */
-    while (m_is_running)
+    while (m_is_running.load(std::memory_order_acquire))
     {
         m_run_status = ProcesserStatus::PROC_RUNNING;
 
@@ -143,7 +145,7 @@ void Processer::_Run()
                 any_dequeued = true;
 
                 /* 强制关闭模式：跳过协程执行，直接回收 */
-                if (m_is_shutdown) {
+                if (m_is_shutdown.load(std::memory_order_acquire)) {
                     delete m_running_coroutine;
                     m_running_coroutine = nullptr;
                     continue;
@@ -197,8 +199,13 @@ void Processer::_Run()
             auto begin = bbt::core::clock::now<bbt::core::clock::microseconds>();
 #endif
             std::unique_lock<std::mutex> lock_uptr(m_run_cond_mutex);
-            m_run_cond.wait_for(lock_uptr, bbt::core::clock::us(g_bbt_coroutine_config->m_cfg_processer_proc_interval_us));
-            m_run_cond_notify.exchange(true);
+            m_run_cond.wait_for(lock_uptr,
+                                bbt::core::clock::us(g_bbt_coroutine_config->m_cfg_processer_proc_interval_us),
+                                [this] {
+                                    return !m_is_running.load(std::memory_order_acquire) ||
+                                        !m_run_cond_notify.load(std::memory_order_acquire);
+                                });
+            m_run_cond_notify.store(true, std::memory_order_release);
 #ifdef BBT_COROUTINE_PROFILE
             m_suspend_cost_times += std::chrono::duration_cast<decltype(m_suspend_cost_times)>(bbt::core::clock::now<bbt::core::clock::microseconds>() - begin);
 #endif
@@ -212,7 +219,8 @@ void Processer::Stop()
 {
     Coroutine::Ptr item = nullptr;
 
-    m_is_running = false;
+    m_is_running.store(false, std::memory_order_release);
+    m_run_cond.notify_all();
 
     /* 等待 _Run 循环退出（最多 5 秒） */
     constexpr int kMaxRetries = 100;
@@ -226,8 +234,8 @@ void Processer::Stop()
     /* 超时强杀：直接回收协程 */
     if (m_run_status != ProcesserStatus::PROC_EXIT) {
         // 设置 shutdown 标志，_Run 循环检测到此标志时跳过协程执行
-        m_is_shutdown = true;
-        m_run_cond.notify_one();
+        m_is_shutdown.store(true, std::memory_order_release);
+        m_run_cond.notify_all();
         std::this_thread::sleep_for(bbt::core::clock::milliseconds(100));
     }
 

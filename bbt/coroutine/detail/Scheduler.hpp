@@ -44,7 +44,10 @@ public:
     void                                        RegistCoroutineTask(const CoroutineCallback& handle, bool& succ) noexcept;
     /* 协程被激活，重新加入全局队列 */
     void                                        OnActiveCoroutine(CoroutinePriority priority, Coroutine::Ptr coroutine);
-    bool                                        IsRunning() const noexcept { return m_is_running; }
+    bool                                        IsRunning() const noexcept
+    {
+        return m_is_running.load(std::memory_order_acquire);
+    }
 
 protected:
     /* 从全局队列中取一定数量的协程 */
@@ -87,7 +90,7 @@ private:
 
     /* coroutine全局队列 */
     CoPriorityQueue                             m_global_coroutine_queue;
-    volatile bool                               m_is_running{true};
+    std::atomic_bool                            m_is_running{true};
     volatile ScheudlerStatus                    m_run_status{ScheudlerStatus::SCHE_DEFAULT};
 
     uint64_t                                    m_regist_coroutine_count{0};

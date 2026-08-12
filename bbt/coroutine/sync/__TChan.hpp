@@ -31,7 +31,7 @@ Chan<TItem, Max>::Chan():
     m_enable_read_cond(CoWaiter::Create())
 {
     Assert(m_max_size >= 0);
-    m_run_status = ChanStatus::CHAN_OPEN;
+    m_run_status.store(ChanStatus::CHAN_OPEN, std::memory_order_release);
 }
 
 template<class TItem, int Max>
@@ -48,6 +48,11 @@ int Chan<TItem, Max>::Write(const ItemType& item)
         return -1;
 
     std::unique_lock<std::mutex> lock(m_item_queue_mutex);
+
+    // Close() 的 CHAN_CLOSE 置位不持锁，可在首次 IsClosed() 检查与锁获取
+    // 之间完成；锁内复查封闭"关闭后仍写入"窗口（Close 后 Write 必须 -1）
+    if (IsClosed())
+        return -1;
 
     while (m_item_queue.size() >= (size_t)m_max_size) {
         auto enable_write_cond = _CreateAndPushEnableWriteCond();
@@ -144,6 +149,9 @@ int Chan<TItem, Max>::TryWrite(const ItemType& item)
         return -1;
 
     std::lock_guard<std::mutex> lock(m_item_queue_mutex);
+    if (IsClosed())
+        return -1;
+
     if (m_item_queue.size() >= (size_t)m_max_size)
         return -2;
 
@@ -162,6 +170,10 @@ int Chan<TItem, Max>::TryWrite(const ItemType& item, int timeout)
 
     auto start = bbt::core::clock::gettime_mono();
     std::unique_lock<std::mutex> lock(m_item_queue_mutex);
+
+    // 与 Write 相同的关闭窗口：锁内复查
+    if (IsClosed())
+        return -1;
 
     while (m_item_queue.size() >= (size_t)m_max_size) {
         int elapsed = bbt::core::clock::gettime_mono() - start;
@@ -260,9 +272,11 @@ void Chan<TItem, Max>::Close()
     if (IsClosed())
         return;
 
-    m_run_status = ChanStatus::CHAN_CLOSE;
-
     std::lock_guard<std::mutex> lock(m_item_queue_mutex);
+
+    // 置位在锁内：与 Write 系列"锁内复查"配对，保证关闭与入队串行化——
+    // 锁内复查通过（open）后，Close 必须等该次入队完成才能置位
+    m_run_status.store(ChanStatus::CHAN_CLOSE, std::memory_order_release);
 
     // 不再丢弃缓冲数据 — 保留给读者读完
     // 唤醒所有阻塞的协程
@@ -279,7 +293,7 @@ void Chan<TItem, Max>::Close()
 template<class TItem, int Max>
 bool Chan<TItem, Max>::IsClosed()
 {
-    return (m_run_status == ChanStatus::CHAN_CLOSE);
+    return (m_run_status.load(std::memory_order_acquire) == ChanStatus::CHAN_CLOSE);
 }
 
 // ============================================================
@@ -442,9 +456,10 @@ void Chan<TItem, 0>::Close()
     if (IsClosed())
         return;
 
-    BaseType::m_run_status = ChanStatus::CHAN_CLOSE;
-
     std::lock_guard<std::mutex> lock(BaseType::m_item_queue_mutex);
+
+    // 与 Chan<TItem, Max>::Close 相同：锁内置位，与 Write 锁内复查配对
+    BaseType::m_run_status.store(ChanStatus::CHAN_CLOSE, std::memory_order_release);
 
     if (BaseType::m_is_reading)
         BaseType::_OnEnableRead();
@@ -459,7 +474,7 @@ void Chan<TItem, 0>::Close()
 template<class TItem>
 bool Chan<TItem, 0>::IsClosed()
 {
-    return (BaseType::m_run_status == ChanStatus::CHAN_CLOSE);
+    return (BaseType::m_run_status.load(std::memory_order_acquire) == ChanStatus::CHAN_CLOSE);
 }
 
 } // namespace bbt::coroutine::sync

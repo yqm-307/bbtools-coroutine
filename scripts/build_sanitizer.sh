@@ -17,8 +17,12 @@ BINARY="$BUILD_DIR/bin/benchmark_test/unified_stress"
 
 MODULES=(comutex corwmutex cocond chan copool coroutine)
 
-# ASAN 配置: detect_leaks=0 因为协程栈分配会产生假阳性; halt_on_error=0 收集所有错误
-export ASAN_OPTIONS="detect_leaks=0:halt_on_error=0:log_path=/tmp/asan_report"
+# ASAN 配置:
+# - detect_leaks=0：协程栈分配会产生假阳性
+# - detect_stack_use_after_return=0：协程使用自定义栈 + ucontext 切换，
+#   ASAN fake stack 无法跟踪，会误报 stack-use-after-return
+# - halt_on_error=0：收集所有错误
+export ASAN_OPTIONS="detect_leaks=0:detect_stack_use_after_return=0:halt_on_error=0:log_path=/tmp/asan_report"
 export UBSAN_OPTIONS="print_stacktrace=1:halt_on_error=0"
 
 build() {
@@ -29,7 +33,7 @@ build() {
         -DCMAKE_BUILD_TYPE=Debug \
         -DNEED_TEST=ON \
         -DNEED_BENCHMARK=ON \
-        -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -g -O1" \
+        -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-sanitize=vptr -fno-omit-frame-pointer -g -O1" \
         -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
     ninja -j$(nproc)
 
