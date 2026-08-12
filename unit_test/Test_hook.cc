@@ -348,6 +348,179 @@ BOOST_AUTO_TEST_CASE(t_hook_read_errno_preserved)
     BOOST_TEST(got_errno.load() == EBADF);
 }
 
+// =============== #191: connect/accept 异常安全 ===============
+
+// connect 立即失败（ECONNREFUSED）：socket 保持可重用，重连到监听端口成功
+BOOST_AUTO_TEST_CASE(t_hook_connect_refused_then_reuse)
+{
+    bbt::core::thread::CountDownLatch l{1};
+    std::atomic_bool first_failed{false};
+    std::atomic_bool second_ok{false};
+    std::atomic_int first_errno{0};
+
+    // 监听 socket（在测试线程准备好）
+    int listen_fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    BOOST_REQUIRE(listen_fd >= 0);
+
+    struct sockaddr_in listen_addr;
+    memset(&listen_addr, 0, sizeof(listen_addr));
+    listen_addr.sin_family = AF_INET;
+    listen_addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    listen_addr.sin_port = 0;
+    BOOST_REQUIRE(::bind(listen_fd, (struct sockaddr*)&listen_addr, sizeof(listen_addr)) == 0);
+    BOOST_REQUIRE(::listen(listen_fd, 4) == 0);
+
+    socklen_t addr_len = sizeof(listen_addr);
+    BOOST_REQUIRE(::getsockname(listen_fd, (struct sockaddr*)&listen_addr, &addr_len) == 0);
+
+    // 未监听端口：bind 后立即 close 释放端口，connect 该端口（无监听者）
+    // 内核立即 RST → ECONNREFUSED
+    int tmp_fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    BOOST_REQUIRE(tmp_fd >= 0);
+    struct sockaddr_in dead_addr;
+    memset(&dead_addr, 0, sizeof(dead_addr));
+    dead_addr.sin_family = AF_INET;
+    dead_addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    dead_addr.sin_port = 0;
+    BOOST_REQUIRE(::bind(tmp_fd, (struct sockaddr*)&dead_addr, sizeof(dead_addr)) == 0);
+    socklen_t dead_len = sizeof(dead_addr);
+    BOOST_REQUIRE(::getsockname(tmp_fd, (struct sockaddr*)&dead_addr, &dead_len) == 0);
+    ::close(tmp_fd);  // 端口已释放，connect 将得到 ECONNREFUSED
+
+    bbtco [&]() {
+        int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+        BOOST_REQUIRE(fd >= 0);
+
+        // 第一次 connect：无监听者，立即 ECONNREFUSED
+        errno = 0;
+        int ret1 = ::connect(fd, (struct sockaddr*)&dead_addr, sizeof(dead_addr));
+        first_errno = errno;
+        first_failed = (ret1 == -1);
+
+        // 同一 socket 重连到监听端口：应成功（socket 状态可重用）
+        int ret2 = ::connect(fd, (struct sockaddr*)&listen_addr, sizeof(listen_addr));
+        second_ok = (ret2 == 0);
+
+        ::close(fd);
+        l.Down();
+    };
+
+    l.Wait();
+    ::close(listen_fd);
+
+    BOOST_TEST(first_failed.load());
+    BOOST_TEST(first_errno.load() == ECONNREFUSED);
+    BOOST_TEST(second_ok.load());
+}
+
+// 非阻塞 connect 完成后重入 connect（EISCONN）返回成功而非 -1
+BOOST_AUTO_TEST_CASE(t_hook_connect_eisconn_success)
+{
+    bbt::core::thread::CountDownLatch l{1};
+    std::atomic_bool reconn_ok{false};
+
+    int listen_fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    BOOST_REQUIRE(listen_fd >= 0);
+
+    struct sockaddr_in listen_addr;
+    memset(&listen_addr, 0, sizeof(listen_addr));
+    listen_addr.sin_family = AF_INET;
+    listen_addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    listen_addr.sin_port = 0;
+    BOOST_REQUIRE(::bind(listen_fd, (struct sockaddr*)&listen_addr, sizeof(listen_addr)) == 0);
+    BOOST_REQUIRE(::listen(listen_fd, 4) == 0);
+
+    socklen_t addr_len = sizeof(listen_addr);
+    BOOST_REQUIRE(::getsockname(listen_fd, (struct sockaddr*)&listen_addr, &addr_len) == 0);
+
+    // 接受线程：accept 后连接完成
+    std::thread acceptor([&]() {
+        int cli = ::accept(listen_fd, nullptr, nullptr);
+        if (cli >= 0)
+            ::close(cli);
+    });
+
+    bbtco [&]() {
+        int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+        BOOST_REQUIRE(fd >= 0);
+
+        // 第一次 connect：可能立即完成（loopback 快）或 EINPROGRESS 挂起完成
+        int ret1 = ::connect(fd, (struct sockaddr*)&listen_addr, sizeof(listen_addr));
+        BOOST_REQUIRE(ret1 == 0);
+
+        // 已连接后再次 connect 同一地址：EISCONN 应被视为成功
+        int ret2 = ::connect(fd, (struct sockaddr*)&listen_addr, sizeof(listen_addr));
+        reconn_ok = (ret2 == 0);
+
+        ::close(fd);
+        l.Down();
+    };
+
+    l.Wait();
+    acceptor.join();
+    ::close(listen_fd);
+
+    BOOST_TEST(reconn_ok.load());
+}
+
+// accept 失败不影响 listen socket：accept 后 listen socket 仍可继续 accept
+BOOST_AUTO_TEST_CASE(t_hook_accept_listen_socket_unaffected)
+{
+    bbt::core::thread::CountDownLatch l{1};
+    std::atomic_int accepted{0};
+
+    int listen_fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    BOOST_REQUIRE(listen_fd >= 0);
+
+    struct sockaddr_in listen_addr;
+    memset(&listen_addr, 0, sizeof(listen_addr));
+    listen_addr.sin_family = AF_INET;
+    listen_addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    listen_addr.sin_port = 0;
+    BOOST_REQUIRE(::bind(listen_fd, (struct sockaddr*)&listen_addr, sizeof(listen_addr)) == 0);
+    BOOST_REQUIRE(::listen(listen_fd, 4) == 0);
+
+    socklen_t addr_len = sizeof(listen_addr);
+    BOOST_REQUIRE(::getsockname(listen_fd, (struct sockaddr*)&listen_addr, &addr_len) == 0);
+
+    // 两个客户端先后连接
+    std::thread client1([&]() {
+        int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+        if (fd < 0)
+            return;
+        ::connect(fd, (struct sockaddr*)&listen_addr, sizeof(listen_addr));
+        ::close(fd);
+    });
+
+    bbtco [&]() {
+        // 第一轮 accept（挂起直到 client1 到达）
+        int cli1 = ::accept(listen_fd, nullptr, nullptr);
+        BOOST_REQUIRE(cli1 >= 0);
+        ::close(cli1);
+        accepted++;
+
+        // listen socket 不受影响：继续监听，第二轮 accept 由协程内自建 client 触发
+        int cli2_fd = ::socket(AF_INET, SOCK_STREAM, 0);
+        BOOST_REQUIRE(cli2_fd >= 0);
+        int ret = ::connect(cli2_fd, (struct sockaddr*)&listen_addr, sizeof(listen_addr));
+        BOOST_REQUIRE(ret == 0);
+        ::close(cli2_fd);
+
+        int cli2 = ::accept(listen_fd, nullptr, nullptr);
+        BOOST_REQUIRE(cli2 >= 0);
+        ::close(cli2);
+        accepted++;
+
+        l.Down();
+    };
+
+    l.Wait();
+    client1.join();
+    ::close(listen_fd);
+
+    BOOST_TEST(accepted.load() == 2);
+}
+
 BOOST_AUTO_TEST_CASE(test_env_unload)
 {
     g_scheduler->Stop();
