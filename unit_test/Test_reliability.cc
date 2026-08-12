@@ -77,8 +77,10 @@ BOOST_AUTO_TEST_CASE(t_DL_01_hold_lock_await)
         };
     }
 
-    // 等待完成或超时（10s 足够 20×20=400 ops，即使有锁竞争）
-    auto deadline = bbt::core::clock::nowAfter(bbt::core::clock::milliseconds(10000));
+    // 等待完成或超时。CI self-hosted runner（4 核低配、多 job 并行）实测
+    // 吞吐约为本地的 1/5，10s 预算曾导致 398/400 假失败；提高到 30s 保留
+    // 死锁检测意义的同时容纳 CI 慢环境。
+    auto deadline = bbt::core::clock::nowAfter(bbt::core::clock::milliseconds(30000));
     while (!bbt::core::clock::is_expired<bbt::core::clock::milliseconds>(deadline)) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         int current = ops.load();
@@ -243,7 +245,7 @@ BOOST_AUTO_TEST_CASE(t_UAF_02_cross_await_stack_ref)
         };
     } // ← local_value 析构
 
-    step1.Wait();
+    step1.WaitTimeout(5000);
     step2.Down();
 
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
@@ -321,8 +323,9 @@ BOOST_AUTO_TEST_CASE(t_UAF_04_cowaiter_shared_ptr)
         };
     }
 
-    // 等待全部就位
-    ready.Wait();
+    // 等待全部就位。带超时：协程注册若在 CI 慢环境下长时间未获调度，
+    // 应报明确失败而不是永久挂起拖满 ctest 全局超时。
+    BOOST_TEST(ready.WaitTimeout(5000) == 0);
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     // 唤醒全部
@@ -674,8 +677,8 @@ BOOST_AUTO_TEST_CASE(t_UB_03_yieldwithcallback_lock)
         a_done.Down();
     };
 
-    // 等待协程 A 完成 unlock
-    a_done.Wait();
+    // 等待协程 A 完成 unlock（带超时，避免 CI 慢环境永久挂起）
+    BOOST_TEST(a_done.WaitTimeout(5000) == 0);
 
     // 协程 B: 获取同一锁，验证协程 A 已释放
     bbtco [mutex, &shared]() {
@@ -732,7 +735,8 @@ BOOST_AUTO_TEST_CASE(t_EX_01_cocond_exception_safety)
         };
     }
 
-    all_ready.Wait();
+    // 等待全部 waiter 就位（带超时，避免 CI 慢环境永久挂起）
+    BOOST_TEST(all_ready.WaitTimeout(5000) == 0);
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     bbtco [cond]() {
@@ -797,8 +801,9 @@ BOOST_AUTO_TEST_CASE(t_EX_02_chan_close_raii_guard)
         };
     }
 
-    writers_ready.Wait();
-    readers_ready.Wait();
+    // 等待全部读写协程就位（带超时，避免 CI 慢环境永久挂起）
+    BOOST_TEST(writers_ready.WaitTimeout(5000) == 0);
+    BOOST_TEST(readers_ready.WaitTimeout(5000) == 0);
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     ch.Close();
