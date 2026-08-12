@@ -35,6 +35,29 @@
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::sync;
 
+namespace
+{
+
+// 带 deadline 的 latch 轮询等待。
+//
+// 不依赖 CountDownLatch::WaitTimeout：bbtools-core 旧版本实现存在缺陷——
+// end_tm 未把 timeout 加入截止时间，导致 count>0 时立即 ETIMEDOUT 返回 -1
+// （等价于恒立即超时），且测试进程链接的 core 版本不可控（CI runner 系统库）。
+// 这里用 WaitTimeout(1) 作非阻塞探测 + 外层 deadline 轮询，对修复前后的
+// core 版本均正确。
+void WaitLatchWithDeadline(bbt::core::thread::CountDownLatch& latch, int timeout_ms)
+{
+    auto deadline = bbt::core::clock::nowAfter(bbt::core::clock::milliseconds(timeout_ms));
+    while (!bbt::core::clock::is_expired<bbt::core::clock::milliseconds>(deadline)) {
+        if (latch.WaitTimeout(1) == 0)
+            return;
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    BOOST_ERROR("latch wait timed out");
+}
+
+} // namespace
+
 BOOST_AUTO_TEST_SUITE(ReliabilityTraps)
 
 // ============================================================================
@@ -245,7 +268,7 @@ BOOST_AUTO_TEST_CASE(t_UAF_02_cross_await_stack_ref)
         };
     } // ← local_value 析构
 
-    step1.WaitTimeout(5000);
+    WaitLatchWithDeadline(step1, 5000);
     step2.Down();
 
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
@@ -325,7 +348,7 @@ BOOST_AUTO_TEST_CASE(t_UAF_04_cowaiter_shared_ptr)
 
     // 等待全部就位。带超时：协程注册若在 CI 慢环境下长时间未获调度，
     // 应报明确失败而不是永久挂起拖满 ctest 全局超时。
-    BOOST_TEST(ready.WaitTimeout(5000) == 0);
+    WaitLatchWithDeadline(ready, 5000);
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     // 唤醒全部
@@ -678,7 +701,7 @@ BOOST_AUTO_TEST_CASE(t_UB_03_yieldwithcallback_lock)
     };
 
     // 等待协程 A 完成 unlock（带超时，避免 CI 慢环境永久挂起）
-    BOOST_TEST(a_done.WaitTimeout(5000) == 0);
+    WaitLatchWithDeadline(a_done, 5000);
 
     // 协程 B: 获取同一锁，验证协程 A 已释放
     bbtco [mutex, &shared]() {
@@ -736,7 +759,7 @@ BOOST_AUTO_TEST_CASE(t_EX_01_cocond_exception_safety)
     }
 
     // 等待全部 waiter 就位（带超时，避免 CI 慢环境永久挂起）
-    BOOST_TEST(all_ready.WaitTimeout(5000) == 0);
+    WaitLatchWithDeadline(all_ready, 5000);
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     bbtco [cond]() {
@@ -802,8 +825,8 @@ BOOST_AUTO_TEST_CASE(t_EX_02_chan_close_raii_guard)
     }
 
     // 等待全部读写协程就位（带超时，避免 CI 慢环境永久挂起）
-    BOOST_TEST(writers_ready.WaitTimeout(5000) == 0);
-    BOOST_TEST(readers_ready.WaitTimeout(5000) == 0);
+    WaitLatchWithDeadline(writers_ready, 5000);
+    WaitLatchWithDeadline(readers_ready, 5000);
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     ch.Close();
