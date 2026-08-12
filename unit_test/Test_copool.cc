@@ -177,7 +177,7 @@ BOOST_AUTO_TEST_CASE(t_throwing_tasks_pool_alive)
         const int n_mix = 200;  // 抛异常与正常任务各 100，交错提交
         std::atomic_int ok_count{0};
         std::atomic_int throw_count{0};
-        bbt::core::thread::CountDownLatch done{n_mix};
+        bbt::core::thread::CountDownLatch done{n_mix / 2};  // 仅正常任务 Down
 
         for (int i = 0; i < n_mix; ++i) {
             if (i % 2 == 0) {

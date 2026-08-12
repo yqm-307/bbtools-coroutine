@@ -57,7 +57,7 @@ int CoPool::Submit(const CoPoolWorkCallback& workfunc)
 
 int CoPool::Submit(CoPoolWorkCallback&& workfunc)
 {
-    auto* work = new (std::nothrow) Work(std::forward<CoPoolWorkCallback&&>(workfunc));
+    auto* work = new (std::nothrow) Work(std::move(workfunc));
     if (work == nullptr)
         return -1;
 
@@ -103,7 +103,7 @@ std::future<void> CoPool::SubmitWithFuture(CoPoolWorkCallback&& workfunc)
     auto promise = std::make_shared<std::promise<void>>();
     auto future = promise->get_future();
 
-    auto* work = new (std::nothrow) Work(std::forward<CoPoolWorkCallback&&>(workfunc), std::move(promise));
+    auto* work = new (std::nothrow) Work(std::move(workfunc), std::move(promise));
     if (work == nullptr)
         return {};
 

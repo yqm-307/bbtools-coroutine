@@ -20,6 +20,10 @@ public:
         m_callback(std::move(workfunc)),
         m_promise(std::move(promise)) {}
 
+    Work(const CoPoolWorkCallback& workfunc, std::shared_ptr<std::promise<void>> promise):
+        m_callback(workfunc),
+        m_promise(std::move(promise)) {}
+
     virtual ~Work() {}
 
     virtual void Invoke()
