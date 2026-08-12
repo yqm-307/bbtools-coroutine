@@ -153,7 +153,7 @@ protected:
     const int                               m_max_size{-1};
     std::queue<ItemType>                    m_item_queue;
     std::mutex                              m_item_queue_mutex;
-    volatile ChanStatus                     m_run_status{ChanStatus::CHAN_DEFAUTL};
+    std::atomic<ChanStatus>                 m_run_status{ChanStatus::CHAN_DEFAUTL};
     std::atomic_bool                        m_is_reading{false};
 
     /* 用来实现读写时挂起和可读写时唤醒协程 */
