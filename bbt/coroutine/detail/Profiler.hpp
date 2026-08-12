@@ -45,6 +45,11 @@ public:
     // 紧凑格式输出到 stderr，用于压测时每秒采样
     void                        DumpStderr();
 
+    /**
+     * @brief 清空统计计数（测试与重复采样的辅助接口）
+     */
+    void                        Reset();
+
     struct ProcesserProfile
     {
         ProcesserId id;
