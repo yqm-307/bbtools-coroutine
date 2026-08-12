@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 #include <memory>
 #include <bbt/coroutine/detail/Define.hpp>
 
@@ -62,6 +63,8 @@ public:
 
     /* 异常处理用户hook。非线程安全，bbtco内所有异常都会通过该函数抛出。请保证异常处理函数不会抛出异常 */
     ExceptionHandleCallback                     m_ext_coevent_exception_callback{nullptr};
+    /* 未设置异常回调时被吞掉的协程异常计数（默认隔离策略的可观测值） */
+    std::atomic_uint64_t                       m_unhandled_exception_count{0};
 private:
     GlobalConfig();
 };

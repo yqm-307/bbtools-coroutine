@@ -49,7 +49,8 @@ void Context::_CoroutineMain(boost::context::detail::transfer_t transfer)
         if (g_bbt_coroutine_config->m_ext_coevent_exception_callback != nullptr)
             g_bbt_coroutine_config->m_ext_coevent_exception_callback(core::errcode::Errcode(e.what()));
         else
-            throw;
+            // 无回调时吞掉并计数：re-throw 会逃出 fcontext 入口导致 terminate
+            g_bbt_coroutine_config->m_unhandled_exception_count.fetch_add(1, std::memory_order_relaxed);
     }
     catch (...)
     {
@@ -59,7 +60,7 @@ void Context::_CoroutineMain(boost::context::detail::transfer_t transfer)
         if (g_bbt_coroutine_config->m_ext_coevent_exception_callback != nullptr)
             g_bbt_coroutine_config->m_ext_coevent_exception_callback(core::errcode::Errcode("unknown exception"));
         else
-            throw;
+            g_bbt_coroutine_config->m_unhandled_exception_count.fetch_add(1, std::memory_order_relaxed);
     }
 
 #if defined(BBT_COROUTINE_PROFILE)
