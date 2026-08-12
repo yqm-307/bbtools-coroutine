@@ -13,6 +13,9 @@
 #define BOOST_TEST_MAIN
 #include <boost/test/included/unit_test.hpp>
 
+#include <chrono>
+#include <stdexcept>
+
 #include <bbt/coroutine/coroutine.hpp>
 
 using namespace bbt::coroutine;
@@ -49,6 +52,68 @@ BOOST_AUTO_TEST_CASE(smoke_scheduler_repeated_start_stop)
         sche->Stop();
         BOOST_CHECK(!sche->IsRunning());
     }
+}
+
+// #192: Stop 时存在 in-flight 协程（挂起在定时器上）——
+// 应快速完成且不泄漏、进程不崩（#218 修复的停止协议回归）
+BOOST_AUTO_TEST_CASE(smoke_scheduler_stop_with_inflight_coroutines)
+{
+    auto& sche = detail::Scheduler::GetInstance();
+    sche->Stop();
+    sche->Start();
+
+    std::atomic_int started{0};
+
+    // 3 个长挂起协程（sleep 5s，远超本用例时长）
+    for (int i = 0; i < 3; ++i) {
+        sche->RegistCoroutineTask([&started]() {
+            started++;
+            bbtco_sleep(5000);
+        });
+    }
+
+    // 等待协程进入挂起
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    BOOST_CHECK_GE(started.load(), 1);
+
+    // Stop 应在短时间完成（不等待 5s sleep 到期）
+    auto begin = std::chrono::steady_clock::now();
+    sche->Stop();
+    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - begin).count();
+
+    BOOST_CHECK(!sche->IsRunning());
+    BOOST_CHECK_LT(elapsed_ms, 3000);
+
+    // Stop 后可再次 Start（冷重启仍正常）
+    sche->Start();
+    BOOST_CHECK(sche->IsRunning());
+    sche->Stop();
+    BOOST_CHECK(!sche->IsRunning());
+}
+
+// #192: 异常路径——协程内抛异常后 Stop 正常（协程异常不阻塞停止协议）
+BOOST_AUTO_TEST_CASE(smoke_scheduler_stop_with_throwing_coroutine)
+{
+    auto& sche = detail::Scheduler::GetInstance();
+    sche->Stop();
+    sche->Start();
+
+    std::atomic_int threw{0};
+    sche->RegistCoroutineTask([&threw]() {
+        threw++;
+        throw std::runtime_error("scheduler-level throw");
+    });
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    BOOST_CHECK_GE(threw.load(), 1);
+
+    sche->Stop();
+    BOOST_CHECK(!sche->IsRunning());
+
+    // 恢复运行态供后续用例使用
+    sche->Start();
+    BOOST_CHECK(sche->IsRunning());
 }
 
 BOOST_AUTO_TEST_CASE(smoke_scheduler_regist_run_coroutine)
