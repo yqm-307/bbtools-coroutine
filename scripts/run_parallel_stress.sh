@@ -21,7 +21,9 @@ trap cleanup EXIT
 PIDS=()
 for m in "${MODULES[@]}"; do
     log="$OUTDIR/${m}.log"
-    FATIGUE_INTERVAL=${INTERVAL:-60} "$BIN" --module="$m" --threads="$THREADS" "$DUR" 0 0 > "$log" 2>&1 &
+    # timeout 兜底：单进程 hang（如 shutdown 卡死）不拖死整个 job；
+    # 超时被 SIGKILL 后 wait 捕获非零退出码计入 FAIL
+    FATIGUE_INTERVAL=${INTERVAL:-60} timeout $((DUR+120)) "$BIN" --module="$m" --threads="$THREADS" "$DUR" 0 0 > "$log" 2>&1 &
     PIDS+=($!)
     echo "[runner] $m → pid=$!"
 done
@@ -47,7 +49,12 @@ for m in mods:
     if not os.path.exists(fp): print(f'{m:>12} {\"-\":>12} {\"-\":>8}  MISSING'); all_ok=False; continue
     with open(fp) as f: lines=[l for l in f if l.startswith('FATIGUE_METRIC:')]
     if not lines: print(f'{m:>12} {\"-\":>12} {\"-\":>8}  NO_DATA'); all_ok=False; continue
-    d=json.loads(lines[-1].split('FATIGUE_METRIC:',1)[1])
+    # 每条进程日志打印全部模块的指标，须取【本模块】的最后一条，
+    # 不能取最后一行（最后一行可能是其他模块的 0 值行，导致误报 ZERO）
+    parsed=[json.loads(l.split('FATIGUE_METRIC:',1)[1]) for l in lines]
+    mine=[x for x in parsed if x.get('name')==m]
+    if not mine: print(f'{m:>12} {\"-\":>12} {\"-\":>8}  NO_DATA'); all_ok=False; continue
+    d=mine[-1]
     ops=d['ops_total']; errs=d.get('errors',0)
     total+=ops; total_err+=errs
     ok='OK' if ops>0 else 'ZERO'
