@@ -15,6 +15,20 @@ namespace
 {
 
 /**
+ * @brief 重置非阻塞 connect 的 socket 状态（#191）
+ *
+ * 非阻塞 connect 失败后，socket 的错误结果保存在 SO_ERROR 中；
+ * 读取 SO_ERROR 后内核释放连接状态，socket 回到未连接、可重新 connect。
+ * connect 挂起路径被异常打断或协程层失败时调用，保证 socket 可重试。
+ */
+void ResetConnectState(int fd) noexcept
+{
+    int so_error = 0;
+    socklen_t len = sizeof(so_error);
+    ::getsockopt(fd, SOL_SOCKET, SO_ERROR, &so_error, &len);
+}
+
+/**
  * @brief 协程层挂起失败的 errno 恢复守卫（#190）
  *
  * 系统调用返回可重试错误（EAGAIN 等）时记录其 errno，随后协程层操作
@@ -91,6 +105,10 @@ int Hook_Connect(int socket, const struct sockaddr *address, socklen_t address_l
 {
 
     while (g_bbt_sys_hook_connect_func(socket, address, address_len) != 0) {
+        // EISCONN：连接已建立（非阻塞 connect 完成后重入），视为成功
+        if (errno == EISCONN)
+            return 0;
+
         // 是否因为非阻塞导致没法立即完成
         if (errno != EINTR && errno != EINPROGRESS && errno != EALREADY)
             return -1;
@@ -99,9 +117,14 @@ int Hook_Connect(int socket, const struct sockaddr *address, socklen_t address_l
         ErrnoGuard guard{sys_errno};
 
         try {
-            if (g_bbt_tls_coroutine_co->YieldUntilFdWriteable(socket) != 0)
+            if (g_bbt_tls_coroutine_co->YieldUntilFdWriteable(socket) != 0) {
+                // 协程层失败：重置 socket 状态，使其回到未连接、可重试
+                ResetConnectState(socket);
                 return -1;
+            }
         } catch (...) {
+            // 异常路径：同样重置，保证调用方（如协程取消后）可重用 socket
+            ResetConnectState(socket);
             throw;
         }
     }
