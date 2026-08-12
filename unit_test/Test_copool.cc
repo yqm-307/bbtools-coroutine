@@ -55,9 +55,9 @@ BOOST_AUTO_TEST_CASE(t_release_stops_pool)
         // Release 停止池
         pool->Release();
 
-        // Release 后 Submit 可能返回 0 但任务不会执行（池已停止）
+        // Release 后 Submit 返回 -1（池已停止，拒绝入队）
         count = 0;
-        pool->Submit([&](){ count++; });
+        BOOST_TEST(pool->Submit([&](){ count++; }) == -1);
         bbtco_sleep(50);
         BOOST_TEST(count == 0); // 池已停止，任务不会执行
 
@@ -159,6 +159,197 @@ BOOST_AUTO_TEST_CASE(t_stress_submit_release)
             pool->Release();
         }
         BOOST_TEST(true);
+        l.Down();
+    };
+
+    l.Wait();
+}
+
+// =============== #189: 协程异常隔离测试 ===============
+
+// 持续提交抛异常任务 + 正常任务交错，池持续工作、正常任务全部完成
+BOOST_AUTO_TEST_CASE(t_throwing_tasks_pool_alive)
+{
+    bbt::core::thread::CountDownLatch l{1};
+
+    bbtco [&](){
+        auto pool = bbtco_make_copool(8);
+        const int n_mix = 200;  // 抛异常与正常任务各 100，交错提交
+        std::atomic_int ok_count{0};
+        std::atomic_int throw_count{0};
+        bbt::core::thread::CountDownLatch done{n_mix / 2};  // 仅正常任务 Down
+
+        for (int i = 0; i < n_mix; ++i) {
+            if (i % 2 == 0) {
+                pool->Submit([&]() {
+                    throw_count++;
+                    throw std::runtime_error("boom");
+                });
+            } else {
+                pool->Submit([&]() {
+                    ok_count++;
+                    done.Down();
+                });
+            }
+        }
+
+        done.Wait();
+        BOOST_TEST(ok_count == n_mix / 2);
+        BOOST_TEST(throw_count == n_mix / 2);
+
+        // 异常被隔离后池仍可继续接收新任务
+        std::atomic_int extra{0};
+        bbt::core::thread::CountDownLatch extra_done{10};
+        for (int i = 0; i < 10; ++i)
+            pool->Submit([&](){ extra++; extra_done.Down(); });
+        extra_done.Wait();
+        BOOST_TEST(extra == 10);
+
+        // 未设置回调：异常被计数
+        BOOST_TEST(pool->GetUnhandledExceptionCount() == (uint64_t)(n_mix / 2));
+
+        pool->Release();
+        l.Down();
+    };
+
+    l.Wait();
+}
+
+// "忽略"策略默认计数观测
+BOOST_AUTO_TEST_CASE(t_exception_ignore_count)
+{
+    bbt::core::thread::CountDownLatch l{1};
+
+    bbtco [&](){
+        auto pool = bbtco_make_copool(4);
+        const int n = 25;
+        bbt::core::thread::CountDownLatch done{n};
+
+        for (int i = 0; i < n; ++i) {
+            pool->Submit([&]() {
+                done.Down();
+                throw 42;  // 非 std 异常，catch(...) 需同样接住
+            });
+        }
+
+        done.Wait();
+        BOOST_TEST(pool->GetUnhandledExceptionCount() == (uint64_t)n);
+
+        pool->Release();
+        l.Down();
+    };
+
+    l.Wait();
+}
+
+// 回调策略：异常交付回调
+BOOST_AUTO_TEST_CASE(t_exception_callback)
+{
+    bbt::core::thread::CountDownLatch l{1};
+
+    bbtco [&](){
+        auto pool = bbtco_make_copool(4);
+        std::atomic_int cb_calls{0};
+        std::atomic_bool got_runtime_error{false};
+        bbt::core::thread::CountDownLatch done{1};
+
+        pool->SetExceptionCallback([&](std::exception_ptr eptr) {
+            cb_calls++;
+            try {
+                std::rethrow_exception(eptr);
+            } catch (const std::runtime_error&) {
+                got_runtime_error = true;
+            } catch (...) {
+            }
+        });
+
+        pool->Submit([&]() {
+            done.Down();
+            throw std::runtime_error("callback-me");
+        });
+
+        done.Wait();
+        bbtco_sleep(50);
+        BOOST_TEST(cb_calls.load() == 1);
+        BOOST_TEST(got_runtime_error.load() == true);
+        // 走回调路径的不计入 ignore 计数
+        BOOST_TEST(pool->GetUnhandledExceptionCount() == 0);
+
+        // 回调抛异常：隔离（仅计数），池不崩溃
+        pool->SetExceptionCallback([&](std::exception_ptr) {
+            throw std::runtime_error("callback itself throws");
+        });
+        bbt::core::thread::CountDownLatch done2{1};
+        pool->Submit([&]() {
+            done2.Down();
+            throw std::runtime_error("x");
+        });
+        done2.Wait();
+        bbtco_sleep(50);
+        BOOST_TEST(pool->GetUnhandledExceptionCount() == 1);
+
+        pool->Release();
+        l.Down();
+    };
+
+    l.Wait();
+}
+
+// future 传递策略：SubmitWithFuture 交付异常与正常完成
+BOOST_AUTO_TEST_CASE(t_submit_with_future)
+{
+    bbt::core::thread::CountDownLatch l{1};
+
+    bbtco [&](){
+        auto pool = bbtco_make_copool(4);
+
+        // 正常任务：future.get() 正常返回
+        std::atomic_int ok{0};
+        auto f_ok = pool->SubmitWithFuture([&](){ ok++; });
+        BOOST_TEST(f_ok.valid());
+        f_ok.get();
+        BOOST_TEST(ok == 1);
+
+        // 异常任务：future.get() 抛出任务异常
+        auto f_err = pool->SubmitWithFuture([]() {
+            throw std::logic_error("future-err");
+        });
+        BOOST_TEST(f_err.valid());
+        bool caught = false;
+        try {
+            f_err.get();
+        } catch (const std::logic_error&) {
+            caught = true;
+        } catch (...) {
+        }
+        BOOST_TEST(caught == true);
+
+        // future 路径不占用池级 ignore 计数
+        BOOST_TEST(pool->GetUnhandledExceptionCount() == 0);
+
+        pool->Release();
+        l.Down();
+    };
+
+    l.Wait();
+}
+
+// Release 异常路径：抛异常任务后 Release 正常返回（不挂起）
+BOOST_AUTO_TEST_CASE(t_release_after_throwing)
+{
+    bbt::core::thread::CountDownLatch l{1};
+
+    bbtco [&](){
+        for (int round = 0; round < 5; ++round) {
+            auto pool = bbtco_make_copool(4);
+            for (int i = 0; i < 20; ++i)
+                pool->Submit([]() { throw std::runtime_error("x"); });
+
+            bbtco_sleep(20);
+            // 修复前：worker 协程异常逃逸终结 → m_latch 永不 Down → 挂起
+            pool->Release();
+            BOOST_TEST(true);
+        }
         l.Down();
     };
 
