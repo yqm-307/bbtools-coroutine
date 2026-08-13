@@ -31,9 +31,11 @@
 *.app
 
 # CMake and local build outputs
-/build/
-/build_cov/
+build*/
 /coverage_report/
+
+# 本地工具会话文件
+.kilo/
 
 # Test and benchmark outputs
 /tests/reports/*
