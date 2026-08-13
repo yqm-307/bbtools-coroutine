@@ -131,16 +131,18 @@ BOOST_AUTO_TEST_CASE(t_DL_02_destructor_race_deadlock)
     const int duration_ms = 5000;
     std::atomic_int ops{0};
     std::atomic_bool running{true};
+    bbt::core::thread::CountDownLatch workers_done{nco};
 
     // 10 协程持续 Lock/UnLock
     for (int i = 0; i < nco; ++i) {
-        bbtco [mutex, &ops, &running]() {
+        bbtco [mutex, &ops, &running, &workers_done]() {
             while (running.load()) {
                 mutex->Lock();
                 ops++;
                 mutex->UnLock();
                 bbtco_sleep(0);  // yield
             }
+            workers_done.Down();
         };
     }
 
@@ -166,6 +168,7 @@ BOOST_AUTO_TEST_CASE(t_DL_02_destructor_race_deadlock)
         prev_ops = current;
     }
     running = false;
+    workers_done.Wait();
 
     BOOST_TEST(ops.load() > 0);
     BOOST_TEST(stale_count < 2);  // 不应冻结
