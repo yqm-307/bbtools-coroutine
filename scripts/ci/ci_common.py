@@ -6,6 +6,7 @@
 不读取任何密钥环境变量的值（见 sanitized_env_summary 约束）。
 """
 
+import hashlib
 import json
 import os
 import re
@@ -153,6 +154,22 @@ def ensure_dir(path: Path) -> Path:
     """创建目录（含父目录），幂等，返回传入路径。"""
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def failure_fingerprint(
+    job: str, stage: str, test_name: str, returncode: int | str | None, category: str
+) -> str:
+    """统一故障指纹：sha256("|".join([job, stage, test_name, str(returncode),
+    category])) 的前 16 位小写 hex。
+
+    供三个 Jenkins Pipeline 的告警去重与恢复邮件使用：同一 (job, stage,
+    test_name, returncode, category) 组合稳定映射同一指纹，去重窗口内
+    不重复轰炸，恢复邮件回引原指纹。returncode 统一 str() 归一化，
+    数字 2 与字符串 "2" 得到同一指纹（Jenkinsfile 固定 python 行以
+    argv 字符串拼接，与本实现保持同构）。纯函数，无副作用。
+    """
+    raw = "|".join([job, stage, test_name, str(returncode), category])
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
 def sanitized_env_summary(env: dict[str, str] | None = None) -> dict[str, str]:

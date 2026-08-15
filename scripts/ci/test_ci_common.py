@@ -12,6 +12,7 @@ run_command 从裸 tuple 演进为 CommandResult 对象（含 category 字段）
 不必为超时写 try/except 分支。
 """
 
+import hashlib
 import json
 import signal
 import sys
@@ -25,6 +26,7 @@ from unittest import mock
 from ci_common import (
     classify_process_result,
     ensure_dir,
+    failure_fingerprint,
     find_dump_files,
     run_command,
     sanitized_env_summary,
@@ -355,6 +357,63 @@ class ScanErrorHitsTest(unittest.TestCase):
     def test_no_false_positive_on_plain_text(self):
         hits = run_smoke.scan_error_hits("all good\nnothing to see\n")
         self.assertEqual(hits, [])
+
+
+class FailureFingerprintTest(unittest.TestCase):
+    """failure_fingerprint 契约（任务 9 统一告警指纹）。
+
+    规格：sha256("|".join([job, stage, test_name, str(returncode), category]))
+    的前 16 位小写 hex。要求确定性、输入任一维变化即变化、与规格逐字节一致
+    （Jenkinsfile 固定 python 指纹行依赖本实现保持同构）。
+    """
+
+    def test_matches_spec_sha256_prefix(self):
+        job, stage, test, rc, cat = "job-a", "Run Smoke", "ctest", 2, "failure"
+        raw = "|".join([job, stage, test, str(rc), cat])
+        expected = hashlib.sha256(raw.encode()).hexdigest()[:16]
+        self.assertEqual(failure_fingerprint(job, stage, test, rc, cat), expected)
+
+    def test_is_16_hex_chars(self):
+        fp = failure_fingerprint("job-a", "Run Smoke", "ctest", 2, "failure")
+        self.assertEqual(len(fp), 16)
+        self.assertRegex(fp, r"^[0-9a-f]{16}$")
+
+    def test_deterministic(self):
+        args = ("job-a", "Run Smoke", "ctest", 2, "failure")
+        self.assertEqual(failure_fingerprint(*args), failure_fingerprint(*args))
+
+    def test_differs_on_category(self):
+        base = ("job-a", "Run Smoke", "ctest", 2, "failure")
+        self.assertNotEqual(
+            failure_fingerprint(*base),
+            failure_fingerprint("job-a", "Run Smoke", "ctest", 2, "timeout"),
+        )
+
+    def test_differs_on_returncode(self):
+        base = ("job-a", "Run Smoke", "ctest", 2, "failure")
+        self.assertNotEqual(
+            failure_fingerprint(*base),
+            failure_fingerprint("job-a", "Run Smoke", "ctest", 3, "failure"),
+        )
+
+    def test_differs_on_stage_and_test_name(self):
+        base = ("job-a", "Run Smoke", "ctest", 2, "failure")
+        self.assertNotEqual(
+            failure_fingerprint(*base),
+            failure_fingerprint("job-a", "Run Smoke", "smoke", 2, "failure"),
+        )
+        self.assertNotEqual(
+            failure_fingerprint(*base),
+            failure_fingerprint("job-a", "Run Soak", "ctest", 2, "failure"),
+        )
+
+    def test_int_and_str_returncode_equivalent(self):
+        # 指纹拼接前统一 str(returncode)：数字 2 与字符串 "2" 必须同指纹，
+        # 与 Jenkinsfile 固定 python 行（argv 全为字符串）保持一致。
+        self.assertEqual(
+            failure_fingerprint("job", "stage", "test", 2, "failure"),
+            failure_fingerprint("job", "stage", "test", "2", "failure"),
+        )
 
 
 if __name__ == "__main__":

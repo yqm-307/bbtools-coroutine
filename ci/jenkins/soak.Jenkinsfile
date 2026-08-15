@@ -21,6 +21,97 @@ def runStageTracked(Closure body) {
     }
 }
 
+// ---- 统一告警：故障指纹 + 去重 + 恢复（任务 9）----
+// 指纹 = sha256("|".join([job, stage, test_name, returncode, category]))[:16]，
+// 与 scripts/ci/ci_common.py::failure_fingerprint 同构，由固定 python 行计算
+// （chr(124) 即 '|'，避免引号转义）；只接收 Jenkins 生成值与受控字符串，
+// 绝不 eval 用户输入。指纹文件在 workspace 固定相对路径，只记录时间戳与
+// 类别，不含任何凭据；1 小时内同一指纹不重复发同一邮件。
+def ALERT_DIR() { 'tests/reports/alerts' }
+def ALERT_WINDOW_SECONDS() { 3600 }
+
+def failureFingerprint(stageName, testName, returncode, category) {
+    // argv 值可能来自外部（env.JOB_NAME 等），拼接进 sh 前必须白名单过滤；
+    // 非法值（含单引号等）统一降级为 '?'，防止引号闭合/注入使告警路径静默失效。
+    def safe = { v -> (v ==~ /^[A-Za-z0-9_ .:?+-]+$/) ? v : '?' }
+    def job = safe(env.JOB_NAME ?: '')
+    def stage = safe(stageName ?: '')
+    def test = safe(testName ?: '')
+    def rc = safe(returncode ?: '')
+    def cat = safe(category ?: '')
+    return sh(
+        returnStdout: true,
+        script:
+            "python3 -c 'import hashlib,sys;print(hashlib.sha256(chr(124).join(sys.argv[1:]).encode()).hexdigest()[:16])' " +
+            "'${job}' '${stage}' '${test}' '${rc}' '${cat}'"
+    ).trim()
+}
+
+// 指纹文件里的最近告警时间戳；文件缺失/内容非法返回 null。
+def lastAlertTs(fp) {
+    def marker = "${ALERT_DIR()}/${fp}.alert"
+    if (!fileExists(marker)) { return null }
+    def raw = sh(returnStdout: true, script:
+        "python3 -c 'import sys;print(open(sys.argv[1]).read().split()[0])' '${marker}'").trim()
+    return (raw ==~ /^\d+$/) ? raw.toLong() : null
+}
+
+// 去重判定：1 小时内同一指纹已发过告警 → true（不重复发同一邮件）。
+def alertSuppressed(fp) {
+    def last = lastAlertTs(fp)
+    if (last == null) { return false }
+    def now = sh(returnStdout: true, script:
+        "python3 -c 'import time;print(int(time.time()))'").trim().toLong()
+    return (now - last) < ALERT_WINDOW_SECONDS()
+}
+
+// 记录本次告警：只写时间戳与类别（类别仅接受受控字符，防注入），供去重与恢复引用。
+def recordAlert(fp, category) {
+    def cat = (category ==~ /^[A-Za-z0-9_:-]+$/) ? category : 'unknown'
+    def now = sh(returnStdout: true, script:
+        "python3 -c 'import time;print(int(time.time()))'").trim()
+    if (!(now ==~ /^\d+$/)) { now = '0' }
+    sh "mkdir -p '${ALERT_DIR()}'"
+    sh "echo '${now}' '${cat}' > '${ALERT_DIR()}/${fp}.alert'"
+}
+
+// 恢复：本构建成功（FAIL→PASS）且存在未恢复告警 → 发恢复邮件（含原故障指纹）
+// 并清理指纹文件；WARN→PASS 的告警同样按恢复处理。
+def notifyRecoveries() {
+    if (currentBuild.result != null && currentBuild.result != 'SUCCESS') { return }
+    sh "mkdir -p '${ALERT_DIR()}'"
+    def markers = sh(returnStdout: true, script:
+        "ls '${ALERT_DIR()}' 2>/dev/null || true").trim().split(/\s+/)
+    def pending = markers.findAll { it && it ==~ /^[0-9a-f]{16}\.alert$/ }
+    if (pending.isEmpty()) { return }
+    def recovered = []
+    for (m in pending) {
+        def cat = sh(returnStdout: true, script:
+            "python3 -c 'import sys;print(open(sys.argv[1]).read().split()[-1])' " +
+            "'${ALERT_DIR()}/${m}'").trim()
+        recovered << m.replaceAll(/\.alert$/, '') + " (" + cat + ")"
+    }
+    def commit = env.GIT_COMMIT ?: 'unknown'
+    emailext(
+        to: '$DEFAULT_RECIPIENTS',
+        subject: "RECOVERED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+        body: """Pipeline recovered.
+
+Job: ${env.JOB_NAME}
+Build: ${env.BUILD_NUMBER}
+Build URL: ${env.BUILD_URL}
+Commit: ${commit}
+Recovered fingerprint(s): ${recovered.join(', ')}
+Report: ${env.BUILD_URL}artifact/
+Build log: ${env.BUILD_URL}console
+""",
+        mimeType: 'text/plain'
+    )
+    for (m in pending) {
+        sh "rm -f '${ALERT_DIR()}/${m}'"
+    }
+}
+
 // 段数上限：防失控循环的硬护栏（真实段数由 SOAK_CONTINUE 与结果决定）。
 def MAX_SOAK_SEGMENTS() { 8 }
 
@@ -210,6 +301,8 @@ PY
     post {
         always {
             script {
+                // 恢复检测：本构建成功且存在未恢复告警 → 发恢复邮件并清理指纹文件。
+                notifyRecoveries()
                 // 兜底归档：段内已逐段归档；此处覆盖构建早期失败的残留证据（空目录安全）。
                 archiveArtifacts artifacts: 'tests/reports/soak/**', fingerprint: true, allowEmptyArchive: true
             }
@@ -221,22 +314,52 @@ PY
                 def reportUrl = runId != ''
                     ? "${env.BUILD_URL}artifact/${SOAK_REPORT_ROOT()}/${runId}/summary.json"
                     : "${env.BUILD_URL}artifact/${SOAK_REPORT_ROOT()}/"
-                // 正文只含 Job/Build/commit/段号/状态/报告 URL，不含任何凭据或敏感配置。
-                emailext(
-                    to: '$DEFAULT_RECIPIENTS',
-                    subject: "UNSTABLE: ${env.JOB_NAME} #${env.BUILD_NUMBER} (soak segment ${env.SOAK_SEGMENT ?: '?'})",
-                    body: """Soak pipeline unstable (WARN segment).
+                def stageName = env.SOAK_SEGMENT ? "Segment ${env.SOAK_SEGMENT}" : 'Run Soak Segments'
+                def cat = env.SOAK_STATUS ?: 'WARN'
+                def rc = env.SOAK_RC ?: '?'
+                // 最短决定性错误：优先取 issues[0]，取不到或用 category 兜底；
+                // JSON 损坏/解析异常时降级为 category，绝不因告警路径异常吞掉邮件。
+                def decisiveError = cat
+                def summaryPath = runId != '' ? "${SOAK_REPORT_ROOT()}/${runId}/summary.json" : ''
+                if (summaryPath != '' && fileExists(summaryPath)) {
+                    decisiveError = sh(returnStdout: true, script:
+                        "python3 -c 'import json,sys\n" +
+                        "try:\n" +
+                        " d=json.load(open(sys.argv[1]))\n" +
+                        " i=d.get(\"issues\") or []\n" +
+                        " print(i[0] if i else sys.argv[2])\n" +
+                        "except Exception:\n" +
+                        " print(sys.argv[2])' " +
+                        "'${summaryPath}' '${cat}'").trim()
+                }
+                def fp = failureFingerprint(stageName, 'soak', rc, cat)
+                // 去重：1 小时内同一指纹不重复发同一邮件（指纹文件记录最近告警时间）。
+                if (alertSuppressed(fp)) {
+                    echo "Alert dedup: fingerprint ${fp} alerted within ${ALERT_WINDOW_SECONDS()}s, skip email"
+                } else {
+                    recordAlert(fp, cat)
+                    // 正文只含 Job/Build URL/commit/阶段/类别/指纹/最短决定性错误/报告 URL，
+                    // 不含任何凭据或敏感配置。
+                    emailext(
+                        to: '$DEFAULT_RECIPIENTS',
+                        subject: "UNSTABLE: ${env.JOB_NAME} #${env.BUILD_NUMBER} (${stageName})",
+                        body: """Soak pipeline unstable (WARN segment).
 
 Job: ${env.JOB_NAME}
 Build: ${env.BUILD_NUMBER}
+Build URL: ${env.BUILD_URL}
 Commit: ${commit}
 Segment: ${env.SOAK_SEGMENT ?: 'unknown'}
-Status: ${env.SOAK_STATUS ?: 'unknown'}（资源/功能告警）
+Stage: ${stageName}
+Category: ${cat} (rc=${rc})
+Failure fingerprint: ${fp}
+Decisive error: ${decisiveError}
 Report: ${reportUrl}
 Build log: ${env.BUILD_URL}console
 """,
-                    mimeType: 'text/plain'
-                )
+                        mimeType: 'text/plain'
+                    )
+                }
             }
         }
         failure {
@@ -246,22 +369,52 @@ Build log: ${env.BUILD_URL}console
                 def reportUrl = runId != ''
                     ? "${env.BUILD_URL}artifact/${SOAK_REPORT_ROOT()}/${runId}/summary.json"
                     : "${env.BUILD_URL}artifact/${SOAK_REPORT_ROOT()}/"
-                emailext(
-                    to: '$DEFAULT_RECIPIENTS',
-                    subject: "FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER} (soak segment ${env.SOAK_SEGMENT ?: '?'})",
-                    body: """Soak pipeline failed.
+                def stageName = env.FAILED_STAGE ?: 'unknown'
+                def cat = env.SOAK_STATUS ?: 'failure'
+                def rc = env.SOAK_RC ?: '?'
+                // 最短决定性错误：优先取 issues[0]，取不到或用 category 兜底；
+                // JSON 损坏/解析异常时降级为 category，绝不因告警路径异常吞掉邮件。
+                def decisiveError = cat
+                def summaryPath = runId != '' ? "${SOAK_REPORT_ROOT()}/${runId}/summary.json" : ''
+                if (summaryPath != '' && fileExists(summaryPath)) {
+                    decisiveError = sh(returnStdout: true, script:
+                        "python3 -c 'import json,sys\n" +
+                        "try:\n" +
+                        " d=json.load(open(sys.argv[1]))\n" +
+                        " i=d.get(\"issues\") or []\n" +
+                        " print(i[0] if i else sys.argv[2])\n" +
+                        "except Exception:\n" +
+                        " print(sys.argv[2])' " +
+                        "'${summaryPath}' '${cat}'").trim()
+                }
+                def fp = failureFingerprint(stageName, 'soak', rc, cat)
+                // 去重：1 小时内同一指纹不重复发同一邮件（指纹文件记录最近告警时间）。
+                if (alertSuppressed(fp)) {
+                    echo "Alert dedup: fingerprint ${fp} alerted within ${ALERT_WINDOW_SECONDS()}s, skip email"
+                } else {
+                    recordAlert(fp, cat)
+                    // 正文只含 Job/Build URL/commit/阶段/类别/指纹/最短决定性错误/报告 URL，
+                    // 不含任何凭据或敏感配置。
+                    emailext(
+                        to: '$DEFAULT_RECIPIENTS',
+                        subject: "FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER} (${stageName})",
+                        body: """Soak pipeline failed.
 
 Job: ${env.JOB_NAME}
 Build: ${env.BUILD_NUMBER}
+Build URL: ${env.BUILD_URL}
 Commit: ${commit}
 Segment: ${env.SOAK_SEGMENT ?: 'unknown'}
-Status: ${env.SOAK_STATUS ?: 'unknown'}（FAIL / 报告缺失 / JSON 无效，不续跑）
-Failed stage: ${env.FAILED_STAGE ?: 'unknown'}
+Stage: ${stageName}
+Category: ${cat} (rc=${rc})
+Failure fingerprint: ${fp}
+Decisive error: ${decisiveError}
 Report: ${reportUrl}
 Build log: ${env.BUILD_URL}console
 """,
-                    mimeType: 'text/plain'
-                )
+                        mimeType: 'text/plain'
+                    )
+                }
             }
         }
     }

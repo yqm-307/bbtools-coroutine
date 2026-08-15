@@ -15,6 +15,97 @@ def runStageTracked(Closure body) {
     }
 }
 
+// ---- 统一告警：故障指纹 + 去重 + 恢复（任务 9）----
+// 指纹 = sha256("|".join([job, stage, test_name, returncode, category]))[:16]，
+// 与 scripts/ci/ci_common.py::failure_fingerprint 同构，由固定 python 行计算
+// （chr(124) 即 '|'，避免引号转义）；只接收 Jenkins 生成值与受控字符串，
+// 绝不 eval 用户输入。指纹文件在 workspace 固定相对路径，只记录时间戳与
+// 类别，不含任何凭据；1 小时内同一指纹不重复发同一邮件。
+def ALERT_DIR() { 'tests/reports/alerts' }
+def ALERT_WINDOW_SECONDS() { 3600 }
+
+def failureFingerprint(stageName, testName, returncode, category) {
+    // argv 值可能来自外部（env.JOB_NAME 等），拼接进 sh 前必须白名单过滤；
+    // 非法值（含单引号等）统一降级为 '?'，防止引号闭合/注入使告警路径静默失效。
+    def safe = { v -> (v ==~ /^[A-Za-z0-9_ .:?+-]+$/) ? v : '?' }
+    def job = safe(env.JOB_NAME ?: '')
+    def stage = safe(stageName ?: '')
+    def test = safe(testName ?: '')
+    def rc = safe(returncode ?: '')
+    def cat = safe(category ?: '')
+    return sh(
+        returnStdout: true,
+        script:
+            "python3 -c 'import hashlib,sys;print(hashlib.sha256(chr(124).join(sys.argv[1:]).encode()).hexdigest()[:16])' " +
+            "'${job}' '${stage}' '${test}' '${rc}' '${cat}'"
+    ).trim()
+}
+
+// 指纹文件里的最近告警时间戳；文件缺失/内容非法返回 null。
+def lastAlertTs(fp) {
+    def marker = "${ALERT_DIR()}/${fp}.alert"
+    if (!fileExists(marker)) { return null }
+    def raw = sh(returnStdout: true, script:
+        "python3 -c 'import sys;print(open(sys.argv[1]).read().split()[0])' '${marker}'").trim()
+    return (raw ==~ /^\d+$/) ? raw.toLong() : null
+}
+
+// 去重判定：1 小时内同一指纹已发过告警 → true（不重复发同一邮件）。
+def alertSuppressed(fp) {
+    def last = lastAlertTs(fp)
+    if (last == null) { return false }
+    def now = sh(returnStdout: true, script:
+        "python3 -c 'import time;print(int(time.time()))'").trim().toLong()
+    return (now - last) < ALERT_WINDOW_SECONDS()
+}
+
+// 记录本次告警：只写时间戳与类别（类别仅接受受控字符，防注入），供去重与恢复引用。
+def recordAlert(fp, category) {
+    def cat = (category ==~ /^[A-Za-z0-9_:-]+$/) ? category : 'unknown'
+    def now = sh(returnStdout: true, script:
+        "python3 -c 'import time;print(int(time.time()))'").trim()
+    if (!(now ==~ /^\d+$/)) { now = '0' }
+    sh "mkdir -p '${ALERT_DIR()}'"
+    sh "echo '${now}' '${cat}' > '${ALERT_DIR()}/${fp}.alert'"
+}
+
+// 恢复：本构建成功（FAIL→PASS）且存在未恢复告警 → 发恢复邮件（含原故障指纹）
+// 并清理指纹文件；WARN→PASS 的告警同样按恢复处理。
+def notifyRecoveries() {
+    if (currentBuild.result != null && currentBuild.result != 'SUCCESS') { return }
+    sh "mkdir -p '${ALERT_DIR()}'"
+    def markers = sh(returnStdout: true, script:
+        "ls '${ALERT_DIR()}' 2>/dev/null || true").trim().split(/\s+/)
+    def pending = markers.findAll { it && it ==~ /^[0-9a-f]{16}\.alert$/ }
+    if (pending.isEmpty()) { return }
+    def recovered = []
+    for (m in pending) {
+        def cat = sh(returnStdout: true, script:
+            "python3 -c 'import sys;print(open(sys.argv[1]).read().split()[-1])' " +
+            "'${ALERT_DIR()}/${m}'").trim()
+        recovered << m.replaceAll(/\.alert$/, '') + " (" + cat + ")"
+    }
+    def commit = env.GIT_COMMIT ?: 'unknown'
+    emailext(
+        to: '$DEFAULT_RECIPIENTS',
+        subject: "RECOVERED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+        body: """Pipeline recovered.
+
+Job: ${env.JOB_NAME}
+Build: ${env.BUILD_NUMBER}
+Build URL: ${env.BUILD_URL}
+Commit: ${commit}
+Recovered fingerprint(s): ${recovered.join(', ')}
+Report: ${env.BUILD_URL}artifact/
+Build log: ${env.BUILD_URL}console
+""",
+        mimeType: 'text/plain'
+    )
+    for (m in pending) {
+        sh "rm -f '${ALERT_DIR()}/${m}'"
+    }
+}
+
 // 分支上下文：PR（CHANGE_ID 存在）在 cpp-perf Agent 上对比 main 基线；
 // main 生成并归档新基线，作为后续 PR 的唯一候选基线来源。其他上下文 fail-closed。
 def isPullRequest() { (env.CHANGE_ID ?: '') != '' }
@@ -284,6 +375,8 @@ pipeline {
     post {
         always {
             script {
+                // 恢复检测：本构建成功且存在未恢复告警 → 发恢复邮件并清理指纹文件。
+                notifyRecoveries()
                 if (env.PIPELINE_MODE == 'main') {
                     if (env.PERF_BASELINE_OK == 'true') {
                         // main 只归档通过校验的基线产物：baseline/environment/Markdown。
@@ -303,44 +396,105 @@ pipeline {
             script {
                 def commit = env.GIT_COMMIT ?: 'unknown'
                 def reportUrl = "${env.BUILD_URL}artifact/tests/reports/performance/result.md"
-                // 正文只含 Job/Build/commit/mode/verdict/报告 URL，不含任何凭据或敏感配置。
-                emailext(
-                    to: '$DEFAULT_RECIPIENTS',
-                    subject: "UNSTABLE: ${env.JOB_NAME} #${env.BUILD_NUMBER} (${env.PERF_VERDICT ?: 'unknown'})",
-                    body: """Performance pipeline unstable.
+                def stageName = 'Run Performance Check'
+                def cat = env.PERF_VERDICT ?: 'unknown'
+                def rc = env.PERF_RC ?: '?'
+                // 最短决定性错误：优先取 result.json 的 issues[0]，取不到用 category。
+                def decisiveError = cat
+                if (fileExists(PERF_RESULT_JSON())) {
+                    // 最短决定性错误：优先取 issues[0]，取不到或用 category 兜底；
+                    // JSON 损坏/解析异常时降级为 category，绝不因告警路径异常吞掉邮件。
+                    decisiveError = sh(returnStdout: true, script:
+                        "python3 -c 'import json,sys\n" +
+                        "try:\n" +
+                        " d=json.load(open(sys.argv[1]))\n" +
+                        " i=d.get(\"issues\") or []\n" +
+                        " print(i[0] if i else sys.argv[2])\n" +
+                        "except Exception:\n" +
+                        " print(sys.argv[2])' " +
+                        "'${PERF_RESULT_JSON()}' '${cat}'").trim()
+                }
+                def fp = failureFingerprint(stageName, 'perf', rc, cat)
+                // 去重：1 小时内同一指纹不重复发同一邮件（指纹文件记录最近告警时间）。
+                if (alertSuppressed(fp)) {
+                    echo "Alert dedup: fingerprint ${fp} alerted within ${ALERT_WINDOW_SECONDS()}s, skip email"
+                } else {
+                    recordAlert(fp, cat)
+                    // 正文只含 Job/Build URL/commit/阶段/类别/指纹/最短决定性错误/报告 URL，
+                    // 不含任何凭据或敏感配置。
+                    emailext(
+                        to: '$DEFAULT_RECIPIENTS',
+                        subject: "UNSTABLE: ${env.JOB_NAME} #${env.BUILD_NUMBER} (${cat})",
+                        body: """Performance pipeline unstable.
 
 Job: ${env.JOB_NAME}
 Build: ${env.BUILD_NUMBER}
+Build URL: ${env.BUILD_URL}
 Commit: ${commit}
 Mode: ${env.PIPELINE_MODE ?: 'unknown'}
-Verdict: ${env.PERF_VERDICT ?: 'unknown'} (rc=${env.PERF_RC ?: '?'})
+Stage: ${stageName}
+Category: ${cat} (rc=${rc})
+Failure fingerprint: ${fp}
+Decisive error: ${decisiveError}
 Report: ${reportUrl}
 Build log: ${env.BUILD_URL}console
 """,
-                    mimeType: 'text/plain'
-                )
+                        mimeType: 'text/plain'
+                    )
+                }
             }
         }
         failure {
             script {
                 def commit = env.GIT_COMMIT ?: 'unknown'
                 def reportUrl = "${env.BUILD_URL}artifact/tests/reports/performance/result.md"
-                emailext(
-                    to: '$DEFAULT_RECIPIENTS',
-                    subject: "FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER} (${env.FAILED_STAGE ?: 'unknown stage'})",
-                    body: """Performance pipeline failed.
+                def stageName = env.FAILED_STAGE ?: 'unknown'
+                def cat = (env.PERF_VERDICT ?: '') in ['FAIL', 'WARN', 'NO_COMPARABLE_BASELINE']
+                    ? env.PERF_VERDICT : 'failure'
+                def rc = env.PERF_RC ?: '?'
+                // 最短决定性错误：优先取 result.json 的 issues[0]，取不到用 category。
+                def decisiveError = cat
+                if (fileExists(PERF_RESULT_JSON())) {
+                    // 最短决定性错误：优先取 issues[0]，取不到或用 category 兜底；
+                    // JSON 损坏/解析异常时降级为 category，绝不因告警路径异常吞掉邮件。
+                    decisiveError = sh(returnStdout: true, script:
+                        "python3 -c 'import json,sys\n" +
+                        "try:\n" +
+                        " d=json.load(open(sys.argv[1]))\n" +
+                        " i=d.get(\"issues\") or []\n" +
+                        " print(i[0] if i else sys.argv[2])\n" +
+                        "except Exception:\n" +
+                        " print(sys.argv[2])' " +
+                        "'${PERF_RESULT_JSON()}' '${cat}'").trim()
+                }
+                def fp = failureFingerprint(stageName, 'perf', rc, cat)
+                // 去重：1 小时内同一指纹不重复发同一邮件（指纹文件记录最近告警时间）。
+                if (alertSuppressed(fp)) {
+                    echo "Alert dedup: fingerprint ${fp} alerted within ${ALERT_WINDOW_SECONDS()}s, skip email"
+                } else {
+                    recordAlert(fp, cat)
+                    // 正文只含 Job/Build URL/commit/阶段/类别/指纹/最短决定性错误/报告 URL，
+                    // 不含任何凭据或敏感配置。
+                    emailext(
+                        to: '$DEFAULT_RECIPIENTS',
+                        subject: "FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER} (${stageName})",
+                        body: """Performance pipeline failed.
 
 Job: ${env.JOB_NAME}
 Build: ${env.BUILD_NUMBER}
+Build URL: ${env.BUILD_URL}
 Commit: ${commit}
 Mode: ${env.PIPELINE_MODE ?: 'unknown'}
-Verdict: ${env.PERF_VERDICT ?: 'unknown'} (rc=${env.PERF_RC ?: '?'})
-Failed stage: ${env.FAILED_STAGE ?: 'unknown'}
+Stage: ${stageName}
+Category: ${cat} (rc=${rc})
+Failure fingerprint: ${fp}
+Decisive error: ${decisiveError}
 Report: ${reportUrl}
 Build log: ${env.BUILD_URL}console
 """,
-                    mimeType: 'text/plain'
-                )
+                        mimeType: 'text/plain'
+                    )
+                }
             }
         }
     }
