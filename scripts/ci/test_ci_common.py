@@ -242,6 +242,27 @@ class ValidateArgsTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             run_smoke.validate_args(self._args(source, source / "b", timeout=0))
 
+    def test_rejects_timeout_above_pipeline_limit(self):
+        tmp = Path(tempfile.mkdtemp())
+        source = tmp / "repo"
+        source.mkdir()
+        with self.assertRaises(SystemExit):
+            run_smoke.validate_args(self._args(source, source / "b", timeout=1201))
+
+    def test_rejects_unsafe_test_label(self):
+        tmp = Path(tempfile.mkdtemp())
+        source = tmp / "repo"
+        source.mkdir()
+        args = run_smoke.parse_args(
+            [
+                "--source-dir", str(source),
+                "--build-dir", str(source / "build-ci"),
+                "--test-label", "smoke;touch /tmp/injected",
+            ]
+        )
+        with self.assertRaises(SystemExit):
+            run_smoke.validate_args(args)
+
 
 class JUnitStatusTest(unittest.TestCase):
     """resolve_junit_status 契约（审查 #5 补测）。
@@ -284,6 +305,7 @@ class BuildCommandListTest(unittest.TestCase):
                 "--source-dir", str(source),
                 "--build-dir", str(tmp / "build-ci"),
                 "--report-dir", str(tmp / "reports" / "smoke" / "t"),
+                "--test-label", "smoke-fast",
             ]
         )
         return args
@@ -294,6 +316,8 @@ class BuildCommandListTest(unittest.TestCase):
         self.assertEqual(len(cmds), 3)
         self.assertEqual(cmds[0][0], "cmake")
         self.assertIn("-G", cmds[0])
+        label_index = cmds[2].index("-L")
+        self.assertEqual(cmds[2][label_index + 1], "smoke-fast")
         self.assertNotIn("--output-junit", cmds[2])
 
     def test_junit_uses_absolute_path(self):

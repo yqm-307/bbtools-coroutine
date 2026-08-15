@@ -2,7 +2,7 @@
 """Jenkins 定时 Smoke Harness：干净构建 + CTest smoke 测试 + 报告生成。
 
 依次执行：清空构建目录 -> CMake 配置（Ninja）-> 并行构建 ->
-ctest -L smoke（支持时附加 --output-junit）。全程记录每条命令的
+ctest -L <label>（默认 smoke，支持时附加 --output-junit）。全程记录每条命令的
 退出码/分类/耗时，收集系统信息，扫描 core/dump 文件与 stdout/stderr
 中的错误模式（Assert / Segmentation fault / AddressSanitizer / ERROR），
 最后输出 summary.json / summary.md / stdout.log / stderr.log / commands.json。
@@ -47,6 +47,10 @@ _CACHE_SUMMARY_KEYS = (
     "NEED_BENCHMARK",
 )
 
+# CTest label 作为 argv 单项传递；仍限制 grammar，避免空表达式、控制字符和
+# shell 元字符进入 Jenkins 日志/报告，也让可调参数保持单一 label 语义。
+_TEST_LABEL_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+
 # ANSI 转义序列：CSI（\x1b[31m）、OSC（\x1b]0;title\x07）、字符集选择
 # （\x1b(B）。彩色日志若不先剥离，模式可能被转义序列截断导致漏报。
 _ANSI_ESCAPE_RE = re.compile(
@@ -66,6 +70,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="CMAKE_BUILD_TYPE（默认 Debug）")
     parser.add_argument("--timeout-seconds", type=float, default=900.0,
                         help="单条命令超时秒数，超时先 SIGTERM 再 SIGKILL")
+    parser.add_argument("--test-label", default="smoke",
+                        help="CTest label（默认 smoke，仅允许字母/数字/._-）")
     parser.add_argument("--report-dir", type=Path, default=None,
                         help="报告输出目录（默认 tests/reports/smoke/<UTC 时间戳>）")
     return parser.parse_args(argv)
@@ -96,8 +102,10 @@ def validate_args(args: argparse.Namespace) -> None:
     if build.is_relative_to(home) and not build.is_relative_to(source):
         # home 下但 source 外的目录会被 rmtree 整体删除，必须拒绝。
         sys.exit(f"error: --build-dir 位于用户主目录下但不在 --source-dir 内: {build}")
-    if args.timeout_seconds <= 0:
-        sys.exit("error: --timeout-seconds 必须为正数")
+    if args.timeout_seconds <= 0 or args.timeout_seconds > 1200:
+        sys.exit("error: --timeout-seconds 必须在 (0, 1200] 范围内")
+    if not _TEST_LABEL_RE.fullmatch(args.test_label):
+        sys.exit("error: --test-label 仅允许字母、数字、点、下划线和连字符")
 
 
 def compact_utc_timestamp() -> str:
@@ -169,7 +177,9 @@ def build_command_list(args: argparse.Namespace, junit_supported: bool) -> list[
         f"-DCMAKE_BUILD_TYPE={args.build_type}",
     ]
     build_cmd = ["cmake", "--build", build, "--parallel"]
-    ctest_cmd = ["ctest", "--test-dir", build, "--output-on-failure", "-L", "smoke"]
+    ctest_cmd = [
+        "ctest", "--test-dir", build, "--output-on-failure", "-L", args.test_label,
+    ]
     if junit_supported:
         # CTest 把相对路径相对 --test-dir 解析，必须传绝对路径才能落到报告目录。
         ctest_cmd += ["--output-junit", str((args.report_dir / "ctest.xml").resolve())]
