@@ -224,20 +224,33 @@ pipeline {
                 runStageTracked {
                     script {
                         sh "mkdir -p '${PERF_BASELINE_DIR()}'"
-                        def selector = (params.PERF_BASELINE_BUILD != '')
-                            ? [$class: 'SpecificBuildSelector', buildNumber: params.PERF_BASELINE_BUILD]
-                            : [$class: 'LastSuccessfulBuildSelector']
+                        // 必须先清工作区残留：同一 Job 先跑 main 再跑 PR 时，
+                        // 本地 leftover 会让 Copy Artifact 失败仍显示 COPIED=true（build #3 已复现）。
+                        sh "rm -f '${PERF_BASELINE_JSON()}'"
                         try {
-                            // 基线只从最近成功 main 构建（或显式构建号）Copy Artifact 获取；
-                            // 不读 Git、不读工作区历史基线。获取失败按无基线处理，不阻塞。
-                            step([$class: 'CopyArtifact',
-                                  projectName: baselineProjectName(),
-                                  selector: selector,
-                                  filter: 'tests/baselines/jenkins/baseline.json',
-                                  target: PERF_BASELINE_DIR(),
-                                  flatten: true,
-                                  fingerprintArtifacts: true,
-                                  failIfNoArtifacts: false])
+                            // copyartifact 795：LastSuccessfulBuildSelector / failIfNoArtifacts
+                            // 已移除；Pipeline 用 copyArtifacts + lastSuccessful()/specific() + optional。
+                            // 独立 Job 的 LastSuccessful 可能是 PR 构建（无基线产物），
+                            // 操作者应用 PERF_BASELINE_BUILD 显式指定 main 基线构建号。
+                            if (params.PERF_BASELINE_BUILD != '') {
+                                copyArtifacts(
+                                    projectName: baselineProjectName(),
+                                    selector: specific(params.PERF_BASELINE_BUILD),
+                                    filter: 'tests/baselines/jenkins/baseline.json',
+                                    target: PERF_BASELINE_DIR(),
+                                    flatten: true,
+                                    optional: true,
+                                    fingerprintArtifacts: true)
+                            } else {
+                                copyArtifacts(
+                                    projectName: baselineProjectName(),
+                                    selector: lastSuccessful(),
+                                    filter: 'tests/baselines/jenkins/baseline.json',
+                                    target: PERF_BASELINE_DIR(),
+                                    flatten: true,
+                                    optional: true,
+                                    fingerprintArtifacts: true)
+                            }
                         } catch (e) {
                             echo "Copy Artifact 失败（按无基线处理，不阻塞 PR）: ${e}"
                         }
