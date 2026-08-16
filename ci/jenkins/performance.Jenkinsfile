@@ -353,18 +353,11 @@ pipeline {
                             error("main 基线记录/校验失败：构建失败，不发布半成品基线")
                         }
                         env.PERF_BASELINE_OK = 'true'
-                        // 提取 environment.json 与 Markdown 报告（固定 python 代码，仅受控路径参数）。
+                        // 提取 environment.json 与 Markdown 报告。必须单行 python -c：
+                        // Groovy 三引号会把源码缩进带进 -c 字符串，导致 IndentationError
+                        //（build #1 已复现：基线 PASS 后仍 FAILURE）。
                         sh """
-                            PYTHONPATH=scripts/ci python3 -c '
-                        import json, sys
-                        from perf_contract import write_markdown_report
-                        with open(sys.argv[1]) as f:
-                            data = json.load(f)
-                        with open(sys.argv[2], "w") as f:
-                            json.dump(data["environment"], f, ensure_ascii=False, indent=2)
-                            f.write("\\n")
-                        write_markdown_report(sys.argv[3], data)
-                        ' '${PERF_BASELINE_JSON()}' '${PERF_BASELINE_DIR()}/environment.json' '${PERF_BASELINE_DIR()}/baseline.md'
+                            PYTHONPATH=scripts/ci python3 -c 'import json,sys;from perf_contract import write_markdown_report;d=json.load(open(sys.argv[1]));json.dump(d[\"environment\"],open(sys.argv[2],\"w\"),ensure_ascii=False,indent=2);open(sys.argv[2],\"a\").write(\"\\n\");write_markdown_report(sys.argv[3],d)' '${PERF_BASELINE_JSON()}' '${PERF_BASELINE_DIR()}/environment.json' '${PERF_BASELINE_DIR()}/baseline.md'
                         """
                         echo "main 基线已生成并校验：${PERF_BASELINE_JSON()}"
                     }
