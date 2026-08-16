@@ -84,8 +84,21 @@ add_test(NAME Test_copool COMMAND Test_copool)
 add_executable(Test_smoke Test_smoke.cc)
 target_link_libraries(Test_smoke ${MY_LIBS})
 add_test(NAME Test_smoke COMMAND Test_smoke)
-set_tests_properties(Test_smoke PROPERTIES TIMEOUT 30)
 
 add_executable(Test_reliability Test_reliability.cc)
 target_link_libraries(Test_reliability ${MY_LIBS})
 add_test(NAME Test_reliability COMMAND Test_reliability)
+
+# Smoke 候选：CI 快速回归集，统一 60s 超时防止无进展挂死。
+# Test_reliability 不进 Smoke，保留给完整回归与独立 Reliability Job。
+set_tests_properties(
+    Test_coroutine
+    Test_coroutine_exception
+    Test_poller
+    Test_chan
+    Test_comutex
+    Test_coevent
+    Test_copool
+    Test_smoke
+    PROPERTIES LABELS "smoke" TIMEOUT 60
+)

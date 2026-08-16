@@ -42,6 +42,9 @@ build*/
 !tests/reports/README.md
 /benchmark_test/compare/bin/
 
+# Local worktrees
+.worktrees/
+
 # Runtime logs and temporary files
 /tmp/
 /log/

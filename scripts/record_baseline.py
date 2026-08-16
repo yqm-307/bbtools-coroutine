@@ -1,27 +1,40 @@
 #!/usr/bin/env python3
 """
-record_baseline.py — 记录 bbtools-coroutine 性能基线
+record_baseline.py — 记录/比较 bbtools-coroutine 性能基线（任务 4 统一 Schema 版）
 
 用法:
-  python3 scripts/record_baseline.py [--threads N] [--dur S] [--quick]
-  python3 scripts/record_baseline.py --compare <baseline1> <baseline2>
+  python3 scripts/record_baseline.py record [--threads N] [--dur S] [--quick]
+  python3 scripts/record_baseline.py record --output <path> [--environment-file <path>]
+  python3 scripts/record_baseline.py compare [<baseline1> <baseline2>] [--latest-only]
 
-输出: tests/baselines/<machine>/<timestamp>.json
+输出:
+  record → 统一 Schema 基线 JSON（含环境指纹，perf_contract schema）；
+           默认 tests/baselines/<machine>/<ts>_<commit>.json
+  compare → 逐模块对比，阈值/判定复用 perf_contract（CoCond 放宽 30%）。
 
-注意: tests/baselines/ 未被 git 跟踪，基线仅在同一 checkout 内有效（跨 job
-会被 checkout clean 清除）；基线持久化方案未落地前，性能门禁以
-PASS_NO_BASELINE 放行。
-契约参考: docs/ci-guide.md
+兼容性:
+  - 旧格式基线（无 environment 指纹、ops_per_s 字段）可被读取：记录仍可
+    比较吞吐（提示指纹缺失、比对未验证）；ci_perf_check 对无指纹基线
+    一律 NO_COMPARABLE_BASELINE（不可信）。
+  - 基线由本脚本显式记录（Layer 3 push main）；PR Job 的 ci_perf_check
+    不隐式写基线。
 """
 import argparse
 import json
 import os
 import platform
 import re
-import subprocess
 import sys
 import time
 from datetime import datetime
+from pathlib import Path
+
+_CI_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ci")
+if _CI_DIR not in sys.path:
+    sys.path.insert(0, _CI_DIR)
+
+from ci_common import run_command, write_json_atomic  # noqa: E402
+import perf_contract  # noqa: E402
 
 PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BUILD_DIR = os.path.join(PROJECT_DIR, "build")
@@ -30,32 +43,32 @@ UNIFIED_STRESS = os.path.join(BUILD_DIR, "bin", "benchmark_test", "unified_stres
 MICRO_CO_SWITCH = os.path.join(BUILD_DIR, "bin", "benchmark_test", "micro_co_switch")
 
 MODULES = ["comutex", "corwmutex", "cocond", "chan", "copool", "coroutine"]
+REPOSITORY = "bbtools-coroutine"
 
-# Regression thresholds per ADR D6
-THRESHOLD_INTERCEPT = 10   # >10% → intercept PR
-THRESHOLD_ESCALATE = 20    # >20% → escalate to incident
-THRESHOLD_COCOND = 30      # CoCond exception: >30%
+SEVERITY = {
+    "FAIL": 5, "METRIC_INVALID": 4, "UNSTABLE": 3, "WARN": 2,
+    "NO_COMPARABLE_BASELINE": 1, "PASS": 0,
+}
 
 
 def get_git_commit():
-    try:
-        return subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"],
-            cwd=PROJECT_DIR, text=True
-        ).strip()
-    except Exception:
+    result = run_command(["git", "rev-parse", "--short", "HEAD"],
+                         cwd=Path(PROJECT_DIR))
+    if result.category != "pass":
         return "unknown"
+    return result.stdout.strip()
 
 
 def get_machine_id():
-    """Generate a stable machine identifier."""
+    """Generate a stable machine identifier (console 展示用)."""
     try:
-        cpu = subprocess.check_output(
-            "cat /proc/cpuinfo | grep 'model name' | head -1 | cut -d: -f2",
-            shell=True, text=True
-        ).strip()
+        cpu = run_command(
+            ["sh", "-c", "grep 'model name' /proc/cpuinfo | head -1 | cut -d: -f2"],
+            timeout=5)
+        cpu_text = cpu.stdout.strip() if cpu.category == "pass" else ""
     except Exception:
-        cpu = platform.processor()
+        cpu_text = ""
+    cpu = cpu_text or platform.processor()
     mem = "unknown"
     try:
         with open("/proc/meminfo") as f:
@@ -65,73 +78,82 @@ def get_machine_id():
                     break
     except Exception:
         pass
-    hostname = platform.node()
-    return f"{hostname} | {cpu} | {mem}"
+    return f"{platform.node()} | {cpu} | {mem}"
+
+
+def _read_build_info():
+    """从 CMakeCache 读取 Build Type 与 CXX 标志。"""
+    cache = Path(BUILD_DIR) / "CMakeCache.txt"
+    build_type = "Release"
+    cmake_args = []
+    if cache.exists():
+        for line in cache.read_text().splitlines():
+            if line.startswith("CMAKE_BUILD_TYPE:STRING="):
+                build_type = line.split("=", 1)[1].strip()
+            elif line.startswith("CMAKE_CXX_FLAGS:STRING="):
+                flags = line.split("=", 1)[1].strip()
+                if flags:
+                    cmake_args = [flags]
+    return build_type, cmake_args
+
+
+def collect_environment(threads, duration, environment_file=None, quick=False):
+    """环境指纹：优先外部文件，否则本机采集（durations 用实际时长，不硬编码）。"""
+    if environment_file:
+        with open(environment_file) as f:
+            return json.load(f)
+    build_type, cmake_args = _read_build_info()
+    effective = min(duration, 60) if quick else duration
+    return perf_contract.collect_environment_fingerprint(
+        threads=threads, modules=MODULES,
+        durations=[effective] * len(MODULES),
+        build_type=build_type, cmake_args=cmake_args,
+    )
 
 
 def run_module_benchmark(module, threads, duration):
-    """Run unified_stress for one module and parse results."""
+    """运行 unified_stress 单模块并解析为统一模块指标；失败返回 None。"""
     env = os.environ.copy()
     env["FATIGUE_INTERVAL"] = "10"
 
     cmd = [UNIFIED_STRESS, f"--module={module}", f"--threads={threads}",
            str(duration), "0", "0"]
-    try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=duration + 30,
-            cwd=BUILD_DIR, env=env
-        )
-    except subprocess.TimeoutExpired:
+    result = run_command(cmd, cwd=Path(BUILD_DIR), env=env,
+                         timeout=duration + 30)
+    if result.category == "timeout":
         return None
 
-    # Parse last FATIGUE_METRIC for this module
     metrics = None
     for line in result.stdout.split("\n"):
-        if f'"name":"{module}"' in line and "FATIGUE_METRIC:" in line:
-            try:
-                json_str = line.split("FATIGUE_METRIC:", 1)[1]
-                metrics = json.loads(json_str)
-            except json.JSONDecodeError:
-                continue
+        if "FATIGUE_METRIC:" not in line:
+            continue
+        try:
+            json_str = line.split("FATIGUE_METRIC:", 1)[1].strip()
+            candidate = json.loads(json_str)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(candidate, dict) or candidate.get("name") != module:
+            continue
+        metrics = candidate
 
-    if metrics is None or metrics.get("elapsed_s", 0) < 10:
+    if metrics is None:
         return None
 
-    elapsed = metrics["elapsed_s"]
-    return {
-        "ops_total": metrics["ops_total"],
-        "ops_per_s": round(metrics["ops_total"] / elapsed, 1),
-        "errors": metrics["errors"],
-        "lock_ops": metrics.get("lock_ops", 0),
-        "trylock_timeout": metrics.get("trylock_timeout", 0),
-        "lock_avg_us": metrics.get("lock_avg_us", 0),
-        "wlock_ops": metrics.get("wlock_ops", 0),
-        "wlock_avg_us": metrics.get("wlock_avg_us", 0),
-        "rlock_ops": metrics.get("rlock_ops", 0),
-        "cond_waits": metrics.get("cond_waits", 0),
-        "cond_signals": metrics.get("cond_signals", 0),
-        "cond_avg_us": metrics.get("cond_avg_us", 0),
-        "chan_reads": metrics.get("chan_reads", 0),
-        "chan_writes": metrics.get("chan_writes", 0),
-        "pool_tasks": metrics.get("pool_tasks", 0),
-        "co_spawns": metrics.get("co_spawns", 0),
-    }
+    normalized = perf_contract.normalize_module_metrics(metrics)
+    if normalized is None or normalized["elapsed_s"] < 10:
+        return None
+    return normalized
 
 
 def run_micro_benchmark(threads):
-    """Run micro_co_switch and parse results."""
+    """运行 micro_co_switch 并解析结果。"""
     if not os.path.exists(MICRO_CO_SWITCH):
         print("  [WARN] micro_co_switch not found, skipping switch latency")
         return None
-
     cmd = [MICRO_CO_SWITCH, "1000000", str(threads)]
-    try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=30, cwd=BUILD_DIR
-        )
-    except subprocess.TimeoutExpired:
+    result = run_command(cmd, cwd=Path(BUILD_DIR), timeout=30)
+    if result.category != "pass":
         return None
-
     for line in result.stdout.split("\n"):
         if "BENCH_RESULT:" in line:
             try:
@@ -142,8 +164,9 @@ def run_micro_benchmark(threads):
     return None
 
 
-def record_baseline(threads, duration, quick=False):
-    """Record a full baseline for all modules."""
+def record_baseline(threads, duration, quick=False, output=None,
+                    environment_file=None):
+    """记录统一 Schema 基线：环境指纹 + 全模块指标 + micro_bench。"""
     if not os.path.exists(UNIFIED_STRESS):
         print(f"ERROR: unified_stress not found at {UNIFIED_STRESS}")
         print("Build first: cd build && cmake .. -DNEED_BENCHMARK=ON && ninja")
@@ -153,21 +176,13 @@ def record_baseline(threads, duration, quick=False):
     machine_slug = re.sub(r'[^\w\-]', '_', platform.node())
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     commit = get_git_commit()
+    env_fp = collect_environment(threads, duration, environment_file, quick)
 
-    baseline = {
-        "timestamp": datetime.now().isoformat(),
-        "git_commit": commit,
-        "machine": machine,
-        "threads": threads,
-        "quick": quick,
-        "modules": {},
-        "micro_bench": {},
-    }
-
+    modules = {}
     print(f"Recording baseline: commit={commit}, threads={threads}, dur={duration}s")
     print(f"Machine: {machine}")
+    print(f"Agent: {env_fp.get('agent')} | cpu: {env_fp.get('cpu_model')}")
 
-    # Per-module benchmarks
     for module in MODULES:
         dur = min(duration, 60) if quick else duration
         print(f"  [{module}] running {dur}s...", end=" ", flush=True)
@@ -175,111 +190,137 @@ def record_baseline(threads, duration, quick=False):
         result = run_module_benchmark(module, threads, dur)
         elapsed = time.time() - t0
         if result:
-            baseline["modules"][module] = result
-            print(f"✅ {result['ops_per_s']:.0f} ops/s ({elapsed:.1f}s)")
+            modules[module] = result
+            print(f"✅ {result['ops_per_sec']:.0f} ops/s ({elapsed:.1f}s)")
         else:
-            baseline["modules"][module] = {"error": "no_data"}
+            modules[module] = {"error": "no_data"}
             print(f"❌ no data ({elapsed:.1f}s)")
 
-    # Micro-benchmarks
     print("  [micro_co_switch] running...", end=" ", flush=True)
     micro = run_micro_benchmark(threads)
     if micro:
-        baseline["micro_bench"] = micro
         print(f"✅ yield={micro.get('yield_roundtrip_avg_ns', 0):.0f}ns")
     else:
-        baseline["micro_bench"] = {"error": "no_data"}
+        micro = {"error": "no_data"}
         print("❌ no data")
 
-    # Write baseline
-    os.makedirs(os.path.join(BASELINE_DIR, machine_slug), exist_ok=True)
-    path = os.path.join(BASELINE_DIR, machine_slug, f"{ts}_{commit}.json")
-    with open(path, "w") as f:
-        json.dump(baseline, f, indent=2)
+    verdict = "PASS" if not any(
+        m.get("error") for m in modules.values()) else "FAIL"
+    baseline = perf_contract.make_report(
+        repository=REPOSITORY,
+        commit=commit,
+        base_commit=None,  # 基线本身是参照点，无 base
+        environment=env_fp,
+        build={"type": env_fp.get("build_type"),
+               "args": env_fp.get("cmake_args"),
+               "compiler": env_fp.get("compiler")},
+        parameters={"threads": threads, "dur": duration, "quick": quick,
+                    "modules": MODULES},
+        modules=modules,
+        verdict=verdict,
+    )
+    baseline["micro_bench"] = micro  # 附加字段，不属于统一 Schema 必需键
+
+    if output:
+        path = Path(output)
+    else:
+        path = Path(BASELINE_DIR) / machine_slug / f"{ts}_{commit}.json"
+    write_json_atomic(path, baseline)
     print(f"\nBaseline saved: {path}")
-    return path
+    return str(path)
 
 
 def compare_baselines(path1, path2):
-    """Compare two baselines and report regressions."""
+    """比较两份基线，判定复用 perf_contract；返回退出码。"""
     with open(path1) as f:
         b1 = json.load(f)
     with open(path2) as f:
         b2 = json.load(f)
 
-    print(f"Comparing baselines:")
-    print(f"  Old: {os.path.basename(path1)} (commit={b1.get('git_commit', '?')})")
-    print(f"  New: {os.path.basename(path2)} (commit={b2.get('git_commit', '?')})")
+    print("Comparing baselines:")
+    print(f"  Old: {os.path.basename(path1)} (commit={b1.get('commit') or b1.get('git_commit', '?')})")
+    print(f"  New: {os.path.basename(path2)} (commit={b2.get('commit') or b2.get('git_commit', '?')})")
     print()
 
+    # 环境可比性：仅当两侧都有指纹时判定；旧格式基线提示未验证。
+    comparable = True
     verdict = "PASS"
-    issues = []
+    env1, env2 = b1.get("environment"), b2.get("environment")
+    if env1 and env2:
+        env_result = perf_contract.compare_environment(env1, env2)
+        if env_result.status != "PASS":
+            comparable = False
+            # 指纹不一致 → 聚合 verdict 必须为 NO_COMPARABLE_BASELINE，绝不转 PASS
+            verdict = "NO_COMPARABLE_BASELINE"
+            print(f"⚠️ 环境指纹不一致 ({env_result.detail.get('reason')}): "
+                  f"{env_result.detail.get('keys')} — 结果标记 NO_COMPARABLE_BASELINE")
+    else:
+        print("ℹ️ 基线缺少环境指纹（旧格式）— 吞吐对比保留，但可比性未验证")
 
-    # Header
-    print(f"{'Module':<12} {'Old ops/s':>10} {'New ops/s':>10} {'Delta%':>8} {'Threshold':>10} {'Verdict':>8}")
-    print("-" * 68)
+    issues = []
+    print(f"{'Module':<12} {'Old ops/s':>10} {'New ops/s':>10} {'Delta%':>8} {'Verdict':>24}")
+    print("-" * 74)
 
     for module in MODULES:
         old_mod = b1.get("modules", {}).get(module, {})
         new_mod = b2.get("modules", {}).get(module, {})
 
         if old_mod.get("error") or new_mod.get("error"):
-            print(f"{module:<12} {'N/A':>10} {'N/A':>10} {'N/A':>8} {'N/A':>10} {'SKIP':>8}")
+            status = "SKIP"
+            print(f"{module:<12} {'N/A':>10} {'N/A':>10} {'N/A':>8} {status:>24}")
             continue
 
-        old_ops = old_mod.get("ops_per_s", 0)
-        new_ops = new_mod.get("ops_per_s", 0)
+        old_ops = old_mod.get("ops_per_sec", old_mod.get("ops_per_s", 0))
+        new_ops = new_mod.get("ops_per_sec", new_mod.get("ops_per_s", 0))
 
-        if old_ops == 0:
-            print(f"{module:<12} {old_ops:>10.0f} {new_ops:>10.0f} {'N/A':>8} {'N/A':>10} {'SKIP':>8}")
+        if not comparable:
+            status = "NO_COMPARABLE_BASELINE"
+            print(f"{module:<12} {old_ops:>10.0f} {new_ops:>10.0f} {'N/A':>8} {status:>24}")
             continue
 
-        delta_pct = (new_ops - old_ops) / old_ops * 100
-
-        # Determine threshold
-        threshold = THRESHOLD_COCOND if module == "cocond" else THRESHOLD_INTERCEPT
-        escalate = THRESHOLD_ESCALATE if module != "cocond" else 99
-
-        if delta_pct <= -escalate:
-            status = "❌ FAIL"
+        result = perf_contract.compare_module(
+            old_ops, new_ops, module, gate_enabled=True)
+        status = result.status
+        if status == "FAIL":
             verdict = "FAIL"
-            issues.append(f"{module}: {delta_pct:+.1f}% (>{escalate}%)")
-        elif delta_pct <= -threshold:
-            status = "⚠️ WARN"
-            if verdict == "PASS":
-                verdict = "WARN"
-            issues.append(f"{module}: {delta_pct:+.1f}% (>{threshold}%)")
-        else:
-            status = "✅ OK"
+            issues.append(f"{module}: {result.delta_pct:+.1f}%")
+        elif status == "WARN" and verdict == "PASS":
+            verdict = "WARN"
+            issues.append(f"{module}: {result.delta_pct:+.1f}%")
+        print(f"{module:<12} {old_ops:>10.0f} {new_ops:>10.0f} "
+              f"{result.delta_pct:>+7.1f}% {status:>24}")
 
-        print(f"{module:<12} {old_ops:>10.0f} {new_ops:>10.0f} {delta_pct:>+7.1f}% {threshold:>9}% {status:>8}")
-
-    # Also compare lock latency
-    if b1.get("modules", {}).get("comutex", {}).get("lock_avg_us", 0) > 0:
+    # 锁延迟对比（兼容新旧字段）
+    if comparable:
         print()
-        print(f"{'Module':<12} {'Old avg_us':>10} {'New avg_us':>10} {'Delta%':>8} {'Verdict':>8}")
-        print("-" * 56)
+        print(f"{'Module':<12} {'Old avg_us':>10} {'New avg_us':>10} {'Delta%':>8}")
+        print("-" * 48)
         for module in ["comutex", "corwmutex", "cocond"]:
             old_mod = b1.get("modules", {}).get(module, {})
             new_mod = b2.get("modules", {}).get(module, {})
-            old_lat = old_mod.get("lock_avg_us", 0) or old_mod.get("wlock_avg_us", 0) or old_mod.get("cond_avg_us", 0)
-            new_lat = new_mod.get("lock_avg_us", 0) or new_mod.get("wlock_avg_us", 0) or new_mod.get("cond_avg_us", 0)
-            if old_lat > 0 and new_lat > 0:
+            old_lat = (old_mod.get("lock_avg_us", 0) or
+                       old_mod.get("wlock_avg_us", 0) or
+                       old_mod.get("cond_avg_us", 0))
+            new_lat = (new_mod.get("lock_avg_us", 0) or
+                       new_mod.get("wlock_avg_us", 0) or
+                       new_mod.get("cond_avg_us", 0))
+            if isinstance(old_lat, (int, float)) and isinstance(new_lat, (int, float)) \
+                    and old_lat > 0 and new_lat > 0:
                 delta_lat = (new_lat - old_lat) / old_lat * 100
-                status_lat = "⚠️" if delta_lat > 20 else "✅"
-                print(f"{module:<12} {old_lat:>10.1f} {new_lat:>10.1f} {delta_lat:>+7.1f}% {status_lat:>8}")
+                marker = "⚠️" if delta_lat > 20 else "✅"
+                print(f"{module:<12} {old_lat:>10.1f} {new_lat:>10.1f} {delta_lat:>+7.1f}% {marker}")
 
-    # Micro-bench comparison
-    if b1.get("micro_bench") and b2.get("micro_bench"):
-        mb1 = b1["micro_bench"]
-        mb2 = b2["micro_bench"]
-        if "yield_roundtrip_avg_ns" in mb1 and "yield_roundtrip_avg_ns" in mb2:
-            old_sw = mb1["yield_roundtrip_avg_ns"]
-            new_sw = mb2["yield_roundtrip_avg_ns"]
-            if old_sw > 0:
-                delta_sw = (new_sw - old_sw) / old_sw * 100
-                sw_status = "⚠️" if delta_sw > 50 else "✅"
-                print(f"\n{'co_switch':<12} {old_sw:>10.0f} {new_sw:>10.0f} {delta_sw:>+7.1f}% {sw_status:>8} (ns, <50%=OK per spec §2.2)")
+    # Micro-bench 对比（随 comparable 门控：环境不一致时不展示，与吞吐行一致）
+    mb1, mb2 = b1.get("micro_bench"), b2.get("micro_bench")
+    if (comparable and mb1 and mb2
+            and "yield_roundtrip_avg_ns" in mb1
+            and "yield_roundtrip_avg_ns" in mb2):
+        old_sw = mb1["yield_roundtrip_avg_ns"]
+        new_sw = mb2["yield_roundtrip_avg_ns"]
+        if isinstance(old_sw, (int, float)) and old_sw > 0:
+            delta_sw = (new_sw - old_sw) / old_sw * 100
+            sw_marker = "⚠️" if delta_sw > 50 else "✅"
+            print(f"\n{'co_switch':<12} {old_sw:>10.0f} {new_sw:>10.0f} {delta_sw:>+7.1f}% {sw_marker} (ns)")
 
     print()
     print(f"Overall verdict: {verdict}")
@@ -288,7 +329,7 @@ def compare_baselines(path1, path2):
         for issue in issues:
             print(f"  - {issue}")
 
-    return 0 if verdict == "PASS" else 1
+    return 0 if verdict in ("PASS", "NO_COMPARABLE_BASELINE") else 1
 
 
 def latest_baseline(machine_slug=None):
@@ -310,6 +351,8 @@ def main():
     record.add_argument("--threads", type=int, default=2, help="Processer threads per module")
     record.add_argument("--dur", type=int, default=60, help="Duration per module (seconds)")
     record.add_argument("--quick", action="store_true", help="Quick mode (max 60s per module)")
+    record.add_argument("--output", help="Baseline JSON output path (default: tests/baselines/)")
+    record.add_argument("--environment-file", help="Load environment fingerprint from JSON file")
 
     compare = sub.add_parser("compare", help="Compare two baselines")
     compare.add_argument("baseline1", nargs="?", help="Old baseline path (default: penultimate)")
@@ -319,12 +362,12 @@ def main():
     args = parser.parse_args()
 
     if args.command == "record":
-        record_baseline(args.threads, args.dur, args.quick)
+        record_baseline(args.threads, args.dur, args.quick,
+                        output=args.output, environment_file=args.environment_file)
 
     elif args.command == "compare":
         machine_slug = re.sub(r'[^\w\-]', '_', platform.node())
         if args.latest_only or (not args.baseline1 and not args.baseline2):
-            # Auto-detect latest two
             base_dir = os.path.join(BASELINE_DIR, machine_slug)
             if not os.path.isdir(base_dir):
                 print(f"No baselines found in {base_dir}")
