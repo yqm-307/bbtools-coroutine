@@ -86,6 +86,7 @@ def notifyRecoveries() {
         recovered << m.replaceAll(/\.alert$/, '') + " (" + cat + ")"
     }
     def commit = env.GIT_COMMIT ?: 'unknown'
+    echo "[RECOVERED] ${env.JOB_NAME} #${env.BUILD_NUMBER} fingerprint(s)=${recovered.join(', ')}"
     emailext(
         to: '$DEFAULT_RECIPIENTS',
         subject: "RECOVERED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
@@ -426,6 +427,8 @@ pipeline {
                     echo "Alert dedup: fingerprint ${fp} alerted within ${ALERT_WINDOW_SECONDS()}s, skip email"
                 } else {
                     recordAlert(fp, cat)
+                    // 告警摘要先打印到 build log（SMTP 未配置前的告警出口）；emailext 保留待启用。
+                    echo "[ALERT] ${env.JOB_NAME} #${env.BUILD_NUMBER} ${stageName} fingerprint=${fp} category=${cat} decisive=${decisiveError}"
                     // 正文只含 Job/Build URL/commit/阶段/类别/指纹/最短决定性错误/报告 URL，
                     // 不含任何凭据或敏感配置。
                     emailext(
@@ -479,6 +482,8 @@ Build log: ${env.BUILD_URL}console
                     echo "Alert dedup: fingerprint ${fp} alerted within ${ALERT_WINDOW_SECONDS()}s, skip email"
                 } else {
                     recordAlert(fp, cat)
+                    // 告警摘要先打印到 build log（SMTP 未配置前的告警出口）；emailext 保留待启用。
+                    echo "[ALERT] ${env.JOB_NAME} #${env.BUILD_NUMBER} ${stageName} fingerprint=${fp} category=${cat} decisive=${decisiveError}"
                     // 正文只含 Job/Build URL/commit/阶段/类别/指纹/最短决定性错误/报告 URL，
                     // 不含任何凭据或敏感配置。
                     emailext(
