@@ -216,10 +216,10 @@ pipeline {
                                     mkdir -p '${SOAK_REPORT_ROOT()}'
                                     python3 scripts/ci/run_soak.py \\
                                       --build-dir '${SOAK_BUILD_DIR()}' \\
-                                      --duration-seconds "\\${SOAK_DURATION_SECONDS}" \\
-                                      --threads "\\${SOAK_THREADS}" \\
-                                      --resource-interval-seconds "\\${SOAK_RESOURCE_INTERVAL_SECONDS}" \\
-                                      --metric-interval-seconds "\\${SOAK_METRIC_INTERVAL_SECONDS}" \\
+                                      --duration-seconds "\${SOAK_DURATION_SECONDS}" \\
+                                      --threads "\${SOAK_THREADS}" \\
+                                      --resource-interval-seconds "\${SOAK_RESOURCE_INTERVAL_SECONDS}" \\
+                                      --metric-interval-seconds "\${SOAK_METRIC_INTERVAL_SECONDS}" \\
                                       --report-dir '${SOAK_REPORT_ROOT()}' \\
                                       > '${SOAK_REPORT_ROOT()}/segment-${seg}.log' 2>&1
                                 """)
