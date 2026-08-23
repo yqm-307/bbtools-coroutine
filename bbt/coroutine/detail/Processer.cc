@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <array>
 #include <atomic>
 #include <bbt/coroutine/detail/Processer.hpp>
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
@@ -122,6 +124,15 @@ void Processer::_Run()
      * XXX 这里也许可以优化的点：
      *      - 是否在空闲的时候降低调度频率？
      */
+    static constexpr std::array<uint64_t, CO_PRIORITY_COUNT> kPriorityRuntimeBudgetUs = {
+        50,   // LOW
+        150,  // NORMAL
+        200,  // HIGH
+        600,  // CRITICAL
+    };
+
+    auto priority_runtime_budget_us = kPriorityRuntimeBudgetUs;
+
     while (m_is_running.load(std::memory_order_acquire))
     {
         m_run_status = ProcesserStatus::PROC_RUNNING;
@@ -130,21 +141,28 @@ void Processer::_Run()
         if (GetExecutableNum() <= 0)
             _TryGetCoroutineFromGlobal();
 
-        // 对各个优先级任务进行执行，按加权轮转配额
-        // CRITICAL: 不限, HIGH: 128, NORMAL: 64, LOW: 16
+        // 对各个优先级任务进行执行，按运行时间预算（微秒）加权轮转
         bool any_dequeued = false;
-        static constexpr int kPriorityQuota[] = {16, 64, 128, 999999}; // LOW, NORMAL, HIGH, CRITICAL
         for (auto&& p : {CO_PRIORITY_CRITICAL, CO_PRIORITY_HIGH, CO_PRIORITY_NORMAL, CO_PRIORITY_LOW})
         {
-            int quota = kPriorityQuota[p];
-            for (int i = 0; i < quota; ++i)
+            while (priority_runtime_budget_us[p] > 0)
             {
                 /* 如果取不到或者取到空的，就退出循环 */
                 if (!m_coroutine_queue[p].try_dequeue(m_running_coroutine) || m_running_coroutine == nullptr)
-                    break;
+                {
+                    /* 本地该优先级队列已空但预算未耗尽：
+                     * 按优先级从全局队列补充任务，避免 CRITICAL 全局积压
+                     * 使 NORMAL 等低优先级协程长期无法被取回本地执行 */
+                    if (g_scheduler->GetCoroutineFromGlobal(
+                            p,
+                            m_coroutine_queue[p],
+                            g_bbt_coroutine_config->m_cfg_processer_get_co_from_g_count) <= 0)
+                        break;
+                    continue;
+                }
                 any_dequeued = true;
 
-                /* 强制关闭模式：跳过协程执行，直接回收 */
+                /* 强制关闭模式：跳过协程执行，直接回收（不扣预算） */
                 if (m_is_shutdown.load(std::memory_order_acquire)) {
                     delete m_running_coroutine;
                     m_running_coroutine = nullptr;
@@ -156,12 +174,21 @@ void Processer::_Run()
                 // 执行前设置当前协程缓存
                 m_running_coroutine_begin.exchange(bbt::core::clock::gettime_mono<>());
 #ifdef BBT_COROUTINE_PROFILE
-            m_co_swap_times++;
+                m_co_swap_times++;
 #endif
                 m_running_coroutine->Resume();
                 // MLFQ: 记录运行时长，供后续降级判断
                 m_running_coroutine->SetLastRunTimeUs(
                     bbt::core::clock::gettime_mono<>() - m_running_coroutine_begin.load());
+
+                // 按本次实际运行时长扣减优先级预算，单次至少扣 1 微秒
+                const auto charged_us = std::max<uint64_t>(
+                    1, m_running_coroutine->GetLastRunTimeUs());
+                priority_runtime_budget_us[p] =
+                    charged_us >= priority_runtime_budget_us[p]
+                        ? 0
+                        : priority_runtime_budget_us[p] - charged_us;
+
                 const auto disposition = m_running_coroutine->CommitYield();
                 if (disposition == CoroutineYieldDisposition::READY) {
                     g_scheduler->OnActiveCoroutine(CO_PRIORITY_NORMAL, m_running_coroutine);
@@ -173,12 +200,27 @@ void Processer::_Run()
             }
         }
 
+        // work-conserving：本轮未取到任务但本地仍有可执行协程，
+        // 说明唯一 runnable 队列已耗尽预算或队列近似大小发生竞争；
+        // 恢复全部预算后继续下一轮，不能进入 wait/steal 路径
+        if (!any_dequeued && GetExecutableNum() > 0)
+        {
+            priority_runtime_budget_us = kPriorityRuntimeBudgetUs;
+            continue;
+        }
+
         // 检测 size_approx 假阳性：认为有任务但取不到任何协程
         if (!any_dequeued && GetExecutableNum() > 0) {
 #ifdef BBT_COROUTINE_PROFILE
             m_stall_loop_count++;
 #endif
         }
+
+        // work-conserving：所有优先级预算耗尽时恢复预算，继续调度
+        if (std::all_of(priority_runtime_budget_us.begin(),
+                        priority_runtime_budget_us.end(),
+                        [](uint64_t budget) { return budget == 0; }))
+            priority_runtime_budget_us = kPriorityRuntimeBudgetUs;
 
         // 每 CHECK_INTERVAL 轮无条件检查全局队列
         // spin worker 会让本地队列 size_approx 始终非零
