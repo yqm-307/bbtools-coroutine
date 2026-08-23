@@ -133,6 +133,28 @@ void Processer::_Run()
 
     auto priority_runtime_budget_us = kPriorityRuntimeBudgetUs;
 
+    auto reset_priority_budget_if_needed = [&]() {
+        bool has_runnable_queue = false;
+        bool has_runnable_queue_with_budget = false;
+        for (auto&& p : {CO_PRIORITY_CRITICAL,
+                         CO_PRIORITY_HIGH,
+                         CO_PRIORITY_NORMAL,
+                         CO_PRIORITY_LOW})
+        {
+            if (m_coroutine_queue[p].size_approx() == 0)
+                continue;
+
+            has_runnable_queue = true;
+            if (priority_runtime_budget_us[p] > 0)
+                has_runnable_queue_with_budget = true;
+        }
+
+        // 空队列不参与预算耗尽判定；仅当所有非空队列都耗尽预算
+        // （或当前没有本地 runnable 队列）时开启下一公平轮次。
+        if (!has_runnable_queue || !has_runnable_queue_with_budget)
+            priority_runtime_budget_us = kPriorityRuntimeBudgetUs;
+    };
+
     while (m_is_running.load(std::memory_order_acquire))
     {
         m_run_status = ProcesserStatus::PROC_RUNNING;
@@ -145,6 +167,16 @@ void Processer::_Run()
         bool any_dequeued = false;
         for (auto&& p : {CO_PRIORITY_CRITICAL, CO_PRIORITY_HIGH, CO_PRIORITY_NORMAL, CO_PRIORITY_LOW})
         {
+            if (m_is_shutdown.load(std::memory_order_acquire))
+            {
+                while (m_coroutine_queue[p].try_dequeue(m_running_coroutine))
+                {
+                    delete m_running_coroutine;
+                    m_running_coroutine = nullptr;
+                }
+                continue;
+            }
+
             while (priority_runtime_budget_us[p] > 0)
             {
                 /* 如果取不到或者取到空的，就退出循环 */
@@ -199,16 +231,6 @@ void Processer::_Run()
             }
         }
 
-        // work-conserving：本轮未取到任务（唯一 runnable 队列耗尽预算或
-        // size_approx 竞争导致假阳性），恢复全部预算供下一轮使用。
-        // 注意：不提前 continue——让 _TryGetCoroutineFromGlobal、work-steal
-        // 与 wait_for 休眠路径照常执行，避免 size_approx 假阳性在队列实际
-        // 为空时形成无 sleep 忙循环。
-        if (!any_dequeued)
-        {
-            priority_runtime_budget_us = kPriorityRuntimeBudgetUs;
-        }
-
         // 检测 size_approx 假阳性：认为有任务但取不到任何协程
         if (!any_dequeued && GetExecutableNum() > 0) {
 #ifdef BBT_COROUTINE_PROFILE
@@ -216,11 +238,9 @@ void Processer::_Run()
 #endif
         }
 
-        // work-conserving：所有优先级预算耗尽时恢复预算，继续调度
-        if (std::all_of(priority_runtime_budget_us.begin(),
-                        priority_runtime_budget_us.end(),
-                        [](uint64_t budget) { return budget == 0; }))
-            priority_runtime_budget_us = kPriorityRuntimeBudgetUs;
+        // work-conserving：只按非空队列判断预算耗尽，避免空队列的
+        // 未用预算阻止公平轮次重置；不提前 continue，保留空转休眠路径。
+        reset_priority_budget_if_needed();
 
         // 每 CHECK_INTERVAL 轮无条件检查全局队列
         // spin worker 会让本地队列 size_approx 始终非零
