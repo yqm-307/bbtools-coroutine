@@ -46,6 +46,8 @@ static std::shared_ptr<CoMutex>   g_cs_m;    static volatile int g_cs_a,g_cs_b;
 static std::shared_ptr<CoRWMutex> g_rs_rw;   static volatile int g_rs_val;
 static std::shared_ptr<CoCond>    g_ds_cond; static std::unique_ptr<std::atomic_int[]> g_ds_alive;
 static std::atomic_int g_ds_frame{0}; static const int g_ds_nco=200;
+// timeout 压力协程的单独计数（不参与 CoCond waiter ops / FATIGUE_METRIC）
+static std::atomic_int g_ds_pressure_ticks{0}; static const int g_ds_npressure=128;
 static Chan<uint64_t,1000> g_ch_buf; static Chan<uint64_t,0> g_ch_nb;
 static std::shared_ptr<bbt::coroutine::pool::CoPool> g_ps_pool;
 
@@ -68,6 +70,8 @@ static void stress_corwmutex(){
 static void stress_cocond(){
     g_ds_cond=bbtco_make_cocond();g_ds_alive.reset(new std::atomic_int[g_ds_nco]());g_ds_frame=0;
     for(int i=0;i<g_ds_nco;++i)bbtco [index = i]{while(g_running){g_ds_alive[index].store(g_ds_frame.load());g_ds_cond->Wait();g_mt_cocond.cond_waits++;g_mt_cocond.ops_total++;};};
+    // timeout 压力协程：bbtco_sleep(1) 高频 tick，与 CoCond waiter 同场争抢调度，验证公平性疲劳场景
+    for(int i=0;i<g_ds_npressure;++i)bbtco_ref{while(g_running){g_ds_pressure_ticks++;bbtco_sleep(1);};};
     bbtco_ref{while(g_running){g_ds_cond->NotifyAll();g_mt_cocond.cond_signals++;int lost=0;for(int i=0;i<g_ds_nco&&g_running;++i)if(g_ds_frame-g_ds_alive[i]>10){lost++;g_mt_cocond.errors++;}if(lost)printf("[cocond] WARN:%d lost\n",lost);g_ds_frame++;bbtco_sleep(500);};};
 }
 
