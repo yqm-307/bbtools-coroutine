@@ -152,11 +152,10 @@ void Processer::_Run()
                 {
                     /* 本地该优先级队列已空但预算未耗尽：
                      * 按优先级从全局队列补充任务，避免 CRITICAL 全局积压
-                     * 使 NORMAL 等低优先级协程长期无法被取回本地执行 */
-                    if (g_scheduler->GetCoroutineFromGlobal(
-                            p,
-                            m_coroutine_queue[p],
-                            g_bbt_coroutine_config->m_cfg_processer_get_co_from_g_count) <= 0)
+                     * 使 NORMAL 等低优先级协程长期无法被取回本地执行。
+                     * 一次只搬 1 个（最小必要粒度），避免每轮按 16 个批量搬运
+                     * 放大全局队列竞争；单轮搬运总量仍由预算循环门控 */
+                    if (g_scheduler->GetCoroutineFromGlobal(p, m_coroutine_queue[p], 1) <= 0)
                         break;
                     continue;
                 }
@@ -171,15 +170,15 @@ void Processer::_Run()
 
                 AssertWithInfo(m_running_coroutine->GetStatus() != CO_RUNNING && m_running_coroutine->GetStatus() != CO_FINAL, "bad coroutine status!");
 
-                // 执行前设置当前协程缓存
-                m_running_coroutine_begin.exchange(bbt::core::clock::gettime_mono<>());
+                // 执行前设置当前协程缓存（预算单位为微秒，计时必须显式 us）
+                m_running_coroutine_begin.exchange(bbt::core::clock::gettime_mono<bbt::core::clock::us>());
 #ifdef BBT_COROUTINE_PROFILE
                 m_co_swap_times++;
 #endif
                 m_running_coroutine->Resume();
-                // MLFQ: 记录运行时长，供后续降级判断
+                // MLFQ: 记录运行时长（微秒），供后续降级判断
                 m_running_coroutine->SetLastRunTimeUs(
-                    bbt::core::clock::gettime_mono<>() - m_running_coroutine_begin.load());
+                    bbt::core::clock::gettime_mono<bbt::core::clock::us>() - m_running_coroutine_begin.load());
 
                 // 按本次实际运行时长扣减优先级预算，单次至少扣 1 微秒
                 const auto charged_us = std::max<uint64_t>(
@@ -200,13 +199,14 @@ void Processer::_Run()
             }
         }
 
-        // work-conserving：本轮未取到任务但本地仍有可执行协程，
-        // 说明唯一 runnable 队列已耗尽预算或队列近似大小发生竞争；
-        // 恢复全部预算后继续下一轮，不能进入 wait/steal 路径
-        if (!any_dequeued && GetExecutableNum() > 0)
+        // work-conserving：本轮未取到任务（唯一 runnable 队列耗尽预算或
+        // size_approx 竞争导致假阳性），恢复全部预算供下一轮使用。
+        // 注意：不提前 continue——让 _TryGetCoroutineFromGlobal、work-steal
+        // 与 wait_for 休眠路径照常执行，避免 size_approx 假阳性在队列实际
+        // 为空时形成无 sleep 忙循环。
+        if (!any_dequeued)
         {
             priority_runtime_budget_us = kPriorityRuntimeBudgetUs;
-            continue;
         }
 
         // 检测 size_approx 假阳性：认为有任务但取不到任何协程
@@ -367,10 +367,14 @@ size_t Processer::Steal(Processer::SPtr thief)
     if (size <= 0)
         return steal_num;
     
-    /* 运行时间过久的才需要偷 */
+    /* 运行时间过久的才需要偷。
+     * m_running_coroutine_begin 与预算同为微秒（gettime_mono<us>），
+     * elapsed 必须用 us 计时；与 ms 配置比较前先换算为 us，避免 ms/us 混算 */
     uint64_t prev_run = m_running_coroutine_begin.load();
-    auto already_run_time = bbt::core::clock::gettime_mono() - prev_run;
-    if (already_run_time < g_bbt_coroutine_config->m_cfg_processer_worksteal_timeout_ms) {
+    auto already_run_time_us =
+        bbt::core::clock::gettime_mono<bbt::core::clock::us>() - prev_run;
+    if (already_run_time_us <
+        static_cast<uint64_t>(g_bbt_coroutine_config->m_cfg_processer_worksteal_timeout_ms) * 1000) {
         return steal_num;
     }
 
