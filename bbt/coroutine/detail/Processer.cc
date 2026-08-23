@@ -124,14 +124,10 @@ void Processer::_Run()
      * XXX 这里也许可以优化的点：
      *      - 是否在空闲的时候降低调度频率？
      */
-    static constexpr std::array<uint64_t, CO_PRIORITY_COUNT> kPriorityRuntimeBudgetUs = {
-        50,   // LOW
-        150,  // NORMAL
-        200,  // HIGH
-        600,  // CRITICAL
-    };
-
-    auto priority_runtime_budget_us = kPriorityRuntimeBudgetUs;
+    /* 优先级运行时间预算（单位：微秒）来自 GlobalConfig，启动前可配置；
+     * 初始预算与每次公平轮次重置均从配置拷贝。 */
+    auto priority_runtime_budget_us =
+        g_bbt_coroutine_config->m_cfg_processer_priority_runtime_budget_us;
 
     auto reset_priority_budget_if_needed = [&]() {
         bool has_runnable_queue = false;
@@ -152,7 +148,8 @@ void Processer::_Run()
         // 空队列不参与预算耗尽判定；仅当所有非空队列都耗尽预算
         // （或当前没有本地 runnable 队列）时开启下一公平轮次。
         if (!has_runnable_queue || !has_runnable_queue_with_budget)
-            priority_runtime_budget_us = kPriorityRuntimeBudgetUs;
+            priority_runtime_budget_us =
+                g_bbt_coroutine_config->m_cfg_processer_priority_runtime_budget_us;
     };
 
     while (m_is_running.load(std::memory_order_acquire))

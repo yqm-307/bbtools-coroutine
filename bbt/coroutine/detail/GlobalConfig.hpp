@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <atomic>
 #include <memory>
 #include <bbt/coroutine/detail/Define.hpp>
@@ -44,6 +45,10 @@ public:
     const size_t                                m_cfg_processer_steal_once_min_task_num{8};// 如果有任务，最少偷64个
     const size_t                                m_cfg_processer_worksteal_timeout_ms{10};   // work steal 认为任务饿死的超时时间
     const size_t                                m_cfg_processer_proc_interval_us{3000};     // proc 每次执行间隔时间
+
+    /** 各优先级协程每轮最大运行时间预算（单位：微秒），顺序为 LOW/NORMAL/HIGH/CRITICAL。
+     *  非线程安全，建议在启动前设置好。 */
+    std::array<uint64_t, CO_PRIORITY_COUNT>     m_cfg_processer_priority_runtime_budget_us{50, 150, 200, 600};
 
     /**
      * 一个protected的协程栈的创建需要1次内存申请和一次mprotect系统调用。为了减少开销，使用复用协程栈的方式。
