@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <array>
 #include <atomic>
 #include <bbt/coroutine/detail/Processer.hpp>
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
@@ -122,6 +124,34 @@ void Processer::_Run()
      * XXX 这里也许可以优化的点：
      *      - 是否在空闲的时候降低调度频率？
      */
+    /* 优先级运行时间预算（单位：微秒）来自 GlobalConfig，启动前可配置；
+     * 初始预算与每次公平轮次重置均从配置拷贝。 */
+    auto priority_runtime_budget_us =
+        g_bbt_coroutine_config->m_cfg_processer_priority_runtime_budget_us;
+
+    auto reset_priority_budget_if_needed = [&]() {
+        bool has_runnable_queue = false;
+        bool has_runnable_queue_with_budget = false;
+        for (auto&& p : {CO_PRIORITY_CRITICAL,
+                         CO_PRIORITY_HIGH,
+                         CO_PRIORITY_NORMAL,
+                         CO_PRIORITY_LOW})
+        {
+            if (m_coroutine_queue[p].size_approx() == 0)
+                continue;
+
+            has_runnable_queue = true;
+            if (priority_runtime_budget_us[p] > 0)
+                has_runnable_queue_with_budget = true;
+        }
+
+        // 空队列不参与预算耗尽判定；仅当所有非空队列都耗尽预算
+        // （或当前没有本地 runnable 队列）时开启下一公平轮次。
+        if (!has_runnable_queue || !has_runnable_queue_with_budget)
+            priority_runtime_budget_us =
+                g_bbt_coroutine_config->m_cfg_processer_priority_runtime_budget_us;
+    };
+
     while (m_is_running.load(std::memory_order_acquire))
     {
         m_run_status = ProcesserStatus::PROC_RUNNING;
@@ -130,21 +160,37 @@ void Processer::_Run()
         if (GetExecutableNum() <= 0)
             _TryGetCoroutineFromGlobal();
 
-        // 对各个优先级任务进行执行，按加权轮转配额
-        // CRITICAL: 不限, HIGH: 128, NORMAL: 64, LOW: 16
+        // 对各个优先级任务进行执行，按运行时间预算（微秒）加权轮转
         bool any_dequeued = false;
-        static constexpr int kPriorityQuota[] = {16, 64, 128, 999999}; // LOW, NORMAL, HIGH, CRITICAL
         for (auto&& p : {CO_PRIORITY_CRITICAL, CO_PRIORITY_HIGH, CO_PRIORITY_NORMAL, CO_PRIORITY_LOW})
         {
-            int quota = kPriorityQuota[p];
-            for (int i = 0; i < quota; ++i)
+            if (m_is_shutdown.load(std::memory_order_acquire))
+            {
+                while (m_coroutine_queue[p].try_dequeue(m_running_coroutine))
+                {
+                    delete m_running_coroutine;
+                    m_running_coroutine = nullptr;
+                }
+                continue;
+            }
+
+            while (priority_runtime_budget_us[p] > 0)
             {
                 /* 如果取不到或者取到空的，就退出循环 */
                 if (!m_coroutine_queue[p].try_dequeue(m_running_coroutine) || m_running_coroutine == nullptr)
-                    break;
+                {
+                    /* 本地该优先级队列已空但预算未耗尽：
+                     * 按优先级从全局队列补充任务，避免 CRITICAL 全局积压
+                     * 使 NORMAL 等低优先级协程长期无法被取回本地执行。
+                     * 一次只搬 1 个（最小必要粒度），避免每轮按 16 个批量搬运
+                     * 放大全局队列竞争；单轮搬运总量仍由预算循环门控 */
+                    if (g_scheduler->GetCoroutineFromGlobal(p, m_coroutine_queue[p], 1) <= 0)
+                        break;
+                    continue;
+                }
                 any_dequeued = true;
 
-                /* 强制关闭模式：跳过协程执行，直接回收 */
+                /* 强制关闭模式：跳过协程执行，直接回收（不扣预算） */
                 if (m_is_shutdown.load(std::memory_order_acquire)) {
                     delete m_running_coroutine;
                     m_running_coroutine = nullptr;
@@ -153,15 +199,24 @@ void Processer::_Run()
 
                 AssertWithInfo(m_running_coroutine->GetStatus() != CO_RUNNING && m_running_coroutine->GetStatus() != CO_FINAL, "bad coroutine status!");
 
-                // 执行前设置当前协程缓存
-                m_running_coroutine_begin.exchange(bbt::core::clock::gettime_mono<>());
+                // 执行前设置当前协程缓存（预算单位为微秒，计时必须显式 us）
+                m_running_coroutine_begin.exchange(bbt::core::clock::gettime_mono<bbt::core::clock::us>());
 #ifdef BBT_COROUTINE_PROFILE
-            m_co_swap_times++;
+                m_co_swap_times++;
 #endif
                 m_running_coroutine->Resume();
-                // MLFQ: 记录运行时长，供后续降级判断
+                // MLFQ: 记录运行时长（微秒），供后续降级判断
                 m_running_coroutine->SetLastRunTimeUs(
-                    bbt::core::clock::gettime_mono<>() - m_running_coroutine_begin.load());
+                    bbt::core::clock::gettime_mono<bbt::core::clock::us>() - m_running_coroutine_begin.load());
+
+                // 按本次实际运行时长扣减优先级预算，单次至少扣 1 微秒
+                const auto charged_us = std::max<uint64_t>(
+                    1, m_running_coroutine->GetLastRunTimeUs());
+                priority_runtime_budget_us[p] =
+                    charged_us >= priority_runtime_budget_us[p]
+                        ? 0
+                        : priority_runtime_budget_us[p] - charged_us;
+
                 const auto disposition = m_running_coroutine->CommitYield();
                 if (disposition == CoroutineYieldDisposition::READY) {
                     g_scheduler->OnActiveCoroutine(CO_PRIORITY_NORMAL, m_running_coroutine);
@@ -179,6 +234,10 @@ void Processer::_Run()
             m_stall_loop_count++;
 #endif
         }
+
+        // work-conserving：只按非空队列判断预算耗尽，避免空队列的
+        // 未用预算阻止公平轮次重置；不提前 continue，保留空转休眠路径。
+        reset_priority_budget_if_needed();
 
         // 每 CHECK_INTERVAL 轮无条件检查全局队列
         // spin worker 会让本地队列 size_approx 始终非零
@@ -325,10 +384,14 @@ size_t Processer::Steal(Processer::SPtr thief)
     if (size <= 0)
         return steal_num;
     
-    /* 运行时间过久的才需要偷 */
+    /* 运行时间过久的才需要偷。
+     * m_running_coroutine_begin 与预算同为微秒（gettime_mono<us>），
+     * elapsed 必须用 us 计时；与 ms 配置比较前先换算为 us，避免 ms/us 混算 */
     uint64_t prev_run = m_running_coroutine_begin.load();
-    auto already_run_time = bbt::core::clock::gettime_mono() - prev_run;
-    if (already_run_time < g_bbt_coroutine_config->m_cfg_processer_worksteal_timeout_ms) {
+    auto already_run_time_us =
+        bbt::core::clock::gettime_mono<bbt::core::clock::us>() - prev_run;
+    if (already_run_time_us <
+        static_cast<uint64_t>(g_bbt_coroutine_config->m_cfg_processer_worksteal_timeout_ms) * 1000) {
         return steal_num;
     }
 
