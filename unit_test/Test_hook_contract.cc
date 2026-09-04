@@ -16,6 +16,7 @@
 #include <chrono>
 #include <cstring>
 #include <string>
+#include <thread>
 #include <sys/uio.h>
 #include <poll.h>
 
@@ -861,6 +862,175 @@ BOOST_AUTO_TEST_CASE(t_contract_poll_eintr)
     BOOST_REQUIRE(::write(sp[1], "ok", 2) == 2);
     struct pollfd pfds[1] = {{sp[0], POLLIN, 0}};
     BOOST_CHECK_EQUAL(::poll(pfds, 1, 0), 1);
+}
+
+// getaddrinfo：非协程直通成功；协程内走 DNS 池成功（AI_NUMERICHOST 不碰公网）；
+// 协程内挂起期间 ticker 计数增长（证明让出了调度线程）；.invalid 失败返回 !=0（#231）
+BOOST_AUTO_TEST_CASE(t_contract_getaddrinfo)
+{
+    // 非协程直通
+    {
+        struct addrinfo* ai = nullptr;
+        struct addrinfo hints;
+        std::memset(&hints, 0, sizeof(hints));
+        hints.ai_family = AF_INET;
+        hints.ai_flags = AI_NUMERICHOST;
+        BOOST_CHECK_EQUAL(::getaddrinfo("127.0.0.1", "80", &hints, &ai), 0);
+        BOOST_REQUIRE(ai != nullptr);
+        ::freeaddrinfo(ai);
+    }
+
+    // 协程内同参数成功
+    RunInCo([&]() {
+        struct addrinfo* ai = nullptr;
+        struct addrinfo hints;
+        std::memset(&hints, 0, sizeof(hints));
+        hints.ai_family = AF_INET;
+        hints.ai_flags = AI_NUMERICHOST;
+        BOOST_CHECK_EQUAL(::getaddrinfo("127.0.0.1", "80", &hints, &ai), 0);
+        BOOST_REQUIRE(ai != nullptr);
+        BOOST_REQUIRE(ai->ai_addrlen >= sizeof(sockaddr_in));
+        const auto* sin = reinterpret_cast<const struct sockaddr_in*>(ai->ai_addr);
+        BOOST_TEST(sin->sin_addr.s_addr == htonl(INADDR_LOOPBACK));
+        ::freeaddrinfo(ai);
+    });
+
+    // 协程挂起让出调度线程：唯一名（避免解析器负缓存把等待压到 0ms）走真实
+    // DNS 失败路径约百毫秒，期间 10ms ticker 必须计数；同时断言返回 !=0
+    std::atomic<int> ticks{0};
+    std::atomic_bool stop{false};
+    RunInCo([&]() {
+        bbtco [&]() {
+            while (!stop.load()) {
+                bbtco_sleep(10);
+                ++ticks;
+            }
+        };
+        struct addrinfo* ai = nullptr;
+        struct addrinfo hints;
+        std::memset(&hints, 0, sizeof(hints));
+        hints.ai_family = AF_INET;
+        BOOST_CHECK(::getaddrinfo("co-dns-yield-231.invalid", nullptr, &hints, &ai) != 0);
+        BOOST_TEST(ai == nullptr);
+        stop = true;
+        bbtco_sleep(50);  // 等 ticker 退出，避免其写用例已析构的栈变量
+    });
+    BOOST_TEST(ticks.load() > 0);
+
+    // .invalid 在协程内失败（返回值 !=0，非崩溃）
+    RunInCo([&]() {
+        struct addrinfo* ai = nullptr;
+        BOOST_CHECK(::getaddrinfo("no-such-host.invalid", nullptr, nullptr, &ai) != 0);
+    });
+}
+
+// getnameinfo：协程内对 127.0.0.1 sockaddr 走 DNS 池，NUMERIC 标志零网络查询，
+// 成功并回点分地址（#231）
+BOOST_AUTO_TEST_CASE(t_contract_getnameinfo)
+{
+    RunInCo([&]() {
+        struct sockaddr_in sa;
+        std::memset(&sa, 0, sizeof(sa));
+        sa.sin_family = AF_INET;
+        sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        sa.sin_port = htons(80);
+        char host[64] = {0}, serv[32] = {0};
+        int ret = ::getnameinfo((struct sockaddr*)&sa, sizeof(sa),
+                                host, sizeof(host), serv, sizeof(serv),
+                                NI_NUMERICHOST | NI_NUMERICSERV);
+        BOOST_CHECK_EQUAL(ret, 0);
+        BOOST_TEST(std::string{host} == "127.0.0.1");
+        BOOST_TEST(std::string{serv} == "80");
+    });
+}
+
+// gethostbyname：协程内成功路径非空且地址为 127.0.0.1（localhost 走 /etc/hosts）；
+// 失败路径返回 nullptr 且 h_errno 有值，不崩（#231）
+BOOST_AUTO_TEST_CASE(t_contract_gethostbyname)
+{
+    RunInCo([&]() {
+        struct hostent* he = ::gethostbyname("localhost");
+        BOOST_REQUIRE(he != nullptr);
+        BOOST_CHECK_EQUAL(he->h_addrtype, AF_INET);
+        BOOST_REQUIRE(he->h_addr_list != nullptr);
+        BOOST_REQUIRE(he->h_addr_list[0] != nullptr);
+        BOOST_TEST(*reinterpret_cast<const in_addr_t*>(he->h_addr_list[0]) ==
+                   htonl(INADDR_LOOPBACK));
+        // 数字名字同样可用（AI_NUMERICHOST 路径的 canonname 回退）
+        struct hostent* he2 = ::gethostbyname("127.0.0.1");
+        BOOST_REQUIRE(he2 != nullptr);
+        BOOST_TEST(std::string{he2->h_name} == "127.0.0.1");
+    });
+
+    RunInCo([&]() {
+        h_errno = 0;
+        struct hostent* he = ::gethostbyname("no-such-host-231.invalid");
+        if (he == nullptr)
+            BOOST_TEST(h_errno != 0);  // 失败可接受，只要不崩且错误码有值
+        else
+            BOOST_FAIL("unexpected success resolving .invalid");
+    });
+}
+
+// gethostbyaddr：协程内对 127.0.0.1 反解，结果（若有）必须是拷贝进 TLS 的内容，
+// 失败则 h_errno 有值——两条路径都不崩、不返回 libc 静态指针（#231）
+BOOST_AUTO_TEST_CASE(t_contract_gethostbyaddr)
+{
+    RunInCo([&]() {
+        struct in_addr addr;
+        addr.s_addr = htonl(INADDR_LOOPBACK);
+        h_errno = 0;
+        struct hostent* he = ::gethostbyaddr(&addr, sizeof(addr), AF_INET);
+        if (he != nullptr) {
+            BOOST_CHECK_EQUAL(he->h_addrtype, AF_INET);
+            BOOST_REQUIRE(he->h_addr_list != nullptr);
+            BOOST_REQUIRE(he->h_addr_list[0] != nullptr);
+            BOOST_TEST(*reinterpret_cast<const in_addr_t*>(he->h_addr_list[0]) == addr.s_addr);
+            // TLS 拷贝的缓冲必须位于本模块数据段之外的堆/std::string 上；
+            // 弱契约：连续两次调用结果互不踩踏即可
+            struct hostent* he2 = ::gethostbyaddr(&addr, sizeof(addr), AF_INET);
+            BOOST_REQUIRE(he2 != nullptr);
+            BOOST_TEST(*reinterpret_cast<const in_addr_t*>(he2->h_addr_list[0]) == addr.s_addr);
+        } else {
+            BOOST_TEST(h_errno != 0);  // 环境无反解记录是可接受错误，不崩即可
+        }
+    });
+}
+
+// Stop：DNS 协程在途时 Scheduler::Stop，3s 内返回、不挂死（#231）
+// 时序：drain 保证 worker 已启动且队列空 → 注册一个 .invalid 解析协程（worker 侧
+// 真实 DNS 失败路径约百 ms，制造可观测的在途窗口）→ 等它进入挂起 → Stop。
+// Scheduler::Stop 先 DnsResolver::Stop（join worker、唤醒全部 Job）再销毁
+// Processer，唤醒路径有人执行；DNS 池一次性停止，故本用例放在全部 DNS 用例之后。
+BOOST_AUTO_TEST_CASE(t_contract_dns_stop_with_inflight)
+{
+    // drain：跑一次即时成功的数值解析，排空 worker 队列并确认池可用
+    RunInCo([&]() {
+        struct addrinfo* ai = nullptr;
+        BOOST_CHECK_EQUAL(::getaddrinfo("127.0.0.1", nullptr, nullptr, &ai), 0);
+        if (ai != nullptr)
+            ::freeaddrinfo(ai);
+    });
+
+    std::atomic_bool co_started{false};
+    bbtco [&]() {
+        co_started = true;
+        struct addrinfo* ai = nullptr;
+        (void)::getaddrinfo("stop-inflight-231.invalid", nullptr, nullptr, &ai);
+        if (ai != nullptr)
+            ::freeaddrinfo(ai);
+    };
+    while (!co_started.load())
+        std::this_thread::yield();
+    // 协程已启动；Enqueue 发生在其首个时间片内，20ms 足够它挂起且 Job 入队/在途
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+
+    auto begin = std::chrono::steady_clock::now();
+    g_scheduler->Stop();
+    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - begin).count();
+    BOOST_TEST(elapsed_ms < 3000);
+    g_scheduler->Start();
 }
 
 BOOST_AUTO_TEST_CASE(test_env_unload)

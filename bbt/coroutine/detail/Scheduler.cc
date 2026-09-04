@@ -10,6 +10,7 @@
 #include <bbt/coroutine/detail/LocalThread.hpp>
 #include <bbt/coroutine/detail/StackPool.hpp>
 #include <bbt/coroutine/detail/CoPoller.hpp>
+#include <bbt/coroutine/detail/DnsResolver.hpp>
 #include <bbt/coroutine/detail/debug/DebugMgr.hpp>
 
 namespace bbt::coroutine::detail
@@ -186,6 +187,14 @@ void Scheduler::LoopOnce()
 
 void Scheduler::Stop()
 {
+    /**
+     * 时序约束（#231）：先停 DNS 池——Stop 会 join worker 并 Notify 全部
+     * 排队/在途 Job 的 CoWaiter，唤醒路径要把协程重新投入调度队列；
+     * 必须在 _DestoryProcessers() 之前执行，否则被唤醒的协程无人执行、
+     * 且 worker 写回调用方协程栈时栈可能已析构。
+     */
+    DnsResolver::GetInstance()->Stop();
+
     m_is_running.store(false, std::memory_order_release);
 
     _DestoryProcessers();
