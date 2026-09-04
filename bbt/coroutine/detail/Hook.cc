@@ -552,7 +552,10 @@ int Hook_ClockNanosleep(clockid_t clock_id, int flags, const struct timespec *re
             return 0;
     }
 
-    return g_bbt_tls_coroutine_co->YieldUntilTimeout((int)ms);
+    // POSIX: clock_nanosleep 成功返回 0，失败返回正 errno，不用 -1。
+    if (g_bbt_tls_coroutine_co->YieldUntilTimeout((int)ms) != 0)
+        return EINVAL;
+    return 0;
 }
 
 }
