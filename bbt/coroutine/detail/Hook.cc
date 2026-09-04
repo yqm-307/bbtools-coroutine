@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <cstring>
+#include <vector>
 #include <bbt/coroutine/detail/Hook.hpp>
 #include <bbt/coroutine/detail/Processer.hpp>
 #include <bbt/coroutine/detail/CoPoller.hpp>
@@ -31,6 +33,23 @@ int ApplyAccept4Flags(int fd, int flags)
         return -1;
     return 0;
 }
+
+/**
+ * @brief epoll fd 的 RAII 守卫（#230）
+ *
+ * WHY: PollCore 的挂起路径有多个提前返回点，手写 ::close 容易漏；
+ * epfd 是本函数自建的普通 fd，直接 ::close（同 TU 的 hook close→dlsym 直通，无递归）。
+ */
+class EpGuard
+{
+public:
+    explicit EpGuard(int fd): m_fd(fd) {}
+    ~EpGuard() { if (m_fd >= 0) ::close(m_fd); }
+    EpGuard(const EpGuard&) = delete;
+    EpGuard& operator=(const EpGuard&) = delete;
+private:
+    int m_fd;
+};
 
 /**
  * @brief 重置非阻塞 connect 的 socket 状态（#191）
@@ -558,6 +577,183 @@ int Hook_ClockNanosleep(clockid_t clock_id, int flags, const struct timespec *re
     return 0;
 }
 
+/**
+ * @brief 协程内 poll 核心算法（#230）
+ *
+ * 事件流：native poll(0) 快照 → 无就绪且需要等待时，建一个不被 hook 的 epoll fd
+ * 聚合所有有 POLLIN/POLLOUT/POLLPRI 兴趣的 fd → 协程挂起等 epoll fd 可读 →
+ * 醒来后 native poll(0) 填 revents。epoll 是 level-triggered：快照与注册之间到达
+ * 的事件不会丢，挂起时 epfd 仍可读会立即唤醒。
+ *
+ * WHY 内部只走 g_bbt_sys_hook_poll_func（dlsym 原函数）：调度器经 libevent/epoll 驱动、
+ * 不走 poll，但 hook 内若调 ::poll 会重入本实现造成无限递归。epoll_create1/epoll_ctl
+ * 未被 hook，对 epfd 的 YieldUntilFdReadable 走既有 CoPollEvent 路径。
+ *
+ * epoll_ctl ADD 失败的 fd（普通文件等 epoll 不支持的类型）不进 epoll；
+ * 若无任何 fd 能进 epoll，不挂起，直接返回快照结果。
+ */
+static int PollCore(struct pollfd* fds, nfds_t nfds, int timeout_ms)
+{
+    /* 快照：poll(2) 按 POSIX 重写全部 revents；出错（EBADF 等）时 errno 即原生 poll 的 */
+    int ret = g_bbt_sys_hook_poll_func(fds, nfds, 0);
+    if (ret < 0)
+        return ret;
+    int ready = 0;
+    for (nfds_t i = 0; i < nfds; ++i)
+        if (fds[i].revents != 0)
+            ++ready;
+    if (ready > 0 || timeout_ms == 0)
+        return ready;
+
+    /* 纯定时：无任何 fd 可监听，睡满 timeout 后返回 0 */
+    if (nfds == 0) {
+        if (timeout_ms > 0 && g_bbt_tls_coroutine_co->YieldUntilTimeout(timeout_ms) != 0)
+            return -1;
+        return 0;
+    }
+
+    auto Interest = [](short events) {
+        return events & (POLLIN | POLLOUT | POLLPRI);
+    };
+
+    int epfd = ::epoll_create1(EPOLL_CLOEXEC);
+    if (epfd < 0)
+        return -1;
+    EpGuard ep_guard{epfd};  // RAII 关 epoll
+
+    int ep_count = 0;
+    for (nfds_t i = 0; i < nfds; ++i) {
+        if (!Interest(fds[i].events))
+            continue;
+        struct epoll_event ev;
+        std::memset(&ev, 0, sizeof(ev));
+        if (fds[i].events & POLLIN)
+            ev.events |= EPOLLIN;
+        if (fds[i].events & POLLOUT)
+            ev.events |= EPOLLOUT;
+        if (fds[i].events & POLLPRI)
+            ev.events |= EPOLLPRI;
+        ev.data.u32 = static_cast<uint32_t>(i);
+        if (::epoll_ctl(epfd, EPOLL_CTL_ADD, fds[i].fd, &ev) == 0)
+            ++ep_count;
+    }
+
+    if (ep_count > 0) {
+        /* timeout<0 无限等；timeout>0 带协程定时器。醒来（或定时器到期）后统一走快照收尾 */
+        int yret = timeout_ms < 0
+            ? g_bbt_tls_coroutine_co->YieldUntilFdReadable(epfd)
+            : g_bbt_tls_coroutine_co->YieldUntilFdReadable(epfd, timeout_ms);
+        if (yret != 0)
+            return -1;
+    }
+
+    ret = g_bbt_sys_hook_poll_func(fds, nfds, 0);
+    if (ret < 0)
+        return ret;
+    ready = 0;
+    for (nfds_t i = 0; i < nfds; ++i)
+        if (fds[i].revents != 0)
+            ++ready;
+    /* ep_count==0：全是 epoll 不支持的 fd，按快照直接返回，不挂起 */
+    return ready;
+}
+
+/**
+ * @brief 协程内 poll（#230）
+ */
+int Hook_Poll(struct pollfd* fds, nfds_t nfds, int timeout_ms)
+{
+    AssertWithInfo(g_bbt_tls_coroutine_co != nullptr, "must be in coroutine context");
+    return PollCore(fds, nfds, timeout_ms);
+}
+
+/**
+ * @brief fd_set → pollfd[] 转换后走 PollCore，再写回 fd_set（#230）
+ *
+ * select 与 pselect 协程路径共用；timeout_ms 传 -1 表示无限等待。
+ * 写回映射取 glibc __select 兼容表的口径（POLLHUP/ERR/NVAL 同时点亮读写集）。
+ */
+static int SelectCore(int nfds, fd_set* read_fds, fd_set* write_fds, fd_set* except_fds, int timeout_ms)
+{
+    if (nfds < 0)
+        nfds = 0;
+    if (nfds > FD_SETSIZE) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    std::vector<pollfd> pfds;
+    for (int fd = 0; fd < nfds; ++fd) {
+        short events = 0;
+        if (read_fds && FD_ISSET(fd, read_fds))
+            events |= POLLIN;
+        if (write_fds && FD_ISSET(fd, write_fds))
+            events |= POLLOUT;
+        if (except_fds && FD_ISSET(fd, except_fds))
+            events |= POLLPRI;
+        if (events == 0)
+            continue;
+        pfds.push_back(pollfd{fd, events, 0});
+    }
+
+    int ret = PollCore(pfds.data(), static_cast<nfds_t>(pfds.size()), timeout_ms);
+    if (ret < 0)
+        return ret;
+
+    for (fd_set* s : {read_fds, write_fds, except_fds})
+        if (s)
+            FD_ZERO(s);
+    for (const pollfd& p : pfds) {
+        if (read_fds && (p.revents & (POLLIN | POLLHUP | POLLERR | POLLNVAL)))
+            FD_SET(p.fd, read_fds);
+        if (write_fds && (p.revents & (POLLOUT | POLLHUP | POLLERR | POLLNVAL)))
+            FD_SET(p.fd, write_fds);
+        if (except_fds && (p.revents & POLLPRI))
+            FD_SET(p.fd, except_fds);
+    }
+
+    int counted = 0;
+    for (fd_set* s : {read_fds, write_fds, except_fds})
+        if (s)
+            for (int fd = 0; fd < nfds; ++fd)
+                if (FD_ISSET(fd, s))
+                    ++counted;
+    return counted;
+}
+
+/**
+ * @brief 协程内 select（#230）
+ *
+ * timeval → 毫秒向上取整；NULL 表示无限等待。不回写剩余时间——
+ * 协程定时器到期即结束，没有可报告的 rem。
+ */
+int Hook_Select(int nfds, fd_set* read_fds, fd_set* write_fds, fd_set* except_fds, struct timeval* timeout)
+{
+    AssertWithInfo(g_bbt_tls_coroutine_co != nullptr, "must be in coroutine context");
+    int timeout_ms = -1;
+    if (timeout != nullptr)
+        timeout_ms = static_cast<int>(timeout->tv_sec) * 1000 +
+                     static_cast<int>((timeout->tv_usec + 999) / 1000);
+    return SelectCore(nfds, read_fds, write_fds, except_fds, timeout_ms);
+}
+
+/**
+ * @brief 协程内 pselect（#230）
+ *
+ * ponytail: 协程路径忽略 sigmask——worker 线程 pthread_sigmask 会伤同核其它协程；
+ * 要按 fd 精确屏蔽再加。timeout NULL 表示无限等待。
+ */
+int Hook_PSelect(int nfds, fd_set* read_fds, fd_set* write_fds, fd_set* except_fds, const struct timespec* timeout, const sigset_t* sigmask)
+{
+    (void)sigmask;
+    AssertWithInfo(g_bbt_tls_coroutine_co != nullptr, "must be in coroutine context");
+    int timeout_ms = -1;
+    if (timeout != nullptr)
+        timeout_ms = static_cast<int>(timeout->tv_sec) * 1000 +
+                     static_cast<int>((timeout->tv_nsec + 999999) / 1000000);
+    return SelectCore(nfds, read_fds, write_fds, except_fds, timeout_ms);
+}
+
 }
 
 int socket(int domain, int type, int protocol)
@@ -722,4 +918,29 @@ int clock_nanosleep(clockid_t clock_id, int flags, const struct timespec *req, s
         return g_bbt_sys_hook_clock_nanosleep_func(clock_id, flags, req, rem);
 
     return bbt::coroutine::detail::Hook_ClockNanosleep(clock_id, flags, req, rem);
+}
+
+int poll(struct pollfd *fds, nfds_t nfds, int timeout_ms)
+{
+    if (!g_bbt_tls_helper->EnableUseCo())
+        return g_bbt_sys_hook_poll_func(fds, nfds, timeout_ms);
+
+    return bbt::coroutine::detail::Hook_Poll(fds, nfds, timeout_ms);
+}
+
+int select(int nfds, fd_set *read_fds, fd_set *write_fds, fd_set *except_fds, struct timeval *timeout)
+{
+    if (!g_bbt_tls_helper->EnableUseCo())
+        return g_bbt_sys_hook_select_func(nfds, read_fds, write_fds, except_fds, timeout);
+
+    return bbt::coroutine::detail::Hook_Select(nfds, read_fds, write_fds, except_fds, timeout);
+}
+
+int pselect(int nfds, fd_set *read_fds, fd_set *write_fds, fd_set *except_fds, const struct timespec *timeout, const sigset_t *sigmask)
+{
+    /* 非协程直通原函数（含 sigmask 语义） */
+    if (!g_bbt_tls_helper->EnableUseCo())
+        return g_bbt_sys_hook_pselect_func(nfds, read_fds, write_fds, except_fds, timeout, sigmask);
+
+    return bbt::coroutine::detail::Hook_PSelect(nfds, read_fds, write_fds, except_fds, timeout, sigmask);
 }

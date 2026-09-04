@@ -17,6 +17,7 @@
 #include <cstring>
 #include <string>
 #include <sys/uio.h>
+#include <poll.h>
 
 using hook_contract::BindLoopbackPort0;
 using hook_contract::EintrArm;
@@ -743,6 +744,123 @@ BOOST_AUTO_TEST_CASE(t_contract_nanosleep_eintr)
     BOOST_CHECK_EQUAL(errno, EINTR);
     // rem 只作弱断言：真睡满 2s 说明 EINTR 语义没生效
     BOOST_TEST(rem.tv_sec < 2);
+}
+
+// poll：非协程快照（先写后 poll(0) 见 POLLIN、空 pair poll(0) 返回 0）；
+// 协程挂起等待（ticker 延迟写唤醒 + 期间 ticker 增长）；协程超时返回 0；
+// 多 fd 只点亮就绪项（#230）
+BOOST_AUTO_TEST_CASE(t_contract_poll)
+{
+    // 非协程直通：socketpair 先写再 poll(0)，读端 POLLIN
+    {
+        SocketPair sp;
+        BOOST_REQUIRE(sp.Ok());
+        BOOST_REQUIRE(::write(sp[1], "x", 1) == 1);
+        struct pollfd pfds[1] = {{sp[0], POLLIN, 0}};
+        BOOST_CHECK_EQUAL(::poll(pfds, 1, 0), 1);
+        BOOST_TEST((pfds[0].revents & POLLIN) != 0);
+        // 读空后空 pair poll(0)：立即 0，不挂起
+        char drain;
+        BOOST_REQUIRE(::read(sp[0], &drain, 1) == 1);
+        struct pollfd idle[1] = {{sp[0], POLLIN, 0}};
+        BOOST_CHECK_EQUAL(::poll(idle, 1, 0), 0);
+    }
+
+    // 协程挂起：空 pair 读端 POLLIN + 200ms，ticker 50ms 后写 → poll 返回 >0 且 POLLIN
+    std::atomic<int> ticker_writes{0};
+    RunInCo([&]() {
+        SocketPair sp;
+        BOOST_REQUIRE(sp.Ok());
+        bbtco [&]() {
+            bbtco_sleep(50);
+            // WHY 先自增再写：同 t_contract_read，防止 ticker 写用例已析构的栈变量
+            ++ticker_writes;
+            ::write(sp[1], "wake", 4);
+        };
+        struct pollfd pfds[1] = {{sp[0], POLLIN, 0}};
+        int ret = ::poll(pfds, 1, 200);
+        BOOST_CHECK(ret > 0);
+        BOOST_TEST((pfds[0].revents & POLLIN) != 0);
+        bbtco_sleep(50);  // 等 ticker 退出
+    });
+    BOOST_TEST(ticker_writes.load() == 1);
+
+    // 协程超时：空 pair POLLIN timeout 50ms → 0
+    RunInCo([&]() {
+        SocketPair sp;
+        BOOST_REQUIRE(sp.Ok());
+        struct pollfd pfds[1] = {{sp[0], POLLIN, 0}};
+        BOOST_CHECK_EQUAL(::poll(pfds, 1, 50), 0);
+    });
+
+    // 多 fd：两个 socketpair，只往第二个写，仅第二项 POLLIN
+    RunInCo([&]() {
+        SocketPair sp1, sp2;
+        BOOST_REQUIRE(sp1.Ok() && sp2.Ok());
+        BOOST_REQUIRE(::write(sp2[1], "y", 1) == 1);
+        struct pollfd pfds[2] = {{sp1[0], POLLIN, 0}, {sp2[0], POLLIN, 0}};
+        BOOST_CHECK_EQUAL(::poll(pfds, 2, 200), 1);
+        BOOST_TEST(pfds[0].revents == 0);
+        BOOST_TEST((pfds[1].revents & POLLIN) != 0);
+    });
+}
+
+// select：协程挂起等待——空 pair 读集合 + 200ms，对端延迟写后返回，FD_ISSET 命中（#230）
+BOOST_AUTO_TEST_CASE(t_contract_select)
+{
+    std::atomic<int> ticker_writes{0};
+    RunInCo([&]() {
+        SocketPair sp;
+        BOOST_REQUIRE(sp.Ok());
+        bbtco [&]() {
+            bbtco_sleep(50);
+            ++ticker_writes;
+            ::write(sp[1], "wake", 4);
+        };
+        fd_set rfds;
+        FD_ZERO(&rfds);
+        FD_SET(sp[0], &rfds);
+        struct timeval tv{0, 200000};
+        int ret = ::select(sp[0] + 1, &rfds, nullptr, nullptr, &tv);
+        BOOST_CHECK(ret > 0);
+        BOOST_TEST(FD_ISSET(sp[0], &rfds));
+        bbtco_sleep(50);
+    });
+    BOOST_TEST(ticker_writes.load() == 1);
+}
+
+// pselect：非协程直通原函数——timeout {0,0} 立即 0（含 sigmask 路径不被 hook 改写）（#230）
+BOOST_AUTO_TEST_CASE(t_contract_pselect)
+{
+    SocketPair sp;
+    BOOST_REQUIRE(sp.Ok());
+    fd_set rfds;
+    FD_ZERO(&rfds);
+    FD_SET(sp[0], &rfds);
+    struct timespec ts{0, 0};
+    auto begin = std::chrono::steady_clock::now();
+    BOOST_CHECK_EQUAL(::pselect(sp[0] + 1, &rfds, nullptr, nullptr, &ts, nullptr), 0);
+    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - begin).count();
+    BOOST_TEST(elapsed_ms < 50);
+}
+
+// EINTR：非协程空 pair poll(..., -1) 阻塞 + EintrArm → -1/EINTR（#230，直通路径）
+BOOST_AUTO_TEST_CASE(t_contract_poll_eintr)
+{
+    SocketPair sp;
+    BOOST_REQUIRE(sp.Ok());
+    {
+        EintrArm arm{20000};
+        struct pollfd pfds[1] = {{sp[0], POLLIN, 0}};
+        errno = 0;
+        BOOST_CHECK_EQUAL(::poll(pfds, 1, -1), -1);
+        BOOST_CHECK_EQUAL(errno, EINTR);
+    }
+    // 解除后同 fd 恢复正常：写入后 poll(0) 见 POLLIN
+    BOOST_REQUIRE(::write(sp[1], "ok", 2) == 2);
+    struct pollfd pfds[1] = {{sp[0], POLLIN, 0}};
+    BOOST_CHECK_EQUAL(::poll(pfds, 1, 0), 1);
 }
 
 BOOST_AUTO_TEST_CASE(test_env_unload)
