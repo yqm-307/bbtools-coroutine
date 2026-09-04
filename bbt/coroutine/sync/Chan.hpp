@@ -3,6 +3,7 @@
 #include <mutex>
 #include <atomic>
 #include <array>
+#include <algorithm>
 #include <boost/noncopyable.hpp>
 #include <bbt/coroutine/detail/Define.hpp>
 #include <bbt/coroutine/detail/Coroutine.hpp>
@@ -99,6 +100,18 @@ public:
     virtual bool                            IsClosed() override;
 
     /**
+     * @brief CoSelect 观察者：状态变化（可读/可写/关闭）时额外 Notify 这些 waiter。
+     *
+     *  与 Wait 挂起不同，watcher 不独占唤醒——Notify 时若无协程在 Wait
+     *  该 waiter 则返回 -1（忽略即可）。注册后调用方须自行再 Try 一次，
+     *  补上"Try 失败与注册之间"的丢唤醒窗口（CoSelect 回调里已处理）。
+     */
+    void                                    AddReadWatcher(const CoWaiter::SPtr& waiter);
+    void                                    RemoveReadWatcher(const CoWaiter::SPtr& waiter);
+    void                                    AddWriteWatcher(const CoWaiter::SPtr& waiter);
+    void                                    RemoveWriteWatcher(const CoWaiter::SPtr& waiter);
+
+    /**
      * @brief 当前缓冲队列中的元素数量
      */
     size_t                                  size() const { std::lock_guard<std::mutex> lock(m_item_queue_mutex); return m_item_queue.size(); }
@@ -159,6 +172,10 @@ protected:
     /* 用来实现读写时挂起和可读写时唤醒协程 */
     CoWaiter::SPtr                            m_enable_read_cond{nullptr};
     std::queue<CoWaiter::SPtr>                m_enable_write_conds;
+
+    /* CoSelect 观察者，锁语义同 m_item_queue_mutex 保护的其余成员 */
+    std::vector<CoWaiter::SPtr>               m_read_watchers;
+    std::vector<CoWaiter::SPtr>               m_write_watchers;
 };
 
 
