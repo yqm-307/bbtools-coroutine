@@ -288,12 +288,58 @@ void Chan<TItem, Max>::Close()
         m_enable_write_conds.pop();
         enable_write_cond->Notify();
     }
+
+    // CoSelect watchers 必须无条件 Notify：上面的 _OnEnableRead 只在 m_is_reading
+    // （有阻塞读者）时触发，select 等待者不设该标志，否则会挂在已关闭 chan 上。
+    // 被唤醒方 Try 到 -1（closed）视为就绪。
+    auto read_watchers = m_read_watchers;
+    auto write_watchers = m_write_watchers;
+    for (auto& w : read_watchers)
+        w->Notify();
+    for (auto& w : write_watchers)
+        w->Notify();
 }
 
 template<class TItem, int Max>
 bool Chan<TItem, Max>::IsClosed()
 {
     return (m_run_status.load(std::memory_order_acquire) == ChanStatus::CHAN_CLOSE);
+}
+
+// ============================================================
+// CoSelect watchers
+// ============================================================
+
+template<class TItem, int Max>
+void Chan<TItem, Max>::AddReadWatcher(const CoWaiter::SPtr& waiter)
+{
+    std::lock_guard<std::mutex> lock(m_item_queue_mutex);
+    m_read_watchers.push_back(waiter);
+}
+
+template<class TItem, int Max>
+void Chan<TItem, Max>::RemoveReadWatcher(const CoWaiter::SPtr& waiter)
+{
+    std::lock_guard<std::mutex> lock(m_item_queue_mutex);
+    m_read_watchers.erase(
+        std::remove(m_read_watchers.begin(), m_read_watchers.end(), waiter),
+        m_read_watchers.end());
+}
+
+template<class TItem, int Max>
+void Chan<TItem, Max>::AddWriteWatcher(const CoWaiter::SPtr& waiter)
+{
+    std::lock_guard<std::mutex> lock(m_item_queue_mutex);
+    m_write_watchers.push_back(waiter);
+}
+
+template<class TItem, int Max>
+void Chan<TItem, Max>::RemoveWriteWatcher(const CoWaiter::SPtr& waiter)
+{
+    std::lock_guard<std::mutex> lock(m_item_queue_mutex);
+    m_write_watchers.erase(
+        std::remove(m_write_watchers.begin(), m_write_watchers.end(), waiter),
+        m_write_watchers.end());
 }
 
 // ============================================================
@@ -322,18 +368,35 @@ int Chan<TItem, Max>::_WaitUntilEnableWriteOrTimeout(
 template<class TItem, int Max>
 int Chan<TItem, Max>::_OnEnableRead()
 {
-    return m_enable_read_cond->Notify();
+    int ret = m_enable_read_cond->Notify();
+
+    // CoSelect watchers：拷贝列表再逐个 Notify（忽略 -1：waiter 未挂起或已 Cancel）。
+    // 时序约束：调用方持 m_item_queue_mutex；Notify 内部只取 waiter 自身锁并把
+    // 目标协程入调度队列，不会同步 Resume、不会反向拿 chan 锁，无死锁环。
+    auto watchers = m_read_watchers;
+    for (auto& w : watchers)
+        w->Notify();
+
+    return ret;
 }
 
 template<class TItem, int Max>
 int Chan<TItem, Max>::_OnEnableWrite()
 {
-    if (m_enable_write_conds.empty())
-        return 0;
+    int ret = 0;
+    if (!m_enable_write_conds.empty())
+    {
+        auto enable_write_cond = m_enable_write_conds.front();
+        m_enable_write_conds.pop();
+        ret = enable_write_cond->Notify();
+    }
 
-    auto enable_write_cond = m_enable_write_conds.front();
-    m_enable_write_conds.pop();
-    return enable_write_cond->Notify();
+    // CoSelect watchers：同 _OnEnableRead
+    auto watchers = m_write_watchers;
+    for (auto& w : watchers)
+        w->Notify();
+
+    return ret;
 }
 
 template<class TItem, int Max>

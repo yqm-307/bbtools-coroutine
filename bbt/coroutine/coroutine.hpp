@@ -6,6 +6,7 @@
 
 #include <bbt/coroutine/sync/Chan.hpp>
 #include <bbt/coroutine/sync/CoCond.hpp>
+#include <bbt/coroutine/sync/CoSelect.hpp>
 #include <bbt/coroutine/sync/CoMutex.hpp>
 #include <bbt/coroutine/sync/CoRWMutex.hpp>
 #include <bbt/coroutine/sync/StdLockWapper.hpp>
