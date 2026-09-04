@@ -160,6 +160,7 @@ pipeline {
                     sh """
                         python3 scripts/ci/run_smoke.py \\
                           --build-dir build-ci-smoke \\
+                          --no-clean \\
                           --build-type "\${SMOKE_BUILD_TYPE}" \\
                           --timeout-seconds "\${SMOKE_TIMEOUT_SECONDS}" \\
                           --test-label "\${SMOKE_TEST_LABEL}" \\

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Jenkins 定时 Smoke Harness：干净构建 + CTest smoke 测试 + 报告生成。
+"""Jenkins 定时 Smoke Harness：增量/干净构建 + CTest smoke 测试 + 报告生成。
 
-依次执行：清空构建目录 -> CMake 配置（Ninja）-> 并行构建 ->
+依次执行：可选清空构建目录（默认干净构建；--no-clean 保留旧产物走
+CMake/Ninja 增量）-> CMake 配置（Ninja）-> 并行构建 ->
 ctest -L <label>（默认 smoke，支持时附加 --output-junit）。全程记录每条命令的
 退出码/分类/耗时，收集系统信息，扫描 core/dump 文件与 stdout/stderr
 中的错误模式（Assert / Segmentation fault / AddressSanitizer / ERROR），
@@ -12,6 +13,7 @@ ctest -L <label>（默认 smoke，支持时附加 --output-junit）。全程记�
 
 用法示例：
     python3 scripts/ci/run_smoke.py --build-dir build-ci-smoke --timeout-seconds 900
+    python3 scripts/ci/run_smoke.py --no-clean --build-dir build-ci-smoke --timeout-seconds 900
 """
 
 import argparse
@@ -72,6 +74,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="单条命令超时秒数，超时先 SIGTERM 再 SIGKILL")
     parser.add_argument("--test-label", default="smoke",
                         help="CTest label（默认 smoke，仅允许字母/数字/._-）")
+    parser.add_argument("--no-clean", action="store_true",
+                        help="不删除 build-dir，复用旧产物走 CMake/Ninja 增量构建（默认每次清空干净构建）")
     parser.add_argument("--report-dir", type=Path, default=None,
                         help="报告输出目录（默认 tests/reports/smoke/<UTC 时间戳>）")
     return parser.parse_args(argv)
@@ -248,9 +252,10 @@ def main(argv: list[str] | None = None) -> int:
     help_result = run_command(["ctest", "--help"], timeout=args.timeout_seconds)
     junit_supported = "--output-junit" in (help_result.stdout + help_result.stderr)
 
-    # 干净构建：清空构建目录，避免旧产物污染结果。
+    # 干净构建：默认清空构建目录避免旧产物污染结果；
+    # --no-clean 保留 build-dir，由 CMake/Ninja 自行增量（省时降 CPU）。
     build_dir = args.build_dir.resolve()
-    if build_dir.exists():
+    if not args.no_clean and build_dir.exists():
         shutil.rmtree(build_dir)
 
     # 阶段短路：configure 失败后不再 build/ctest，build 失败后不再 ctest；

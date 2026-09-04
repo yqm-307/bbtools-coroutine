@@ -265,6 +265,26 @@ class ValidateArgsTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             run_smoke.validate_args(args)
 
+    def test_no_clean_flag_parses(self):
+        # --no-clean 控制构建目录是否清空：默认 False（保持干净构建），
+        # 显式传入后为 True（增量构建，供定时 smoke 降 CPU 用）。
+        tmp = Path(tempfile.mkdtemp())
+        source = tmp / "repo"
+        source.mkdir()
+        default = run_smoke.parse_args(
+            ["--source-dir", str(source), "--build-dir", str(source / "b")]
+        )
+        self.assertFalse(default.no_clean)
+        no_clean = run_smoke.parse_args(
+            [
+                "--source-dir", str(source),
+                "--build-dir", str(source / "b"),
+                "--no-clean",
+            ]
+        )
+        self.assertTrue(no_clean.no_clean)
+        run_smoke.validate_args(no_clean)
+
 
 class JUnitStatusTest(unittest.TestCase):
     """resolve_junit_status 契约（审查 #5 补测）。
