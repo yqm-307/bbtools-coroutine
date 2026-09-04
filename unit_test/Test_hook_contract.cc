@@ -627,6 +627,124 @@ BOOST_AUTO_TEST_CASE(t_contract_readv_eintr)
     BOOST_CHECK(::read(r.Get(), buf, sizeof(buf)) == (ssize_t)sizeof(msg));
 }
 
+// usleep：非协程 usleep(0) 直通立即 0；协程 usleep(100000)（100ms）期间 ticker 计数增长；
+// 协程零时长立即 0（不复用 Hook_Sleep 的 ms<=0 → -1 语义，#229）
+BOOST_AUTO_TEST_CASE(t_contract_usleep)
+{
+    {
+        auto begin = std::chrono::steady_clock::now();
+        BOOST_CHECK_EQUAL(::usleep(0), 0);
+        auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - begin).count();
+        BOOST_TEST(elapsed_ms < 50);
+    }
+
+    std::atomic<int> ticks{0};
+    std::atomic_bool stop{false};
+    RunInCo([&]() {
+        bbtco [&]() {
+            while (!stop.load()) {
+                bbtco_sleep(10);
+                ++ticks;
+            }
+        };
+        BOOST_CHECK_EQUAL(::usleep(100000), 0);  // 协程 hook：YieldUntilTimeout(100ms)
+        stop = true;
+        bbtco_sleep(50);  // 等 ticker 退出，避免其写用例已析构的栈变量
+    });
+    BOOST_TEST(ticks.load() > 0);
+
+    RunInCo([&]() {
+        BOOST_CHECK_EQUAL(::usleep(0), 0);
+    });
+}
+
+// nanosleep：非协程 {0,0} 立即 0；协程 50ms 期间 ticker 增长；req==NULL 非协程 -1/EINVAL
+BOOST_AUTO_TEST_CASE(t_contract_nanosleep)
+{
+    {
+        struct timespec req{0, 0}, rem;
+        BOOST_CHECK_EQUAL(::nanosleep(&req, &rem), 0);
+    }
+
+    std::atomic<int> ticks{0};
+    std::atomic_bool stop{false};
+    RunInCo([&]() {
+        bbtco [&]() {
+            while (!stop.load()) {
+                bbtco_sleep(10);
+                ++ticks;
+            }
+        };
+        struct timespec req{0, 50000000};  // 50ms
+        BOOST_CHECK_EQUAL(::nanosleep(&req, nullptr), 0);
+        stop = true;
+        bbtco_sleep(50);
+    });
+    BOOST_TEST(ticks.load() > 0);
+
+    // req==NULL：hook 直通原函数。实测 glibc 把 NULL 透传给 syscall → -1/EFAULT
+    // （brief 猜的 EINVAL 不成立）；契约只保证 -1 + errno 非 0，不锁死具体值
+    {
+        errno = 0;
+        BOOST_CHECK_EQUAL(::nanosleep(nullptr, nullptr), -1);
+        BOOST_TEST(errno != 0);
+    }
+}
+
+// clock_nanosleep：协程 CLOCK_MONOTONIC 相对 50ms + ticker；TIMER_ABSTIME 已到期立即 0；
+// 非协程 {0,0} 直通立即 0
+BOOST_AUTO_TEST_CASE(t_contract_clock_nanosleep)
+{
+    std::atomic<int> ticks{0};
+    std::atomic_bool stop{false};
+    RunInCo([&]() {
+        bbtco [&]() {
+            while (!stop.load()) {
+                bbtco_sleep(10);
+                ++ticks;
+            }
+        };
+        struct timespec req{0, 50000000};
+        BOOST_CHECK_EQUAL(::clock_nanosleep(CLOCK_MONOTONIC, 0, &req, nullptr), 0);
+        stop = true;
+        bbtco_sleep(50);
+    });
+    BOOST_TEST(ticks.load() > 0);
+
+    // TIMER_ABSTIME 绝对时刻已过期（过去 1s）→ 立即返回 0
+    RunInCo([&]() {
+        struct timespec now, target;
+        BOOST_REQUIRE_EQUAL(clock_gettime(CLOCK_MONOTONIC, &now), 0);
+        target.tv_sec = now.tv_sec - 1;
+        target.tv_nsec = now.tv_nsec;
+        auto begin = std::chrono::steady_clock::now();
+        BOOST_CHECK_EQUAL(::clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &target, nullptr), 0);
+        auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - begin).count();
+        BOOST_TEST(elapsed_ms < 50);
+    });
+
+    {
+        struct timespec req{0, 0};
+        BOOST_CHECK_EQUAL(::clock_nanosleep(CLOCK_MONOTONIC, 0, &req, nullptr), 0);
+    }
+}
+
+// EINTR：非协程 nanosleep({2,0}, &rem) 被 20ms SIGALRM 打断 → -1/EINTR（#229；
+// 只测直通路径——协程定时器不会以 EINTR 提前结束）
+BOOST_AUTO_TEST_CASE(t_contract_nanosleep_eintr)
+{
+    EintrArm arm{20000};
+    struct timespec req{2, 0}, rem;
+    errno = 0;
+    int got = ::nanosleep(&req, &rem);
+    BOOST_CHECK_EQUAL(got, -1);
+    BOOST_CHECK_EQUAL(errno, EINTR);
+    // rem 只作弱断言：真睡满 2s 说明 EINTR 语义没生效
+    BOOST_TEST(rem.tv_sec < 2);
+}
+
 BOOST_AUTO_TEST_CASE(test_env_unload)
 {
     g_scheduler->Stop();

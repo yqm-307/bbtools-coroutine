@@ -484,6 +484,77 @@ int Hook_Accept4(int fd, struct sockaddr *addr, socklen_t *len, int flags)
     return new_cli_fd;
 }
 
+/**
+ * @brief 协程内 usleep（#229）
+ *
+ * 时长向上取整到毫秒（YieldUntilTimeout 单位是 ms）；0 时长立即成功返回，
+ * 不复用 Hook_Sleep 的 ms<=0 → -1 语义（usleep(0) 在 POSIX 是合法空操作）。
+ */
+int Hook_USleep(unsigned int usec)
+{
+    AssertWithInfo(g_bbt_tls_coroutine_co != nullptr, "must be in coroutine context");
+    if (usec == 0)
+        return 0;
+
+    return g_bbt_tls_coroutine_co->YieldUntilTimeout((usec + 999) / 1000);
+}
+
+/**
+ * @brief 协程内 nanosleep（#229）
+ *
+ * req==NULL 直通原函数（由 libc 给出 -1/EINVAL，hook 不模仿 errno）。
+ * 成功睡完返回 0；不写 rem——POSIX 规定成功路径 rem 内容未定义，
+ * 且协程定时器不会以 EINTR 提前结束，没有剩余时间可报告。
+ */
+int Hook_Nanosleep(const struct timespec *req, struct timespec *rem)
+{
+    AssertWithInfo(g_bbt_tls_coroutine_co != nullptr, "must be in coroutine context");
+    if (req == nullptr)
+        return g_bbt_sys_hook_nanosleep_func(req, rem);
+
+    long long ms = (long long)req->tv_sec * 1000 + (req->tv_nsec + 999999LL) / 1000000LL;
+    if (ms <= 0)
+        return 0;
+
+    return g_bbt_tls_coroutine_co->YieldUntilTimeout((int)ms);
+}
+
+/**
+ * @brief 协程内 clock_nanosleep（#229）
+ *
+ * 只有 CLOCK_MONOTONIC / CLOCK_REALTIME 能映射到 YieldUntilTimeout 的墙钟超时；
+ * CPU 时间钟等其它 clock_id 即使在协程内也直通原函数，不能用墙钟冒充其语义。
+ * TIMER_ABSTIME 先用 clock_gettime 折算成相对剩余时间，已到期立即返回 0。
+ * 注意 clock_nanosleep 以返回值报告错误、不设置 errno，直通路径原样透传。
+ */
+int Hook_ClockNanosleep(clockid_t clock_id, int flags, const struct timespec *req, struct timespec *rem)
+{
+    AssertWithInfo(g_bbt_tls_coroutine_co != nullptr, "must be in coroutine context");
+    if (req == nullptr)
+        return g_bbt_sys_hook_clock_nanosleep_func(clock_id, flags, req, rem);
+
+    if (clock_id != CLOCK_MONOTONIC && clock_id != CLOCK_REALTIME)
+        return g_bbt_sys_hook_clock_nanosleep_func(clock_id, flags, req, rem);
+
+    long long ms;
+    if (flags & TIMER_ABSTIME) {
+        struct timespec now;
+        if (clock_gettime(clock_id, &now) != 0)
+            return errno;
+        long long remain_ns = ((long long)req->tv_sec - now.tv_sec) * 1000000000LL
+                            + ((long long)req->tv_nsec - now.tv_nsec);
+        if (remain_ns <= 0)
+            return 0;
+        ms = (remain_ns + 999999LL) / 1000000LL;
+    } else {
+        ms = (long long)req->tv_sec * 1000 + (req->tv_nsec + 999999LL) / 1000000LL;
+        if (ms <= 0)
+            return 0;
+    }
+
+    return g_bbt_tls_coroutine_co->YieldUntilTimeout((int)ms);
+}
+
 }
 
 int socket(int domain, int type, int protocol)
@@ -624,4 +695,28 @@ int accept4(int fd, __SOCKADDR_ARG addr, socklen_t *__restrict addr_len, int fla
     }
 
     return bbt::coroutine::detail::Hook_Accept4(fd, addr, addr_len, flags);
+}
+
+int usleep(useconds_t usec)
+{
+    if (!g_bbt_tls_helper->EnableUseCo())
+        return g_bbt_sys_hook_usleep_func(usec);
+
+    return bbt::coroutine::detail::Hook_USleep(usec);
+}
+
+int nanosleep(const struct timespec *req, struct timespec *rem)
+{
+    if (!g_bbt_tls_helper->EnableUseCo())
+        return g_bbt_sys_hook_nanosleep_func(req, rem);
+
+    return bbt::coroutine::detail::Hook_Nanosleep(req, rem);
+}
+
+int clock_nanosleep(clockid_t clock_id, int flags, const struct timespec *req, struct timespec *rem)
+{
+    if (!g_bbt_tls_helper->EnableUseCo())
+        return g_bbt_sys_hook_clock_nanosleep_func(clock_id, flags, req, rem);
+
+    return bbt::coroutine::detail::Hook_ClockNanosleep(clock_id, flags, req, rem);
 }
