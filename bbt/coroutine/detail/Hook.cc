@@ -15,6 +15,24 @@ namespace
 {
 
 /**
+ * @brief accept4 降级路径：对 accept 出的新 fd 补 SOCK_CLOEXEC/SOCK_NONBLOCK（#228）
+ *
+ * WHY: dlsym 取不到 accept4 时，非协程直通与协程两条路径都要手工补 flags，逻辑共用一份。
+ */
+int ApplyAccept4Flags(int fd, int flags)
+{
+    if (flags & SOCK_CLOEXEC) {
+        int fl = ::fcntl(fd, F_GETFD, 0);
+        if (fl < 0 || ::fcntl(fd, F_SETFD, fl | FD_CLOEXEC) != 0)
+            return -1;
+    }
+    if ((flags & SOCK_NONBLOCK) &&
+        ::fcntl(fd, F_SETFL, ::fcntl(fd, F_GETFL, 0) | O_NONBLOCK) != 0)
+        return -1;
+    return 0;
+}
+
+/**
  * @brief 重置非阻塞 connect 的 socket 状态（#191）
  *
  * 非阻塞 connect 失败后，socket 的错误结果保存在 SO_ERROR 中；
@@ -317,6 +335,155 @@ ssize_t Hook_RecvFrom(int fd, void *buf, size_t len, int flags, struct sockaddr*
     return recv_len;
 }
 
+ssize_t Hook_RecvMsg(int fd, struct msghdr *msg, int flags)
+{
+    /* MSG_DONTWAIT：调用方明确要求不等待，协程内也直通原函数（#228） */
+    if (flags & MSG_DONTWAIT)
+        return g_bbt_sys_hook_recvmsg_func(fd, msg, flags);
+
+    ssize_t recv_len = -1;
+    while ((recv_len = g_bbt_sys_hook_recvmsg_func(fd, msg, flags)) < 0) {
+        if (errno != EAGAIN && errno != EINPROGRESS && errno != EINTR && errno != EWOULDBLOCK)
+            return -1;
+
+        int sys_errno = errno;
+        ErrnoGuard guard{sys_errno};
+
+        try {
+            /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读 */
+            if (g_bbt_tls_coroutine_co->YieldUntilFdReadable(fd) != 0)
+                return -1;
+        } catch (...) {
+            throw;
+        }
+    }
+
+    return recv_len;
+}
+
+ssize_t Hook_SendMsg(int fd, const struct msghdr *msg, int flags)
+{
+    /* 同 Hook_RecvMsg：MSG_DONTWAIT 直通 */
+    if (flags & MSG_DONTWAIT)
+        return g_bbt_sys_hook_sendmsg_func(fd, msg, flags);
+
+    ssize_t send_len = -1;
+    while ((send_len = g_bbt_sys_hook_sendmsg_func(fd, msg, flags)) < 0) {
+        if (errno != EAGAIN && errno != EINTR && errno != EWOULDBLOCK)
+            return -1;
+
+        int sys_errno = errno;
+        ErrnoGuard guard{sys_errno};
+
+        try {
+            /* 对当前协程注册fd可写事件，挂起当前协程直到fd可写 */
+            if (g_bbt_tls_coroutine_co->YieldUntilFdWriteable(fd) != 0)
+                return -1;
+        } catch (...) {
+            throw;
+        }
+    }
+
+    return send_len;
+}
+
+ssize_t Hook_Readv(int fd, const struct iovec *iov, int iovcnt)
+{
+    ssize_t read_len = -1;
+    /* 与 Hook_Read 相同：常规文件偏移回退守卫；iovec 整体注册事件，不拆段提交（#228） */
+    FileOffsetGuard offset_guard{fd};
+
+    while ((read_len = g_bbt_sys_hook_readv_func(fd, iov, iovcnt)) < 0) {
+        if (errno != EAGAIN && errno != EINPROGRESS && errno != EINTR && errno != EWOULDBLOCK)
+            return -1;
+
+        int sys_errno = errno;
+        ErrnoGuard guard{sys_errno};
+
+        try {
+            /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读 */
+            if (g_bbt_tls_coroutine_co->YieldUntilFdReadable(fd) != 0)
+                return -1;
+        } catch (...) {
+            throw;
+        }
+    }
+
+    offset_guard.Dismiss();
+    return read_len;
+}
+
+ssize_t Hook_Writev(int fd, const struct iovec *iov, int iovcnt)
+{
+    ssize_t write_len = -1;
+    FileOffsetGuard offset_guard{fd};
+
+    while ((write_len = g_bbt_sys_hook_writev_func(fd, iov, iovcnt)) < 0) {
+        if (errno != EAGAIN && errno != EINTR && errno != EWOULDBLOCK)
+            return -1;
+
+        int sys_errno = errno;
+        ErrnoGuard guard{sys_errno};
+
+        try {
+            /* 对当前协程注册fd可写事件，挂起当前协程直到fd可写 */
+            if (g_bbt_tls_coroutine_co->YieldUntilFdWriteable(fd) != 0)
+                return -1;
+        } catch (...) {
+            throw;
+        }
+    }
+
+    offset_guard.Dismiss();
+    return write_len;
+}
+
+/**
+ * @brief 协程内 accept4（#228）
+ *
+ * dlsym 取不到 accept4 时降级为 accept 后再补 SOCK_CLOEXEC/SOCK_NONBLOCK。
+ * 成功路径与 Hook_Accept 一致：新 fd 强制 O_NONBLOCK，供后续协程 IO 走挂起路径。
+ */
+int Hook_Accept4(int fd, struct sockaddr *addr, socklen_t *len, int flags)
+{
+    int new_cli_fd = -1;
+
+    if (g_bbt_sys_hook_accept4_func) {
+        while ((new_cli_fd = g_bbt_sys_hook_accept4_func(fd, addr, len, flags)) < 0) {
+            if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)
+                return -1;
+
+            int sys_errno = errno;
+            ErrnoGuard guard{sys_errno};
+
+            try {
+                /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读 */
+                if (g_bbt_tls_coroutine_co->YieldUntilFdReadable(fd) != 0)
+                    return -1;
+            } catch (...) {
+                throw;
+            }
+        }
+    } else {
+        /* 降级：accept + 手工补 flags（平台无 accept4 或 dlsym 取不到） */
+        new_cli_fd = Hook_Accept(fd, addr, len);
+        if (new_cli_fd < 0)
+            return -1;
+        if (ApplyAccept4Flags(new_cli_fd, flags) != 0) {
+            ::close(new_cli_fd);
+            return -1;
+        }
+        return new_cli_fd;
+    }
+
+    if (fcntl(new_cli_fd, F_SETFL, fcntl(new_cli_fd, F_GETFL, 0) | O_NONBLOCK) != 0) {
+        ::close(new_cli_fd);
+        new_cli_fd = -1;
+    }
+
+    return new_cli_fd;
+}
+
 }
 
 int socket(int domain, int type, int protocol)
@@ -408,4 +575,53 @@ ssize_t recvfrom(int fd, void *buf, size_t len, int flags, struct sockaddr* src_
         return g_bbt_sys_hook_recvfrom_func(fd, buf, len, flags, src_addr, addrlen);
 
     return bbt::coroutine::detail::Hook_RecvFrom(fd, buf, len, flags, src_addr, addrlen);
+}
+
+ssize_t recvmsg(int fd, struct msghdr *message, int flags)
+{
+    if (!g_bbt_tls_helper->EnableUseCo())
+        return g_bbt_sys_hook_recvmsg_func(fd, message, flags);
+
+    return bbt::coroutine::detail::Hook_RecvMsg(fd, message, flags);
+}
+
+ssize_t sendmsg(int fd, const struct msghdr *message, int flags)
+{
+    if (!g_bbt_tls_helper->EnableUseCo())
+        return g_bbt_sys_hook_sendmsg_func(fd, message, flags);
+
+    return bbt::coroutine::detail::Hook_SendMsg(fd, message, flags);
+}
+
+ssize_t readv(int fd, const struct iovec *iov, int iovcnt)
+{
+    if (!g_bbt_tls_helper->EnableUseCo())
+        return g_bbt_sys_hook_readv_func(fd, iov, iovcnt);
+
+    return bbt::coroutine::detail::Hook_Readv(fd, iov, iovcnt);
+}
+
+ssize_t writev(int fd, const struct iovec *iov, int iovcnt)
+{
+    if (!g_bbt_tls_helper->EnableUseCo())
+        return g_bbt_sys_hook_writev_func(fd, iov, iovcnt);
+
+    return bbt::coroutine::detail::Hook_Writev(fd, iov, iovcnt);
+}
+
+int accept4(int fd, __SOCKADDR_ARG addr, socklen_t *__restrict addr_len, int flags)
+{
+    if (!g_bbt_tls_helper->EnableUseCo()) {
+        if (g_bbt_sys_hook_accept4_func)
+            return g_bbt_sys_hook_accept4_func(fd, addr, addr_len, flags);
+        /* 降级直通：accept + 手工补 flags，不引入协程挂起逻辑 */
+        int new_fd = g_bbt_sys_hook_accept_func(fd, addr, addr_len);
+        if (new_fd >= 0 && bbt::coroutine::detail::ApplyAccept4Flags(new_fd, flags) != 0) {
+            ::close(new_fd);
+            return -1;
+        }
+        return new_fd;
+    }
+
+    return bbt::coroutine::detail::Hook_Accept4(fd, addr, addr_len, flags);
 }
