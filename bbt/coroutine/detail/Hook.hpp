@@ -1,5 +1,6 @@
 #pragma once
 #include <sys/socket.h>
+#include <sys/uio.h>
 #include <sys/time.h>
 #include <sys/syscall.h>
 #include <sys/un.h>
@@ -35,6 +36,12 @@ using g_bbt_sys_hook_send_fn_t      = ssize_t       (*)(int /*fd*/, const void *
 using g_bbt_sys_hook_recv_fn_t      = ssize_t       (*)(int /*fd*/, void * /*buf*/, size_t /*len*/, int /*flags*/);
 using g_bbt_sys_hook_sendto_fn_t    = ssize_t       (*)(int /*fd*/, const void * /*buf*/, size_t /*len*/, int /*flags*/, const struct sockaddr* /*dest_addr*/, socklen_t /*addrlen*/);
 using g_bbt_sys_hook_recvfrom_fn_t  = ssize_t       (*)(int /*fd*/, void * /*buf*/, size_t /*len*/, int /*flags*/, struct sockaddr* /*src_addr*/, socklen_t* /*addrlen*/);
+using g_bbt_sys_hook_recvmsg_fn_t   = ssize_t       (*)(int /*fd*/, struct msghdr* /*msg*/, int /*flags*/);
+using g_bbt_sys_hook_sendmsg_fn_t   = ssize_t       (*)(int /*fd*/, const struct msghdr* /*msg*/, int /*flags*/);
+using g_bbt_sys_hook_readv_fn_t     = ssize_t       (*)(int /*fd*/, const struct iovec* /*iov*/, int /*iovcnt*/);
+using g_bbt_sys_hook_writev_fn_t    = ssize_t       (*)(int /*fd*/, const struct iovec* /*iov*/, int /*iovcnt*/);
+// glibc 的 accept4 原型带 __nonnull；dlsym 指针按普通签名即可
+using g_bbt_sys_hook_accept4_fn_t   = int           (*)(int /*fd*/, __SOCKADDR_ARG /*addr*/, socklen_t *__restrict /*addr_len*/, int /*flags*/);
 
 static auto g_bbt_sys_hook_socket_func      = (g_bbt_sys_hook_socket_fn_t)dlsym(RTLD_NEXT, "socket");
 static auto g_bbt_sys_hook_connect_func     = (g_bbt_sys_hook_connect_fn_t)dlsym(RTLD_NEXT, "connect");
@@ -47,6 +54,12 @@ static auto g_bbt_sys_hook_send_func        = (g_bbt_sys_hook_send_fn_t)dlsym(RT
 static auto g_bbt_sys_hook_recv_func        = (g_bbt_sys_hook_recv_fn_t)dlsym(RTLD_NEXT, "recv");
 static auto g_bbt_sys_hook_sendto_func      = (g_bbt_sys_hook_sendto_fn_t)dlsym(RTLD_NEXT, "sendto");
 static auto g_bbt_sys_hook_recvfrom_func    = (g_bbt_sys_hook_recvfrom_fn_t)dlsym(RTLD_NEXT, "recvfrom");
+static auto g_bbt_sys_hook_recvmsg_func     = (g_bbt_sys_hook_recvmsg_fn_t)dlsym(RTLD_NEXT, "recvmsg");
+static auto g_bbt_sys_hook_sendmsg_func     = (g_bbt_sys_hook_sendmsg_fn_t)dlsym(RTLD_NEXT, "sendmsg");
+static auto g_bbt_sys_hook_readv_func       = (g_bbt_sys_hook_readv_fn_t)dlsym(RTLD_NEXT, "readv");
+static auto g_bbt_sys_hook_writev_func      = (g_bbt_sys_hook_writev_fn_t)dlsym(RTLD_NEXT, "writev");
+// 部分平台/静态链接场景 dlsym 可能取不到 accept4，Hook_Accept4 里做降级处理
+static auto g_bbt_sys_hook_accept4_func     = (g_bbt_sys_hook_accept4_fn_t)dlsym(RTLD_NEXT, "accept4");
 
 namespace bbt::coroutine
 {
@@ -64,6 +77,11 @@ extern ssize_t Hook_Send(int fd, const void *buf, size_t len, int flags);
 extern ssize_t Hook_Recv(int fd, void *buf, size_t len, int flags);
 extern ssize_t Hook_SendTo(int fd, const void *buf, size_t len, int flags, const struct sockaddr* dest_addr, socklen_t addrlen);
 extern ssize_t Hook_RecvFrom(int fd, void *buf, size_t len, int flags, struct sockaddr* src_addr, socklen_t* addrlen);
+extern ssize_t Hook_RecvMsg(int fd, struct msghdr* msg, int flags);
+extern ssize_t Hook_SendMsg(int fd, const struct msghdr* msg, int flags);
+extern ssize_t Hook_Readv(int fd, const struct iovec* iov, int iovcnt);
+extern ssize_t Hook_Writev(int fd, const struct iovec* iov, int iovcnt);
+extern int Hook_Accept4(int fd, struct sockaddr* addr, socklen_t* len, int flags);
 }
 
 }
@@ -82,4 +100,9 @@ extern "C" {
     ssize_t recv(int fd, void *buf, size_t len, int flags);
     ssize_t sendto(int fd, const void *buf, size_t len, int flags, const struct sockaddr* dest_addr, socklen_t addrlen);
     ssize_t recvfrom(int fd, void *buf, size_t len, int flags, struct sockaddr* src_addr, socklen_t* addrlen);
+    ssize_t recvmsg(int fd, struct msghdr *message, int flags);
+    ssize_t sendmsg(int fd, const struct msghdr *message, int flags);
+    ssize_t readv(int fd, const struct iovec *iov, int iovcnt);
+    ssize_t writev(int fd, const struct iovec *iov, int iovcnt);
+    int accept4(int fd, __SOCKADDR_ARG addr, socklen_t *__restrict addr_len, int flags);
 }

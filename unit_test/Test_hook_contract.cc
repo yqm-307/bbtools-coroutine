@@ -16,6 +16,7 @@
 #include <chrono>
 #include <cstring>
 #include <string>
+#include <sys/uio.h>
 
 using hook_contract::BindLoopbackPort0;
 using hook_contract::EintrArm;
@@ -331,6 +332,295 @@ BOOST_AUTO_TEST_CASE(t_contract_eintr)
         BOOST_CHECK_EQUAL(errno, EINTR);
     }
     // 解除后同 fd 恢复正常读写
+    const char msg[] = "ok";
+    BOOST_REQUIRE(::write(w.Get(), msg, sizeof(msg)) == (ssize_t)sizeof(msg));
+    char buf[8] = {0};
+    BOOST_CHECK(::read(r.Get(), buf, sizeof(buf)) == (ssize_t)sizeof(msg));
+}
+
+// sendmsg/recvmsg：单段 iovec；协程就绪立即返回、空 fd 挂起+延迟写唤醒、
+// MSG_DONTWAIT 空 socketpair 协程内直通 -1/EAGAIN、非协程直通、EBADF 保持
+BOOST_AUTO_TEST_CASE(t_contract_sendmsg_recvmsg)
+{
+    // 就绪立即返回（对端原生 fd 写入）
+    RunInCo([&]() {
+        SocketPair sp;
+        BOOST_REQUIRE(sp.Ok());
+        BOOST_REQUIRE(SetNonblock(sp[0]));
+        const char msg[] = "co-sendmsg";
+        BOOST_REQUIRE(::write(sp[1], msg, sizeof(msg)) == (ssize_t)sizeof(msg));
+
+        char buf[16] = {0};
+        struct iovec iov;
+        iov.iov_base = buf;
+        iov.iov_len = sizeof(buf);
+        struct msghdr mh;
+        std::memset(&mh, 0, sizeof(mh));
+        mh.msg_iov = &iov;
+        mh.msg_iovlen = 1;
+        BOOST_CHECK(::recvmsg(sp[0], &mh, 0) == (ssize_t)sizeof(msg));
+        BOOST_TEST(std::string{buf} == std::string{msg});
+    });
+
+    // 协程 sendmsg 写空缓冲立即成功，对端原生读回
+    RunInCo([&]() {
+        SocketPair sp;
+        BOOST_REQUIRE(sp.Ok());
+        BOOST_REQUIRE(SetNonblock(sp[1]));
+        const char msg[] = "co-sendmsg2";
+        struct iovec iov;
+        iov.iov_base = const_cast<char*>(msg);
+        iov.iov_len = sizeof(msg);
+        struct msghdr mh;
+        std::memset(&mh, 0, sizeof(mh));
+        mh.msg_iov = &iov;
+        mh.msg_iovlen = 1;
+        BOOST_CHECK(::sendmsg(sp[1], &mh, 0) == (ssize_t)sizeof(msg));
+        char buf[16] = {0};
+        BOOST_REQUIRE(::read(sp[0], buf, sizeof(buf)) == (ssize_t)sizeof(msg));
+        BOOST_TEST(std::string{buf} == std::string{msg});
+    });
+
+    // 挂起等待：空 socketpair 上 recvmsg 挂起，ticker 协程延迟原生写后唤醒
+    std::atomic<int> ticker_writes{0};
+    RunInCo([&]() {
+        SocketPair sp;
+        BOOST_REQUIRE(sp.Ok());
+        BOOST_REQUIRE(SetNonblock(sp[0]));
+        bbtco [&]() {
+            bbtco_sleep(50);
+            // WHY 先自增再写：同 t_contract_read，防止 ticker 写已析构栈变量
+            ++ticker_writes;
+            ::write(sp[1], "wake", 4);
+        };
+        char buf[16] = {0};
+        struct iovec iov;
+        iov.iov_base = buf;
+        iov.iov_len = sizeof(buf);
+        struct msghdr mh;
+        std::memset(&mh, 0, sizeof(mh));
+        mh.msg_iov = &iov;
+        mh.msg_iovlen = 1;
+        BOOST_CHECK_EQUAL(::recvmsg(sp[0], &mh, 0), 4);
+        BOOST_TEST(std::string(buf, 4) == "wake");
+    });
+    BOOST_TEST(ticker_writes.load() == 1);
+
+    // MSG_DONTWAIT：协程内也直通，空 socketpair 立即 -1/EAGAIN，不挂死
+    RunInCo([&]() {
+        SocketPair sp;
+        BOOST_REQUIRE(sp.Ok());
+        BOOST_REQUIRE(SetNonblock(sp[0]));
+        char buf[16];
+        struct iovec iov;
+        iov.iov_base = buf;
+        iov.iov_len = sizeof(buf);
+        struct msghdr mh;
+        std::memset(&mh, 0, sizeof(mh));
+        mh.msg_iov = &iov;
+        mh.msg_iovlen = 1;
+        errno = 0;
+        BOOST_CHECK_EQUAL(::recvmsg(sp[0], &mh, MSG_DONTWAIT), -1);
+        BOOST_CHECK_EQUAL(errno, EAGAIN);
+    });
+
+    // errno 保持：协程内无效 fd
+    RunInCo([&]() {
+        char buf[8];
+        struct iovec iov;
+        iov.iov_base = buf;
+        iov.iov_len = sizeof(buf);
+        struct msghdr mh;
+        std::memset(&mh, 0, sizeof(mh));
+        mh.msg_iov = &iov;
+        mh.msg_iovlen = 1;
+        errno = 0;
+        BOOST_CHECK_EQUAL(::recvmsg(-1, &mh, 0), -1);
+        BOOST_CHECK_EQUAL(errno, EBADF);
+        errno = 0;
+        BOOST_CHECK_EQUAL(::sendmsg(-1, &mh, 0), -1);
+        BOOST_CHECK_EQUAL(errno, EBADF);
+    });
+
+    // 非协程直通
+    {
+        SocketPair sp;
+        BOOST_REQUIRE(sp.Ok());
+        const char msg[] = "direct-msg";
+        struct iovec iov;
+        iov.iov_base = const_cast<char*>(msg);
+        iov.iov_len = sizeof(msg);
+        struct msghdr mh;
+        std::memset(&mh, 0, sizeof(mh));
+        mh.msg_iov = &iov;
+        mh.msg_iovlen = 1;
+        BOOST_CHECK(::sendmsg(sp[1], &mh, 0) == (ssize_t)sizeof(msg));
+        char buf[16] = {0};
+        iov.iov_base = buf;
+        BOOST_CHECK(::recvmsg(sp[0], &mh, 0) == (ssize_t)sizeof(msg));
+        BOOST_TEST(std::string{buf} == std::string{msg});
+    }
+}
+
+// readv/writev：两段 iovec；协程就绪立即返回、空 fd 挂起+延迟写唤醒、非协程直通、EBADF 保持
+BOOST_AUTO_TEST_CASE(t_contract_readv_writev)
+{
+    RunInCo([&]() {
+        SocketPair sp;
+        BOOST_REQUIRE(sp.Ok());
+        BOOST_REQUIRE(SetNonblock(sp[0]));
+        BOOST_REQUIRE(::write(sp[1], "ABCD", 4) == 4);
+        char b1 = 0, b2 = 0;
+        struct iovec iov[2];
+        iov[0].iov_base = &b1;
+        iov[0].iov_len = 1;
+        iov[1].iov_base = &b2;
+        iov[1].iov_len = 1;
+        BOOST_CHECK(::readv(sp[0], iov, 2) == 2);
+        BOOST_TEST((b1 == 'A' && b2 == 'B'));
+    });
+
+    RunInCo([&]() {
+        SocketPair sp;
+        BOOST_REQUIRE(sp.Ok());
+        BOOST_REQUIRE(SetNonblock(sp[1]));
+        char m1 = 'X', m2 = 'Y';
+        struct iovec iov[2];
+        iov[0].iov_base = &m1;
+        iov[0].iov_len = 1;
+        iov[1].iov_base = &m2;
+        iov[1].iov_len = 1;
+        BOOST_CHECK(::writev(sp[1], iov, 2) == 2);
+        char buf[8] = {0};
+        BOOST_REQUIRE(::read(sp[0], buf, sizeof(buf)) == 2);
+        BOOST_TEST((buf[0] == 'X' && buf[1] == 'Y'));
+    });
+
+    // 挂起等待：空 socketpair 上 readv 挂起，ticker 延迟原生写后唤醒
+    std::atomic<int> ticker_writes{0};
+    RunInCo([&]() {
+        SocketPair sp;
+        BOOST_REQUIRE(sp.Ok());
+        BOOST_REQUIRE(SetNonblock(sp[0]));
+        bbtco [&]() {
+            bbtco_sleep(50);
+            ++ticker_writes;
+            ::write(sp[1], "wake", 4);
+        };
+        char buf[16] = {0};
+        struct iovec iov;
+        iov.iov_base = buf;
+        iov.iov_len = sizeof(buf);
+        BOOST_CHECK_EQUAL(::readv(sp[0], &iov, 1), 4);
+        BOOST_TEST(std::string(buf, 4) == "wake");
+    });
+    BOOST_TEST(ticker_writes.load() == 1);
+
+    // errno 保持：协程内无效 fd
+    RunInCo([&]() {
+        char buf[8];
+        struct iovec iov;
+        iov.iov_base = buf;
+        iov.iov_len = sizeof(buf);
+        errno = 0;
+        BOOST_CHECK_EQUAL(::readv(-1, &iov, 1), -1);
+        BOOST_CHECK_EQUAL(errno, EBADF);
+        errno = 0;
+        BOOST_CHECK_EQUAL(::writev(-1, &iov, 1), -1);
+        BOOST_CHECK_EQUAL(errno, EBADF);
+    });
+
+    // 非协程直通
+    {
+        SocketPair sp;
+        BOOST_REQUIRE(sp.Ok());
+        char m1 = 'P', m2 = 'Q';
+        struct iovec iov[2];
+        iov[0].iov_base = &m1;
+        iov[0].iov_len = 1;
+        iov[1].iov_base = &m2;
+        iov[1].iov_len = 1;
+        BOOST_CHECK(::writev(sp[1], iov, 2) == 2);
+        char buf[8] = {0};
+        iov[0].iov_base = buf;
+        iov[0].iov_len = 2;
+        iov[1].iov_base = buf + 2;
+        iov[1].iov_len = 4;
+        BOOST_CHECK(::readv(sp[0], iov, 2) == 2);
+        BOOST_TEST((buf[0] == 'P' && buf[1] == 'Q'));
+    }
+}
+
+// accept4：抄 t_contract_accept 流程；新 fd 查 O_NONBLOCK 与 FD_CLOEXEC（SOCK_NONBLOCK|SOCK_CLOEXEC）
+BOOST_AUTO_TEST_CASE(t_contract_accept4)
+{
+    FdGuard listen_fd{::socket(AF_INET, SOCK_STREAM, 0)};
+    BOOST_REQUIRE(listen_fd.Get() >= 0);
+    sockaddr_in addr;
+    BOOST_REQUIRE(BindLoopbackPort0(listen_fd.Get(), &addr));
+    BOOST_CHECK_EQUAL(::listen(listen_fd.Get(), 4), 0);
+
+    std::atomic_bool client_done{false};
+    RunInCo([&]() {
+        // WHY 置非阻塞：同 t_contract_accept，否则原生 accept4 阻塞线程而非走挂起路径
+        BOOST_REQUIRE(SetNonblock(listen_fd.Get()));
+        bbtco [&]() {
+            bbtco_sleep(50);
+            int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+            if (fd >= 0) {
+                if (::connect(fd, (struct sockaddr*)&addr, sizeof(addr)) == 0)
+                    client_done = true;
+                ::close(fd);
+            }
+        };
+        int cli = ::accept4(listen_fd.Get(), nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC);
+        BOOST_REQUIRE(cli >= 0);
+        BOOST_CHECK(IsNonblock(cli));  // 协程成功路径新 fd 带 O_NONBLOCK
+        BOOST_CHECK((::fcntl(cli, F_GETFD, 0) & FD_CLOEXEC) != 0);  // SOCK_CLOEXEC 可测到
+        ::close(cli);
+        bbtco_sleep(50);  // 等 client 协程写定 client_done（同 t_contract_accept）
+    });
+    BOOST_TEST(client_done.load());
+
+    // 非协程直通：独立阻塞 listener，backlog 先有连接再 accept4
+    FdGuard blocky{::socket(AF_INET, SOCK_STREAM, 0)};
+    BOOST_REQUIRE(blocky.Get() >= 0);
+    sockaddr_in baddr;
+    BOOST_REQUIRE(BindLoopbackPort0(blocky.Get(), &baddr));
+    BOOST_CHECK_EQUAL(::listen(blocky.Get(), 4), 0);
+    {
+        FdGuard cli{::socket(AF_INET, SOCK_STREAM, 0)};
+        BOOST_REQUIRE(cli.Get() >= 0);
+        BOOST_CHECK_EQUAL(::connect(cli.Get(), (struct sockaddr*)&baddr, sizeof(baddr)), 0);
+        int srv = ::accept4(blocky.Get(), nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC);
+        BOOST_REQUIRE(srv >= 0);
+        BOOST_CHECK(IsNonblock(srv));  // 直通路径同样按 flags 生效
+        BOOST_CHECK((::fcntl(srv, F_GETFD, 0) & FD_CLOEXEC) != 0);
+        ::close(srv);
+        // 无效 fd errno 保持
+        errno = 0;
+        BOOST_CHECK_EQUAL(::accept4(-1, nullptr, nullptr, 0), -1);
+        BOOST_CHECK_EQUAL(errno, EBADF);
+    }
+}
+
+// EINTR：非协程空 pipe 阻塞 readv + EintrArm → -1/EINTR（在 t_contract_eintr 基础上补 readv 一例）
+BOOST_AUTO_TEST_CASE(t_contract_readv_eintr)
+{
+    int fds[2];
+    BOOST_REQUIRE_EQUAL(::pipe(fds), 0);
+    FdGuard r{fds[0]};
+    FdGuard w{fds[1]};
+    {
+        EintrArm arm{20000};  // 20ms 后 SIGALRM 打断阻塞 readv（非协程直通路径）
+        char buf[8];
+        struct iovec iov;
+        iov.iov_base = buf;
+        iov.iov_len = sizeof(buf);
+        errno = 0;
+        BOOST_CHECK_EQUAL(::readv(r.Get(), &iov, 1), -1);
+        BOOST_CHECK_EQUAL(errno, EINTR);
+    }
     const char msg[] = "ok";
     BOOST_REQUIRE(::write(w.Get(), msg, sizeof(msg)) == (ssize_t)sizeof(msg));
     char buf[8] = {0};
