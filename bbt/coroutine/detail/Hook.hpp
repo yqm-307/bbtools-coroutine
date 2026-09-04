@@ -42,6 +42,10 @@ using g_bbt_sys_hook_readv_fn_t     = ssize_t       (*)(int /*fd*/, const struct
 using g_bbt_sys_hook_writev_fn_t    = ssize_t       (*)(int /*fd*/, const struct iovec* /*iov*/, int /*iovcnt*/);
 // glibc 的 accept4 原型带 __nonnull；dlsym 指针按普通签名即可
 using g_bbt_sys_hook_accept4_fn_t   = int           (*)(int /*fd*/, __SOCKADDR_ARG /*addr*/, socklen_t *__restrict /*addr_len*/, int /*flags*/);
+// #229 时间系 hook：签名与 <time.h>/<unistd.h> 原型一致
+using g_bbt_sys_hook_usleep_fn_t          = int     (*)(useconds_t /*usec*/);
+using g_bbt_sys_hook_nanosleep_fn_t       = int     (*)(const struct timespec* /*req*/, struct timespec* /*rem*/);
+using g_bbt_sys_hook_clock_nanosleep_fn_t = int     (*)(clockid_t /*clock_id*/, int /*flags*/, const struct timespec* /*req*/, struct timespec* /*rem*/);
 
 static auto g_bbt_sys_hook_socket_func      = (g_bbt_sys_hook_socket_fn_t)dlsym(RTLD_NEXT, "socket");
 static auto g_bbt_sys_hook_connect_func     = (g_bbt_sys_hook_connect_fn_t)dlsym(RTLD_NEXT, "connect");
@@ -60,6 +64,9 @@ static auto g_bbt_sys_hook_readv_func       = (g_bbt_sys_hook_readv_fn_t)dlsym(R
 static auto g_bbt_sys_hook_writev_func      = (g_bbt_sys_hook_writev_fn_t)dlsym(RTLD_NEXT, "writev");
 // 部分平台/静态链接场景 dlsym 可能取不到 accept4，Hook_Accept4 里做降级处理
 static auto g_bbt_sys_hook_accept4_func     = (g_bbt_sys_hook_accept4_fn_t)dlsym(RTLD_NEXT, "accept4");
+static auto g_bbt_sys_hook_usleep_func          = (g_bbt_sys_hook_usleep_fn_t)dlsym(RTLD_NEXT, "usleep");
+static auto g_bbt_sys_hook_nanosleep_func       = (g_bbt_sys_hook_nanosleep_fn_t)dlsym(RTLD_NEXT, "nanosleep");
+static auto g_bbt_sys_hook_clock_nanosleep_func = (g_bbt_sys_hook_clock_nanosleep_fn_t)dlsym(RTLD_NEXT, "clock_nanosleep");
 
 namespace bbt::coroutine
 {
@@ -82,6 +89,9 @@ extern ssize_t Hook_SendMsg(int fd, const struct msghdr* msg, int flags);
 extern ssize_t Hook_Readv(int fd, const struct iovec* iov, int iovcnt);
 extern ssize_t Hook_Writev(int fd, const struct iovec* iov, int iovcnt);
 extern int Hook_Accept4(int fd, struct sockaddr* addr, socklen_t* len, int flags);
+extern int Hook_USleep(unsigned int usec);
+extern int Hook_Nanosleep(const struct timespec* req, struct timespec* rem);
+extern int Hook_ClockNanosleep(clockid_t clock_id, int flags, const struct timespec* req, struct timespec* rem);
 }
 
 }
@@ -105,4 +115,7 @@ extern "C" {
     ssize_t readv(int fd, const struct iovec *iov, int iovcnt);
     ssize_t writev(int fd, const struct iovec *iov, int iovcnt);
     int accept4(int fd, __SOCKADDR_ARG addr, socklen_t *__restrict addr_len, int flags);
+    int usleep(useconds_t usec);
+    int nanosleep(const struct timespec *req, struct timespec *rem);
+    int clock_nanosleep(clockid_t clock_id, int flags, const struct timespec *req, struct timespec *rem);
 }
