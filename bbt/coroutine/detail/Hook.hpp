@@ -15,6 +15,7 @@
 #include <stdarg.h>
 #include <fcntl.h>
 #include <netinet/in.h>
+#include <netdb.h>
 #include <errno.h>
 
 /**
@@ -53,6 +54,11 @@ using g_bbt_sys_hook_clock_nanosleep_fn_t = int     (*)(clockid_t /*clock_id*/, 
 using g_bbt_sys_hook_poll_fn_t            = int     (*)(struct pollfd* /*fds*/, nfds_t /*nfds*/, int /*timeout_ms*/);
 using g_bbt_sys_hook_select_fn_t          = int     (*)(int /*nfds*/, fd_set* /*read*/, fd_set* /*write*/, fd_set* /*except*/, struct timeval* /*timeout*/);
 using g_bbt_sys_hook_pselect_fn_t         = int     (*)(int /*nfds*/, fd_set* /*read*/, fd_set* /*write*/, fd_set* /*except*/, const struct timespec* /*timeout*/, const sigset_t* /*sigmask*/);
+// #231 DNS 系 hook：签名与 <netdb.h> 原型一致（dlsym 指针去掉 __restrict）
+using g_bbt_sys_hook_getaddrinfo_fn_t     = int     (*)(const char* /*node*/, const char* /*service*/, const struct addrinfo* /*req*/, struct addrinfo** /*res*/);
+using g_bbt_sys_hook_getnameinfo_fn_t     = int     (*)(const struct sockaddr* /*sa*/, socklen_t /*salen*/, char* /*host*/, socklen_t /*hostlen*/, char* /*serv*/, socklen_t /*servlen*/, int /*flags*/);
+using g_bbt_sys_hook_gethostbyname_fn_t   = struct hostent* (*)(const char* /*name*/);
+using g_bbt_sys_hook_gethostbyaddr_fn_t   = struct hostent* (*)(const void* /*addr*/, socklen_t /*len*/, int /*type*/);
 
 static auto g_bbt_sys_hook_socket_func      = (g_bbt_sys_hook_socket_fn_t)dlsym(RTLD_NEXT, "socket");
 static auto g_bbt_sys_hook_connect_func     = (g_bbt_sys_hook_connect_fn_t)dlsym(RTLD_NEXT, "connect");
@@ -77,6 +83,10 @@ static auto g_bbt_sys_hook_clock_nanosleep_func = (g_bbt_sys_hook_clock_nanoslee
 static auto g_bbt_sys_hook_poll_func            = (g_bbt_sys_hook_poll_fn_t)dlsym(RTLD_NEXT, "poll");
 static auto g_bbt_sys_hook_select_func          = (g_bbt_sys_hook_select_fn_t)dlsym(RTLD_NEXT, "select");
 static auto g_bbt_sys_hook_pselect_func         = (g_bbt_sys_hook_pselect_fn_t)dlsym(RTLD_NEXT, "pselect");
+static auto g_bbt_sys_hook_getaddrinfo_func     = (g_bbt_sys_hook_getaddrinfo_fn_t)dlsym(RTLD_NEXT, "getaddrinfo");
+static auto g_bbt_sys_hook_getnameinfo_func     = (g_bbt_sys_hook_getnameinfo_fn_t)dlsym(RTLD_NEXT, "getnameinfo");
+static auto g_bbt_sys_hook_gethostbyname_func   = (g_bbt_sys_hook_gethostbyname_fn_t)dlsym(RTLD_NEXT, "gethostbyname");
+static auto g_bbt_sys_hook_gethostbyaddr_func   = (g_bbt_sys_hook_gethostbyaddr_fn_t)dlsym(RTLD_NEXT, "gethostbyaddr");
 
 namespace bbt::coroutine
 {
@@ -105,6 +115,10 @@ extern int Hook_ClockNanosleep(clockid_t clock_id, int flags, const struct times
 extern int Hook_Poll(struct pollfd* fds, nfds_t nfds, int timeout_ms);
 extern int Hook_Select(int nfds, fd_set* read_fds, fd_set* write_fds, fd_set* except_fds, struct timeval* timeout);
 extern int Hook_PSelect(int nfds, fd_set* read_fds, fd_set* write_fds, fd_set* except_fds, const struct timespec* timeout, const sigset_t* sigmask);
+extern int Hook_GetAddrInfo(const char* node, const char* service, const struct addrinfo* req, struct addrinfo** res);
+extern int Hook_GetNameInfo(const struct sockaddr* sa, socklen_t salen, char* host, socklen_t hostlen, char* serv, socklen_t servlen, int flags);
+extern struct hostent* Hook_GetHostByName(const char* name);
+extern struct hostent* Hook_GetHostByAddr(const void* addr, socklen_t len, int type);
 }
 
 }
@@ -134,4 +148,8 @@ extern "C" {
     int poll(struct pollfd *fds, nfds_t nfds, int timeout_ms);
     int select(int nfds, fd_set *read_fds, fd_set *write_fds, fd_set *except_fds, struct timeval *timeout);
     int pselect(int nfds, fd_set *read_fds, fd_set *write_fds, fd_set *except_fds, const struct timespec *timeout, const sigset_t *sigmask);
+    int getaddrinfo(const char *node, const char *service, const struct addrinfo *req, struct addrinfo **res);
+    int getnameinfo(const struct sockaddr *sa, socklen_t salen, char *host, socklen_t hostlen, char *serv, socklen_t servlen, int flags);
+    struct hostent *gethostbyname(const char *name);
+    struct hostent *gethostbyaddr(const void *addr, socklen_t len, int type);
 }

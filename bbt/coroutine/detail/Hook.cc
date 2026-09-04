@@ -2,8 +2,10 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <cstring>
+#include <string>
 #include <vector>
 #include <bbt/coroutine/detail/Hook.hpp>
+#include <bbt/coroutine/detail/DnsResolver.hpp>
 #include <bbt/coroutine/detail/Processer.hpp>
 #include <bbt/coroutine/detail/CoPoller.hpp>
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
@@ -754,6 +756,230 @@ int Hook_PSelect(int nfds, fd_set* read_fds, fd_set* write_fds, fd_set* except_f
     return SelectCore(nfds, read_fds, write_fds, except_fds, timeout_ms);
 }
 
+/**
+ * @brief gethostbyname/gethostbyaddr 协程路径的 thread_local hostent 存储（#231）
+ *
+ * WHY thread_local：libc 的 hostent 静态缓冲按线程共享，worker 线程里直接返回
+ * libc 指针会与调用线程的后续调用互相踩内存；hostent 的字符串/地址数组必须与
+ * hostent 结构同线程、同生命周期，所以全部收进这一份 TLS 存储，返回其内部指针。
+ * 存储放在 TLS 而非协程栈：gethostbyname 契约是"结果有效直到下次调用"，
+ * 协程栈在 hook 返回后即析构。
+ */
+struct TlsHostentStorage
+{
+    struct hostent      ent;
+    std::string         name;
+    std::vector<std::string> aliases;
+    std::vector<char*>  alias_ptrs;
+    std::vector<std::string> addrs;     // 每个元素是一条原始地址字节
+    std::vector<char*>  addr_ptrs;
+
+    void Clear()
+    {
+        std::memset(&ent, 0, sizeof(ent));
+        name.clear();
+        aliases.clear();
+        alias_ptrs.clear();
+        addrs.clear();
+        addr_ptrs.clear();
+    }
+};
+
+static thread_local TlsHostentStorage tls_hostent;
+
+/**
+ * @brief 把 getaddrinfo 结果链填进 TLS hostent（调用线程执行，ai 为 libc 堆内存）
+ *
+ * ponytail: aliases 恒为空——getaddrinfo 只给 canonname，不给 /etc/hosts 别名列表；
+ * 需要别名再加 gethostbyname_r 直通路径。
+ */
+static struct hostent* FillHostentFromAddrInfo(struct addrinfo* ai)
+{
+    auto& tls = tls_hostent;
+    tls.Clear();
+
+    for (auto* p = ai; p != nullptr; p = p->ai_next) {
+        if (p->ai_family != AF_INET || p->ai_addrlen < sizeof(sockaddr_in))
+            continue;
+        const auto* sin = reinterpret_cast<const struct sockaddr_in*>(p->ai_addr);
+        tls.addrs.emplace_back(reinterpret_cast<const char*>(&sin->sin_addr), sizeof(sin->sin_addr));
+    }
+    if (tls.addrs.empty())
+        return nullptr;
+
+    if (ai->ai_canonname != nullptr && ai->ai_canonname[0] != '\0') {
+        tls.name = ai->ai_canonname;
+    } else {
+        // 数字地址无 canonname：与 glibc 一致，回退为点分地址串
+        char buf[INET_ADDRSTRLEN] = {0};
+        if (inet_ntop(AF_INET, tls.addrs[0].data(), buf, sizeof(buf)) == nullptr)
+            return nullptr;
+        tls.name = buf;
+    }
+
+    tls.alias_ptrs.push_back(nullptr);
+    for (auto& a : tls.addrs)
+        tls.addr_ptrs.push_back(a.data());
+    tls.addr_ptrs.push_back(nullptr);
+
+    tls.ent.h_name = tls.name.data();
+    tls.ent.h_aliases = tls.alias_ptrs.data();
+    tls.ent.h_addrtype = AF_INET;
+    tls.ent.h_length = sizeof(struct in_addr);
+    tls.ent.h_addr_list = tls.addr_ptrs.data();
+    return &tls.ent;
+}
+
+/**
+ * @brief gethostbyaddr 结果的跨线程拷贝（#231）
+ *
+ * worker 线程上调 libc 原函数后，libc 静态缓冲随时会被本线程下次调用覆盖，
+ * 且协程恢复执行的线程不确定，必须把内容拷进调用方栈上的这份结构，
+ * 恢复后由调用线程再搬进自己的 TLS 存储。
+ */
+struct HostentCopy
+{
+    bool                ok{false};
+    int                 h_err{0};
+    int                 addrtype{0};
+    int                 length{0};
+    std::string         name;
+    std::vector<std::string> aliases;
+    std::vector<std::string> addrs;
+};
+
+static int GaiErrToHErrno(int gai)
+{
+    switch (gai) {
+    case EAI_NONAME:      return HOST_NOT_FOUND;
+    case EAI_AGAIN:       return TRY_AGAIN;
+    case EAI_FAIL:        return NO_RECOVERY;
+    default:              return NO_DATA;
+    }
+}
+
+/**
+ * @brief 协程内 getaddrinfo（#231）
+ *
+ * 结果 res/ret 在调用方协程栈上，挂起期间有效（worker 完成前协程不会返回）。
+ * 入队失败（池已停止）时 work 不执行，返回预置的 EAI_FAIL。
+ */
+int Hook_GetAddrInfo(const char* node, const char* service, const struct addrinfo* req, struct addrinfo** res)
+{
+    AssertWithInfo(g_bbt_tls_coroutine_co != nullptr, "must be in coroutine context");
+    if (res == nullptr)
+        return g_bbt_sys_hook_getaddrinfo_func(node, service, req, res);
+
+    int ret = EAI_FAIL;
+    *res = nullptr;
+    DnsResolver::GetInstance()->Await([&ret, res, node, service, req]() {
+        ret = g_bbt_sys_hook_getaddrinfo_func(node, service, req, res);
+    });
+    return ret;
+}
+
+/**
+ * @brief 协程内 getnameinfo（#231）
+ *
+ * host/serv 是调用方缓冲，挂起期间有效；入队失败返回预置 EAI_FAIL。
+ */
+int Hook_GetNameInfo(const struct sockaddr* sa, socklen_t salen, char* host, socklen_t hostlen, char* serv, socklen_t servlen, int flags)
+{
+    AssertWithInfo(g_bbt_tls_coroutine_co != nullptr, "must be in coroutine context");
+    int ret = EAI_FAIL;
+    DnsResolver::GetInstance()->Await([&ret, sa, salen, host, hostlen, serv, servlen, flags]() {
+        ret = g_bbt_sys_hook_getnameinfo_func(sa, salen, host, hostlen, serv, servlen, flags);
+    });
+    return ret;
+}
+
+/**
+ * @brief 协程内 gethostbyname（#231）
+ *
+ * 用 getaddrinfo(AF_INET) 实现（gethostbyname 本身只支持 IPv4 查询语义），
+ * 结果填调用线程的 TLS hostent。失败按 glibc 口径写 h_errno。
+ */
+struct hostent* Hook_GetHostByName(const char* name)
+{
+    AssertWithInfo(g_bbt_tls_coroutine_co != nullptr, "must be in coroutine context");
+
+    struct addrinfo hints;
+    std::memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+
+    int gai = EAI_FAIL;
+    struct addrinfo* ai = nullptr;
+    DnsResolver::GetInstance()->Await([&gai, &ai, name, &hints]() {
+        gai = g_bbt_sys_hook_getaddrinfo_func(name, nullptr, &hints, &ai);
+    });
+
+    if (gai != 0 || ai == nullptr) {
+        if (ai != nullptr)
+            ::freeaddrinfo(ai);
+        h_errno = GaiErrToHErrno(gai);
+        return nullptr;
+    }
+
+    struct hostent* he = FillHostentFromAddrInfo(ai);
+    ::freeaddrinfo(ai);
+    if (he == nullptr)
+        h_errno = NO_ADDRESS;
+    return he;
+}
+
+/**
+ * @brief 协程内 gethostbyaddr（#231）
+ *
+ * worker 上调原函数后把 libc 静态缓冲内容拷进调用方栈（HostentCopy），
+ * 恢复后由调用线程搬进 TLS hostent——禁止把 libc 静态指针跨线程返回。
+ */
+struct hostent* Hook_GetHostByAddr(const void* addr, socklen_t len, int type)
+{
+    AssertWithInfo(g_bbt_tls_coroutine_co != nullptr, "must be in coroutine context");
+
+    HostentCopy copy;
+    DnsResolver::GetInstance()->Await([&copy, addr, len, type]() {
+        struct hostent* he = g_bbt_sys_hook_gethostbyaddr_func(addr, len, type);
+        copy.h_err = h_errno;
+        if (he == nullptr)
+            return;
+        copy.ok = true;
+        copy.addrtype = he->h_addrtype;
+        copy.length = he->h_length;
+        if (he->h_name != nullptr)
+            copy.name = he->h_name;
+        for (char** it = he->h_aliases; it != nullptr && *it != nullptr; ++it)
+            copy.aliases.emplace_back(*it);
+        for (char** it = he->h_addr_list; it != nullptr && *it != nullptr; ++it)
+            copy.addrs.emplace_back(*it, static_cast<size_t>(he->h_length));
+    });
+
+    if (!copy.ok) {
+        h_errno = copy.h_err != 0 ? copy.h_err : HOST_NOT_FOUND;
+        return nullptr;
+    }
+
+    auto& tls = tls_hostent;
+    tls.Clear();
+    tls.name = std::move(copy.name);
+    tls.aliases = std::move(copy.aliases);
+    tls.addrs = std::move(copy.addrs);
+    // string 数据在 tls 内不再变动，取指针后入 vector 是安全的
+    for (auto& a : tls.aliases)
+        tls.alias_ptrs.push_back(a.data());
+    tls.alias_ptrs.push_back(nullptr);
+    for (auto& a : tls.addrs)
+        tls.addr_ptrs.push_back(a.data());
+    tls.addr_ptrs.push_back(nullptr);
+
+    tls.ent.h_name = tls.name.empty() ? nullptr : tls.name.data();
+    tls.ent.h_aliases = tls.alias_ptrs.data();
+    tls.ent.h_addrtype = copy.addrtype;
+    tls.ent.h_length = copy.length;
+    tls.ent.h_addr_list = tls.addr_ptrs.data();
+    return &tls.ent;
+}
+
 }
 
 int socket(int domain, int type, int protocol)
@@ -943,4 +1169,36 @@ int pselect(int nfds, fd_set *read_fds, fd_set *write_fds, fd_set *except_fds, c
         return g_bbt_sys_hook_pselect_func(nfds, read_fds, write_fds, except_fds, timeout, sigmask);
 
     return bbt::coroutine::detail::Hook_PSelect(nfds, read_fds, write_fds, except_fds, timeout, sigmask);
+}
+
+int getaddrinfo(const char *node, const char *service, const struct addrinfo *req, struct addrinfo **res)
+{
+    if (!g_bbt_tls_helper->EnableUseCo())
+        return g_bbt_sys_hook_getaddrinfo_func(node, service, req, res);
+
+    return bbt::coroutine::detail::Hook_GetAddrInfo(node, service, req, res);
+}
+
+int getnameinfo(const struct sockaddr *sa, socklen_t salen, char *host, socklen_t hostlen, char *serv, socklen_t servlen, int flags)
+{
+    if (!g_bbt_tls_helper->EnableUseCo())
+        return g_bbt_sys_hook_getnameinfo_func(sa, salen, host, hostlen, serv, servlen, flags);
+
+    return bbt::coroutine::detail::Hook_GetNameInfo(sa, salen, host, hostlen, serv, servlen, flags);
+}
+
+struct hostent *gethostbyname(const char *name)
+{
+    if (!g_bbt_tls_helper->EnableUseCo())
+        return g_bbt_sys_hook_gethostbyname_func(name);
+
+    return bbt::coroutine::detail::Hook_GetHostByName(name);
+}
+
+struct hostent *gethostbyaddr(const void *addr, socklen_t len, int type)
+{
+    if (!g_bbt_tls_helper->EnableUseCo())
+        return g_bbt_sys_hook_gethostbyaddr_func(addr, len, type);
+
+    return bbt::coroutine::detail::Hook_GetHostByAddr(addr, len, type);
 }
