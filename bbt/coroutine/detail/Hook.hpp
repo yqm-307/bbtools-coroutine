@@ -4,6 +4,9 @@
 #include <sys/time.h>
 #include <sys/syscall.h>
 #include <sys/un.h>
+#include <poll.h>
+#include <sys/select.h>
+#include <sys/epoll.h>
 
 #include <stdlib.h>
 #include <dlfcn.h>
@@ -46,6 +49,10 @@ using g_bbt_sys_hook_accept4_fn_t   = int           (*)(int /*fd*/, __SOCKADDR_A
 using g_bbt_sys_hook_usleep_fn_t          = int     (*)(useconds_t /*usec*/);
 using g_bbt_sys_hook_nanosleep_fn_t       = int     (*)(const struct timespec* /*req*/, struct timespec* /*rem*/);
 using g_bbt_sys_hook_clock_nanosleep_fn_t = int     (*)(clockid_t /*clock_id*/, int /*flags*/, const struct timespec* /*req*/, struct timespec* /*rem*/);
+// #230 多路复用系 hook：签名与 <poll.h>/<sys/select.h> 原型一致
+using g_bbt_sys_hook_poll_fn_t            = int     (*)(struct pollfd* /*fds*/, nfds_t /*nfds*/, int /*timeout_ms*/);
+using g_bbt_sys_hook_select_fn_t          = int     (*)(int /*nfds*/, fd_set* /*read*/, fd_set* /*write*/, fd_set* /*except*/, struct timeval* /*timeout*/);
+using g_bbt_sys_hook_pselect_fn_t         = int     (*)(int /*nfds*/, fd_set* /*read*/, fd_set* /*write*/, fd_set* /*except*/, const struct timespec* /*timeout*/, const sigset_t* /*sigmask*/);
 
 static auto g_bbt_sys_hook_socket_func      = (g_bbt_sys_hook_socket_fn_t)dlsym(RTLD_NEXT, "socket");
 static auto g_bbt_sys_hook_connect_func     = (g_bbt_sys_hook_connect_fn_t)dlsym(RTLD_NEXT, "connect");
@@ -67,6 +74,9 @@ static auto g_bbt_sys_hook_accept4_func     = (g_bbt_sys_hook_accept4_fn_t)dlsym
 static auto g_bbt_sys_hook_usleep_func          = (g_bbt_sys_hook_usleep_fn_t)dlsym(RTLD_NEXT, "usleep");
 static auto g_bbt_sys_hook_nanosleep_func       = (g_bbt_sys_hook_nanosleep_fn_t)dlsym(RTLD_NEXT, "nanosleep");
 static auto g_bbt_sys_hook_clock_nanosleep_func = (g_bbt_sys_hook_clock_nanosleep_fn_t)dlsym(RTLD_NEXT, "clock_nanosleep");
+static auto g_bbt_sys_hook_poll_func            = (g_bbt_sys_hook_poll_fn_t)dlsym(RTLD_NEXT, "poll");
+static auto g_bbt_sys_hook_select_func          = (g_bbt_sys_hook_select_fn_t)dlsym(RTLD_NEXT, "select");
+static auto g_bbt_sys_hook_pselect_func         = (g_bbt_sys_hook_pselect_fn_t)dlsym(RTLD_NEXT, "pselect");
 
 namespace bbt::coroutine
 {
@@ -92,6 +102,9 @@ extern int Hook_Accept4(int fd, struct sockaddr* addr, socklen_t* len, int flags
 extern int Hook_USleep(unsigned int usec);
 extern int Hook_Nanosleep(const struct timespec* req, struct timespec* rem);
 extern int Hook_ClockNanosleep(clockid_t clock_id, int flags, const struct timespec* req, struct timespec* rem);
+extern int Hook_Poll(struct pollfd* fds, nfds_t nfds, int timeout_ms);
+extern int Hook_Select(int nfds, fd_set* read_fds, fd_set* write_fds, fd_set* except_fds, struct timeval* timeout);
+extern int Hook_PSelect(int nfds, fd_set* read_fds, fd_set* write_fds, fd_set* except_fds, const struct timespec* timeout, const sigset_t* sigmask);
 }
 
 }
@@ -118,4 +131,7 @@ extern "C" {
     int usleep(useconds_t usec);
     int nanosleep(const struct timespec *req, struct timespec *rem);
     int clock_nanosleep(clockid_t clock_id, int flags, const struct timespec *req, struct timespec *rem);
+    int poll(struct pollfd *fds, nfds_t nfds, int timeout_ms);
+    int select(int nfds, fd_set *read_fds, fd_set *write_fds, fd_set *except_fds, struct timeval *timeout);
+    int pselect(int nfds, fd_set *read_fds, fd_set *write_fds, fd_set *except_fds, const struct timespec *timeout, const sigset_t *sigmask);
 }
