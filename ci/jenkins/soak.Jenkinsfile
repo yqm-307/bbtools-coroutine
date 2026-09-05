@@ -106,7 +106,8 @@ Recovered fingerprint(s): ${recovered.join(', ')}
 Report: ${env.BUILD_URL}artifact/
 Build log: ${env.BUILD_URL}console
 """,
-        mimeType: 'text/plain'
+        mimeType: 'text/plain',
+        attachmentsPattern: 'tests/reports/**/summary.md,tests/reports/**/*.xml,tests/baselines/jenkins/*'
     )
     for (m in pending) {
         sh "rm -f '${ALERT_DIR()}/${m}'"
@@ -361,7 +362,8 @@ Decisive error: ${decisiveError}
 Report: ${reportUrl}
 Build log: ${env.BUILD_URL}console
 """,
-                        mimeType: 'text/plain'
+                        mimeType: 'text/plain',
+                        attachmentsPattern: 'tests/reports/**/summary.md,tests/reports/**/*.xml,tests/baselines/jenkins/*'
                     )
                 }
             }
@@ -418,7 +420,8 @@ Decisive error: ${decisiveError}
 Report: ${reportUrl}
 Build log: ${env.BUILD_URL}console
 """,
-                        mimeType: 'text/plain'
+                        mimeType: 'text/plain',
+                        attachmentsPattern: 'tests/reports/**/summary.md,tests/reports/**/*.xml,tests/baselines/jenkins/*'
                     )
                 }
             }
