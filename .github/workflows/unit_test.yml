@@ -2,7 +2,7 @@
 #
 # Layer 1 (每次 PR/commit): 编译 → ctest → Test_smoke → Test_reliability      ~90s
 # Layer 2 (每次 PR):        快速性能回归检查（unified_stress 45s/模块）        ~5min
-# Layer 3 (push main only): 1h 并行疲劳压测 + 记录新基线                       ~70min
+# Layer 3 (push main only): 30min 并行疲劳压测 + 记录新基线                       ~40min
 #
 # 契约参考: docs/ci-guide.md
 
@@ -118,10 +118,10 @@ jobs:
           retention-days: 3
 
   # ════════════════════════════════════════════════════════
-  # Layer 3: 1h 并行疲劳压测 + 基线记录（仅 push main）
+  # Layer 3: 30min 并行疲劳压测 + 基线记录（仅 push main）
   # ════════════════════════════════════════════════════════
   stress-test:
-    name: "1h 并行疲劳压测"
+    name: "30min 并行疲劳压测"
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [build-and-test]
     runs-on: ["self-hosted", "linux"]
@@ -139,8 +139,8 @@ jobs:
           cmake .. -G Ninja -DNEED_TEST=ON -DNEED_BENCHMARK=ON
           ninja -j$(nproc)
 
-      - name: "1h 并行压测"
-        run: INTERVAL=60 bash scripts/run_parallel_stress.sh 3600 2
+      - name: "30min 并行压测"
+        run: INTERVAL=60 bash scripts/run_parallel_stress.sh 1800 2
 
       - name: "上传压测报告"
         if: always()

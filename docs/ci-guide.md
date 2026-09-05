@@ -26,7 +26,7 @@ git push -u origin feat/my-change
 ```
 
 CI 在 PR 创建/更新时自动运行编译+单元测试（~90s）。
-**合并到 main 后触发 1h 疲劳压测**。
+**合并到 main 后触发 30min 疲劳压测**。
 
 ### 我是 reviewer，要审 PR
 
@@ -50,7 +50,7 @@ CI 通过（编译+ctest+smoke 全绿）是 merge 的前提条件。
 
 ### CI 工作流：unit_test.yml
 
-| 事件 | 触发 | 编译+测试 | 1h 压测 |
+| 事件 | 触发 | 编译+测试 | 30min 压测 |
 |------|------|:---------:|:-------:|
 | **PR 创建/更新** | `pull_request → main` | ✅ | ❌ |
 | **push main** | `push → main` | ✅ | ✅ |
@@ -64,7 +64,7 @@ CI 通过（编译+ctest+smoke 全绿）是 merge 的前提条件。
 | 阶段 | timeout | 说明 |
 |------|---------|------|
 | build-and-test | 6h (默认) | 编译+ctest+smoke，实际 ~90s |
-| stress-test | 90 min | 1h 压测 + 30s 编译启动 |
+| stress-test | 90 min | 30min 压测 + 编译启动 |
 
 ---
 
@@ -75,7 +75,7 @@ CI 通过（编译+ctest+smoke 全绿）是 merge 的前提条件。
   build-and-test:  编译 → ctest（16 suites）→ Test_smoke    ~90s
 
 仅 push main:
-  stress-test:     1h 并行疲劳压测（6 模块同时跑）           ~70min
+  stress-test:     30min 并行疲劳压测（6 模块同时跑）           ~40min
 ```
 
 ### 3.1 编译与单元测试（每次 PR/push 必跑）
@@ -101,16 +101,16 @@ Test_co_rwmutex        Test_coevent     Test_copool                Test_smoke
 - ctest 失败 → 某测试用例失败，检查对应模块的 `--output-on-failure` 输出
 - Test_smoke 失败 → 核心模块 happy-path 被破坏
 
-### 3.2 1h 并行疲劳压测（仅 push main）
+### 3.2 30min 并行疲劳压测（仅 push main）
 
 **条件：** `github.event_name == 'push' && github.ref == 'refs/heads/main'`
 
-**运行方式：** `INTERVAL=60 bash scripts/run_parallel_stress.sh 3600 2`
+**运行方式：** `INTERVAL=60 bash scripts/run_parallel_stress.sh 1800 2`
 
 6 个模块独立进程并行运行：
 - `comutex, corwmutex, cocond, chan, copool, coroutine`
 - 每模块 2 个 processer 线程，60s 间隔采样
-- 超时 90min（1h 压测 + 30s 缓冲）
+- 超时 90min（30min 压测 + 缓冲）
 
 **产物：**
 - 汇总报告 `tests/reports/<timestamp>/summary.txt` — 各模块最终 ops + errors
@@ -313,7 +313,7 @@ p.terminate()
 
 确认本地也失败后修复，确保本地通过后再推。
 
-### Q: push main 后的 1h 压测失败了怎么办？
+### Q: push main 后的 30min 压测失败了怎么办？
 
 检查 `tests/reports/` 下的压测日志：
 
@@ -442,14 +442,14 @@ add_test(NAME Test_my_module COMMAND Test_my_module)
 |------|------|----------|
 | **developer** | 提交代码 | build-and-test pass + 本地压测自查 |
 | **reviewer** | 审查 PR | CI 全部 pass，性能关键路径需附压测数据 |
-| **qa** | 质量放行 | push main 后 1h 压测结果 + 内存检测报告 |
+| **qa** | 质量放行 | push main 后 30min 压测结果 + 内存检测报告 |
 | **pm** | 发布管理 | 压测结果趋势 + 里程碑健康度 |
 | **architect** | API 设计 | breaking change 影响评估 |
 
 ### 通知机制
 
 - **PR 提交者：** CI 结果通过 GitHub Checks API 直接显示在 PR 页面
-- **push main 后：** 1h 压测结果在 Actions 日志中查看
+- **push main 后：** 30min 压测结果在 Actions 日志中查看
 - **定期监控：** 每周五 17:30（UTC+8）自动运行内存检测
 
 ---
