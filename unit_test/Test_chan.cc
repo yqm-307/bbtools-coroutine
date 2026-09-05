@@ -1470,6 +1470,51 @@ BOOST_AUTO_TEST_CASE(t_multi_write_integrity)
     l.Wait();
 }
 
+// 带 deadline 的 latch 等待。CountDownLatch::WaitTimeout 在旧 bbtools-core
+// （CI 链接的系统库）里恒立即超时，改用 WaitTimeout(1) 轮询，版本兼容。
+static void WaitLatch(bbt::core::thread::CountDownLatch& latch, int timeout_ms)
+{
+    auto deadline = bbt::core::clock::nowAfter(bbt::core::clock::milliseconds(timeout_ms));
+    while (!bbt::core::clock::is_expired<bbt::core::clock::milliseconds>(deadline)) {
+        if (latch.WaitTimeout(1) == 0)
+            return;
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    BOOST_ERROR("latch wait timed out");
+}
+
+// #167: TryWrite(timeout) 超时留下的失效 waiter 不得吞掉真正 writer 的唤醒
+// 旧行为：_OnEnableWrite 只 pop 一个，僵尸 waiter Notify==-1 即返回，B 永远挂死
+BOOST_AUTO_TEST_CASE(t_chan_trywrite_timeout_does_not_steal_wakeup)
+{
+    BOOST_TEST_MESSAGE("enter t_chan_trywrite_timeout_does_not_steal_wakeup");
+    bbt::core::thread::CountDownLatch l{1};
+    bbtco [&l]() {
+        auto c = Chan<int, 1>();
+        BOOST_CHECK_EQUAL(c->TryWrite(1), 0);  // 填满缓冲
+
+        // A：写不进，80ms 后超时退出，留下失效 waiter
+        bbtco [c]() { BOOST_CHECK_EQUAL(c->TryWrite(2, 80), 1); };
+
+        bbt::core::thread::CountDownLatch lb{1};
+        std::atomic_int bret{-999};
+        detail::Hook_Sleep(20);  // 让 A 先入队，B 排在僵尸 waiter 之后
+        bbtco [c, &lb, &bret]() { bret = c->Write(3); lb.Down(); };
+
+        detail::Hook_Sleep(120);  // 等 A 超时（其 waiter 已被 Cancel）
+
+        int v = 0;
+        BOOST_CHECK_EQUAL(c->Read(v), 0);
+        BOOST_CHECK_EQUAL(v, 1);  // 这次 Read 触发 _OnEnableWrite，应跳过僵尸唤醒 B
+        WaitLatch(lb, 1000);      // B 必须 1s 内完成，禁止死等
+        BOOST_CHECK_EQUAL(bret.load(), 0);
+        BOOST_CHECK_EQUAL(c->Read(v), 0);
+        BOOST_CHECK_EQUAL(v, 3);
+        l.Down();
+    };
+    WaitLatch(l, 10000);
+}
+
 BOOST_AUTO_TEST_CASE(t_end)
 {
     g_scheduler->Stop();

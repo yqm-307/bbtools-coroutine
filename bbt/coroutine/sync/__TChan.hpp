@@ -59,7 +59,12 @@ int Chan<TItem, Max>::Write(const ItemType& item)
 
         lock.unlock();
         if (_WaitUntilEnableWrite(enable_write_cond, [](){ return true; }) != 0)
+        {
+            // 等待失败：该 waiter 已在队列中且不会再被消费，Cancel 使其
+            // 永久 Notify==-1，由 _OnEnableWrite 跳过，避免吞掉后续 writer 的唤醒
+            enable_write_cond->Cancel();
             return -2;
+        }
 
         if (IsClosed())
             return -1;
@@ -188,7 +193,12 @@ int Chan<TItem, Max>::TryWrite(const ItemType& item, int timeout)
             [](){ return true; });
 
         if (ret != 0)
+        {
+            // 超时/失败：waiter 仍是队列里的僵尸项（COND_FREE），Cancel 后
+            // _OnEnableWrite 会跳过它继续唤醒真正等待的 writer，而非停在 -1
+            enable_write_cond->Cancel();
             return (ret == 1) ? 1 : -2;
+        }
 
         if (IsClosed())
             return -1;
@@ -383,12 +393,17 @@ int Chan<TItem, Max>::_OnEnableRead()
 template<class TItem, int Max>
 int Chan<TItem, Max>::_OnEnableWrite()
 {
+    // 同 CoCond::_NotifyOne：循环 pop，跳过已失效（Notify==-1，超时/Cancel）
+    // 的 waiter，直到成功唤醒一个或队列空。只 pop 一个会在僵尸 waiter 上
+    // 吞掉唤醒，真正等待的 writer 永远不醒。
     int ret = 0;
-    if (!m_enable_write_conds.empty())
+    while (!m_enable_write_conds.empty())
     {
         auto enable_write_cond = m_enable_write_conds.front();
         m_enable_write_conds.pop();
         ret = enable_write_cond->Notify();
+        if (ret == 0)
+            break;
     }
 
     // CoSelect watchers：同 _OnEnableRead
@@ -470,7 +485,10 @@ int Chan<TItem, 0>::Write(const ItemType& item)
     lock.unlock();
     if (BaseType::_WaitUntilEnableWrite(enable_write_cond,
             [](){ return true; }) != 0)
+    {
+        enable_write_cond->Cancel();
         return -2;
+    }
 
     return 0;
 }
