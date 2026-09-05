@@ -29,6 +29,9 @@ jobs:
     steps:
       - name: "拉取代码库"
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
 
       - name: "编译"
         run: |
@@ -92,6 +95,9 @@ jobs:
     steps:
       - name: "拉取代码库"
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
 
       - name: "编译（复用 build 产物？不 — 独立 build 目录保证一致性）"
         run: |
@@ -123,6 +129,9 @@ jobs:
     steps:
       - name: "拉取代码库"
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
 
       - name: "编译"
         run: |
@@ -169,6 +178,9 @@ jobs:
     steps:
       - name: "拉取代码库"
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
 
       - name: "构建 Sanitizer 版"
         run: bash scripts/build_sanitizer.sh build

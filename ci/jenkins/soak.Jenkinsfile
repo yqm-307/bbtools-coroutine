@@ -163,6 +163,7 @@ def validateSoakParameters() {
 pipeline {
     agent { label 'cpp-soak' }
     options {
+        skipDefaultCheckout()
         timestamps()
         disableConcurrentBuilds()
         timeout(time: 8, unit: 'HOURS')

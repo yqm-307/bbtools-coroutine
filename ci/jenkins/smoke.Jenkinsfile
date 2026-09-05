@@ -129,6 +129,7 @@ pipeline {
     agent { label 'cpp-fast' }
     triggers { cron('H/30 * * * *') }
     options {
+        skipDefaultCheckout()
         timestamps()
         disableConcurrentBuilds()
         timeout(time: 20, unit: 'MINUTES')

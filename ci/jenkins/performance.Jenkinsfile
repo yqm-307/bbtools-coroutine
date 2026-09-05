@@ -162,6 +162,7 @@ def PERF_BASELINE_JSON() { "${PERF_BASELINE_DIR()}/baseline.json" }
 pipeline {
     agent { label 'cpp-perf' }
     options {
+        skipDefaultCheckout()
         timestamps()
         disableConcurrentBuilds()
         timeout(time: 120, unit: 'MINUTES')

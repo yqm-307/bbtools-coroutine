@@ -17,6 +17,9 @@ jobs:
         steps:
             -   name: "拉取代码库"
                 uses: actions/checkout@v4
+                with:
+                    fetch-depth: 1
+                    persist-credentials: false
             -   name: "编译测试文件"
                 run: |
                     pwd | xargs ./shell/workflow/memery_test_info/compile_testfile.sh
