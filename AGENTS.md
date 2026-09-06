@@ -117,6 +117,13 @@ commit message 格式：
 - **scope**: 受影响的模块名（如 `comutex`, `scheduler`）
 - 一行标题 + 可选正文（说明 WHY）
 - 不混入无关变更；一轮一提交
+- Agent 提交必须显式设置 author，禁止沿用本机 `user.name` / `user.email`：
+
+```
+git commit --author="agent <agent@users.noreply.github.com>"
+```
+
+- Author 固定为 `agent <agent@users.noreply.github.com>`；Committer 可保持操作环境默认身份
 
 ## 完成条件
 
