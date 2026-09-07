@@ -1,4 +1,6 @@
 #include <cmath>
+#include <cstring>
+#include <cstdio>
 #include <bbt/core/log/DebugPrint.hpp>
 #include <bbt/core/clock/Clock.hpp>
 #include <bbt/core/Attribute.hpp>
@@ -92,6 +94,58 @@ void Scheduler::OnActiveCoroutine(CoroutinePriority priority, Coroutine::Ptr cor
 
 void Scheduler::_FixTimingScan()
 {
+    /* worker 无进展检测（#277）：调度线程独立于 worker，每拍扫描各 worker
+     * 的锁存快照。阈值=0 时整段跳过（零开销）。 */
+    const size_t warn_ms = g_bbt_coroutine_config->m_cfg_worker_stall_warn_ms;
+    if (warn_ms == 0)
+        return;
+
+    std::lock_guard<std::mutex> _(m_processer_map_mutex);
+    const uint64_t now_us = bbt::core::clock::gettime_mono<bbt::core::clock::us>();
+    const uint64_t threshold_us = (uint64_t)warn_ms * 1000;
+
+    for (auto&& [pid, proc] : m_processer_map)
+    {
+        if (!proc->m_executing.load(std::memory_order_acquire))
+            continue;   // worker 空闲/协程已让出，不算停顿
+
+        /* seqlock 读：取稳定快照 */
+        uint64_t s1 = proc->m_exec_seq.load(std::memory_order_acquire);
+        if (s1 & 1)
+            continue;   // 正在写入，跳过一拍
+        uint64_t begin_us = proc->m_exec_begin_us;
+        CoroutineId co_id = proc->m_exec_co_id;
+        uint64_t backlog = proc->m_exec_backlog;
+        char desc[sizeof(proc->m_exec_desc)];
+        memcpy(desc, proc->m_exec_desc, sizeof(desc));
+        uint64_t s2 = proc->m_exec_seq.load(std::memory_order_relaxed);
+        if (s1 != s2 || begin_us == 0)
+            continue;   // 读到撕裂数据
+
+        if (now_us - begin_us < threshold_us)
+            continue;
+
+        if (proc->m_last_stall_report_begin == begin_us)
+            continue;   // 同一停顿只报一次（协程仍在死循环中）
+        proc->m_last_stall_report_begin = begin_us;
+
+        WorkerStallInfo info;
+        info.m_worker_id = pid;
+        info.m_co_id = co_id;
+        info.m_desc.assign(desc);
+        info.m_running_us = now_us - begin_us;
+        info.m_backlog = backlog;
+
+        if (g_bbt_coroutine_config->m_ext_worker_stall_callback) {
+            try { g_bbt_coroutine_config->m_ext_worker_stall_callback(info); }
+            catch (...) { /* 回调契约：不得抛出；抛出吞掉保调度线程 */ }
+        } else {
+            /* 无回调 = stderr 告警一行 */
+            fprintf(stderr, "[bbtco] worker stall: worker=%llu co=%llu desc='%s' running=%llums backlog=%llu\n",
+                    (unsigned long long)pid, (unsigned long long)co_id, desc,
+                    (unsigned long long)(info.m_running_us / 1000), (unsigned long long)backlog);
+        }
+    }
 }
 
 void Scheduler::_OnUpdate()

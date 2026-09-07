@@ -270,6 +270,28 @@ struct CoroutineWaitInfo
     uint64_t    m_waited_us{0};     // 已等待微秒
 };
 
+/**
+ * @brief Worker 无进展快照（#277 停顿检测契约）
+ *
+ * 由调度线程（_FixTimingScan）读取 worker 的锁存快照构造，与 worker 执行
+ * 路径无锁竞争：快照是"最后一次已完成的 Resume"的副本，协程每次被调度
+ * 执行时刷新。跨线程读快照仅用于诊断告警，允许一拍陈旧。
+ */
+struct WorkerStallInfo
+{
+    uint64_t    m_worker_id{0};
+    uint64_t    m_co_id{0};
+    std::string m_desc;           // 协程注册时 bbtco_desc 携带的描述（可为空）
+    uint64_t    m_running_us{0};  // 本次执行已占用 worker 的时长
+    uint64_t    m_backlog{0};     // 该 worker 本地队列积压（调度饥饿度）
+};
+
+/**
+ * @brief worker 无进展告警回调（#277）。非线程安全要求：由调度线程调用，
+ * 实现必须不阻塞、不抛出（抛出会被调度线程吞掉并计数）。
+ */
+typedef std::function<void(const WorkerStallInfo& info)> WorkerStallCallback;
+
 /* CoPollEvent的自定义事件key，用来表示触发时是那个自定义事件 */
 enum CoPollEventCustom
 {
