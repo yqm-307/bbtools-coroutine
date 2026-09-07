@@ -44,12 +44,13 @@ void Scheduler::_Init()
     m_down_latch.Reset(g_bbt_coroutine_config->m_cfg_static_thread_num);
 }
 
-void Scheduler::RegistCoroutineTask(const CoroutineCallback& handle)
+void Scheduler::RegistCoroutineTask(const CoroutineCallback& handle, const char* desc)
 {
     auto coroutine_sptr = Coroutine::Create(
         g_bbt_coroutine_config->m_cfg_stack_size,
         handle,
-        g_bbt_coroutine_config->m_cfg_stack_protect);
+        g_bbt_coroutine_config->m_cfg_stack_protect,
+        desc);
 
     /* 尝试先找个Processer放进执行队列，失败放入全局队列 */
     AssertWithInfo(_LoadBlance2Proc(CO_PRIORITY_NORMAL, coroutine_sptr), "this is impossible!");    

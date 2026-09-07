@@ -32,6 +32,11 @@ target_link_libraries(Test_scheduler_exec ${MY_LIBS})
 add_test(NAME Test_scheduler_exec COMMAND Test_scheduler_exec)
 set_tests_properties(Test_scheduler_exec PROPERTIES TIMEOUT 15)
 
+add_executable(Test_coroutine_cancel Test_coroutine_cancel.cc)
+target_link_libraries(Test_coroutine_cancel ${MY_LIBS})
+add_test(NAME Test_coroutine_cancel COMMAND Test_coroutine_cancel)
+set_tests_properties(Test_coroutine_cancel PROPERTIES TIMEOUT 10)
+
 add_executable(Test_hook Test_hook.cc)
 target_link_libraries(Test_hook ${MY_LIBS})
 add_test(NAME Test_hook COMMAND Test_hook)
@@ -46,6 +51,11 @@ add_executable(Test_hook_blocking_fd Test_hook_blocking_fd.cc)
 target_link_libraries(Test_hook_blocking_fd ${MY_LIBS})
 add_test(NAME Test_hook_blocking_fd COMMAND Test_hook_blocking_fd)
 set_tests_properties(Test_hook_blocking_fd PROPERTIES TIMEOUT 10)
+
+add_executable(Test_coroutine_diag Test_coroutine_diag.cc)
+target_link_libraries(Test_coroutine_diag ${MY_LIBS})
+add_test(NAME Test_coroutine_diag COMMAND Test_coroutine_diag)
+set_tests_properties(Test_coroutine_diag PROPERTIES TIMEOUT 15)
 
 add_executable(Test_poller Test_poller.cc)
 target_link_libraries(Test_poller ${MY_LIBS})

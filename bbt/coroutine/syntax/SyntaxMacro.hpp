@@ -36,9 +36,10 @@
 #define bbtco_noexcept(succ) bbt::coroutine::_CoHelper(succ)+ 
 
 /**
- * @brief 注册一个协程任务。desc 当前不保存，语义等同 bbtco。
+ * @brief 注册一个带描述的协程任务（#276 起 desc 落库，诊断现场可读回）。
+ * 其余语义与 bbtco 一致。
  */
-#define bbtco_desc(desc) bbtco
+#define bbtco_desc(desc) bbt::coroutine::_CoHelper(desc)-
 
 /**
  * @brief 在协程中调用，使协程挂起一定时间后被唤醒

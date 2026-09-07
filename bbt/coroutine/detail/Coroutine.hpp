@@ -1,5 +1,7 @@
 #pragma once
+#include <atomic>
 #include <memory>
+#include <mutex>
 #include <bbt/core/Attribute.hpp>
 #include <bbt/coroutine/detail/interface/ICoroutine.hpp>
 #include <bbt/coroutine/detail/Context.hpp>
@@ -51,7 +53,9 @@ public:
     Coroutine(int stack_size, const CoroutineCallback& co_func, bool need_protect);
     virtual ~Coroutine();
     
-    static Ptr                      Create(int stack_size, const CoroutineCallback& co_func, bool need_protect = true);
+    /* 注册时携带描述（#276）：bbtco_desc 落库真源；空 desc 与不带参数等价 */
+    static Ptr                      Create(int stack_size, const CoroutineCallback& co_func, bool need_protect = true,
+                                           const char* desc = nullptr);
     /**
      * @brief 唤醒协程。切换到协程的上下文中执行。
      */
@@ -90,7 +94,24 @@ public:
     virtual CoroutineStatus         GetStatus() const noexcept override;
     int                             GetLastResumeEvent() const noexcept;
     size_t                          GetStackSize() const noexcept;
+
+    /**
+     * @brief 诊断现场（#276，契约 §5 观测性）
+     *
+     * GetDescription：注册时 bbtco_desc 携带的任务描述，未命名为空串。
+     * GetWaitInfo：仅协程**自身**（同 Processer 线程）可安全读取——parked
+     * 现场成员无锁，跨线程快照属 #277。未处于事件等待时返回 -1。
+     */
+    const std::string&              GetDescription() const noexcept { return m_desc; }
+    int                             GetWaitInfo(CoroutineWaitInfo& out) const noexcept;
     void                            OnException() noexcept;
+
+    /**
+     * 协作式取消：只置位并唤醒等待中的协程，不强杀运行中的用户代码。
+     * 运行中的协程在检查点（IsCancelRequested / 等待返回后）自行退出，RAII 照常展开。
+     */
+    void                            RequestCancel() noexcept;
+    bool                            IsCancelRequested() const noexcept;
 
     /** MLFQ 调度支持 */
     uint64_t                        GetLastRunTimeUs() const noexcept { return m_last_run_us; }
@@ -144,6 +165,8 @@ protected:
 
 private:
     bool                            _RegistAwaitEvent();
+    std::shared_ptr<CoPollEvent>    _AwaitEvent() const;
+    void                            _SetAwaitEvent(std::shared_ptr<CoPollEvent> ev);
 
 private:
     Context                         m_context;
@@ -164,12 +187,17 @@ private:
      * 
      */
     std::shared_ptr<CoPollEvent>    m_await_event{nullptr};
+    mutable std::mutex              m_await_mu;
+    std::atomic_bool                m_cancel_requested{false};
     CoroutineOnYieldCallback        m_co_onyield_callback{nullptr};
     CoroutineYieldDisposition       m_yield_disposition{CoroutineYieldDisposition::MANUAL};
 
     int                             m_last_resume_event{-1};    // 最后一次导致此协程唤醒的事件
     uint64_t                        m_last_run_us{0};           // 上次运行时长（微秒），用于 MLFQ
     int                             m_mlfq_demotions{0};        // MLFQ 连续降级次数
+
+    std::string                     m_desc{};                   // bbtco_desc 任务描述（#276）
+    uint64_t                        m_parked_us{0};             // 进入事件等待的时刻（monotonic us，#276）
 };
 
 }
