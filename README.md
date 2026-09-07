@@ -293,9 +293,10 @@ void CoPoolExample()
         });
     }
 
-    // 等待所有任务完成
+    // 等待运行中的任务退出；队列中未执行的任务被取消式排空
+    //（不执行；带future的任务以broken_promise兑现，见下）
     co_pool->Release();
-    printf("All tasks completed\n");
+    printf("All running tasks exited\n");
 }
 
 int main()
@@ -459,7 +460,7 @@ int main()
 | `Chan<T, Size>` | `sync::Chan<int, 100>{}` | `Write()`, `Read()`, `Close()` | 协程间通信通道 |
 | `CoMutex` | `bbtco_make_comutex()` | `Lock()`, `UnLock()` | 协程互斥锁 |
 | `CoCond` | `bbtco_make_cocond()` | `Wait()`, `NotifyOne()`, `NotifyAll()` | 协程条件变量 |
-| `CoPool` | `bbtco_make_copool(size)` | `Submit()`, `Release()` | 协程池 |
+| `CoPool` | `bbtco_make_copool(size)` | `Submit()`, `Release()` | 协程池（`Release`取消式停机：等运行中退出、排空未执行） |
 
 ### 事件等待
 
@@ -475,7 +476,25 @@ int main()
 | 方法 | 描述 | 示例 |
 |------|------|------|
 | `g_scheduler->Start()` | 启动调度器 | 程序开始时调用 |
-| `g_scheduler->Stop()` | 停止调度器 | 程序结束时调用 |
+| `g_scheduler->Stop()` | 停止调度器（取消式停机，见下） | 程序结束时调用 |
+
+## 三之二、停机与生命周期契约（v1 M1）
+
+与旧文档/旧行为的关键差异，迁移时必读：
+
+| 变更 | 新契约 | 迁移动作 |
+|------|--------|----------|
+| `Scheduler::Stop()` | 取消式停机：不强杀运行中协程；parked（fd/定时器等待）协程被唤醒销毁；未执行任务真回收（不再泄漏）。Stop 有界返回，可重复调用 | 停机时刻不要依赖任务"跑完"；需要完成语义的，停机前自行等待业务 latch |
+| Stop 后注册任务 | 明确失败：`bbtco_noexcept` 的 succ=false，无 noexcept 版抛异常（旧行为：Release 下假成功+泄漏） | 注册前检查 `IsRunning()` 或接住异常 |
+| `CoPool::Release()` | 取消式：停止接收新任务、等待运行中协程退出、排空未执行任务；带 future 的被排任务以 `broken_promise` 兑现，不会永挂 | `SubmitAndWait` 的 future 增加 `broken_promise` catch；不要指望 Release 后 future 全部有效 |
+| Hook IO 与 FD | 库不要求也不期望传入 blocking fd：协程 IO 期间临时强制 `O_NONBLOCK`，返回时恢复原 flags（#260）；`MSG_DONTWAIT` 直通原生（#261）；`SO_RCVTIMEO/SNDTIMEO` 由协程 deadline 实现有界返回 `-1/EAGAIN`（#261） | 多线程共享同一 fd 并发做 IO 的旧代码需自查 flags 竞态（契约排除项） |
+| 等待中 fd 被 close | 唤醒等待协程，重试 syscall 返回 `EBADF`（#262，不再永久挂起） | 依赖"close 后等待者自醒"的代码语义已可正常工作 |
+| detached 协程抛异常 | 保存 `exception_ptr` 可取回（#267）；无回调时日志+计数（`m_unhandled_exception_count`），不静默吞、不 terminate（#275） | 设置 `m_ext_coevent_exception_callback` 收口生产环境异常 |
+| Release 构建栈释放 | `Stack::Clear/~Stack` 真正 free（#279，旧版 assert 吞副作用致每栈泄漏） | 无需动作；升级后 Release RSS 应下降 |
+| 诊断现场 | `bbtco_desc` 的描述现在真正落库，协程内 `GetDescription()`/`GetWaitInfo()` 可读回（#276） | 给关键协程起名字 |
+| worker 停顿告警 | 死循环/外部阻塞占住 worker 超 `m_cfg_worker_stall_warn_ms`（默认 0=关闭）时，调度线程上报 `WorkerStallInfo`（#277） | 生产建议设 500–1000ms 并接回调 |
+| 栈溢出边界 | 默认开栈底保护页，溢出 = SIGSEGV fail-fast（#278） | 关保护页（`m_cfg_stack_protect=false`）前确认接受未定义行为 |
+| 协作式取消 | `Coroutine::RequestCancel()` 置标志，协程在检查点/唤醒处自行退出（#266），不强杀 | 长循环协程定期检查 `IsCancelRequested()` |
 
 ## 四、注意事项
 
