@@ -4,6 +4,10 @@ description: Verify implementation matches change artifacts before archiving
 
 Verify that an implementation matches the change artifacts (specs, tasks, design).
 
+**仓库契约入口（bbtools-coroutine）**
+
+若变更涉及核心运行时（Coroutine、Scheduler、EventLoop、Poller、CoroutineEvent、Hook、异常、取消、Stop 或公共 API），读取 artifact 前先读取 `agent-docs/2026-09-07-core-runtime-contract.md`。它是唯一契约真源；验证时分别报告目标契约覆盖、当前实现事实和未验证差异。
+
 **Input**: Optionally specify a change name after `/opsx:verify` (e.g., `/opsx:verify add-auth`). If omitted, check if it can be inferred from conversation context. If vague or ambiguous you MUST prompt for available changes.
 
 **Steps**

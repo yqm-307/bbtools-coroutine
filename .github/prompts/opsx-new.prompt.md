@@ -4,6 +4,10 @@ description: Start a new change using the experimental artifact workflow (OPSX)
 
 Start a new change using the experimental artifact-driven approach.
 
+**仓库契约入口（bbtools-coroutine）**
+
+若新变更涉及核心运行时（Coroutine、Scheduler、EventLoop、Poller、CoroutineEvent、Hook、异常、取消、Stop 或公共 API），先读取 `agent-docs/2026-09-07-core-runtime-contract.md`，再确定 artifact 范围。该文件是唯一契约真源。
+
 **Input**: The argument after `/opsx:new` is the change name (kebab-case), OR a description of what the user wants to build.
 
 **Steps**
