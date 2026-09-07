@@ -89,6 +89,11 @@ target_link_libraries(Test_macro_wrap ${MY_LIBS})
 add_test(NAME Test_macro_wrap COMMAND Test_macro_wrap)
 set_tests_properties(Test_macro_wrap PROPERTIES TIMEOUT 10)
 
+add_executable(Test_scheduler_api Test_scheduler_api.cc)
+target_link_libraries(Test_scheduler_api ${MY_LIBS})
+add_test(NAME Test_scheduler_api COMMAND Test_scheduler_api)
+set_tests_properties(Test_scheduler_api PROPERTIES TIMEOUT 10)
+
 add_executable(Test_chan Test_chan.cc)
 target_link_libraries(Test_chan ${MY_LIBS})
 add_test(NAME Test_chan COMMAND Test_chan)

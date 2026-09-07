@@ -29,6 +29,9 @@ namespace bbt::coroutine::detail
  * 一个 Processer 上 Resume；挂起后可入全局队列并被其他 Processer 取出。
  * TLS（g_bbt_tls_processer / g_bbt_tls_coroutine_co）只在 Processer 线程、
  * 当前协程栈上有效。
+ * 稳定入口：GetInstance / Start / Stop / LoopOnce / RegistCoroutineTask / IsRunning。
+ * g_scheduler 即 GetInstance()，本阶段单例。
+ * Start(THREAD) 后不要 LoopOnce。Stop 不排空业务等待（#267/#280）。
  */
 class Scheduler
 {
