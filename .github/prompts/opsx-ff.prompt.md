@@ -4,6 +4,10 @@ description: Create a change and generate all artifacts needed for implementatio
 
 Fast-forward through artifact creation - generate everything needed to start implementation.
 
+**仓库契约入口（bbtools-coroutine）**
+
+若变更涉及核心运行时（Coroutine、Scheduler、EventLoop、Poller、CoroutineEvent、Hook、异常、取消、Stop 或公共 API），创建 artifact 前先读取 `agent-docs/2026-09-07-core-runtime-contract.md`。它是唯一契约真源；proposal、design、tasks 必须与其一致，当前实现差异单独记录。
+
 **Input**: The argument after `/opsx:ff` is the change name (kebab-case), OR a description of what the user wants to build.
 
 **Steps**

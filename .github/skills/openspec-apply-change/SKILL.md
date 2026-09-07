@@ -11,6 +11,10 @@ metadata:
 
 Implement tasks from an OpenSpec change.
 
+**仓库契约入口（bbtools-coroutine）**
+
+若任务涉及核心运行时（Coroutine、Scheduler、EventLoop、Poller、CoroutineEvent、Hook、异常、取消、Stop 或公共 API），读取 apply context 前先读取 `agent-docs/2026-09-07-core-runtime-contract.md`。它是唯一契约真源；实现不得静默偏离目标语义，发现差异要补回归测试并明确记录。
+
 **Input**: Optionally specify a change name. If omitted, check if it can be inferred from conversation context. If vague or ambiguous you MUST prompt for available changes.
 
 **Steps**

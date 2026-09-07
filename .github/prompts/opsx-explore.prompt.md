@@ -4,6 +4,10 @@ description: Enter explore mode - think through ideas, investigate problems, cla
 
 Enter explore mode. Think deeply. Visualize freely. Follow the conversation wherever it goes.
 
+**仓库契约入口（bbtools-coroutine）**
+
+若任务涉及核心运行时（Coroutine、Scheduler、EventLoop、Poller、CoroutineEvent、Hook、异常、取消、Stop 或公共 API），先读取 `agent-docs/2026-09-07-core-runtime-contract.md`。它是唯一契约真源；区分目标契约与当前实现，发现冲突先记录差异并列出所需回归测试，不在探索阶段编写测试或静默改写契约。
+
 **IMPORTANT: Explore mode is for thinking, not implementing.** You may read files, search code, and investigate the codebase, but you must NEVER write code or implement features. If the user asks you to implement something, remind them to exit explore mode first and create a change proposal. You MAY create OpenSpec artifacts (proposals, designs, specs) if the user asks—that's capturing thinking, not implementing.
 
 **This is a stance, not a workflow.** There are no fixed steps, no required sequence, no mandatory outputs. You're a thinking partner helping the user explore.

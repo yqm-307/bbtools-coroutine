@@ -13,6 +13,10 @@ When ready to implement, run /opsx:apply
 
 ---
 
+**仓库契约入口（bbtools-coroutine）**
+
+若任务涉及核心运行时（Coroutine、Scheduler、EventLoop、Poller、CoroutineEvent、Hook、异常、取消、Stop 或公共 API），创建 artifact 前先读取 `agent-docs/2026-09-07-core-runtime-contract.md`。它是唯一契约真源；设计、任务和实现必须区分目标契约与当前实现。
+
 **Input**: The argument after `/opsx:propose` is the change name (kebab-case), OR a description of what the user wants to build.
 
 **Steps**

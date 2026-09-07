@@ -11,6 +11,10 @@ metadata:
 
 Archive a completed change in the experimental workflow.
 
+**仓库契约入口（bbtools-coroutine）**
+
+若归档变更涉及核心运行时（Coroutine、Scheduler、EventLoop、Poller、CoroutineEvent、Hook、异常、取消、Stop 或公共 API），检查 artifact 和实现前先读取 `agent-docs/2026-09-07-core-runtime-contract.md`。它是唯一契约真源；归档报告必须区分已满足的目标契约、当前实现差异和未验证项。
+
 **Input**: Optionally specify a change name. If omitted, check if it can be inferred from conversation context. If vague or ambiguous you MUST prompt for available changes.
 
 **Steps**

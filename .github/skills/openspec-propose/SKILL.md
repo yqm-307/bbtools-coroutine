@@ -11,6 +11,10 @@ metadata:
 
 Propose a new change - create the change and generate all artifacts in one step.
 
+**仓库契约入口（bbtools-coroutine）**
+
+若任务涉及核心运行时（Coroutine、Scheduler、EventLoop、Poller、CoroutineEvent、Hook、异常、取消、Stop 或公共 API），创建 artifact 前先读取 `agent-docs/2026-09-07-core-runtime-contract.md`。它是唯一契约真源；设计、任务和实现必须区分目标契约与当前实现。
+
 I'll create a change with artifacts:
 - proposal.md (what & why)
 - design.md (how)
