@@ -3,16 +3,21 @@
 #include <bbt/core/Attribute.hpp>
 #include <bbt/pollevent/Event.hpp>
 #include <bbt/coroutine/detail/Define.hpp>
-#include <bbt/coroutine/detail/interface/IPollEvent.hpp>
 
 namespace bbt::coroutine::detail
 {
 
-
 /**
- * @brief 协程轮询事件（无锁）
- * 
- * 辅助协程实现挂起和唤醒
+ * CoroutineEvent：一次等待的生命周期（CAS 无互斥锁）。
+ *
+ * 注册 → 就绪/超时/自定义唤醒/对端关闭 → 单次完成；或 UnRegist 取消。
+ * 重复 Trigger 只有第一次有效。析构走 DeferDestroyEvent，须在 PollOnce 线程回收底层 Event。
+ *
+ * 内部阶段见 CoPollEventPhase；GetStatus() 是对外粗映射
+ * （PENDING→POLLEVENT_TRIGGER，CANCELLED→POLLEVENT_CANNEL，拼写沿用现有公开枚举）。
+ * IPollEvent 是未接入遗留接口，本类型不实现它。
+ *
+ * FINAL / CANCELLED 不可复用。关闭对端 fd 走底层 READABLE/CLOSE，不是独立阶段。
  */
 class CoPollEvent:
     public std::enable_shared_from_this<CoPollEvent>
