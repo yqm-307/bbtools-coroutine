@@ -100,10 +100,14 @@ void Scheduler::_FixTimingScan()
     if (warn_ms == 0)
         return;
 
-    std::lock_guard<std::mutex> _(m_processer_map_mutex);
     const uint64_t now_us = bbt::core::clock::gettime_mono<bbt::core::clock::us>();
     const uint64_t threshold_us = (uint64_t)warn_ms * 1000;
 
+    std::vector<WorkerStallInfo> pending;
+    {
+    /* 锁内只收集快照；用户回调一律出锁调用——回调若触达 Scheduler API
+     * （同线程重入）会造成自死锁，审查（deleg_a2f79818）判定 Important。 */
+    std::lock_guard<std::mutex> _(m_processer_map_mutex);
     for (auto&& [pid, proc] : m_processer_map)
     {
         if (!proc->m_executing.load(std::memory_order_acquire))
@@ -135,15 +139,21 @@ void Scheduler::_FixTimingScan()
         info.m_desc.assign(desc);
         info.m_running_us = now_us - begin_us;
         info.m_backlog = backlog;
+        pending.push_back(std::move(info));
+    }
+    } /* 出锁 */
 
+    for (auto& info : pending)
+    {
         if (g_bbt_coroutine_config->m_ext_worker_stall_callback) {
             try { g_bbt_coroutine_config->m_ext_worker_stall_callback(info); }
             catch (...) { /* 回调契约：不得抛出；抛出吞掉保调度线程 */ }
         } else {
             /* 无回调 = stderr 告警一行 */
             fprintf(stderr, "[bbtco] worker stall: worker=%llu co=%llu desc='%s' running=%llums backlog=%llu\n",
-                    (unsigned long long)pid, (unsigned long long)co_id, desc,
-                    (unsigned long long)(info.m_running_us / 1000), (unsigned long long)backlog);
+                    (unsigned long long)info.m_worker_id, (unsigned long long)info.m_co_id,
+                    info.m_desc.c_str(), (unsigned long long)(info.m_running_us / 1000),
+                    (unsigned long long)info.m_backlog);
         }
     }
 }
