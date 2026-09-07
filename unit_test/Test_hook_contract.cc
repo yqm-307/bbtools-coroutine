@@ -896,7 +896,9 @@ BOOST_AUTO_TEST_CASE(t_contract_getaddrinfo)
     });
 
     // 协程挂起让出调度线程：唯一名（避免解析器负缓存把等待压到 0ms）走真实
-    // DNS 失败路径约百毫秒，期间 10ms ticker 必须计数；同时断言返回 !=0
+    // DNS 路径约百毫秒，期间 10ms ticker 必须计数。返回值双路径接受：部分
+    // runner 的上游 DNS 对 .invalid 通配劫持（违反 RFC 2606），失败与否不是
+    // 本用例契约；契约是挂起让出、返回一致、不崩（#231/#262 环境无关化）。
     std::atomic<int> ticks{0};
     std::atomic_bool stop{false};
     RunInCo([&]() {
@@ -910,17 +912,23 @@ BOOST_AUTO_TEST_CASE(t_contract_getaddrinfo)
         struct addrinfo hints;
         std::memset(&hints, 0, sizeof(hints));
         hints.ai_family = AF_INET;
-        BOOST_CHECK(::getaddrinfo("co-dns-yield-231.invalid", nullptr, &hints, &ai) != 0);
-        BOOST_TEST(ai == nullptr);
+        const int ret = ::getaddrinfo("co-dns-yield-231.invalid", nullptr, &hints, &ai);
+        if (ret == 0)
+            BOOST_REQUIRE(ai != nullptr);  // 通配 DNS 环境：成功必须带回结果
+        else
+            BOOST_TEST(ai == nullptr);     // 标准环境：失败不得留野指针
         stop = true;
         bbtco_sleep(50);  // 等 ticker 退出，避免其写用例已析构的栈变量
     });
     BOOST_TEST(ticks.load() > 0);
 
-    // .invalid 在协程内失败（返回值 !=0，非崩溃）
+    // 协程内 .invalid 双路径：只锁不崩、返回一致
     RunInCo([&]() {
         struct addrinfo* ai = nullptr;
-        BOOST_CHECK(::getaddrinfo("no-such-host.invalid", nullptr, nullptr, &ai) != 0);
+        const int ret = ::getaddrinfo("no-such-host.invalid", nullptr, nullptr, &ai);
+        BOOST_TEST((ret != 0) == (ai == nullptr));  // 失败↔空指针、成功↔有结果
+        if (ai != nullptr)
+            ::freeaddrinfo(ai);
     });
 }
 
@@ -965,10 +973,14 @@ BOOST_AUTO_TEST_CASE(t_contract_gethostbyname)
     RunInCo([&]() {
         h_errno = 0;
         struct hostent* he = ::gethostbyname("no-such-host-231.invalid");
+        // 双路径：标准环境失败（h_errno 有值）；部分 runner DNS 对 .invalid
+        // 通配劫持则成功返回（he 非空且结构完整）。契约是两路都不崩、指针可用。
         if (he == nullptr)
-            BOOST_TEST(h_errno != 0);  // 失败可接受，只要不崩且错误码有值
-        else
-            BOOST_FAIL("unexpected success resolving .invalid");
+            BOOST_TEST(h_errno != 0);
+        else {
+            BOOST_CHECK_EQUAL(he->h_addrtype, AF_INET);
+            BOOST_TEST(he->h_addr_list != nullptr);
+        }
     });
 }
 
