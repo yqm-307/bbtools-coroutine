@@ -19,6 +19,10 @@ add_executable(Test_coroutine Test_coroutine.cc)
 target_link_libraries(Test_coroutine ${MY_LIBS})
 add_test(NAME Test_coroutine COMMAND Test_coroutine)
 
+add_executable(Test_coroutine_api Test_coroutine_api.cc)
+target_link_libraries(Test_coroutine_api ${MY_LIBS})
+add_test(NAME Test_coroutine_api COMMAND Test_coroutine_api)
+
 add_executable(Test_coroutine_exception Test_coroutine_exception.cc)
 target_link_libraries(Test_coroutine_exception ${MY_LIBS})
 add_test(NAME Test_coroutine_exception COMMAND Test_coroutine_exception)

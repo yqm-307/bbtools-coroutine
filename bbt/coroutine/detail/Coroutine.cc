@@ -99,7 +99,7 @@ void Coroutine::YieldAndPushGCoQueue()
 }
 
 
-CoroutineId Coroutine::GetId() noexcept
+CoroutineId Coroutine::GetId() const noexcept
 {
     return m_id;
 }
