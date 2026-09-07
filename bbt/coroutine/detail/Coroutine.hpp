@@ -37,7 +37,10 @@ enum class CoroutineYieldDisposition
  * 在Processer的上下文中进行。
  * 
  * TODO ： 不再使用shared_ptr来控制Coroutine的生命周期
- * 
+ *
+ * 稳定方法：Create / Resume / Yield / GetId / GetStatus。
+ * YieldWithCallback、YieldAndPushGCoQueue、CommitYield 属调度内部。
+ * RequestCancel / GetException 分别由 #266 / #267 补齐。
  */
 class Coroutine:
     public ICoroutine
@@ -83,8 +86,8 @@ public:
     /* Processer 完成运行统计后调用；发布后不得再次访问 Coroutine。 */
     CoroutineYieldDisposition       CommitYield();
 
-    virtual CoroutineId             GetId() noexcept override;
-    CoroutineStatus                 GetStatus() const noexcept;
+    virtual CoroutineId             GetId() const noexcept override;
+    virtual CoroutineStatus         GetStatus() const noexcept override;
     int                             GetLastResumeEvent() const noexcept;
     size_t                          GetStackSize() const noexcept;
     void                            OnException() noexcept;
