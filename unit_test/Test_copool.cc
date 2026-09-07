@@ -356,6 +356,41 @@ BOOST_AUTO_TEST_CASE(t_release_after_throwing)
     l.Wait();
 }
 
+// #281 Release 排空语义：Release 取消式停机，队列滞留任务不得让 future 永挂——
+// Release 必须 drain（delete Work → promise 释放 → future 以 broken_promise 兑现）。
+// 修复前 Release 不 drain，滞留 future 永远无效（RED）。
+BOOST_AUTO_TEST_CASE(t_release_drains_pending_futures)
+{
+    bbt::core::thread::CountDownLatch l{1};
+
+    bbtco [&](){
+        auto pool = bbtco_make_copool(1);
+        // 唯一 worker 被占住，后续任务只能滞留在队列
+        pool->Submit([&](){ bbtco_sleep(200); });
+        std::vector<std::future<void>> fs;
+        for (int i = 0; i < 3; ++i)
+            fs.push_back(pool->SubmitWithFuture([&](){ BOOST_FAIL("drained task must not run"); }));
+        bbtco_sleep(20); // 确保 3 个任务已入队、worker 已占用
+
+        pool->Release();
+
+        for (auto& f : fs) {
+            const bool ready = (f.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
+            BOOST_TEST(ready);
+            bool broken = false;
+            try { f.get(); }
+            catch (const std::future_error& e) {
+                broken = (e.code() == std::make_error_code(std::future_errc::broken_promise));
+            }
+            catch (...) {}
+            BOOST_TEST(broken);
+        }
+        l.Down();
+    };
+
+    l.Wait();
+}
+
 BOOST_AUTO_TEST_CASE(t_end)
 {
     g_scheduler->Stop();
