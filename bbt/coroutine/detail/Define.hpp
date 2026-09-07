@@ -256,6 +256,20 @@ enum PollEventType
     POLL_EVENT_CUSTOM       = 1 << 3,
 };
 
+/**
+ * @brief 协程挂起现场快照（#276 诊断契约）
+ *
+ * 只在协程自身线程（同 Processer）读取，成员来自 parked 时的 await_event，
+ * 无并发写者；跨线程统一快照属 #277 范围。
+ */
+struct CoroutineWaitInfo
+{
+    int         m_wait_event{0};    // 等待的事件位（PollEventType 口径）
+    int         m_fd{-1};           // fd 等待的对象；非 fd 等待为 -1
+    int64_t     m_timeout_ms{0};    // 事件定时器总时长；0=无
+    uint64_t    m_waited_us{0};     // 已等待微秒
+};
+
 /* CoPollEvent的自定义事件key，用来表示触发时是那个自定义事件 */
 enum CoPollEventCustom
 {
