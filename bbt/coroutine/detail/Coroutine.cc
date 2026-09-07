@@ -82,7 +82,7 @@ int Coroutine::YieldWithCallback(const CoroutineOnYieldCallback& cb)
      * 确保协程挂起后，才可以触发事件
      */
     Assert(m_run_status == CoroutineStatus::CO_RUNNING);
-    m_yield_disposition = m_await_event == nullptr ?
+    m_yield_disposition = _AwaitEvent() == nullptr ?
         CoroutineYieldDisposition::MANUAL : CoroutineYieldDisposition::EVENT_WAIT;
     m_run_status = CoroutineStatus::CO_SUSPEND;
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
@@ -119,21 +119,48 @@ void Coroutine::OnException() noexcept
 {
     m_yield_disposition = CoroutineYieldDisposition::FINAL;
     m_run_status = CoroutineStatus::CO_FINAL;
-    if (m_await_event) {
-        m_await_event->UnRegist();
-        m_await_event = nullptr;
+    if (auto ev = _AwaitEvent()) {
+        ev->UnRegist();
+        _SetAwaitEvent(nullptr);
     }
+}
+
+void Coroutine::RequestCancel() noexcept
+{
+    m_cancel_requested.store(true, std::memory_order_release);
+    if (auto ev = _AwaitEvent())
+        ev->Trigger(EventOpt::TIMEOUT);
+}
+
+bool Coroutine::IsCancelRequested() const noexcept
+{
+    return m_cancel_requested.load(std::memory_order_acquire);
+}
+
+std::shared_ptr<CoPollEvent> Coroutine::_AwaitEvent() const
+{
+    std::lock_guard<std::mutex> lk(m_await_mu);
+    return m_await_event;
+}
+
+void Coroutine::_SetAwaitEvent(std::shared_ptr<CoPollEvent> ev)
+{
+    std::lock_guard<std::mutex> lk(m_await_mu);
+    m_await_event = std::move(ev);
 }
 
 int Coroutine::YieldUntilTimeout(int ms)
 {
-    Assert(m_await_event == nullptr);
-    m_await_event = CoPollEvent::Create(GetId(), [&](auto, int event, int custom_key){
-        OnCoPollEvent(event, custom_key);
-    });
+    if (IsCancelRequested())
+        return 1;
 
-    if (m_await_event->InitFdEvent(-1, EventOpt::TIMEOUT, ms) != 0) {
-        m_await_event = nullptr;
+    Assert(_AwaitEvent() == nullptr);
+    _SetAwaitEvent(CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key){
+        OnCoPollEvent(event, custom_key);
+    }));
+
+    if (_AwaitEvent()->InitFdEvent(-1, EventOpt::TIMEOUT, ms) != 0) {
+        _SetAwaitEvent(nullptr);
         return -1;
     }
 
@@ -144,55 +171,60 @@ int Coroutine::YieldUntilTimeout(int ms)
 
 std::shared_ptr<CoPollEvent> Coroutine::RegistCustom(int key)
 {
-    if (m_await_event != nullptr)
+    if (_AwaitEvent() != nullptr)
         return nullptr;
-    
-    m_await_event = CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key){
+
+    auto ev = CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key){
         OnCoPollEvent(event, custom_key);
     });
+    _SetAwaitEvent(ev);
 
-    if (m_await_event->InitCustomEvent(key, nullptr) != 0) {
-        m_await_event = nullptr;
+    if (ev->InitCustomEvent(key, nullptr) != 0) {
+        _SetAwaitEvent(nullptr);
         return nullptr;
     }
-    
-    return m_await_event;
+
+    return ev;
 }
 
 std::shared_ptr<CoPollEvent> Coroutine::RegistCustom(int key, int timeout_ms)
 {
-    if (m_await_event != nullptr)
+    if (_AwaitEvent() != nullptr)
         return nullptr;
-    
-    m_await_event = CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key){
+
+    auto ev = CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key){
         OnCoPollEvent(event, custom_key);
     });
+    _SetAwaitEvent(ev);
 
-    if (m_await_event->InitCustomEvent(key, nullptr) != 0) {
-        m_await_event = nullptr;
+    if (ev->InitCustomEvent(key, nullptr) != 0) {
+        _SetAwaitEvent(nullptr);
         return nullptr;
     }
-    
-    if (m_await_event->InitFdEvent(-1, EventOpt::TIMEOUT, timeout_ms) != 0) {
-        m_await_event = nullptr;
+
+    if (ev->InitFdEvent(-1, EventOpt::TIMEOUT, timeout_ms) != 0) {
+        _SetAwaitEvent(nullptr);
         return nullptr;
     }
-    
-    return m_await_event;
+
+    return ev;
 }
 
 int Coroutine::YieldUntilFdReadable(int fd)
 {
-    Assert(m_await_event == nullptr);
-    m_await_event = CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key){
+    if (IsCancelRequested())
+        return 1;
+    Assert(_AwaitEvent() == nullptr);
+    auto ev = CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key){
         OnCoPollEvent(event, custom_key);
     });
+    _SetAwaitEvent(ev);
 
-    if (m_await_event->InitFdEvent(fd, EventOpt::READABLE | EventOpt::FINALIZE, 0) != 0) {
-        m_await_event = nullptr;
+    if (ev->InitFdEvent(fd, EventOpt::READABLE | EventOpt::FINALIZE, 0) != 0) {
+        _SetAwaitEvent(nullptr);
         return -1;
     }
-    
+
     return YieldWithCallback([this](){
         return _RegistAwaitEvent();
     });
@@ -200,14 +232,17 @@ int Coroutine::YieldUntilFdReadable(int fd)
 
 int Coroutine::YieldUntilFdReadable(int fd, int timeout_ms)
 {
-    Assert(m_await_event == nullptr);
-    
-    m_await_event = CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key){
+    if (IsCancelRequested())
+        return 1;
+    Assert(_AwaitEvent() == nullptr);
+
+    auto ev = CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key){
         OnCoPollEvent(event, custom_key);
     });
+    _SetAwaitEvent(ev);
 
-    if (m_await_event->InitFdEvent(fd, EventOpt::READABLE | EventOpt::TIMEOUT | EventOpt::FINALIZE, timeout_ms) != 0) {
-        m_await_event = nullptr;
+    if (ev->InitFdEvent(fd, EventOpt::READABLE | EventOpt::TIMEOUT | EventOpt::FINALIZE, timeout_ms) != 0) {
+        _SetAwaitEvent(nullptr);
         return -1;
     }
 
@@ -218,13 +253,16 @@ int Coroutine::YieldUntilFdReadable(int fd, int timeout_ms)
 
 int Coroutine::YieldUntilFdWriteable(int fd)
 {
-    Assert(m_await_event == nullptr);
-    m_await_event = CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key){
+    if (IsCancelRequested())
+        return 1;
+    Assert(_AwaitEvent() == nullptr);
+    auto ev = CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key){
         OnCoPollEvent(event, custom_key);
     });
+    _SetAwaitEvent(ev);
 
-    if (m_await_event->InitFdEvent(fd, EventOpt::WRITEABLE | EventOpt::FINALIZE, 0) != 0) {
-        m_await_event = nullptr;
+    if (ev->InitFdEvent(fd, EventOpt::WRITEABLE | EventOpt::FINALIZE, 0) != 0) {
+        _SetAwaitEvent(nullptr);
         return -1;
     }
 
@@ -235,13 +273,16 @@ int Coroutine::YieldUntilFdWriteable(int fd)
 
 int Coroutine::YieldUntilFdWriteable(int fd, int timeout_ms)
 {
-    Assert(m_await_event == nullptr);
-    m_await_event = CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key){
+    if (IsCancelRequested())
+        return 1;
+    Assert(_AwaitEvent() == nullptr);
+    auto ev = CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key){
         OnCoPollEvent(event, custom_key);
     });
+    _SetAwaitEvent(ev);
 
-    if (m_await_event->InitFdEvent(fd, EventOpt::WRITEABLE | EventOpt::TIMEOUT | EventOpt::FINALIZE, timeout_ms) != 0) {
-        m_await_event = nullptr;
+    if (ev->InitFdEvent(fd, EventOpt::WRITEABLE | EventOpt::TIMEOUT | EventOpt::FINALIZE, timeout_ms) != 0) {
+        _SetAwaitEvent(nullptr);
         return -1;
     }
 
@@ -252,14 +293,17 @@ int Coroutine::YieldUntilFdWriteable(int fd, int timeout_ms)
 
 int Coroutine::YieldUntilFdEx(int fd, short events, int timeout_ms)
 {
-    Assert(m_await_event == nullptr);
-    m_await_event = CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key){
+    if (IsCancelRequested())
+        return 1;
+    Assert(_AwaitEvent() == nullptr);
+    auto ev = CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key){
         OnCoPollEvent(event, custom_key);
     });
+    _SetAwaitEvent(ev);
 
     /* 绝对不可以反复触发 */
-    if (m_await_event->InitFdEvent(fd, events & ~pollevent::EventOpt::PERSIST, timeout_ms) != 0) {
-        m_await_event = nullptr;
+    if (ev->InitFdEvent(fd, events & ~pollevent::EventOpt::PERSIST, timeout_ms) != 0) {
+        _SetAwaitEvent(nullptr);
         return -1;
     }
 
@@ -270,11 +314,16 @@ int Coroutine::YieldUntilFdEx(int fd, short events, int timeout_ms)
 
 bool Coroutine::_RegistAwaitEvent()
 {
-    auto await_event = m_await_event;
+    auto await_event = _AwaitEvent();
+    // RequestCancel 可能发生在入口检查之后、事件挂上之前。
+    // 注册前再看一眼：已置位则 Trigger，CommitPark 走 PENDING 立即完成。
+    if (await_event != nullptr && IsCancelRequested())
+        await_event->Trigger(EventOpt::TIMEOUT);
+
     if (await_event != nullptr && await_event->Regist() == 0)
         return true;
 
-    m_await_event = nullptr;
+    _SetAwaitEvent(nullptr);
     m_yield_disposition = CoroutineYieldDisposition::MANUAL;
     return false;
 }
@@ -288,7 +337,7 @@ CoroutineYieldDisposition Coroutine::CommitYield()
 
     const auto disposition = m_yield_disposition;
     if (disposition == CoroutineYieldDisposition::EVENT_WAIT) {
-        auto await_event = m_await_event;
+        auto await_event = _AwaitEvent();
         Assert(await_event != nullptr);
         await_event->CommitPark();
     }
@@ -315,13 +364,14 @@ void Coroutine::OnCoPollEvent(int event, int custom_key)
         m_mlfq_demotions--;
     }
 
-    Assert(m_await_event != nullptr);
+    auto ev = _AwaitEvent();
+    Assert(ev != nullptr);
 
     m_last_resume_event = event;
 
     // 先取消事件，然后push到全局队列中
-    g_bbt_dbgp_full(("[CoEvent:Trigger] co=" + std::to_string(GetId()) + " trigger_event=" + std::to_string(event) + " id=" + std::to_string(m_await_event->GetId()) + " customkey=" + std::to_string(custom_key)).c_str());
-    m_await_event = nullptr;
+    g_bbt_dbgp_full(("[CoEvent:Trigger] co=" + std::to_string(GetId()) + " trigger_event=" + std::to_string(event) + " id=" + std::to_string(ev->GetId()) + " customkey=" + std::to_string(custom_key)).c_str());
+    _SetAwaitEvent(nullptr);
     m_yield_disposition = CoroutineYieldDisposition::MANUAL;
 
     // 超时任务优先级最高，覆盖 MLFQ 判定
