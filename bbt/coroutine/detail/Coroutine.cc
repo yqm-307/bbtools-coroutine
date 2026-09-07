@@ -1,4 +1,5 @@
 #include <atomic>
+#include <algorithm>
 #include <bbt/coroutine/detail/Coroutine.hpp>
 #include <bbt/coroutine/detail/Scheduler.hpp>
 #include <bbt/coroutine/detail/Processer.hpp>
@@ -10,6 +11,10 @@
 
 namespace bbt::coroutine::detail
 {
+
+/* #280 parked 协程登记表（定义，声明见 Coroutine.hpp） */
+std::mutex                      Coroutine::s_parked_mtx;
+std::vector<Coroutine*>         Coroutine::s_parked;
 
 typedef bbt::pollevent::EventOpt EventOpt;
 
@@ -329,10 +334,16 @@ bool Coroutine::_RegistAwaitEvent()
     if (await_event != nullptr && IsCancelRequested())
         await_event->Trigger(EventOpt::TIMEOUT);
 
+
     if (await_event != nullptr && await_event->Regist() == 0)
     {
         /* 现场时戳（#276）：parked 起点；唤醒时清零 */
         m_parked_us = bbt::core::clock::gettime_mono<bbt::core::clock::microseconds>();
+        /* 停机契约（#280）：注册成功进入 PARKED 的协程脱离任何队列，唯一引用
+         * 是事件回调里的裸 this；纳入 parked 登记，Scheduler::Stop 才有回收点。
+         * 唤醒（OnCoPollEvent）或销毁时注销，保持"协程只属于 parked 表或某个队列"
+         * 的单所有权不变式。 */
+        _TrackParked();
         return true;
     }
 
@@ -353,6 +364,46 @@ int Coroutine::GetWaitInfo(CoroutineWaitInfo& out) const noexcept
     out.m_timeout_ms = m_await_event->GetTimeout() > 0 ? m_await_event->GetTimeout() : 0;
     out.m_waited_us = bbt::core::clock::gettime_mono<bbt::core::clock::microseconds>() - m_parked_us;
     return 0;
+
+void Coroutine::_TrackParked()
+{
+    std::lock_guard<std::mutex> lock(s_parked_mtx);
+    if (m_parked_tracked)
+        return;
+    m_parked_tracked = true;
+    s_parked.push_back(this);
+}
+
+void Coroutine::_UntrackParked()
+{
+    std::lock_guard<std::mutex> lock(s_parked_mtx);
+    if (!m_parked_tracked)
+        return;
+    m_parked_tracked = false;
+    auto it = std::find(s_parked.begin(), s_parked.end(), this);
+    if (it != s_parked.end())
+        s_parked.erase(it);
+}
+
+void Coroutine::DestroyParkedCoroutines()
+{
+    std::vector<Coroutine*> doomed;
+    {
+        std::lock_guard<std::mutex> lock(s_parked_mtx);
+        doomed.swap(s_parked);
+        for (auto* co : doomed)
+            co->m_parked_tracked = false;
+    }
+    /* 调用前提：全部 worker、Scheduler 线程与 DNS worker 已 join——此后再无
+     * PollOnce/唤醒路径并发改队列。UnRegist 把事件置 CANCELLED 并摘出 fd 唤醒
+     * 表，此后任何线程的 Trigger（含 Hook_Close）都不会回调协程，delete 安全。
+     * 取消式停机：parked 协程直接销毁回收（含栈归还栈池），不再执行用户代码，
+     * 与"不保证业务任务完成"的 Stop 契约一致。 */
+    for (auto* co : doomed) {
+        if (co->m_await_event != nullptr)
+            co->m_await_event->UnRegist();
+        delete co;
+    }
 }
 
 CoroutineYieldDisposition Coroutine::CommitYield()
@@ -401,6 +452,7 @@ void Coroutine::OnCoPollEvent(int event, int custom_key)
     g_bbt_dbgp_full(("[CoEvent:Trigger] co=" + std::to_string(GetId()) + " trigger_event=" + std::to_string(event) + " id=" + std::to_string(ev->GetId()) + " customkey=" + std::to_string(custom_key)).c_str());
     _SetAwaitEvent(nullptr);
     m_yield_disposition = CoroutineYieldDisposition::MANUAL;
+    _UntrackParked();  // 所有权从 parked 表转交全局队列（#280）
 
     // 超时任务优先级最高，覆盖 MLFQ 判定
     if (event & EventOpt::TIMEOUT)
