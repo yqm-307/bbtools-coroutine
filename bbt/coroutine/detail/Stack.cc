@@ -85,8 +85,15 @@ void Stack::_Release()
     // 是否需要释放保护区内存
     if (m_stack_protect_flag)
         _ReleaseStackProtect();
-    
-    assert(Free(m_mem_chunk, m_mem_chunk_size) == 0);
+
+    /* #279：释放必须是实际执行语句，不能塞进 assert——NDEBUG 下 assert 整个被
+     * 编译掉，Release 构建会泄漏每块栈内存。先释放并置空回收到空态，再断言
+     * 结果（保留 Debug 下的契约检查），保证 Clear/析构幂等且不二次 free。 */
+    int ret = Free(m_mem_chunk, m_mem_chunk_size);
+    m_mem_chunk = nullptr;
+    m_mem_chunk_size = 0;
+    m_useable_size = 0;
+    assert(ret == 0);
 }
 
 char* Stack::StackTop() const
