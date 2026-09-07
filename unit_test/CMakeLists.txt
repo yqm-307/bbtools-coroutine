@@ -23,6 +23,11 @@ add_executable(Test_coroutine_exception Test_coroutine_exception.cc)
 target_link_libraries(Test_coroutine_exception ${MY_LIBS})
 add_test(NAME Test_coroutine_exception COMMAND Test_coroutine_exception)
 
+add_executable(Test_scheduler_exec Test_scheduler_exec.cc)
+target_link_libraries(Test_scheduler_exec ${MY_LIBS})
+add_test(NAME Test_scheduler_exec COMMAND Test_scheduler_exec)
+set_tests_properties(Test_scheduler_exec PROPERTIES TIMEOUT 15)
+
 add_executable(Test_hook Test_hook.cc)
 target_link_libraries(Test_hook ${MY_LIBS})
 add_test(NAME Test_hook COMMAND Test_hook)

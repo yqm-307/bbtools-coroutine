@@ -24,6 +24,11 @@ namespace bbt::coroutine::detail
  * 
  * 
  * Scheduler本身压力较小，希望如果后续有调整放在Scheduler中
+ *
+ * 执行模型：多 Processer 并行，每线程一个；单个协程同一时刻只在
+ * 一个 Processer 上 Resume；挂起后可入全局队列并被其他 Processer 取出。
+ * TLS（g_bbt_tls_processer / g_bbt_tls_coroutine_co）只在 Processer 线程、
+ * 当前协程栈上有效。
  */
 class Scheduler
 {
