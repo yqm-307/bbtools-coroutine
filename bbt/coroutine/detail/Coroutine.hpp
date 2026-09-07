@@ -1,5 +1,7 @@
 #pragma once
+#include <atomic>
 #include <memory>
+#include <mutex>
 #include <bbt/core/Attribute.hpp>
 #include <bbt/coroutine/detail/interface/ICoroutine.hpp>
 #include <bbt/coroutine/detail/Context.hpp>
@@ -104,6 +106,13 @@ public:
     int                             GetWaitInfo(CoroutineWaitInfo& out) const noexcept;
     void                            OnException() noexcept;
 
+    /**
+     * 协作式取消：只置位并唤醒等待中的协程，不强杀运行中的用户代码。
+     * 运行中的协程在检查点（IsCancelRequested / 等待返回后）自行退出，RAII 照常展开。
+     */
+    void                            RequestCancel() noexcept;
+    bool                            IsCancelRequested() const noexcept;
+
     /** MLFQ 调度支持 */
     uint64_t                        GetLastRunTimeUs() const noexcept { return m_last_run_us; }
     void                            SetLastRunTimeUs(uint64_t us) { m_last_run_us = us; }
@@ -156,6 +165,8 @@ protected:
 
 private:
     bool                            _RegistAwaitEvent();
+    std::shared_ptr<CoPollEvent>    _AwaitEvent() const;
+    void                            _SetAwaitEvent(std::shared_ptr<CoPollEvent> ev);
 
 private:
     Context                         m_context;
@@ -176,6 +187,8 @@ private:
      * 
      */
     std::shared_ptr<CoPollEvent>    m_await_event{nullptr};
+    mutable std::mutex              m_await_mu;
+    std::atomic_bool                m_cancel_requested{false};
     CoroutineOnYieldCallback        m_co_onyield_callback{nullptr};
     CoroutineYieldDisposition       m_yield_disposition{CoroutineYieldDisposition::MANUAL};
 

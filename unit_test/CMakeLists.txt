@@ -32,6 +32,11 @@ target_link_libraries(Test_scheduler_exec ${MY_LIBS})
 add_test(NAME Test_scheduler_exec COMMAND Test_scheduler_exec)
 set_tests_properties(Test_scheduler_exec PROPERTIES TIMEOUT 15)
 
+add_executable(Test_coroutine_cancel Test_coroutine_cancel.cc)
+target_link_libraries(Test_coroutine_cancel ${MY_LIBS})
+add_test(NAME Test_coroutine_cancel COMMAND Test_coroutine_cancel)
+set_tests_properties(Test_coroutine_cancel PROPERTIES TIMEOUT 10)
+
 add_executable(Test_hook Test_hook.cc)
 target_link_libraries(Test_hook ${MY_LIBS})
 add_test(NAME Test_hook COMMAND Test_hook)
