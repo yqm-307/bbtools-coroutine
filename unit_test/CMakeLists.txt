@@ -37,6 +37,11 @@ add_executable(Test_poller Test_poller.cc)
 target_link_libraries(Test_poller ${MY_LIBS})
 add_test(NAME Test_poller COMMAND Test_poller)
 
+add_executable(Test_eventloop_boundary Test_eventloop_boundary.cc)
+target_link_libraries(Test_eventloop_boundary ${MY_LIBS})
+add_test(NAME Test_eventloop_boundary COMMAND Test_eventloop_boundary)
+set_tests_properties(Test_eventloop_boundary PROPERTIES TIMEOUT 10)
+
 add_executable(Test_copollevent_state Test_copollevent_state.cc)
 target_link_libraries(Test_copollevent_state ${MY_LIBS})
 add_test(NAME Test_copollevent_state COMMAND Test_copollevent_state)

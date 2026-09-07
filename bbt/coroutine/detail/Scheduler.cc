@@ -9,7 +9,6 @@
 #include <bbt/coroutine/detail/Profiler.hpp>
 #include <bbt/coroutine/detail/LocalThread.hpp>
 #include <bbt/coroutine/detail/StackPool.hpp>
-#include <bbt/coroutine/detail/CoPoller.hpp>
 #include <bbt/coroutine/detail/DnsResolver.hpp>
 #include <bbt/coroutine/detail/debug/DebugMgr.hpp>
 
@@ -111,6 +110,7 @@ void Scheduler::_OnUpdate()
         }
 #endif
 
+        /* 只通过 EventLoop 门面驱动 FD/Timer/Wakeup，不直接调 epoll。 */
         actived = g_bbt_poller->PollOnce();
         _FixTimingScan();
         g_bbt_stackpoll->OnUpdate();

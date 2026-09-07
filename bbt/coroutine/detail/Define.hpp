@@ -10,8 +10,6 @@
 #include <memory>
 #include <mutex>
 #include <cstdint>
-#include <sys/timerfd.h>
-#include <sys/epoll.h>
 #include <bbt/core/log/DebugPrint.hpp>
 #include <bbt/core/clock/Clock.hpp>
 #include <bbt/core/Attribute.hpp>
