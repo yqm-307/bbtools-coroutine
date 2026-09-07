@@ -1,4 +1,5 @@
 #include <exception>
+#include <string>
 
 #include <bbt/coroutine/detail/Context.hpp>
 #include <bbt/coroutine/detail/Define.hpp>
@@ -41,26 +42,29 @@ void Context::_CoroutineMain(boost::context::detail::transfer_t transfer)
     try {
         context->m_user_main();
     }
-    catch (const std::exception& e)
-    {
-        if (auto co = g_bbt_tls_coroutine_co)
-            co->OnException();
-
-        if (g_bbt_coroutine_config->m_ext_coevent_exception_callback != nullptr)
-            g_bbt_coroutine_config->m_ext_coevent_exception_callback(core::errcode::Errcode(e.what()));
-        else
-            // 无回调时吞掉并计数：re-throw 会逃出 fcontext 入口导致 terminate
-            g_bbt_coroutine_config->m_unhandled_exception_count.fetch_add(1, std::memory_order_relaxed);
-    }
     catch (...)
     {
+        const auto eptr = std::current_exception();
         if (auto co = g_bbt_tls_coroutine_co)
-            co->OnException();
+            co->OnException(eptr);
 
-        if (g_bbt_coroutine_config->m_ext_coevent_exception_callback != nullptr)
-            g_bbt_coroutine_config->m_ext_coevent_exception_callback(core::errcode::Errcode("unknown exception"));
-        else
+        if (g_bbt_coroutine_config->m_ext_coevent_exception_callback != nullptr) {
+            try {
+                std::string what{"unknown exception"};
+                try {
+                    if (eptr)
+                        std::rethrow_exception(eptr);
+                } catch (const std::exception& e) {
+                    what = e.what();
+                } catch (...) {
+                }
+                g_bbt_coroutine_config->m_ext_coevent_exception_callback(core::errcode::Errcode(what));
+            } catch (...) {
+                /* 回调异常不得逃出 fcontext */
+            }
+        } else {
             g_bbt_coroutine_config->m_unhandled_exception_count.fetch_add(1, std::memory_order_relaxed);
+        }
     }
 
 #if defined(BBT_COROUTINE_PROFILE)
