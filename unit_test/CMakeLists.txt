@@ -71,6 +71,11 @@ target_link_libraries(Test_worker_stall ${MY_LIBS})
 add_test(NAME Test_worker_stall COMMAND Test_worker_stall)
 set_tests_properties(Test_worker_stall PROPERTIES TIMEOUT 30 RUN_SERIAL TRUE)
 
+add_executable(Test_crash_diag Test_crash_diag.cc)
+target_link_libraries(Test_crash_diag ${MY_LIBS})
+add_test(NAME Test_crash_diag COMMAND Test_crash_diag)
+set_tests_properties(Test_crash_diag PROPERTIES TIMEOUT 30)
+
 add_executable(Test_poller Test_poller.cc)
 target_link_libraries(Test_poller ${MY_LIBS})
 add_test(NAME Test_poller COMMAND Test_poller)
