@@ -42,6 +42,11 @@ target_link_libraries(Test_hook_contract ${MY_LIBS})
 add_test(NAME Test_hook_contract COMMAND Test_hook_contract)
 set_tests_properties(Test_hook_contract PROPERTIES TIMEOUT 30)
 
+add_executable(Test_hook_blocking_fd Test_hook_blocking_fd.cc)
+target_link_libraries(Test_hook_blocking_fd ${MY_LIBS})
+add_test(NAME Test_hook_blocking_fd COMMAND Test_hook_blocking_fd)
+set_tests_properties(Test_hook_blocking_fd PROPERTIES TIMEOUT 10)
+
 add_executable(Test_poller Test_poller.cc)
 target_link_libraries(Test_poller ${MY_LIBS})
 add_test(NAME Test_poller COMMAND Test_poller)
