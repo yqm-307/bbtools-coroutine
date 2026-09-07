@@ -1,6 +1,7 @@
 #include <cmath>
 #include <cstring>
 #include <cstdio>
+#include <stdexcept>
 #include <bbt/core/log/DebugPrint.hpp>
 #include <bbt/core/clock/Clock.hpp>
 #include <bbt/core/Attribute.hpp>
@@ -48,6 +49,12 @@ void Scheduler::_Init()
 
 void Scheduler::RegistCoroutineTask(const CoroutineCallback& handle, const char* desc)
 {
+    /* 停机契约（#280）：停止接收新任务 = 明确失败。停机后 _LoadBlance2Proc
+     * 必然失败，旧代码 Release 下只打 stderr、noexcept 版还回 succ=true（假
+     * 成功且泄漏协程）。显式抛错让两条注册路径语义一致。 */
+    if (!m_is_running.load(std::memory_order_acquire))
+        throw std::runtime_error("scheduler stopped: coroutine task rejected");
+
     auto coroutine_sptr = Coroutine::Create(
         g_bbt_coroutine_config->m_cfg_stack_size,
         handle,
@@ -89,6 +96,11 @@ void Scheduler::OnActiveCoroutine(CoroutinePriority priority, Coroutine::Ptr cor
 #endif
     AssertWithInfo(priority >= CO_PRIORITY_LOW && priority < CO_PRIORITY_COUNT, "invalid priority!");
     AssertWithInfo(coroutine != nullptr, "coroutine is nullptr!");
+    /* 停机进行中（#280）：parked 回收（DestroyParkedCoroutines）接管销毁，
+     * 唤醒路径不再入队——入队会与 doomed 回收形成双释放，丢弃则泄漏有界、
+     * 且回调线程此后不再触碰协程栈，安全。 */
+    if (!m_is_running.load(std::memory_order_acquire))
+        return;
     AssertWithInfo(m_global_coroutine_queue[priority].enqueue(coroutine), "oom!");
 }
 
@@ -275,9 +287,26 @@ void Scheduler::Stop()
 
     m_sche_thread = nullptr;
     Coroutine::Ptr item = nullptr;
+    /* 停机排空（#280）：此刻全部 worker、Scheduler 线程已 join，队列无并发
+     * 消费者，逐个 delete 回收协程及其栈（旧代码只置空指针，Release 下泄漏
+     * 每个未完成任务的对象与栈）。 */
     for (auto && queue : m_global_coroutine_queue)
-        while (queue.try_dequeue(item))
+        while (queue.try_dequeue(item)) {
+            delete item;
             item = nullptr;
+        }
+
+    /* parked 协程（挂起在 fd/timer/custom 事件上、不在任何队列）在此统一回收：
+     * 取消式停机不复活执行，直接注销事件并销毁。必须在全部线程 join 之后。 */
+    Coroutine::DestroyParkedCoroutines();
+
+    /* 兜底：swap 与 UnRegist 间隙内若有并发 Trigger（如其它线程 Hook_Close）把
+     * 刚销毁的协程重新入队，此处再扫一遍删除，不留悬垂指针给下一次 Start。 */
+    for (auto && queue : m_global_coroutine_queue)
+        while (queue.try_dequeue(item)) {
+            delete item;
+            item = nullptr;
+        }
 
     m_run_status = ScheudlerStatus::SCHE_EXIT;
 #ifdef BBT_COROUTINE_PROFILE

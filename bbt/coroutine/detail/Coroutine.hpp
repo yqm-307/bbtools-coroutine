@@ -3,6 +3,7 @@
 #include <exception>
 #include <memory>
 #include <mutex>
+#include <vector>
 #include <bbt/core/Attribute.hpp>
 #include <bbt/coroutine/detail/interface/ICoroutine.hpp>
 #include <bbt/coroutine/detail/Context.hpp>
@@ -169,6 +170,20 @@ private:
     bool                            _RegistAwaitEvent();
     std::shared_ptr<CoPollEvent>    _AwaitEvent() const;
     void                            _SetAwaitEvent(std::shared_ptr<CoPollEvent> ev);
+
+    /* #280 停机契约：PARKED 协程（唯一引用是事件回调裸 this）纳入全局登记，
+     * Scheduler::Stop 在全部线程 join 后调用 DestroyParkedCoroutines 回收。
+     * 不变式：协程同一时刻只属于 parked 表或某个队列，绝不双持。 */
+    void                            _TrackParked();
+    void                            _UntrackParked();
+
+public:
+    static void                     DestroyParkedCoroutines();
+
+private:
+    static std::mutex                           s_parked_mtx;
+    static std::vector<Coroutine*>              s_parked;
+    bool                                        m_parked_tracked{false};
 
 private:
     Context                         m_context;
