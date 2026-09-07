@@ -122,7 +122,9 @@ void Scheduler::_FixTimingScan()
         uint64_t backlog = proc->m_exec_backlog;
         char desc[sizeof(proc->m_exec_desc)];
         memcpy(desc, proc->m_exec_desc, sizeof(desc));
-        uint64_t s2 = proc->m_exec_seq.load(std::memory_order_relaxed);
+        /* acquire 尾检：把字段读排序在两次 seq 读之间，消除形式数据竞争
+         *（#277 review：relaxed 尾检理论上可让撕裂快照通过） */
+        uint64_t s2 = proc->m_exec_seq.load(std::memory_order_acquire);
         if (s1 != s2 || begin_us == 0)
             continue;   // 读到撕裂数据
 
@@ -335,8 +337,13 @@ void Scheduler::_DestoryProcessers()
     /* 停止所有执行processer */
     for (auto item : m_processer_map)
         item.second->Stop();
-    m_processer_map.clear();
-    m_load_blance_vec.clear();
+    /* #277 review：调度线程(_FixTimingScan)持锁迭代 map，clear 必须同锁，
+     * 否则 Stop 时并发 erase/iterate = UB（sche 线程此刻尚未 join） */
+    {
+        std::lock_guard<std::mutex> _(m_processer_map_mutex);
+        m_processer_map.clear();
+        m_load_blance_vec.clear();
+    }
 
     /* 释放所有执行processer的线程 */
     for (auto&& proc_thread : m_proc_threads) {
