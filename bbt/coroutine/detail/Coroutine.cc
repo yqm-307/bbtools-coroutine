@@ -26,9 +26,15 @@ Coroutine::Ptr Coroutine::Create(int stack_size, const CoroutineCallback& co_fun
 
 Coroutine::Coroutine(int stack_size, const CoroutineCallback& co_func, bool need_protect):
     m_context(stack_size, [=](){
-        co_func();
-        m_yield_disposition = CoroutineYieldDisposition::FINAL;
-        m_run_status = CoroutineStatus::CO_FINAL;
+        try {
+            co_func();
+            m_yield_disposition = CoroutineYieldDisposition::FINAL;
+            m_run_status = CoroutineStatus::CO_FINAL;
+        } catch (...) {
+            // 无 Processer TLS 时 Context 捕不到当前协程；失败必须进入终态。
+            OnException();
+            throw;
+        }
     }, need_protect),
     m_id(_GenCoroutineId())
 {

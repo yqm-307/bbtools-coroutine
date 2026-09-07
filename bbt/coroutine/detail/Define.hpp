@@ -139,31 +139,26 @@ namespace detail
 
 /**
 @startuml
-[*] --> Default
-Default --> Runnable : 初始化协程，调度器将协程分配到global队列或processer队列中
-Runnable --> Running : processer取出协程执行
-Running --> Suspend : 通过Yield主动挂起，有await_event
-Suspend --> Runnable : await_event达成后被唤醒
-Running -->Runnable : 通过Yield挂起，但是没有await_event
-Running --> Final   : 协程执行完毕
-Final   --> [*]
+[*] --> Runnable : Create() 完成。CO_DEFAULT 只是成员初值，构造后不可观察
+Runnable --> Running : Resume()
+Running --> Suspend : Yield / YieldWithCallback / YieldAndPushGCoQueue
+Suspend --> Running : Resume()。事件入队不改写状态
+Running --> Final : 用户函数返回，或异常经 OnException
+Final --> [*] : 销毁。不可再 Resume
 
-Runnable: **就绪，等待CPU资源**
-
-Running: **执行中**
-
-Suspend: **挂起中，等待await_event**
-
-Final: **结束**
+note right of Suspend
+  有无 await_event 都进入 Suspend。
+  唤醒只负责入队，状态保持 Suspend 直到 Resume。
+end note
 @enduml
  */
 enum CoroutineStatus : int32_t
 {
-    CO_DEFAULT = 0,    // 默认，尚未初始化
-    CO_RUNNABLE = 1,   // 就绪
-    CO_RUNNING = 2,    // 运行中
-    CO_SUSPEND = 3,    // 挂起
-    CO_FINAL   = 4,    // 执行完毕
+    CO_DEFAULT = 0,    // 成员初值；Create 完成后不可观察
+    CO_RUNNABLE = 1,   // 已创建、尚未 Resume；Yield 后不再回到此状态
+    CO_RUNNING = 2,    // Resume 后在协程栈上执行
+    CO_SUSPEND = 3,    // 主动让出或等待事件；入队后仍保持直到再次 Resume
+    CO_FINAL   = 4,    // 正常返回或异常后的终态，不可再 Resume
 };
 
 
