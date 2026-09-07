@@ -17,6 +17,7 @@ CoPoller::UPtr& CoPoller::GetInstance()
 
 CoPoller::CoPoller()
 {
+    /* 首个 backend：bbt::pollevent::EventLoop（ASIO）。不是 epoll/timerfd。 */
     auto* base = new bbt::pollevent::detail::EventBase(
         bbt::pollevent::detail::EventBaseConfigFlag::NO_CACHE_TIME |
         bbt::pollevent::detail::EventBaseConfigFlag::PRECISE_TIMER);
@@ -40,7 +41,7 @@ std::shared_ptr<bbt::pollevent::Event> CoPoller::CreateEvent(int fd, short event
 bool CoPoller::PollOnce()
 {
     errno = 0;
-    // 在 EventLoop 线程（Scheduler）安全销毁积压的 Event
+    /* 驱动 EventLoop，不直接 epoll_wait。积压 Event 在本线程销毁。 */
     {
         std::lock_guard<std::mutex> lock(m_deferred_mutex);
         m_deferred_destroy.clear();

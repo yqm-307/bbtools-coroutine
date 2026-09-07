@@ -56,6 +56,11 @@ target_link_libraries(Test_copollevent_state ${MY_LIBS})
 add_test(NAME Test_copollevent_state COMMAND Test_copollevent_state)
 set_tests_properties(Test_copollevent_state PROPERTIES TIMEOUT 30)
 
+add_executable(Test_eventloop_backend Test_eventloop_backend.cc)
+target_link_libraries(Test_eventloop_backend ${MY_LIBS})
+add_test(NAME Test_eventloop_backend COMMAND Test_eventloop_backend)
+set_tests_properties(Test_eventloop_backend PROPERTIES TIMEOUT 10)
+
 add_executable(Test_cond Test_cond.cc)
 target_link_libraries(Test_cond ${MY_LIBS})
 add_test(NAME Test_cond COMMAND Test_cond)
