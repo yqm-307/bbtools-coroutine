@@ -104,10 +104,12 @@ BOOST_AUTO_TEST_CASE(t_cancel_running_does_not_kill)
     bbtco [&]() {
         target.store(g_bbt_tls_coroutine_co);
         started.Down();
-        while (!g_bbt_tls_coroutine_co->IsCancelRequested()) {
+        /* do-while：先执行一轮再检查取消——消除"cancel 在首次检查前到达、
+         * steps 恒 0"的时序竞态（CI 实测），且仍验证协作式不强杀 */
+        do {
             steps.fetch_add(1);
             bbtco_yield;
-        }
+        } while (!g_bbt_tls_coroutine_co->IsCancelRequested());
         done.Down();
     };
 
@@ -131,10 +133,14 @@ BOOST_AUTO_TEST_CASE(t_cancel_runs_raii_dtors)
     };
 
     bbtco [&]() {
-        Guard g{&dtors};
-        target.store(g_bbt_tls_coroutine_co);
-        parked.Down();
-        g_bbt_tls_coroutine_co->YieldUntilTimeout(5000);
+        /* RAII 析断必须在 done.Down() 之前完成——否则主线程被唤醒后
+         * 可能在析构前读 dtors（CI 实测竞态） */
+        {
+            Guard g{&dtors};
+            target.store(g_bbt_tls_coroutine_co);
+            parked.Down();
+            g_bbt_tls_coroutine_co->YieldUntilTimeout(5000);
+        }
         done.Down();
     };
 
