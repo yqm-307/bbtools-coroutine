@@ -85,6 +85,47 @@ private:
 };
 
 /**
+ * 协程 IO 期间临时 O_NONBLOCK，返回时还原调用方 flags（#260）。
+ * 设不了非阻塞则失败返回，禁止在 blocking fd 上卡住 worker。
+ * ponytail: 按次还原；多协程共享同一 blocking fd 可能竞态。
+ */
+class CoIoNonblockGuard
+{
+public:
+    explicit CoIoNonblockGuard(int fd): m_fd(fd)
+    {
+        m_old = ::fcntl(fd, F_GETFL, 0);
+        if (m_old < 0) {
+            m_ok = false;
+            return;
+        }
+        if (m_old & O_NONBLOCK) {
+            m_ok = true;
+            return;
+        }
+        if (::fcntl(fd, F_SETFL, m_old | O_NONBLOCK) != 0) {
+            m_ok = false;
+            return;
+        }
+        m_restore = true;
+        m_ok = true;
+    }
+    ~CoIoNonblockGuard()
+    {
+        if (m_restore)
+            ::fcntl(m_fd, F_SETFL, m_old);
+    }
+    CoIoNonblockGuard(const CoIoNonblockGuard&) = delete;
+    CoIoNonblockGuard& operator=(const CoIoNonblockGuard&) = delete;
+    bool ok() const { return m_ok; }
+private:
+    int  m_fd{-1};
+    int  m_old{0};
+    bool m_ok{false};
+    bool m_restore{false};
+};
+
+/**
  * @brief 常规文件读写的偏移回退守卫（#190）
  *
  * 仅当 fd 是常规文件且可 seek 时记录初始偏移；析构时若尚未解除
@@ -142,6 +183,9 @@ int Hook_Socket(int domain, int type, int protocol)
 
 int Hook_Connect(int socket, const struct sockaddr *address, socklen_t address_len)
 {
+    CoIoNonblockGuard io{socket};
+    if (!io.ok())
+        return -1;
 
     while (g_bbt_sys_hook_connect_func(socket, address, address_len) != 0) {
         // EISCONN：连接已建立（非阻塞 connect 完成后重入），视为成功
@@ -187,6 +231,10 @@ int Hook_Sleep(int ms)
 
 ssize_t Hook_Read(int fd, void *buf, size_t nbytes)
 {
+    CoIoNonblockGuard io{fd};
+    if (!io.ok())
+        return -1;
+
     ssize_t read_len = -1;
     FileOffsetGuard offset_guard{fd};
 
@@ -213,6 +261,10 @@ ssize_t Hook_Read(int fd, void *buf, size_t nbytes)
 
 ssize_t Hook_Write(int fd, const void *buf, size_t n)
 {
+    CoIoNonblockGuard io{fd};
+    if (!io.ok())
+        return -1;
+
     ssize_t write_len = -1;
     FileOffsetGuard offset_guard{fd};
 
@@ -239,6 +291,10 @@ ssize_t Hook_Write(int fd, const void *buf, size_t n)
 
 int Hook_Accept(int fd, struct sockaddr *addr, socklen_t *len)
 {
+    CoIoNonblockGuard io{fd};
+    if (!io.ok())
+        return -1;
+
     int new_cli_fd = -1;
 
     while ((new_cli_fd = g_bbt_sys_hook_accept_func(fd, addr, len)) < 0) {
@@ -268,6 +324,10 @@ int Hook_Accept(int fd, struct sockaddr *addr, socklen_t *len)
 
 ssize_t Hook_Send(int fd, const void *buf, size_t n, int flags)
 {
+    CoIoNonblockGuard io{fd};
+    if (!io.ok())
+        return -1;
+
     ssize_t send_len = -1;
     while ((send_len = g_bbt_sys_hook_send_func(fd, buf, n, flags)) < 0) {
         /* 如果write没有立即成功，判断失败原因是否为正在执行写操作 */
@@ -291,6 +351,10 @@ ssize_t Hook_Send(int fd, const void *buf, size_t n, int flags)
 
 ssize_t Hook_Recv(int fd, void *buf, size_t n, int flags)
 {
+    CoIoNonblockGuard io{fd};
+    if (!io.ok())
+        return -1;
+
     ssize_t recv_len = -1;
     while ((recv_len = g_bbt_sys_hook_recv_func(fd, buf, n, flags)) < 0) {
         /* 如果read没有立即成功，判断失败原因是否为正在执行读操作 */
@@ -314,6 +378,10 @@ ssize_t Hook_Recv(int fd, void *buf, size_t n, int flags)
 
 ssize_t Hook_SendTo(int fd, const void *buf, size_t len, int flags, const struct sockaddr* dest_addr, socklen_t addrlen)
 {
+    CoIoNonblockGuard io{fd};
+    if (!io.ok())
+        return -1;
+
     ssize_t send_len = -1;
     while ((send_len = g_bbt_sys_hook_sendto_func(fd, buf, len, flags, dest_addr, addrlen)) < 0) {
         if (errno != EAGAIN && errno != EINTR && errno != EWOULDBLOCK)
@@ -336,6 +404,10 @@ ssize_t Hook_SendTo(int fd, const void *buf, size_t len, int flags, const struct
 
 ssize_t Hook_RecvFrom(int fd, void *buf, size_t len, int flags, struct sockaddr* src_addr, socklen_t* addrlen)
 {
+    CoIoNonblockGuard io{fd};
+    if (!io.ok())
+        return -1;
+
     ssize_t recv_len = -1;
     while ((recv_len = g_bbt_sys_hook_recvfrom_func(fd, buf, len, flags, src_addr, addrlen)) < 0) {
         if (errno != EAGAIN && errno != EINPROGRESS && errno != EINTR && errno != EWOULDBLOCK)
@@ -361,6 +433,10 @@ ssize_t Hook_RecvMsg(int fd, struct msghdr *msg, int flags)
     /* MSG_DONTWAIT：调用方明确要求不等待，协程内也直通原函数（#228） */
     if (flags & MSG_DONTWAIT)
         return g_bbt_sys_hook_recvmsg_func(fd, msg, flags);
+
+    CoIoNonblockGuard io{fd};
+    if (!io.ok())
+        return -1;
 
     ssize_t recv_len = -1;
     while ((recv_len = g_bbt_sys_hook_recvmsg_func(fd, msg, flags)) < 0) {
@@ -388,6 +464,10 @@ ssize_t Hook_SendMsg(int fd, const struct msghdr *msg, int flags)
     if (flags & MSG_DONTWAIT)
         return g_bbt_sys_hook_sendmsg_func(fd, msg, flags);
 
+    CoIoNonblockGuard io{fd};
+    if (!io.ok())
+        return -1;
+
     ssize_t send_len = -1;
     while ((send_len = g_bbt_sys_hook_sendmsg_func(fd, msg, flags)) < 0) {
         if (errno != EAGAIN && errno != EINTR && errno != EWOULDBLOCK)
@@ -410,6 +490,10 @@ ssize_t Hook_SendMsg(int fd, const struct msghdr *msg, int flags)
 
 ssize_t Hook_Readv(int fd, const struct iovec *iov, int iovcnt)
 {
+    CoIoNonblockGuard io{fd};
+    if (!io.ok())
+        return -1;
+
     ssize_t read_len = -1;
     /* 与 Hook_Read 相同：常规文件偏移回退守卫；iovec 整体注册事件，不拆段提交（#228） */
     FileOffsetGuard offset_guard{fd};
@@ -436,6 +520,10 @@ ssize_t Hook_Readv(int fd, const struct iovec *iov, int iovcnt)
 
 ssize_t Hook_Writev(int fd, const struct iovec *iov, int iovcnt)
 {
+    CoIoNonblockGuard io{fd};
+    if (!io.ok())
+        return -1;
+
     ssize_t write_len = -1;
     FileOffsetGuard offset_guard{fd};
 
@@ -467,6 +555,10 @@ ssize_t Hook_Writev(int fd, const struct iovec *iov, int iovcnt)
  */
 int Hook_Accept4(int fd, struct sockaddr *addr, socklen_t *len, int flags)
 {
+    CoIoNonblockGuard io{fd};
+    if (!io.ok())
+        return -1;
+
     int new_cli_fd = -1;
 
     if (g_bbt_sys_hook_accept4_func) {
