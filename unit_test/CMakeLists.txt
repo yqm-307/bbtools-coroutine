@@ -59,6 +59,11 @@ add_executable(Test_g_co Test_g_co.cc)
 target_link_libraries(Test_g_co ${MY_LIBS})
 add_test(NAME Test_g_co COMMAND Test_g_co)
 
+add_executable(Test_macro_wrap Test_macro_wrap.cc)
+target_link_libraries(Test_macro_wrap ${MY_LIBS})
+add_test(NAME Test_macro_wrap COMMAND Test_macro_wrap)
+set_tests_properties(Test_macro_wrap PROPERTIES TIMEOUT 10)
+
 add_executable(Test_chan Test_chan.cc)
 target_link_libraries(Test_chan ${MY_LIBS})
 add_test(NAME Test_chan COMMAND Test_chan)

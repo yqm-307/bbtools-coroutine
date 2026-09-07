@@ -4,6 +4,18 @@
 #include <bbt/coroutine/syntax/_EventHelper.hpp>
 #include <bbt/coroutine/syntax/_WaitForHelper.hpp>
 
+/**
+ * 宏只做稳定 C++ API 的薄封装，不另起状态机。
+ *
+ *   bbtco / bbtco_ref / bbtco_noexcept / bbtco_desc  → Scheduler::RegistCoroutineTask
+ *   bbtco_yield                                      → Coroutine::YieldAndPushGCoQueue
+ *   bbtco_sleep(ms)                                  → Hook_Sleep
+ *   bbtco_wait_for                                   → Coroutine::YieldUntilFdEx
+ *   bbtco_defer                                      → detail::Defer
+ *
+ * bbtco_desc(desc) 当前丢掉 desc，只当 bbtco。描述落库留给 #276。
+ */
+
 /* 辅助宏 */
 
 /**
@@ -24,7 +36,7 @@
 #define bbtco_noexcept(succ) bbt::coroutine::_CoHelper(succ)+ 
 
 /**
- * @brief 注册一个协程任务，实际上和bbtco一致，只是增强了可读性
+ * @brief 注册一个协程任务。desc 当前不保存，语义等同 bbtco。
  */
 #define bbtco_desc(desc) bbtco
 
