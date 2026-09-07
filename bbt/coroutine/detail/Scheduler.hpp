@@ -45,7 +45,7 @@ public:
     void                                        Stop();
     void                                        LoopOnce();
 
-    void                                        RegistCoroutineTask(const CoroutineCallback& handle);
+    void                                        RegistCoroutineTask(const CoroutineCallback& handle, const char* desc = nullptr);
     void                                        RegistCoroutineTask(const CoroutineCallback& handle, bool& succ) noexcept;
     /* 协程被激活，重新加入全局队列 */
     void                                        OnActiveCoroutine(CoroutinePriority priority, Coroutine::Ptr coroutine);

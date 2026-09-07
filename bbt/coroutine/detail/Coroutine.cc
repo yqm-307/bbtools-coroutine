@@ -19,9 +19,12 @@ CoroutineId Coroutine::_GenCoroutineId()
     return (++_generate_id);
 }
 
-Coroutine::Ptr Coroutine::Create(int stack_size, const CoroutineCallback& co_func, bool need_protect)
+Coroutine::Ptr Coroutine::Create(int stack_size, const CoroutineCallback& co_func, bool need_protect, const char* desc)
 {
-    return new Coroutine(stack_size, co_func, need_protect);
+    auto* co = new Coroutine(stack_size, co_func, need_protect);
+    if (desc != nullptr && desc[0] != '\0')
+        co->m_desc = desc;    // #276：bbtco_desc 落库
+    return co;
 }
 
 Coroutine::Coroutine(int stack_size, const CoroutineCallback& co_func, bool need_protect):
@@ -272,11 +275,29 @@ bool Coroutine::_RegistAwaitEvent()
 {
     auto await_event = m_await_event;
     if (await_event != nullptr && await_event->Regist() == 0)
+    {
+        /* 现场时戳（#276）：parked 起点；唤醒时清零 */
+        m_parked_us = bbt::core::clock::gettime_mono<bbt::core::clock::microseconds>();
         return true;
+    }
 
     m_await_event = nullptr;
     m_yield_disposition = CoroutineYieldDisposition::MANUAL;
     return false;
+}
+
+int Coroutine::GetWaitInfo(CoroutineWaitInfo& out) const noexcept
+{
+    /* 仅协程自身线程调用安全（同 Processer，无并发写者）；见头文件注释 */
+    if (m_await_event == nullptr || m_parked_us == 0)
+        return -1;
+
+    out.m_wait_event = m_await_event->GetEvent();
+    out.m_fd = (out.m_wait_event & (PollEventType::POLL_EVENT_READABLE | PollEventType::POLL_EVENT_WRITEABLE))
+               ? m_await_event->GetFd() : -1;
+    out.m_timeout_ms = m_await_event->GetTimeout() > 0 ? m_await_event->GetTimeout() : 0;
+    out.m_waited_us = bbt::core::clock::gettime_mono<bbt::core::clock::microseconds>() - m_parked_us;
+    return 0;
 }
 
 CoroutineYieldDisposition Coroutine::CommitYield()
@@ -318,6 +339,7 @@ void Coroutine::OnCoPollEvent(int event, int custom_key)
     Assert(m_await_event != nullptr);
 
     m_last_resume_event = event;
+    m_parked_us = 0;  // 唤醒即清等待现场（#276）
 
     // 先取消事件，然后push到全局队列中
     g_bbt_dbgp_full(("[CoEvent:Trigger] co=" + std::to_string(GetId()) + " trigger_event=" + std::to_string(event) + " id=" + std::to_string(m_await_event->GetId()) + " customkey=" + std::to_string(custom_key)).c_str());
