@@ -32,6 +32,8 @@ namespace bbt::coroutine::detail
  * 稳定入口：GetInstance / Start / Stop / LoopOnce / RegistCoroutineTask / IsRunning。
  * g_scheduler 即 GetInstance()，本阶段单例。
  * Start(THREAD) 后不要 LoopOnce。Stop 不排空业务等待（#267/#280）。
+ * EventLoop 只通过 CoPoller::PollOnce 驱动。不直接依赖 Poller/epoll/ASIO。
+ * 换 backend 改 CoPoller，不改本头。
  */
 class Scheduler
 {
