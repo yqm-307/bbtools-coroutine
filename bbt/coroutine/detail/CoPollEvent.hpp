@@ -1,5 +1,8 @@
 #pragma once
 #include <memory>
+#include <mutex>
+#include <unordered_map>
+#include <vector>
 #include <bbt/core/Attribute.hpp>
 #include <bbt/pollevent/Event.hpp>
 #include <bbt/coroutine/detail/Define.hpp>
@@ -44,6 +47,15 @@ public:
     int                             UnRegist();
     bool                            CommitPark();
 
+    /**
+     * @brief 唤醒正在等待 fd 的全部协程事件（#262）
+     *
+     * WHY: Linux 下 close(fd) 会把 epoll 关注项静默移除，不产生任何事件，
+     * 等待该 fd 的协程将永久挂起。Hook_Close 在真正 close 前调用本函数，
+     * 让被唤醒的协程重试 syscall 拿到 EBADF，按原生语义返回 -1/EBADF。
+     */
+    static void                     WakeupFdWaiters(int fd);
+
 protected:
     int                             _RegistFdEvent();
     int                             _CannelAllFdEvent();
@@ -62,6 +74,12 @@ private:
 
     CoPollEventCallback             m_onevent_callback{nullptr};
     std::atomic<uint64_t>           m_state{PackCoPollEventState(CoPollEventPhase::INITED)};
+
+    /* fd → 活跃等待事件注册表（WakeupFdWaiters 用，#262） */
+    static std::mutex                                       s_waiters_mtx;
+    static std::unordered_map<int, std::vector<std::weak_ptr<CoPollEvent>>> s_waiters;
+    void                            _TrackWaiter();
+    void                            _UntrackWaiter();
 };
 
 }

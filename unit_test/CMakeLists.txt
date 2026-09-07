@@ -62,6 +62,11 @@ target_link_libraries(Test_hook_timeout_flags ${MY_LIBS})
 add_test(NAME Test_hook_timeout_flags COMMAND Test_hook_timeout_flags)
 set_tests_properties(Test_hook_timeout_flags PROPERTIES TIMEOUT 15)
 
+add_executable(Test_hook_error_matrix Test_hook_error_matrix.cc)
+target_link_libraries(Test_hook_error_matrix ${MY_LIBS})
+add_test(NAME Test_hook_error_matrix COMMAND Test_hook_error_matrix)
+set_tests_properties(Test_hook_error_matrix PROPERTIES TIMEOUT 20)
+
 add_executable(Test_poller Test_poller.cc)
 target_link_libraries(Test_poller ${MY_LIBS})
 add_test(NAME Test_poller COMMAND Test_poller)
