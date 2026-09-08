@@ -1,4 +1,5 @@
 #include <hiredis/hiredis.h>
+#include <random>
 #include <bbt/coroutine/coroutine.hpp>
 
 /**
@@ -72,6 +73,34 @@ public:
         throw std::runtime_error("Unexpected reply type from Redis server, Reply type: " + std::to_string(reply_type));
     }
 
+    bool Exists(const std::string& key)
+    {
+        redisReply* reply = static_cast<redisReply*>(redisCommand(m_context, "EXISTS %s", key.c_str()));
+        if (reply == nullptr)
+            throw std::runtime_error("Failed to get EXISTS reply from Redis server");
+        if (reply->type != REDIS_REPLY_INTEGER) {
+            const int reply_type = reply->type;
+            freeReplyObject(reply);
+            throw std::runtime_error("Unexpected EXISTS reply type: " + std::to_string(reply_type));
+        }
+        const bool exists = reply->integer != 0;
+        freeReplyObject(reply);
+        return exists;
+    }
+
+    void Delete(const std::string& key)
+    {
+        redisReply* reply = static_cast<redisReply*>(redisCommand(m_context, "DEL %s", key.c_str()));
+        if (reply == nullptr)
+            throw std::runtime_error("Failed to get DEL reply from Redis server");
+        if (reply->type != REDIS_REPLY_INTEGER) {
+            const int reply_type = reply->type;
+            freeReplyObject(reply);
+            throw std::runtime_error("Unexpected DEL reply type: " + std::to_string(reply_type));
+        }
+        freeReplyObject(reply);
+    }
+
     void Run() {
         while (m_is_running) { sleep(1); };
     };
@@ -131,13 +160,30 @@ void Example2()
         copool->Submit([&, i]() {
             try {
                 RedisClient client("127.0.0.1", 6379);
-                client.Set("key" + std::to_string(i), "value" + std::to_string(i));
-                std::string value = client.Get("key" + std::to_string(i));
-                // std::cout << "Value for key" << i << ": " << value << std::endl;
-                if (value != "value" + std::to_string(i))
+                std::mt19937 rng(0x6d315f07u + static_cast<unsigned>(i));
+                const std::string key = "m1:acceptance:" + std::to_string(i);
+                const size_t value_len = 1 + (rng() % 256);
+                std::string value(value_len, 'a');
+                for (char& ch : value)
+                    ch = static_cast<char>(' ' + (rng() % 95));
+
+                client.Set(key, value);
+                std::string actual = client.Get(key);
+                if (actual != value || !client.Exists(key))
                     error_count++;
                 else
                     success_count++;
+
+                if ((rng() % 3) == 0) {
+                    client.Set(key, "");
+                    if (client.Get(key) != "")
+                        error_count++;
+                }
+                if ((rng() % 4) == 0) {
+                    client.Delete(key);
+                    if (client.Exists(key))
+                        error_count++;
+                }
 
                 wg.Down();
             } catch (const std::exception& e) {
@@ -150,6 +196,7 @@ void Example2()
 
     wg.Wait();
     std::cout << "Total successful operations: " << success_count.load() << std::endl;
+    std::cout << "Total errors: " << error_count.load() << std::endl;
 }
 
 int main()
