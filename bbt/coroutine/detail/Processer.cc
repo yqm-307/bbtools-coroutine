@@ -319,10 +319,13 @@ void Processer::Stop()
         std::this_thread::sleep_for(bbt::core::clock::milliseconds(100));
     }
 
-    /* 释放所有协程 */
+    /* 释放所有协程（#280）：m_is_running=false 后 _Run 已退出或 shutdown 跳过
+     * 执行，此处独占出队，逐个 delete 回收对象与栈（旧代码只置空，泄漏）。 */
     for (auto && it : m_coroutine_queue)
-        while (it.try_dequeue(item))
+        while (it.try_dequeue(item)) {
+            delete item;
             item = nullptr;
+        }
 
 }
 
