@@ -60,7 +60,9 @@ public:
     virtual uint64_t        GetUnhandledExceptionCount() const noexcept;
 
     /**
-     * @brief 阻塞直到，池中所有协程全部退出
+     * @brief 停止接收新任务（Submit* 返回 -1/空 future），等待池中协程退出，
+     *        并取消式排空队列滞留任务（不执行；带 future 的任务以
+     *        broken_promise 兑现，调用方不会永挂）。幂等，可重复调用。
      */
     virtual void            Release();
 protected:

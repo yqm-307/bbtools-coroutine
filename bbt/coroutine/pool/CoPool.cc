@@ -175,6 +175,13 @@ void CoPool::Release()
     if (g_scheduler->IsRunning()) {
         m_latch.Wait();
     }
+
+    /* #281 取消式停机：worker 全部退出后 drain 滞留任务。delete Work 释放其
+     * promise，未执行的 SubmitWithFuture 任务以 broken_promise 兑现，调用方
+     * 不再永挂。放在 worker 退出之后：drain 与消费不竞态，每个 Work 恰一处理。 */
+    Work* item = nullptr;
+    while (m_works_queue.try_dequeue(item))
+        delete item;
 }
 
 void CoPool::_Start()
