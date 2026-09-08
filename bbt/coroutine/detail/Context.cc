@@ -45,24 +45,36 @@ void Context::_CoroutineMain(boost::context::detail::transfer_t transfer)
     catch (...)
     {
         const auto eptr = std::current_exception();
-        if (auto co = g_bbt_tls_coroutine_co)
+        Coroutine* co = g_bbt_tls_coroutine_co;
+        if (co != nullptr)
             co->OnException(eptr);
+
+        /* #275：异常文本提取一份，日志与回调共用 */
+        std::string what{"unknown exception"};
+        try {
+            if (eptr)
+                std::rethrow_exception(eptr);
+        } catch (const std::exception& e) {
+            what = e.what();
+        } catch (...) {
+        }
 
         if (g_bbt_coroutine_config->m_ext_coevent_exception_callback != nullptr) {
             try {
-                std::string what{"unknown exception"};
-                try {
-                    if (eptr)
-                        std::rethrow_exception(eptr);
-                } catch (const std::exception& e) {
-                    what = e.what();
-                } catch (...) {
-                }
                 g_bbt_coroutine_config->m_ext_coevent_exception_callback(core::errcode::Errcode(what));
             } catch (...) {
                 /* 回调异常不得逃出 fcontext */
             }
         } else {
+            /* 契约 §5：detached 无人接收的异常必须日志 + 计数，禁止静默丢失。
+             * re-throw 会逃出 fcontext 导致 terminate，故交付 = 日志+计数。
+             * WHY 不用 WarnPrint：本 catch 运行在协程自身栈上，而
+             * DebugPrint 族内部各带 char[4096] 栈缓冲（vformat+VPrint≈8KB），
+             * 会打爆默认 4KB 协程栈；直接 fprintf 到 stderr，栈占用有界。
+             * 日志带 co id：与 parked 现场（#276）串联定位是哪个协程。 */
+            const CoroutineId co_id = (co != nullptr) ? co->GetId() : BBT_COROUTINE_INVALID_COROUTINE_ID;
+            std::fprintf(stderr, "[bbtco] unhandled exception co=%u: %.200s\n",
+                         static_cast<unsigned>(co_id), what.c_str());
             g_bbt_coroutine_config->m_unhandled_exception_count.fetch_add(1, std::memory_order_relaxed);
         }
     }
