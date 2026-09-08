@@ -8,6 +8,7 @@ compare_module / compare_environment / validate_module_metrics 均返回
 带 .status 的结果对象；脚本层按 status 决定退出码。
 """
 
+import argparse
 import contextlib
 import io
 import json
@@ -34,9 +35,11 @@ from perf_contract import (
     REQUIRED_MODULE_FIELDS,
     REQUIRED_TOP_LEVEL,
     VALID_VERDICTS,
+    baseline_write_allowed,
     collect_environment_fingerprint,
     compare_environment,
     compare_module,
+    detect_trend,
     make_report,
     normalize_module_metrics,
     validate_module_metrics,
@@ -531,6 +534,183 @@ class RecordMainTailTest(unittest.TestCase):
                     record_baseline.main()
             self.assertEqual(ctx.exception.code, 0)
             self.assertIn("Overall verdict: PASS", buf.getvalue())
+
+
+class BaselineWriteGateTest(unittest.TestCase):
+    """失败/取消/超时/无效指标不得写出新基线（#310）。"""
+
+    @staticmethod
+    def _mod(ops=1000):
+        return {"ops_total": ops * 10, "ops_per_sec": float(ops),
+                "errors": 0, "elapsed_s": 60.0}
+
+    def test_empty_modules_rejected(self):
+        self.assertFalse(baseline_write_allowed({}))
+
+    def test_error_module_rejected(self):
+        mods = {"comutex": self._mod(), "chan": {"error": "no_data"}}
+        self.assertFalse(baseline_write_allowed(mods))
+
+    def test_invalid_metric_rejected(self):
+        mods = {"comutex": self._mod(),
+                "chan": {"ops_total": 5, "errors": "x", "elapsed_s": 10}}
+        self.assertFalse(baseline_write_allowed(mods))
+
+    def test_all_valid_allowed(self):
+        mods = {m: self._mod() for m in ("comutex", "chan")}
+        self.assertTrue(baseline_write_allowed(mods))
+
+    def test_nan_ops_rejected(self):
+        # NaN 是 float 且比较恒 False，曾穿过闸门污染基线（astra review 实测）
+        mods = {"comutex": {"ops_total": float("nan"),
+                            "ops_per_sec": float("nan"),
+                            "errors": 0, "elapsed_s": 60.0}}
+        self.assertFalse(baseline_write_allowed(mods))
+
+    def test_negative_ops_rejected(self):
+        mods = {"comutex": {"ops_total": -5, "ops_per_sec": -0.1,
+                            "errors": 0, "elapsed_s": 60.0}}
+        self.assertFalse(baseline_write_allowed(mods))
+
+
+class TrendDetectionTest(unittest.TestCase):
+    """连续小幅退化判断（#310）。"""
+
+    @staticmethod
+    def _series(ops_list):
+        return [{"schema_version": 1,
+                 "modules": {"comutex": {
+                     "ops_total": o * 10, "ops_per_sec": float(o),
+                     "errors": 0, "elapsed_s": 60.0}}}
+                for o in ops_list]
+
+    def test_insufficient_baselines_no_flag(self):
+        self.assertEqual(detect_trend(self._series([100, 90])), {})
+
+    def test_consecutive_small_drop_flagged(self):
+        # 100→95→90→80：每步下降，累计 -20% > 15%
+        flags = detect_trend(self._series([100, 95, 90, 80]))
+        self.assertIn("comutex", flags)
+        self.assertEqual(flags["comutex"]["steps"], 3)
+        self.assertAlmostEqual(flags["comutex"]["total_pct"], -20.0)
+
+    def test_drops_under_cumulative_threshold_not_flagged(self):
+        # 累计 -10% 未超过 15% 阈值
+        self.assertEqual(detect_trend(self._series([100, 98, 96, 90])), {})
+
+    def test_non_monotonic_not_flagged(self):
+        # 中途回升（95→97）不判趋势，避免噪声
+        self.assertEqual(detect_trend(self._series([100, 95, 97, 80])), {})
+
+    def test_error_in_window_skips_module(self):
+        series = self._series([100, 95, 90, 80])
+        series[2]["modules"]["comutex"] = {"error": "timeout"}
+        self.assertEqual(detect_trend(series), {})
+
+
+class CorruptBaselineTest(unittest.TestCase):
+    """基线损坏：显式 NO_COMPARABLE_BASELINE，不 traceback、不 exit 2。"""
+
+    def _args(self, path, **over):
+        ns = argparse.Namespace(baseline=path, no_baseline_compare=False,
+                                quick_smoke=False)
+        for k, v in over.items():
+            setattr(ns, k, v)
+        return ns
+
+    def test_invalid_json_returns_none_with_corrupt_desc(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bad = Path(tmp) / "bad.json"
+            bad.write_text("{not json")
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                baseline, desc = ci_perf_check.load_baseline(self._args(str(bad)))
+            self.assertIsNone(baseline)
+            self.assertTrue(desc.startswith("corrupt:"))
+            self.assertIn("NO_COMPARABLE_BASELINE", buf.getvalue())
+
+    def test_missing_modules_key_is_corrupt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bad = Path(tmp) / "empty.json"
+            bad.write_text(json.dumps({"schema_version": 1}))
+            baseline, _ = ci_perf_check.load_baseline(self._args(str(bad)))
+            self.assertIsNone(baseline)
+
+    def test_valid_baseline_loads(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            good = Path(tmp) / "ok.json"
+            good.write_text(json.dumps(_baseline_file(_full_env(),
+                                                      {"comutex": 1000})))
+            baseline, desc = ci_perf_check.load_baseline(self._args(str(good)))
+            self.assertIsNotNone(baseline)
+            self.assertEqual(desc, str(good))
+
+
+class ExitCodeAndSummaryConsistencyTest(unittest.TestCase):
+    """verdict、退出码、GitHub summary 注解三者一致（#310）。"""
+
+    def test_warn_exit_zero_gate_off(self):
+        # WARN 不阻塞（红叉会让"初期不阻断"契约失效），FAIL 阻断
+        self.assertEqual(ci_perf_check.EXIT_MAP["WARN"], 0)
+        self.assertEqual(ci_perf_check.EXIT_MAP["FAIL"], 2)
+        self.assertEqual(ci_perf_check.EXIT_MAP["NO_COMPARABLE_BASELINE"], 0)
+
+    def test_no_baseline_still_not_pass(self):
+        # NO_COMPARABLE_BASELINE 是独立 verdict，不得与 PASS 混同
+        self.assertIn("NO_COMPARABLE_BASELINE", VALID_VERDICTS)
+        self.assertNotIn("PASS", {"NO_COMPARABLE_BASELINE"})
+
+    def test_summary_warn_writes_annotation(self):
+        results = [{"module": "comutex", "status": "WARN", "new_ops": 800,
+                    "old_ops": 1000, "delta_pct": -20.0}]
+        with tempfile.TemporaryDirectory() as tmp:
+            summary = Path(tmp) / "summary.md"
+            with mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": str(summary)}), \
+                    contextlib.redirect_stdout(io.StringIO()) as out:
+                ci_perf_check.write_github_summary(results, "WARN")
+            text = summary.read_text()
+            self.assertIn("WARN", text)
+            self.assertIn("::warning::", out.getvalue())
+
+    def test_summary_fail_writes_annotation(self):
+        results = [{"module": "comutex", "status": "FAIL", "new_ops": 700,
+                    "old_ops": 1000, "delta_pct": -30.0}]
+        with tempfile.TemporaryDirectory() as tmp:
+            summary = Path(tmp) / "summary.md"
+            with mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": str(summary)}), \
+                    contextlib.redirect_stdout(io.StringIO()) as out:
+                ci_perf_check.write_github_summary(results, "FAIL")
+            self.assertIn("::error::", out.getvalue())
+
+
+class ThresholdBoundaryTest(unittest.TestCase):
+    """10%/20%/CoCond 30%/40% 边界（#310）。"""
+
+    def test_just_under_10pct_pass(self):
+        self.assertEqual(compare_module(1000, 901, "comutex").status, "PASS")
+
+    def test_exactly_10pct_warn(self):
+        self.assertEqual(compare_module(1000, 900, "comutex").status, "WARN")
+
+    def test_just_under_20pct_stays_warn(self):
+        self.assertEqual(
+            compare_module(1000, 801, "comutex", gate_enabled=True).status,
+            "WARN")
+
+    def test_exactly_20pct_fail_when_gate_on(self):
+        self.assertEqual(
+            compare_module(1000, 800, "comutex", gate_enabled=True).status,
+            "FAIL")
+
+    def test_cocond_30_warn_40_fail_boundaries(self):
+        self.assertEqual(compare_module(1000, 700, "cocond").status, "WARN")
+        self.assertEqual(
+            compare_module(1000, 600, "cocond", gate_enabled=True).status,
+            "FAIL")
+        # 普通模块该档位已是 FAIL（gate on），CoCond 更宽
+        self.assertEqual(
+            compare_module(1000, 600, "comutex", gate_enabled=True).status,
+            "FAIL")
 
 
 if __name__ == "__main__":

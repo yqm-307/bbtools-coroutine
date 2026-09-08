@@ -40,6 +40,9 @@ build*/
 # Test and benchmark outputs
 /tests/reports/*
 !tests/reports/README.md
+/tests/ci-reports/
+# 性能基线长期记录在 perf-baseline orphan 分支，main 工作区不跟踪
+/tests/baselines/
 /benchmark_test/compare/bin/
 
 # Local worktrees
