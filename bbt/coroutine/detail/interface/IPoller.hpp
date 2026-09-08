@@ -8,7 +8,8 @@ namespace bbt::coroutine::detail
 class IPoller
 {
 public:
-    /* 遗留接口，CoPoller 未实现。EventLoop 契约见 CoPoller.hpp。 */
+    /* 遗留接口，CoPoller 未实现。EventLoop 契约见 CoPoller.hpp。
+       换 backend 改 CoPoller，不实现本类型。 */
     /**
      * @brief 注册一个事件
      * 

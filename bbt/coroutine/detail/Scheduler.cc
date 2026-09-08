@@ -111,7 +111,8 @@ void Scheduler::_OnUpdate()
         }
 #endif
 
-        /* 只通过 EventLoop 门面驱动 FD/Timer/Wakeup，不直接调 epoll。 */
+        /* 只通过 EventLoop 门面驱动 FD/Timer/Wakeup，不直接调 epoll。
+           只调 EventLoop 门面，不直连 epoll/ASIO。换 backend 不改这里。 */
         actived = g_bbt_poller->PollOnce();
         _FixTimingScan();
         g_bbt_stackpoll->OnUpdate();
