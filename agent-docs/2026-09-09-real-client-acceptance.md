@@ -27,8 +27,8 @@ socket 作为阻塞式客户端，覆盖：
 
 由 `example/redis/co_with_hiredis.cc` 使用 hiredis 1.1.0 连接本机 Redis，覆盖：
 
-- 10000 个协程池任务；
-- 每个任务在协程内创建和释放独占 `redisContext`；
+- 10 个协程池任务，每个任务复用一个独占 `redisContext`；
+- 每个任务执行 1,000 次混合操作，总计 10,000 次写入/读取校验；
 - 同步阻塞 `SET` / `GET`；
 - 1–256 字节可打印随机值；
 - `EXISTS` 存在性检查；

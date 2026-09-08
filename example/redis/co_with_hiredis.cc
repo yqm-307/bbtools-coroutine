@@ -151,38 +151,43 @@ void Example1()
 void Example2()
 {
     auto copool = bbtco_make_copool(10);
-    auto wg = bbt::core::thread::CountDownLatch(10000);
+    constexpr int kWorkers = 10;
+    constexpr int kOperationsPerWorker = 1000;
+    auto wg = bbt::core::thread::CountDownLatch(kWorkers);
     std::atomic_int success_count{0};
     std::atomic_int error_count{0};
 
-    for (int i = 0; i < 10000; ++i)
+    for (int worker = 0; worker < kWorkers; ++worker)
     {
-        copool->Submit([&, i]() {
+        copool->Submit([&, worker]() {
             try {
                 RedisClient client("127.0.0.1", 6379);
-                std::mt19937 rng(0x6d315f07u + static_cast<unsigned>(i));
-                const std::string key = "m1:acceptance:" + std::to_string(i);
-                const size_t value_len = 1 + (rng() % 256);
-                std::string value(value_len, 'a');
-                for (char& ch : value)
-                    ch = static_cast<char>(' ' + (rng() % 95));
+                std::mt19937 rng(0x6d315f07u + static_cast<unsigned>(worker));
+                for (int i = 0; i < kOperationsPerWorker; ++i) {
+                    const int operation_id = worker * kOperationsPerWorker + i;
+                    const std::string key = "m1:acceptance:" + std::to_string(operation_id);
+                    const size_t value_len = 1 + (rng() % 256);
+                    std::string value(value_len, 'a');
+                    for (char& ch : value)
+                        ch = static_cast<char>(' ' + (rng() % 95));
 
-                client.Set(key, value);
-                std::string actual = client.Get(key);
-                if (actual != value || !client.Exists(key))
-                    error_count++;
-                else
-                    success_count++;
+                    client.Set(key, value);
+                    std::string actual = client.Get(key);
+                    if (actual != value || !client.Exists(key))
+                        error_count++;
+                    else
+                        success_count++;
 
-                if ((rng() % 3) == 0) {
-                    client.Set(key, "");
-                    if (client.Get(key) != "")
-                        error_count++;
-                }
-                if ((rng() % 4) == 0) {
-                    client.Delete(key);
-                    if (client.Exists(key))
-                        error_count++;
+                    if ((rng() % 3) == 0) {
+                        client.Set(key, "");
+                        if (client.Get(key) != "")
+                            error_count++;
+                    }
+                    if ((rng() % 4) == 0) {
+                        client.Delete(key);
+                        if (client.Exists(key))
+                            error_count++;
+                    }
                 }
 
                 wg.Down();

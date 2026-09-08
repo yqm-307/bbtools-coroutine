@@ -161,7 +161,7 @@ def run_hiredis(binary: Path, timeout: int, redis_port: int) -> None:
         raise RuntimeError(f"hiredis reported operation errors: {output[-1000:]!r}")
     if "Error:" in output or "Assertion failed" in output:
         raise RuntimeError("hiredis reported an error")
-    print("hiredis PASS tasks=10000 commands>=40000 errors=0")
+    print("hiredis PASS workers=10 operations=10000 commands>=40000 errors=0")
 
 
 def main() -> int:
