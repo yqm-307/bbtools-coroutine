@@ -560,6 +560,18 @@ class BaselineWriteGateTest(unittest.TestCase):
         mods = {m: self._mod() for m in ("comutex", "chan")}
         self.assertTrue(baseline_write_allowed(mods))
 
+    def test_nan_ops_rejected(self):
+        # NaN 是 float 且比较恒 False，曾穿过闸门污染基线（astra review 实测）
+        mods = {"comutex": {"ops_total": float("nan"),
+                            "ops_per_sec": float("nan"),
+                            "errors": 0, "elapsed_s": 60.0}}
+        self.assertFalse(baseline_write_allowed(mods))
+
+    def test_negative_ops_rejected(self):
+        mods = {"comutex": {"ops_total": -5, "ops_per_sec": -0.1,
+                            "errors": 0, "elapsed_s": 60.0}}
+        self.assertFalse(baseline_write_allowed(mods))
+
 
 class TrendDetectionTest(unittest.TestCase):
     """连续小幅退化判断（#310）。"""

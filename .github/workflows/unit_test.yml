@@ -118,7 +118,8 @@ jobs:
           if git ls-remote --exit-code origin refs/heads/perf-baseline >/dev/null 2>&1; then
             git fetch --depth=1 origin refs/heads/perf-baseline
             mkdir -p tests
-            git checkout FETCH_HEAD -- tests/baselines
+            # checkout 失败（路径缺失/损坏）不得红叉：继续走 NO_COMPARABLE_BASELINE
+            git checkout FETCH_HEAD -- tests/baselines || echo "⚠️ baseline checkout failed"
             echo "Baselines available:"; ls -la tests/baselines/*/ | head -20
           else
             echo "⚠️ no perf-baseline branch — check will report NO_COMPARABLE_BASELINE"

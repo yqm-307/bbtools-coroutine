@@ -279,8 +279,10 @@ def load_baseline(args):
         print("No baseline found — verdict: NO_COMPARABLE_BASELINE")
         return None, "none"
     if not os.path.exists(path):
-        print(f"ERROR: baseline not found: {path}")
-        sys.exit(2)
+        # 缺失与损坏同级：显式 NO_COMPARABLE_BASELINE，不作门禁失败
+        print(f"ERROR: baseline not found: {path} — "
+              f"verdict: NO_COMPARABLE_BASELINE")
+        return None, f"corrupt:{path}"
     # 基线损坏（非法 JSON/缺顶层键）不得 traceback，也不得静默当可比：
     # 显式 NO_COMPARABLE_BASELINE 并保留报告路径
     try:

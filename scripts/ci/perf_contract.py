@@ -15,6 +15,7 @@ write_markdown_report（写文件），供脚本层在边界调用。
 """
 
 import json
+import math
 import os
 import platform
 from dataclasses import dataclass, field
@@ -121,19 +122,23 @@ def normalize_module_metrics(raw):
         return None
     if not {"ops_total", "errors", "elapsed_s"} <= set(raw):
         return None
-    # 必需数值字段：bool 是 int 子类，一并拒绝
+    # 必需数值字段：bool 是 int 子类一并拒绝；NaN/inf/负值同样非法
+    # （NaN 会穿过写闸门污染基线与趋势，实测确认）
     for key in ("ops_total", "errors", "elapsed_s"):
         value = raw[key]
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             return None
+        if not math.isfinite(value) or value < 0:
+            return None
     elapsed = raw["elapsed_s"]
     if elapsed <= 0:
         return None
-    # 延迟字段可选；若出现必须为数值（check_latency 会做除法）
+    # 延迟字段可选；若出现必须为非负有限数值（check_latency 会做除法）
     for key in ("lock_avg_us", "wlock_avg_us", "cond_avg_us"):
         value = raw.get(key)
         if value is not None and (
             isinstance(value, bool) or not isinstance(value, (int, float))
+            or not math.isfinite(value) or value < 0
         ):
             return None
 
