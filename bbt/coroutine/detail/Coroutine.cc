@@ -118,8 +118,9 @@ CoroutineStatus Coroutine::GetStatus() const noexcept
     return m_run_status;
 }
 
-void Coroutine::OnException() noexcept
+void Coroutine::OnException(std::exception_ptr eptr) noexcept
 {
+    m_exception = std::move(eptr);
     m_yield_disposition = CoroutineYieldDisposition::FINAL;
     m_run_status = CoroutineStatus::CO_FINAL;
     if (auto ev = _AwaitEvent()) {
@@ -150,6 +151,11 @@ void Coroutine::_SetAwaitEvent(std::shared_ptr<CoPollEvent> ev)
 {
     std::lock_guard<std::mutex> lk(m_await_mu);
     m_await_event = std::move(ev);
+}
+
+std::exception_ptr Coroutine::GetException() const noexcept
+{
+    return m_exception;
 }
 
 int Coroutine::YieldUntilTimeout(int ms)

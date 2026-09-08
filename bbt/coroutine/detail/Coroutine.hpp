@@ -1,5 +1,6 @@
 #pragma once
 #include <atomic>
+#include <exception>
 #include <memory>
 #include <mutex>
 #include <bbt/core/Attribute.hpp>
@@ -104,7 +105,8 @@ public:
      */
     const std::string&              GetDescription() const noexcept { return m_desc; }
     int                             GetWaitInfo(CoroutineWaitInfo& out) const noexcept;
-    void                            OnException() noexcept;
+    void                            OnException(std::exception_ptr eptr = nullptr) noexcept;
+    std::exception_ptr              GetException() const noexcept;
 
     /**
      * 协作式取消：只置位并唤醒等待中的协程，不强杀运行中的用户代码。
@@ -189,6 +191,7 @@ private:
     std::shared_ptr<CoPollEvent>    m_await_event{nullptr};
     mutable std::mutex              m_await_mu;
     std::atomic_bool                m_cancel_requested{false};
+    std::exception_ptr              m_exception;
     CoroutineOnYieldCallback        m_co_onyield_callback{nullptr};
     CoroutineYieldDisposition       m_yield_disposition{CoroutineYieldDisposition::MANUAL};
 
