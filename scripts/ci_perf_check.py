@@ -218,7 +218,7 @@ def check_latency(old_mod, new_mod):
     return False, 0.0
 
 
-def write_github_summary(results, verdict):
+def write_github_summary(results, verdict, gate_enabled=False):
     """输出 GitHub Actions Step Summary（存在 GITHUB_STEP_SUMMARY 时）。
 
     overall 判定由调用方（main 聚合后的 verdict）传入，保证 summary 与
@@ -245,13 +245,15 @@ def write_github_summary(results, verdict):
     lines.append(f"**Overall**: {verdict}")
     if verdict == "WARN":
         lines.append("")
-        lines.append("> 门禁初期不阻塞合并（--gate-enabled 关闭）。"
-                     "WARN 表示实测退化达到阈值，需人工复核。")
+        lines.append("> WARN 不阻塞合并，需人工复核；FAIL"
+                     + ("（当前 gate 已开启）" if gate_enabled
+                        else "（当前 gate 关闭，降级 WARN）")
+                     + "以 exit 2 阻断。")
     with open(summary_path, "a") as f:
         f.write("\n".join(lines) + "\n")
     # WARN 必须在 Actions UI 可见（注解），不得静默通过
     if verdict == "WARN":
-        print("::warning::perf-regression overall WARN（初期不阻塞合并，需人工复核）")
+        print("::warning::perf-regression overall WARN（不阻塞合并，需人工复核）")
     elif verdict == "FAIL":
         print("::error::perf-regression overall FAIL")
 
@@ -440,7 +442,7 @@ def main():
     print(f"\nReport: {json_path}")
     print(f"Markdown: {json_path.with_suffix('.md')}")
 
-    write_github_summary(results, verdict)
+    write_github_summary(results, verdict, gate_enabled=args.gate_enabled)
 
     # Terminal summary
     print(f"\n{'Module':<12} {'Old ops/s':>10} {'New ops/s':>10} {'Delta':>8} {'Verdict':>24}")
