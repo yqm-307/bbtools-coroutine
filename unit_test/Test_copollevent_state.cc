@@ -529,6 +529,54 @@ BOOST_AUTO_TEST_CASE(t_system_readable_event_completes_once_after_commit)
     BOOST_CHECK_EQUAL(::close(fds[1]), 0);
 }
 
+BOOST_AUTO_TEST_CASE(t_peer_close_completes_readable_wait)
+{
+    int fds[2];
+    BOOST_REQUIRE_EQUAL(::pipe(fds), 0);
+
+    std::atomic_int n{0};
+    auto event = CoPollEvent::Create(1, [&](auto, int, int){ n.fetch_add(1); });
+
+    BOOST_REQUIRE_EQUAL(event->InitFdEvent(fds[0], bbt::pollevent::EventOpt::READABLE, 0), 0);
+    BOOST_REQUIRE_EQUAL(event->Regist(), 0);
+    BOOST_REQUIRE_EQUAL(event->CommitPark(), false);
+
+    BOOST_REQUIRE_EQUAL(::close(fds[1]), 0);
+    fds[1] = -1;
+
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (n.load() == 0 && std::chrono::steady_clock::now() < deadline) {
+        CoPoller::GetInstance()->PollOnce();
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    BOOST_CHECK_EQUAL(n.load(), 1);
+    BOOST_CHECK(event->IsFinal());
+    BOOST_CHECK_EQUAL(event->Trigger(POLL_EVENT_CUSTOM), -1);
+
+    event->UnRegist();
+    BOOST_CHECK_EQUAL(::close(fds[0]), 0);
+    fds[0] = -1;
+}
+
+BOOST_AUTO_TEST_CASE(t_destroy_parked_event_does_not_callback)
+{
+    std::atomic_int n{0};
+    {
+        auto event = CoPollEvent::Create(1, [&](auto, int, int){ n.fetch_add(1); });
+        BOOST_REQUIRE_EQUAL(event->InitFdEvent(-1, bbt::pollevent::EventOpt::TIMEOUT, 40), 0);
+        BOOST_REQUIRE_EQUAL(event->Regist(), 0);
+        BOOST_REQUIRE_EQUAL(event->CommitPark(), false);
+        event.reset();
+    }
+
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(200);
+    while (std::chrono::steady_clock::now() < deadline) {
+        CoPoller::GetInstance()->PollOnce();
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    BOOST_CHECK_EQUAL(n.load(), 0);
+}
+
 BOOST_AUTO_TEST_CASE(t_multi_processer_yield_requeues_each_coroutine_once_per_iteration)
 {
     constexpr int kProcesserCount = 3;

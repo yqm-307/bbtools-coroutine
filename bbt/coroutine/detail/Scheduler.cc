@@ -1,4 +1,6 @@
 #include <cmath>
+#include <cstring>
+#include <cstdio>
 #include <bbt/core/log/DebugPrint.hpp>
 #include <bbt/core/clock/Clock.hpp>
 #include <bbt/core/Attribute.hpp>
@@ -92,6 +94,70 @@ void Scheduler::OnActiveCoroutine(CoroutinePriority priority, Coroutine::Ptr cor
 
 void Scheduler::_FixTimingScan()
 {
+    /* worker 无进展检测（#277）：调度线程独立于 worker，每拍扫描各 worker
+     * 的锁存快照。阈值=0 时整段跳过（零开销）。 */
+    const size_t warn_ms = g_bbt_coroutine_config->m_cfg_worker_stall_warn_ms;
+    if (warn_ms == 0)
+        return;
+
+    const uint64_t now_us = bbt::core::clock::gettime_mono<bbt::core::clock::us>();
+    const uint64_t threshold_us = (uint64_t)warn_ms * 1000;
+
+    std::vector<WorkerStallInfo> pending;
+    {
+    /* 锁内只收集快照；用户回调一律出锁调用——回调若触达 Scheduler API
+     * （同线程重入）会造成自死锁，审查（deleg_a2f79818）判定 Important。 */
+    std::lock_guard<std::mutex> _(m_processer_map_mutex);
+    for (auto&& [pid, proc] : m_processer_map)
+    {
+        if (!proc->m_executing.load(std::memory_order_acquire))
+            continue;   // worker 空闲/协程已让出，不算停顿
+
+        /* seqlock 读：取稳定快照 */
+        uint64_t s1 = proc->m_exec_seq.load(std::memory_order_acquire);
+        if (s1 & 1)
+            continue;   // 正在写入，跳过一拍
+        uint64_t begin_us = proc->m_exec_begin_us;
+        CoroutineId co_id = proc->m_exec_co_id;
+        uint64_t backlog = proc->m_exec_backlog;
+        char desc[sizeof(proc->m_exec_desc)];
+        memcpy(desc, proc->m_exec_desc, sizeof(desc));
+        /* acquire 尾检：把字段读排序在两次 seq 读之间，消除形式数据竞争
+         *（#277 review：relaxed 尾检理论上可让撕裂快照通过） */
+        uint64_t s2 = proc->m_exec_seq.load(std::memory_order_acquire);
+        if (s1 != s2 || begin_us == 0)
+            continue;   // 读到撕裂数据
+
+        if (now_us - begin_us < threshold_us)
+            continue;
+
+        if (proc->m_last_stall_report_begin == begin_us)
+            continue;   // 同一停顿只报一次（协程仍在死循环中）
+        proc->m_last_stall_report_begin = begin_us;
+
+        WorkerStallInfo info;
+        info.m_worker_id = pid;
+        info.m_co_id = co_id;
+        info.m_desc.assign(desc);
+        info.m_running_us = now_us - begin_us;
+        info.m_backlog = backlog;
+        pending.push_back(std::move(info));
+    }
+    } /* 出锁 */
+
+    for (auto& info : pending)
+    {
+        if (g_bbt_coroutine_config->m_ext_worker_stall_callback) {
+            try { g_bbt_coroutine_config->m_ext_worker_stall_callback(info); }
+            catch (...) { /* 回调契约：不得抛出；抛出吞掉保调度线程 */ }
+        } else {
+            /* 无回调 = stderr 告警一行 */
+            fprintf(stderr, "[bbtco] worker stall: worker=%llu co=%llu desc='%s' running=%llums backlog=%llu\n",
+                    (unsigned long long)info.m_worker_id, (unsigned long long)info.m_co_id,
+                    info.m_desc.c_str(), (unsigned long long)(info.m_running_us / 1000),
+                    (unsigned long long)info.m_backlog);
+        }
+    }
 }
 
 void Scheduler::_OnUpdate()
@@ -272,8 +338,13 @@ void Scheduler::_DestoryProcessers()
     /* 停止所有执行processer */
     for (auto item : m_processer_map)
         item.second->Stop();
-    m_processer_map.clear();
-    m_load_blance_vec.clear();
+    /* #277 review：调度线程(_FixTimingScan)持锁迭代 map，clear 必须同锁，
+     * 否则 Stop 时并发 erase/iterate = UB（sche 线程此刻尚未 join） */
+    {
+        std::lock_guard<std::mutex> _(m_processer_map_mutex);
+        m_processer_map.clear();
+        m_load_blance_vec.clear();
+    }
 
     /* 释放所有执行processer的线程 */
     for (auto&& proc_thread : m_proc_threads) {
