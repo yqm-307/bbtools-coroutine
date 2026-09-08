@@ -364,6 +364,7 @@ int Coroutine::GetWaitInfo(CoroutineWaitInfo& out) const noexcept
     out.m_timeout_ms = m_await_event->GetTimeout() > 0 ? m_await_event->GetTimeout() : 0;
     out.m_waited_us = bbt::core::clock::gettime_mono<bbt::core::clock::microseconds>() - m_parked_us;
     return 0;
+}
 
 void Coroutine::_TrackParked()
 {
