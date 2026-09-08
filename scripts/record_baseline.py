@@ -9,8 +9,11 @@ record_baseline.py — 记录/比较 bbtools-coroutine 性能基线（任务 4 �
 
 输出:
   record → 统一 Schema 基线 JSON（含环境指纹，perf_contract schema）；
-           默认 tests/baselines/<machine>/<ts>_<commit>.json
+           默认 tests/baselines/<machine>/<ts>_<commit>.json；
+           任一模块无数据/超时/指标无效时拒绝写入（exit 2），
+           失败、取消或半截结果不得覆盖好基线。
   compare → 逐模块对比，阈值/判定复用 perf_contract（CoCond 放宽 30%）。
+  trend → 读最近 N 份基线，报告连续小幅退化（perf_contract.detect_trend）。
 
 兼容性:
   - 旧格式基线（无 environment 指纹、ops_per_s 字段）可被读取：记录仍可
@@ -206,6 +209,13 @@ def record_baseline(threads, duration, quick=False, output=None,
 
     verdict = "PASS" if not any(
         m.get("error") for m in modules.values()) else "FAIL"
+    # 写入闸门：任一模块无效即拒绝落盘，防止坏基线覆盖好基线。
+    # micro_bench 不参与闸门：micro_co_switch 不在 CI 构建目标内，
+    # 缺失是常态（记录时已打印 WARN），不得因此阻断 main 基线。
+    if not perf_contract.baseline_write_allowed(modules):
+        bad = [k for k, v in modules.items() if v.get("error")]
+        print(f"\nERROR: refusing to write baseline, invalid modules: {bad}")
+        sys.exit(2)
     baseline = perf_contract.make_report(
         repository=REPOSITORY,
         commit=commit,
@@ -343,6 +353,32 @@ def latest_baseline(machine_slug=None):
     return os.path.join(path, files[0]) if files else None
 
 
+def cmd_trend(n):
+    """读本机最近 n 份基线（升序），报告连续小幅退化。exit 1 = 有趋势。"""
+    machine_slug = re.sub(r'[^\w\-]', '_', platform.node())
+    base_dir = os.path.join(BASELINE_DIR, machine_slug)
+    if not os.path.isdir(base_dir):
+        print("NO_COMPARABLE_BASELINE (no local baselines)")
+        return 0
+    files = sorted([f for f in os.listdir(base_dir) if f.endswith(".json")])
+    reports = []
+    for name in files[-n:]:
+        try:
+            with open(os.path.join(base_dir, name)) as f:
+                reports.append(json.load(f))
+        except (json.JSONDecodeError, OSError) as exc:
+            print(f"⚠️ skip unreadable baseline {name}: {exc}")
+    flags = perf_contract.detect_trend(reports)
+    if not flags:
+        print(f"Trend OK ({len(reports)} baselines examined)")
+        return 0
+    print("连续退化趋势（逐次下降且累计超阈值）:")
+    for module, info in sorted(flags.items()):
+        print(f"  ❌ {module}: {info['steps']} 连降，累计 {info['total_pct']:+.1f}%")
+    print("要求：创建专项性能修复 Issue（见 docs/ci-guide.md 门禁策略）。")
+    return 1
+
+
 def main():
     parser = argparse.ArgumentParser(description="bbtools-coroutine performance baseline tool")
     sub = parser.add_subparsers(dest="command")
@@ -359,7 +395,14 @@ def main():
     compare.add_argument("baseline2", nargs="?", help="New baseline path (default: latest)")
     compare.add_argument("--latest-only", action="store_true", help="Compare latest two baselines")
 
+    trend = sub.add_parser("trend", help="Detect consecutive small regressions")
+    trend.add_argument("--window", type=int, default=perf_contract.TREND_WINDOW,
+                       help="Number of recent baselines to inspect")
+
     args = parser.parse_args()
+
+    if args.command == "trend":
+        sys.exit(cmd_trend(args.window))
 
     if args.command == "record":
         record_baseline(args.threads, args.dur, args.quick,

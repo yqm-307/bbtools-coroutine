@@ -13,10 +13,14 @@ ci_perf_check.py — CI 门禁：快速性能回归检查（任务 4 统一 Sche
   - 输出统一 JSON 报告（perf_contract schema）与 Markdown 摘要；
   - 无基线或环境指纹不一致 → NO_COMPARABLE_BASELINE（exit 0）；
   - 门禁阈值 (ADR D6)：<10% PASS / 10%~20% WARN / >20% FAIL；
-    --gate-enabled 默认关闭，>20% 退化仅报 WARN，不阻塞 PR；
+    --gate-enabled 关闭（默认）时 >20% 降级为 WARN：exit 0 不阻塞 PR，
+    但在 GitHub summary 与 ::warning:: 注解中显式显示，不伪装 PASS；
+    --gate-enabled 开启时 FAIL 保留并以 exit 2 阻断合并。
   - 不在 PR Job 中隐式写基线（基线由 record_baseline.py 显式记录）。
 
-退出码: PASS/NO_COMPARABLE_BASELINE → 0, WARN → 1, FAIL/METRIC_INVALID → 2。
+退出码: PASS/WARN/NO_COMPARABLE_BASELINE → 0（WARN 走注解可见），
+FAIL/METRIC_INVALID → 2。WARN 用 1 会让 Actions 步骤红叉，与
+"初期不阻塞 PR" 的门禁契约矛盾，故收敛到 0 + 显式警告。
 """
 import argparse
 import json
@@ -49,7 +53,7 @@ SEVERITY = {
     "FAIL": 5, "METRIC_INVALID": 4, "UNSTABLE": 3, "WARN": 2,
     "NO_COMPARABLE_BASELINE": 1, "PASS": 0,
 }
-EXIT_MAP = {"PASS": 0, "NO_COMPARABLE_BASELINE": 0, "WARN": 1,
+EXIT_MAP = {"PASS": 0, "NO_COMPARABLE_BASELINE": 0, "WARN": 0,
             "FAIL": 2, "METRIC_INVALID": 2, "UNSTABLE": 2}
 
 
@@ -239,8 +243,17 @@ def write_github_summary(results, verdict):
         lines.append(f"| {mod} | {old_ops} | {new_ops} | {delta_str} | {emoji} {status} |")
     lines.append("")
     lines.append(f"**Overall**: {verdict}")
+    if verdict == "WARN":
+        lines.append("")
+        lines.append("> 门禁初期不阻塞合并（--gate-enabled 关闭）。"
+                     "WARN 表示实测退化达到阈值，需人工复核。")
     with open(summary_path, "a") as f:
         f.write("\n".join(lines) + "\n")
+    # WARN 必须在 Actions UI 可见（注解），不得静默通过
+    if verdict == "WARN":
+        print("::warning::perf-regression overall WARN（初期不阻塞合并，需人工复核）")
+    elif verdict == "FAIL":
+        print("::error::perf-regression overall FAIL")
 
 
 def load_environment(args, modules, dur):
@@ -268,8 +281,19 @@ def load_baseline(args):
     if not os.path.exists(path):
         print(f"ERROR: baseline not found: {path}")
         sys.exit(2)
-    with open(path) as f:
-        baseline = json.load(f)
+    # 基线损坏（非法 JSON/缺顶层键）不得 traceback，也不得静默当可比：
+    # 显式 NO_COMPARABLE_BASELINE 并保留报告路径
+    try:
+        with open(path) as f:
+            baseline = json.load(f)
+    except (json.JSONDecodeError, OSError) as exc:
+        print(f"ERROR: baseline unreadable: {path}: {exc} — "
+              f"verdict: NO_COMPARABLE_BASELINE")
+        return None, f"corrupt:{path}"
+    if not isinstance(baseline, dict) or "modules" not in baseline:
+        print(f"ERROR: baseline schema invalid: {path} — "
+              f"verdict: NO_COMPARABLE_BASELINE")
+        return None, f"corrupt:{path}"
     print(f"Baseline: {os.path.basename(path)}")
     return baseline, path
 

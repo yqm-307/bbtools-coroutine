@@ -279,6 +279,61 @@ def collect_environment_fingerprint(threads, modules, durations,
     }
 
 
+# 趋势判定：最近 window 份基线、逐次下降且累计退化超过该百分比 → 标记。
+TREND_WINDOW = 4
+TREND_TOTAL_PCT = 15
+
+
+def baseline_write_allowed(modules) -> bool:
+    """基线写入闸门：任一模块缺数据/超时/错误即禁止记录新基线。
+
+    失败、取消、超时或指标无效时覆盖好基线，会让后续 PR 对比的参照点
+    本身不可信，因此必须整体拒绝而不是只标记 error 字段落盘。
+    """
+    if not modules:
+        return False
+    for metrics in modules.values():
+        if not isinstance(metrics, dict) or metrics.get("error"):
+            return False
+        if normalize_module_metrics(metrics) is None:
+            return False
+    return True
+
+
+def detect_trend(baselines, window=TREND_WINDOW,
+                 total_pct=TREND_TOTAL_PCT) -> dict:
+    """比较最近 window 份基线，发现连续小幅退化。
+
+    输入为按时间升序的基线报告 dict 列表。对每个在全部窗口内都有效的
+    模块：每步吞吐都下降且累计退化超过 total_pct% → 记入返回表。
+    返回 {module: {"steps": n, "total_pct": x}}；不足 window 份时为空。
+    """
+    if len(baselines) < window:
+        return {}
+    series = {}
+    for report in baselines[-window:]:
+        for name, metrics in (report.get("modules") or {}).items():
+            if not isinstance(metrics, dict) or metrics.get("error"):
+                series[name] = None  # 窗口内缺数据，该模块不判趋势
+                continue
+            ops = metrics.get("ops_per_sec")
+            if isinstance(ops, (int, float)) and ops > 0 and \
+                    series.get(name, 0) is not None:
+                series.setdefault(name, [])
+                if isinstance(series.get(name), list):
+                    series[name].append(ops)
+    flags = {}
+    for name, values in series.items():
+        if not isinstance(values, list) or len(values) != window:
+            continue
+        if all(b < a for a, b in zip(values, values[1:])):
+            total = (values[-1] - values[0]) / values[0] * 100
+            if total <= -total_pct:
+                flags[name] = {"steps": window - 1,
+                               "total_pct": round(total, 1)}
+    return flags
+
+
 def write_markdown_report(path, report) -> None:
     """把统一报告写成 Markdown 摘要（含环境指纹与逐模块表格）。"""
     env = report.get("environment", {}) or {}

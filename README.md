@@ -525,13 +525,23 @@ int main()
 
 ## 五、性能对比，libgo，go
 
-这里看下不同频率的cpu下，执行1000w协程的耗时。这里内存频率也不同，会导致误差，仅供参考。不过因为bbtco内使用了无锁队列，所以cpu频率越高、内存频率越高，框架整体协程调度效率越高。
+> 历史表格（三 CPU 执行 1000w 协程，2025-07 前口径）因基准源码已调整
+> （`benchmark_coroutine.cc` 现为 100w 协程）且无复现记录，已移除。
+> 以下为当前源码可复现的实测数据。
 
-|       | Intel(R) Xeon(R) CPU E5-26xx v4（2.1Ghz） | Intel(R) Core(TM) Ultra 7 155H | 13th Gen Intel(R) Core(TM) i7-13790F |
-| ----- | ----------------------------------------- | ------------------------------ | ------------------------------------ |
-| libgo | N/A ms(coredump)                          | N/A ms                        | 25261 ms                              |
-| bbtco | 13763 ms                                  | 15101 ms                        | 5699 ms                              |
-| go    | 3664 ms                                   | 6921 ms                         | 4250 ms                               |
+**bbtco 协程调度基准（100w 协程，`benchmark_test/benchmark_coroutine.cc`，nsum_co=1000000）：**
+
+| 日期 | 机器 | 编译 | 耗时 |
+|------|------|------|------|
+| 2026-09-08 | ubuntu-persion, i7-13790F 4核, g++ 13.3, Release, main@63de06a | `ninja benchmark_coroutine` | 1229 / 1282 / 1354 ms（3 次） |
+
+**CoPool 1000w 任务提交（`benchmark_test/benchmark_copool.cc`，nsum_co=10000000）：**
+
+| 日期 | 机器 | 编译 | 耗时 |
+|------|------|------|------|
+| 2026-09-08 | 同上 | `ninja benchmark_copool` | 1468 ms |
+
+复现命令：`cd build && cmake .. -G Ninja -DNEED_BENCHMARK=ON && ninja && ./bin/benchmark_test/benchmark_coroutine`。CPU/内存频率不同会带来误差，仅供参考；bbtco 内部使用无锁队列，CPU/内存频率越高调度效率越高。原始报告：`tests/ci-reports/`（runner 本地，不提交）。
 
 ## 六、综合示例
 

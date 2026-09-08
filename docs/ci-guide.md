@@ -117,6 +117,70 @@ Test_co_rwmutex        Test_coevent     Test_copool                Test_smoke
 - 每模块独立日志 `tests/reports/<timestamp>/<module>.log`
 - 当前 CI 不自动上传产物（reports 仅保留在 runner 本地磁盘），需手动从 runner 拉取
 
+### 3.3 性能回归门禁（#310）
+
+**三级结构：**
+- PR（Layer 2 `perf-regression`）：`ci_perf_check.py --threads=2 --dur=45`，
+  与最近可比基线对比，只检查不写基线。
+- main push（Layer 3 尾部）：1h 压测成功后 `record_baseline.py record`
+  生成新基线，并 `trend` 检查连续退化，最后推送到长期分支。
+- 基线长期记录：orphan 分支 `perf-baseline`（目录 `tests/baselines/<machine>/`），
+  artifact `performance-baseline` 仅作传输副本。PR 检查先 fetch 该分支再比较，
+  分支缺失时显式 `NO_COMPARABLE_BASELINE`。
+
+**判定阈值（沿用 ADR D6）：**
+| 模块 | WARN | FAIL（--gate-enabled） |
+|------|------|------|
+| 普通模块 | 退化 ≥10% | 退化 ≥20% |
+| cocond | 退化 ≥30% | 退化 ≥40% |
+
+CoCond 放宽原因：其 ops 由 frame/timeout 定时器节拍驱动，对调度抖动和
+runner 时钟噪声天然敏感，10% 会大量误报（历史压测观察）。
+
+**verdict 与退出码：**
+- `PASS` / `NO_COMPARABLE_BASELINE` → exit 0。无基线、基线损坏、环境指纹
+  （machine/cpu/内存/编译器/cmake/ninja/build type/线程数）任一不一致，
+  一律 `NO_COMPARABLE_BASELINE`，**不伪装成性能通过**，也不做静默比较。
+- `WARN` → exit 0 + GitHub `::warning::` 注解和 summary 显式标注。初期不阻塞
+  PR，但不得当作 PASS；复核后如需阻断，给 workflow 加 `--gate-enabled`。
+- `FAIL` / `METRIC_INVALID`（timeout/crash/zero ops/缺字段）→ exit 2，
+  步骤红叉。
+
+**故障分类：** runner/环境故障看「编译 & 单元测试」是否同挂与 `NO_COMPARABLE_BASELINE`
+的 reason 键；harness 故障 = `METRIC_INVALID`（指标缺失/进程崩溃）；代码性能回退 =
+指纹一致下的 WARN/FAIL delta。三者不混算。
+
+**基线写入闸门：** `record_baseline.py record` 在任一模块 no_data/超时/指标无效时
+拒绝落盘（exit 2）；失败、取消、超时的 run 不会覆盖好基线。
+
+**趋势与修复义务：** `record_baseline.py trend` 比较最近 4 份基线，逐次下降且累计
+≥15% 时告警。**连续两次 main 或发布前确认性能回退，必须创建专项修复 Issue**；
+单次异常先复测并记录环境。
+
+**基线保留规则：** 推送步骤自动裁剪每机器目录至最近 20 份（约 20 次 main）；
+关键发布基线打 tag（在 `perf-baseline` 分支上，如 `baseline-v2.1.0`）长期保留。
+
+**本地复现：**
+
+```bash
+# 构建（Release，与 CI 同参数）
+cd build && cmake .. -G Ninja -DNEED_TEST=ON -DNEED_BENCHMARK=ON && ninja -j$(nproc)
+
+# 冒烟（不比较基线）
+python3 scripts/ci_perf_check.py --module=comutex --threads=2 --dur=15 --no-baseline-compare
+
+# 快速回归（自动取本机最新基线比较；无基线则 NO_COMPARABLE_BASELINE）
+python3 scripts/ci_perf_check.py --threads=2 --dur=45
+
+# 记录基线（仅 main 长测语义；本地试验用 --output 写到别处）
+python3 scripts/record_baseline.py record --threads=2 --dur=60 --quick
+
+# 趋势检查
+python3 scripts/record_baseline.py trend
+```
+
+门禁契约测试：`python3 -m unittest discover -s scripts/ci -p 'test_*.py'`。
+
 ---
 
 ## 4. 内存检测（memery_test_info.yml）

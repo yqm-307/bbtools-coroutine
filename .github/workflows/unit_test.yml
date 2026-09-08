@@ -18,6 +18,12 @@ env:
   BUILD_DIR: ${{ github.workspace }}/build
   BASELINE_DIR: ${{ github.workspace }}/tests/baselines
 
+# 同一 ref 的 run 排队而不是互相取消：main 的 1h 压测被后续 push
+# 取消会丢基线（历史 8 次 main run 全被 cancel 的根因）
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   # ════════════════════════════════════════════════════════
   # Layer 1: 编译 + 单元测试 + 冒烟测试 + 可靠性测试
@@ -105,6 +111,19 @@ jobs:
           cmake .. -G Ninja -DNEED_TEST=ON -DNEED_BENCHMARK=ON
           ninja -j$(nproc)
 
+      - name: "拉取历史性能基线（perf-baseline 分支）"
+        # 临时 checkout 里没有历史基线；长期记录在 orphan 分支 perf-baseline，
+        # artifact 仅作传输。分支缺失时 ci_perf_check 显式输出 NO_COMPARABLE_BASELINE。
+        run: |
+          if git ls-remote --exit-code origin refs/heads/perf-baseline >/dev/null 2>&1; then
+            git fetch --depth=1 origin refs/heads/perf-baseline
+            mkdir -p tests
+            git checkout FETCH_HEAD -- tests/baselines
+            echo "Baselines available:"; ls -la tests/baselines/*/ | head -20
+          else
+            echo "⚠️ no perf-baseline branch — check will report NO_COMPARABLE_BASELINE"
+          fi
+
       - name: "快速性能回归检查"
         run: python3 scripts/ci_perf_check.py --threads=2 --dur=45
 
@@ -126,6 +145,8 @@ jobs:
     needs: [build-and-test]
     runs-on: ["self-hosted", "linux"]
     timeout-minutes: 90
+    permissions:
+      contents: write  # 仅用于推送 perf-baseline 分支基线
     steps:
       - name: "拉取代码库"
         uses: actions/checkout@v4
@@ -142,6 +163,16 @@ jobs:
       - name: "1h 并行压测"
         run: INTERVAL=60 bash scripts/run_parallel_stress.sh 3600 2
 
+      - name: "拉取历史基线（供趋势比较与合并推送）"
+        if: success()
+        run: |
+          if git ls-remote --exit-code origin refs/heads/perf-baseline >/dev/null 2>&1; then
+            git fetch --depth=25 origin refs/heads/perf-baseline
+            git checkout FETCH_HEAD -- tests/baselines || true
+          else
+            echo "⚠️ no perf-baseline branch yet"
+          fi
+
       - name: "上传压测报告"
         if: always()
         uses: actions/upload-artifact@v4
@@ -153,12 +184,51 @@ jobs:
 
       - name: "记录性能基线"
         if: success()
+        # record_baseline.py 内置写入闸门：任一模块 no_data/无效指标即
+        # exit 2 拒绝落盘，本步骤失败即不推送，好基线不会被坏数据覆盖
         run: |
           python3 scripts/record_baseline.py record --threads=2 --dur=60 --quick
           echo "Baseline recorded:"
           ls -la tests/baselines/*/
 
-      - name: "上传基线"
+      - name: "趋势检查（连续小幅退化）"
+        if: success()
+        # 非阻断：发现趋势时打印要求 + warning 注解，按维护策略开专项 Issue
+        run: |
+          if ! python3 scripts/record_baseline.py trend; then
+            echo "::warning::检测到连续性能退化趋势，请创建专项修复 Issue（见 docs/ci-guide.md）"
+          fi
+
+      - name: "推送基线到 perf-baseline 分支（长期记录）"
+        if: success()
+        # artifact 只作传输；长期可追溯 = perf-baseline orphan 分支。
+        # 每机器目录保留最近 20 份，旧的清理（保留规则见 docs/ci-guide.md）
+        env:
+          GIT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          work="$(mktemp -d)"; cd "$work"
+          git init -q bl && cd bl
+          git remote add origin "https://x-access-token:${GIT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git ls-remote --exit-code origin refs/heads/perf-baseline >/dev/null 2>&1; then
+            git fetch -q --depth=25 origin refs/heads/perf-baseline
+            git checkout -q -b perf-baseline FETCH_HEAD
+          else
+            git checkout -q --orphan perf-baseline
+          fi
+          mkdir -p tests/baselines
+          cp -r "$GITHUB_WORKSPACE/tests/baselines/." tests/baselines/
+          for d in tests/baselines/*/; do
+            ( cd "$d"; ls -1t *.json 2>/dev/null | tail -n +21 | xargs -r rm -f ) || true
+          done
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A tests/baselines
+          if git diff --cached --quiet; then echo "no baseline change"; exit 0; fi
+          git commit -q -m "perf: main baseline ${GITHUB_SHA::7}"
+          git push -q origin perf-baseline:perf-baseline
+
+      - name: "上传基线（仅传输副本）"
         if: success()
         uses: actions/upload-artifact@v4
         with:
