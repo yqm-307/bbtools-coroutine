@@ -273,7 +273,13 @@ int Hook_Connect(int socket, const struct sockaddr *address, socklen_t address_l
 
 int Hook_Close(int fd)
 {
-    return g_bbt_sys_hook_close_func(fd);
+    int ret = g_bbt_sys_hook_close_func(fd);
+    /* Linux 下 close 会把 epoll 关注项静默移除，等待该 fd 的协程收不到任何
+     * 事件将永久挂起；close 成功后显式唤醒，被唤醒方重试 syscall 得 EBADF，
+     * 按原生语义返回 -1/EBADF（#262）。close 失败（fd 无效）无需唤醒。 */
+    if (ret == 0)
+        CoPollEvent::WakeupFdWaiters(fd);
+    return ret;
 }
 
 int Hook_Sleep(int ms)

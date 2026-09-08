@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <fcntl.h>
+#include <algorithm>
 #include <exception>
 #include <string>
 #include <bbt/core/util/Assert.hpp>
@@ -91,6 +92,67 @@ CoPollEventId CoPollEvent::_GenerateId()
 {
     static std::atomic_uint64_t _id{0};
     return ++_id;
+}
+
+/* fd → 活跃等待事件（#262）：Linux close 对 epoll 静默移除关注项，需显式唤醒 */
+std::mutex CoPollEvent::s_waiters_mtx;
+std::unordered_map<int, std::vector<std::weak_ptr<CoPollEvent>>> CoPollEvent::s_waiters;
+
+void CoPollEvent::_TrackWaiter()
+{
+    if (m_fd < 0 || m_event == nullptr)
+        return;
+
+    std::lock_guard<std::mutex> lock(s_waiters_mtx);
+    auto& vec = s_waiters[m_fd];
+    vec.push_back(weak_from_this());
+    // ponytail: 惰性清理，表偶尔膨胀，不单独起回收路径
+    if (vec.size() > 16) {
+        vec.erase(std::remove_if(vec.begin(), vec.end(),
+                                 [](const std::weak_ptr<CoPollEvent>& w) { return w.expired(); }),
+                  vec.end());
+        if (vec.empty())
+            s_waiters.erase(m_fd);
+    }
+}
+
+void CoPollEvent::_UntrackWaiter()
+{
+    if (m_fd < 0)
+        return;
+
+    std::lock_guard<std::mutex> lock(s_waiters_mtx);
+    auto it = s_waiters.find(m_fd);
+    if (it == s_waiters.end())
+        return;
+
+    auto& vec = it->second;
+    vec.erase(std::remove_if(vec.begin(), vec.end(),
+                             [this](const std::weak_ptr<CoPollEvent>& w) {
+                                 auto p = w.lock();
+                                 return p.get() == this || p == nullptr;
+                             }),
+              vec.end());
+    if (vec.empty())
+        s_waiters.erase(it);
+}
+
+void CoPollEvent::WakeupFdWaiters(int fd)
+{
+    std::vector<SPtr> snapshot;
+    {
+        std::lock_guard<std::mutex> lock(s_waiters_mtx);
+        auto it = s_waiters.find(fd);
+        if (it == s_waiters.end())
+            return;
+        snapshot.reserve(it->second.size());
+        for (auto& w : it->second)
+            if (auto p = w.lock())
+                snapshot.push_back(p);
+    }
+    // 锁外 Trigger：避免与完成路径的加锁顺序纠缠
+    for (auto& p : snapshot)
+        p->Trigger(p->m_listen_events != 0 ? p->m_listen_events : static_cast<short>(pollevent::EventOpt::READABLE));
 }
 
 int CoPollEvent::InitFdEvent(int fd, short events, int timeout)
@@ -209,6 +271,9 @@ int CoPollEvent::Regist()
         return -1;
     }
 
+    // ARMED 起进入监听态，纳入 fd 唤醒注册表（#262）
+    _TrackWaiter();
+
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
     g_bbt_dbgmgr->OnEvent_RegistEvent(keep_alive);
 #endif
@@ -297,6 +362,7 @@ int CoPollEvent::_RegistFdEvent()
 
 int CoPollEvent::_CannelAllFdEvent()
 {
+    _UntrackWaiter();
     if (m_event != nullptr)
         g_bbt_poller->DeferDestroyEvent(std::move(m_event));
     return 0;
