@@ -62,6 +62,16 @@ void CoPoller::DeferDestroyEvent(std::shared_ptr<bbt::pollevent::Event> event)
     m_deferred_destroy.push_back(std::move(event));
 }
 
+void CoPoller::FlushDeferredEvents()
+{
+    std::vector<std::shared_ptr<bbt::pollevent::Event>> deferred;
+    {
+        std::lock_guard<std::mutex> lock(m_deferred_mutex);
+        deferred.swap(m_deferred_destroy);
+    }
+    /* 在锁外析构，避免 Event::CancelListen 回调路径反向获取本锁。 */
+}
+
 std::shared_ptr<bbt::pollevent::EventLoop> CoPoller::GetEventLoop() const
 {
     return m_event_loop;

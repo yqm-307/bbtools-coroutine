@@ -459,6 +459,8 @@ void Coroutine::OnCoPollEvent(int event, int custom_key)
     if (event & EventOpt::TIMEOUT)
         priority = CO_PRIORITY_CRITICAL;
 
+    /* 底层 Event 必须先析构，否则同一 FD 的下一次等待会在 ASIO 重复注册。 */
+    g_bbt_poller->FlushDeferredEvents();
     g_scheduler->OnActiveCoroutine(priority, this);
 
 }

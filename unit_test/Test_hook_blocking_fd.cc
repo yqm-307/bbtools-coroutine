@@ -71,4 +71,47 @@ BOOST_AUTO_TEST_CASE(t_external_blocking_read_yields_and_restores_flags)
     ::close(fds[1]);
 }
 
+BOOST_AUTO_TEST_CASE(t_repeated_wait_on_same_fd)
+{
+    int fds[2] = {-1, -1};
+    BOOST_REQUIRE_EQUAL(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+
+    auto* cfg = g_bbt_coroutine_config.get();
+    const auto threads = cfg->m_cfg_static_thread_num;
+    cfg->m_cfg_static_thread_num = 1;
+    g_scheduler->Start(SCHE_START_OPT_SCHE_THREAD);
+
+    constexpr int kRounds = 100;
+    bbt::core::thread::CountDownLatch done{1};
+    std::atomic_bool failed{false};
+
+    bbtco [&]() {
+        try {
+            for (int i = 0; i < kRounds; ++i) {
+                char value = 0;
+                BOOST_REQUIRE_EQUAL(::read(fds[0], &value, 1), 1);
+                BOOST_CHECK_EQUAL(value, static_cast<char>('a' + i));
+            }
+        } catch (const std::exception&) {
+            failed.store(true);
+        }
+        done.Down();
+    };
+    bbtco [&]() {
+        for (int i = 0; i < kRounds; ++i) {
+            bbtco_sleep(2);
+            const char value = static_cast<char>('a' + i);
+            BOOST_REQUIRE_EQUAL(::write(fds[1], &value, 1), 1);
+        }
+    };
+
+    done.Wait();
+    BOOST_CHECK(!failed.load());
+
+    g_scheduler->Stop();
+    cfg->m_cfg_static_thread_num = threads;
+    ::close(fds[0]);
+    ::close(fds[1]);
+}
+
 BOOST_AUTO_TEST_SUITE_END()

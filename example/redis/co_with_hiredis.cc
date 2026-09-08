@@ -67,8 +67,9 @@ public:
             return;
         }
 
+        const int reply_type = reply->type;
         freeReplyObject(reply);
-        throw std::runtime_error("Unexpected reply type from Redis server, Reply type: " + std::to_string(reply->type));
+        throw std::runtime_error("Unexpected reply type from Redis server, Reply type: " + std::to_string(reply_type));
     }
 
     void Run() {
@@ -120,8 +121,6 @@ void Example1()
  */
 void Example2()
 {
-    RedisClient client("127.0.0.1", 6379);
-    auto comutex = bbt::co::sync::StdLockWapper(bbtco_make_comutex());
     auto copool = bbtco_make_copool(10);
     auto wg = bbt::core::thread::CountDownLatch(10000);
     std::atomic_int success_count{0};
@@ -130,8 +129,8 @@ void Example2()
     for (int i = 0; i < 10000; ++i)
     {
         copool->Submit([&, i]() {
-            std::unique_lock<bbt::co::sync::StdLockWapper> lock(comutex);            
             try {
+                RedisClient client("127.0.0.1", 6379);
                 client.Set("key" + std::to_string(i), "value" + std::to_string(i));
                 std::string value = client.Get("key" + std::to_string(i));
                 // std::cout << "Value for key" << i << ": " << value << std::endl;
