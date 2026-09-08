@@ -1,6 +1,9 @@
 #include <stdio.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <chrono>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -126,6 +129,59 @@ private:
 };
 
 /**
+ * @brief socket 收发超时快照（#261）
+ *
+ * IO 入口查询 SO_RCVTIMEO/SO_SNDTIMEO，按 deadline 计算剩余；未设置或非 socket
+ * （getsockopt 失败）一律 m_ms<=0 走无限协程等待。守卫把 fd 临时设为 O_NONBLOCK 后，
+ * 内核 timeout 不再触发，必须由 Hook 自己兜底，否则有界等待静默变无限。
+ * ponytail: 1ms 粒度，亚毫秒超时向上取整；EINTR 后剩余量按 deadline 收缩。
+ */
+struct IoTimeout
+{
+    int                                 m_ms{0};
+    std::chrono::steady_clock::time_point m_deadline;
+
+    IoTimeout(int fd, int optname)
+    {
+        struct timeval tv;
+        std::memset(&tv, 0, sizeof(tv));
+        socklen_t len = sizeof(tv);
+        if (::getsockopt(fd, SOL_SOCKET, optname, &tv, &len) == 0 &&
+            (tv.tv_sec > 0 || tv.tv_usec > 0))
+            m_ms = static_cast<int>(tv.tv_sec) * 1000 +
+                   static_cast<int>((tv.tv_usec + 999) / 1000);
+        m_deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(m_ms);
+    }
+
+    int remain_ms() const
+    {
+        const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(
+            m_deadline - std::chrono::steady_clock::now()).count();
+        return left > 0 ? static_cast<int>(left) : 0;
+    }
+};
+
+/**
+ * @brief 挂起协程等待 fd 就绪（#261）
+ *
+ * iot 有超时则用剩余时间做有界挂起，定时器到期即醒；调用方重试 syscall，下一轮
+ * 仍 EAGAIN 且 remain==0 时返回 -1，errno 由循环里 ErrnoGuard 保持为 EAGAIN，
+ * 对齐 POSIX「超时到期返回 -1/EAGAIN」语义。返回 0=已唤醒（数据就绪或定时器）。
+ */
+static int CoWaitFdReady(Coroutine* co, int fd, bool writable, const IoTimeout& iot)
+{
+    if (iot.m_ms <= 0)
+        return writable ? co->YieldUntilFdWriteable(fd) : co->YieldUntilFdReadable(fd);
+
+    const int remain = iot.remain_ms();
+    if (remain <= 0)
+        return -1;
+
+    return writable ? co->YieldUntilFdWriteable(fd, remain)
+                    : co->YieldUntilFdReadable(fd, remain);
+}
+
+/**
  * @brief 常规文件读写的偏移回退守卫（#190）
  *
  * 仅当 fd 是常规文件且可 seek 时记录初始偏移；析构时若尚未解除
@@ -234,6 +290,8 @@ ssize_t Hook_Read(int fd, void *buf, size_t nbytes)
     CoIoNonblockGuard io{fd};
     if (!io.ok())
         return -1;
+    /* Linux socket(7)：read() 走 sock_recvmsg 同样受 SO_RCVTIMEO 约束（#261） */
+    const IoTimeout iot{fd, SO_RCVTIMEO};
 
     ssize_t read_len = -1;
     FileOffsetGuard offset_guard{fd};
@@ -247,8 +305,8 @@ ssize_t Hook_Read(int fd, void *buf, size_t nbytes)
         ErrnoGuard guard{sys_errno};
 
         try {
-            /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读 */
-            if (g_bbt_tls_coroutine_co->YieldUntilFdReadable(fd) != 0)
+            /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读或超时到期 */
+            if (CoWaitFdReady(g_bbt_tls_coroutine_co, fd, false, iot) != 0)
                 return -1;
         } catch (...) {
             throw;
@@ -264,6 +322,8 @@ ssize_t Hook_Write(int fd, const void *buf, size_t n)
     CoIoNonblockGuard io{fd};
     if (!io.ok())
         return -1;
+    /* Linux socket(7)：write() 走 sock_sendmsg 同样受 SO_SNDTIMEO 约束（#261） */
+    const IoTimeout iot{fd, SO_SNDTIMEO};
 
     ssize_t write_len = -1;
     FileOffsetGuard offset_guard{fd};
@@ -277,8 +337,8 @@ ssize_t Hook_Write(int fd, const void *buf, size_t n)
         ErrnoGuard guard{sys_errno};
 
         try {
-            /* 对当前协程注册fd可写事件，挂起当前协程直到fd可写 */
-            if (g_bbt_tls_coroutine_co->YieldUntilFdWriteable(fd) != 0)
+            /* 对当前协程注册fd可写事件，挂起当前协程直到fd可写或超时到期 */
+            if (CoWaitFdReady(g_bbt_tls_coroutine_co, fd, true, iot) != 0)
                 return -1;
         } catch (...) {
             throw;
@@ -294,6 +354,8 @@ int Hook_Accept(int fd, struct sockaddr *addr, socklen_t *len)
     CoIoNonblockGuard io{fd};
     if (!io.ok())
         return -1;
+    /* accept() 受 SO_RCVTIMEO 约束（Linux socket(7)，#261） */
+    const IoTimeout iot{fd, SO_RCVTIMEO};
 
     int new_cli_fd = -1;
 
@@ -306,8 +368,8 @@ int Hook_Accept(int fd, struct sockaddr *addr, socklen_t *len)
         ErrnoGuard guard{sys_errno};
 
         try {
-            /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读 */
-            if (g_bbt_tls_coroutine_co->YieldUntilFdReadable(fd) != 0)
+            /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读或超时到期 */
+            if (CoWaitFdReady(g_bbt_tls_coroutine_co, fd, false, iot) != 0)
                 return -1;
         } catch (...) {
             throw;
@@ -324,9 +386,14 @@ int Hook_Accept(int fd, struct sockaddr *addr, socklen_t *len)
 
 ssize_t Hook_Send(int fd, const void *buf, size_t n, int flags)
 {
+    /* MSG_DONTWAIT：调用方明确要求不等待，直通原函数（#261，内核按次非阻塞） */
+    if (flags & MSG_DONTWAIT)
+        return g_bbt_sys_hook_send_func(fd, buf, n, flags);
+
     CoIoNonblockGuard io{fd};
     if (!io.ok())
         return -1;
+    const IoTimeout iot{fd, SO_SNDTIMEO};
 
     ssize_t send_len = -1;
     while ((send_len = g_bbt_sys_hook_send_func(fd, buf, n, flags)) < 0) {
@@ -338,8 +405,8 @@ ssize_t Hook_Send(int fd, const void *buf, size_t n, int flags)
         ErrnoGuard guard{sys_errno};
 
         try {
-            /* 对当前协程注册fd可写事件，挂起当前协程直到fd可写 */
-            if (g_bbt_tls_coroutine_co->YieldUntilFdWriteable(fd) != 0)
+            /* 对当前协程注册fd可写事件，挂起当前协程直到fd可写或 SO_SNDTIMEO 到期 */
+            if (CoWaitFdReady(g_bbt_tls_coroutine_co, fd, true, iot) != 0)
                 return -1;
         } catch (...) {
             throw;
@@ -351,9 +418,14 @@ ssize_t Hook_Send(int fd, const void *buf, size_t n, int flags)
 
 ssize_t Hook_Recv(int fd, void *buf, size_t n, int flags)
 {
+    /* MSG_DONTWAIT：直通，立即 -1/EAGAIN（#261） */
+    if (flags & MSG_DONTWAIT)
+        return g_bbt_sys_hook_recv_func(fd, buf, n, flags);
+
     CoIoNonblockGuard io{fd};
     if (!io.ok())
         return -1;
+    const IoTimeout iot{fd, SO_RCVTIMEO};
 
     ssize_t recv_len = -1;
     while ((recv_len = g_bbt_sys_hook_recv_func(fd, buf, n, flags)) < 0) {
@@ -365,8 +437,8 @@ ssize_t Hook_Recv(int fd, void *buf, size_t n, int flags)
         ErrnoGuard guard{sys_errno};
 
         try {
-            /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读 */
-            if (g_bbt_tls_coroutine_co->YieldUntilFdReadable(fd) != 0)
+            /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读或 SO_RCVTIMEO 到期 */
+            if (CoWaitFdReady(g_bbt_tls_coroutine_co, fd, false, iot) != 0)
                 return -1;
         } catch (...) {
             throw;
@@ -378,9 +450,14 @@ ssize_t Hook_Recv(int fd, void *buf, size_t n, int flags)
 
 ssize_t Hook_SendTo(int fd, const void *buf, size_t len, int flags, const struct sockaddr* dest_addr, socklen_t addrlen)
 {
+    /* MSG_DONTWAIT：直通，立即 -1/EAGAIN（#261） */
+    if (flags & MSG_DONTWAIT)
+        return g_bbt_sys_hook_sendto_func(fd, buf, len, flags, dest_addr, addrlen);
+
     CoIoNonblockGuard io{fd};
     if (!io.ok())
         return -1;
+    const IoTimeout iot{fd, SO_SNDTIMEO};
 
     ssize_t send_len = -1;
     while ((send_len = g_bbt_sys_hook_sendto_func(fd, buf, len, flags, dest_addr, addrlen)) < 0) {
@@ -391,8 +468,8 @@ ssize_t Hook_SendTo(int fd, const void *buf, size_t len, int flags, const struct
         ErrnoGuard guard{sys_errno};
 
         try {
-            /* 对当前协程注册fd可写事件，挂起当前协程直到fd可写 */
-            if (g_bbt_tls_coroutine_co->YieldUntilFdWriteable(fd) != 0)
+            /* 挂起直到fd可写或 SO_SNDTIMEO 到期（#261） */
+            if (CoWaitFdReady(g_bbt_tls_coroutine_co, fd, true, iot) != 0)
                 return -1;
         } catch (...) {
             throw;
@@ -404,9 +481,14 @@ ssize_t Hook_SendTo(int fd, const void *buf, size_t len, int flags, const struct
 
 ssize_t Hook_RecvFrom(int fd, void *buf, size_t len, int flags, struct sockaddr* src_addr, socklen_t* addrlen)
 {
+    /* MSG_DONTWAIT：直通，立即 -1/EAGAIN（#261） */
+    if (flags & MSG_DONTWAIT)
+        return g_bbt_sys_hook_recvfrom_func(fd, buf, len, flags, src_addr, addrlen);
+
     CoIoNonblockGuard io{fd};
     if (!io.ok())
         return -1;
+    const IoTimeout iot{fd, SO_RCVTIMEO};
 
     ssize_t recv_len = -1;
     while ((recv_len = g_bbt_sys_hook_recvfrom_func(fd, buf, len, flags, src_addr, addrlen)) < 0) {
@@ -417,8 +499,8 @@ ssize_t Hook_RecvFrom(int fd, void *buf, size_t len, int flags, struct sockaddr*
         ErrnoGuard guard{sys_errno};
 
         try {
-            /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读 */
-            if (g_bbt_tls_coroutine_co->YieldUntilFdReadable(fd) != 0)
+            /* 挂起直到fd可读或 SO_RCVTIMEO 到期（#261） */
+            if (CoWaitFdReady(g_bbt_tls_coroutine_co, fd, false, iot) != 0)
                 return -1;
         } catch (...) {
             throw;
@@ -437,6 +519,7 @@ ssize_t Hook_RecvMsg(int fd, struct msghdr *msg, int flags)
     CoIoNonblockGuard io{fd};
     if (!io.ok())
         return -1;
+    const IoTimeout iot{fd, SO_RCVTIMEO};
 
     ssize_t recv_len = -1;
     while ((recv_len = g_bbt_sys_hook_recvmsg_func(fd, msg, flags)) < 0) {
@@ -447,8 +530,8 @@ ssize_t Hook_RecvMsg(int fd, struct msghdr *msg, int flags)
         ErrnoGuard guard{sys_errno};
 
         try {
-            /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读 */
-            if (g_bbt_tls_coroutine_co->YieldUntilFdReadable(fd) != 0)
+            /* 挂起直到fd可读或 SO_RCVTIMEO 到期（#261） */
+            if (CoWaitFdReady(g_bbt_tls_coroutine_co, fd, false, iot) != 0)
                 return -1;
         } catch (...) {
             throw;
@@ -467,6 +550,7 @@ ssize_t Hook_SendMsg(int fd, const struct msghdr *msg, int flags)
     CoIoNonblockGuard io{fd};
     if (!io.ok())
         return -1;
+    const IoTimeout iot{fd, SO_SNDTIMEO};
 
     ssize_t send_len = -1;
     while ((send_len = g_bbt_sys_hook_sendmsg_func(fd, msg, flags)) < 0) {
@@ -477,8 +561,8 @@ ssize_t Hook_SendMsg(int fd, const struct msghdr *msg, int flags)
         ErrnoGuard guard{sys_errno};
 
         try {
-            /* 对当前协程注册fd可写事件，挂起当前协程直到fd可写 */
-            if (g_bbt_tls_coroutine_co->YieldUntilFdWriteable(fd) != 0)
+            /* 挂起直到fd可写或 SO_SNDTIMEO 到期（#261） */
+            if (CoWaitFdReady(g_bbt_tls_coroutine_co, fd, true, iot) != 0)
                 return -1;
         } catch (...) {
             throw;
@@ -493,6 +577,7 @@ ssize_t Hook_Readv(int fd, const struct iovec *iov, int iovcnt)
     CoIoNonblockGuard io{fd};
     if (!io.ok())
         return -1;
+    const IoTimeout iot{fd, SO_RCVTIMEO};
 
     ssize_t read_len = -1;
     /* 与 Hook_Read 相同：常规文件偏移回退守卫；iovec 整体注册事件，不拆段提交（#228） */
@@ -506,8 +591,8 @@ ssize_t Hook_Readv(int fd, const struct iovec *iov, int iovcnt)
         ErrnoGuard guard{sys_errno};
 
         try {
-            /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读 */
-            if (g_bbt_tls_coroutine_co->YieldUntilFdReadable(fd) != 0)
+            /* 挂起直到fd可读或超时到期（#261） */
+            if (CoWaitFdReady(g_bbt_tls_coroutine_co, fd, false, iot) != 0)
                 return -1;
         } catch (...) {
             throw;
@@ -523,6 +608,7 @@ ssize_t Hook_Writev(int fd, const struct iovec *iov, int iovcnt)
     CoIoNonblockGuard io{fd};
     if (!io.ok())
         return -1;
+    const IoTimeout iot{fd, SO_SNDTIMEO};
 
     ssize_t write_len = -1;
     FileOffsetGuard offset_guard{fd};
@@ -535,8 +621,8 @@ ssize_t Hook_Writev(int fd, const struct iovec *iov, int iovcnt)
         ErrnoGuard guard{sys_errno};
 
         try {
-            /* 对当前协程注册fd可写事件，挂起当前协程直到fd可写 */
-            if (g_bbt_tls_coroutine_co->YieldUntilFdWriteable(fd) != 0)
+            /* 挂起直到fd可写或超时到期（#261） */
+            if (CoWaitFdReady(g_bbt_tls_coroutine_co, fd, true, iot) != 0)
                 return -1;
         } catch (...) {
             throw;
@@ -558,6 +644,7 @@ int Hook_Accept4(int fd, struct sockaddr *addr, socklen_t *len, int flags)
     CoIoNonblockGuard io{fd};
     if (!io.ok())
         return -1;
+    const IoTimeout iot{fd, SO_RCVTIMEO};
 
     int new_cli_fd = -1;
 
@@ -570,8 +657,8 @@ int Hook_Accept4(int fd, struct sockaddr *addr, socklen_t *len, int flags)
             ErrnoGuard guard{sys_errno};
 
             try {
-                /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读 */
-                if (g_bbt_tls_coroutine_co->YieldUntilFdReadable(fd) != 0)
+                /* 挂起直到fd可读或超时到期（#261） */
+                if (CoWaitFdReady(g_bbt_tls_coroutine_co, fd, false, iot) != 0)
                     return -1;
             } catch (...) {
                 throw;

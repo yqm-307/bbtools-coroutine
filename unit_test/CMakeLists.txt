@@ -57,6 +57,11 @@ target_link_libraries(Test_coroutine_diag ${MY_LIBS})
 add_test(NAME Test_coroutine_diag COMMAND Test_coroutine_diag)
 set_tests_properties(Test_coroutine_diag PROPERTIES TIMEOUT 15)
 
+add_executable(Test_hook_timeout_flags Test_hook_timeout_flags.cc)
+target_link_libraries(Test_hook_timeout_flags ${MY_LIBS})
+add_test(NAME Test_hook_timeout_flags COMMAND Test_hook_timeout_flags)
+set_tests_properties(Test_hook_timeout_flags PROPERTIES TIMEOUT 15)
+
 add_executable(Test_poller Test_poller.cc)
 target_link_libraries(Test_poller ${MY_LIBS})
 add_test(NAME Test_poller COMMAND Test_poller)
