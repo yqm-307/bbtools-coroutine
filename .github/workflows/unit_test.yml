@@ -126,7 +126,8 @@ jobs:
           fi
 
       - name: "快速性能回归检查"
-        run: python3 scripts/ci_perf_check.py --threads=2 --dur=45
+        # --gate-enabled：退化 ≥20%（CoCond ≥40%）判 FAIL 并阻断合并（#310 收口后开启）
+        run: python3 scripts/ci_perf_check.py --threads=2 --dur=45 --gate-enabled
 
       - name: "上传压测日志"
         if: always()

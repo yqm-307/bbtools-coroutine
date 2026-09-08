@@ -141,10 +141,11 @@ runner 时钟噪声天然敏感，10% 会大量误报（历史压测观察）。
 - `PASS` / `NO_COMPARABLE_BASELINE` → exit 0。无基线、基线损坏、环境指纹
   （machine/cpu/内存/编译器/cmake/ninja/build type/线程数）任一不一致，
   一律 `NO_COMPARABLE_BASELINE`，**不伪装成性能通过**，也不做静默比较。
-- `WARN` → exit 0 + GitHub `::warning::` 注解和 summary 显式标注。初期不阻塞
-  PR，但不得当作 PASS；复核后如需阻断，给 workflow 加 `--gate-enabled`。
+- `WARN` → exit 0 + GitHub `::warning::` 注解和 summary 显式标注。不阻塞
+  合并，但不得当作 PASS。
 - `FAIL` / `METRIC_INVALID`（timeout/crash/zero ops/缺字段）→ exit 2，
-  步骤红叉。
+  步骤红叉。**PR 门禁已开启 `--gate-enabled`**：吞吐退化 ≥20%（CoCond ≥40%）
+  直接阻断合并；10%~20% 仍是 WARN 不阻断。
 
 **故障分类：** runner/环境故障看「编译 & 单元测试」是否同挂与 `NO_COMPARABLE_BASELINE`
 的 reason 键；harness 故障 = `METRIC_INVALID`（指标缺失/进程崩溃）；代码性能回退 =
