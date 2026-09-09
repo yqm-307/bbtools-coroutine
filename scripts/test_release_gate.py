@@ -83,18 +83,35 @@ class ReleaseGateTest(unittest.TestCase):
                         with self.assertRaises(SystemExit):
                             gate.validate_candidate('stable', 'v3.0.0', SHA, 'v3.0.0-rc1')
 
+    def test_publish_requires_release_deploy_key_and_pushes_tag(self):
+        with mock.patch.dict(os.environ, {'RELEASE_TAG_SSH_KEY': ''}), self.assertRaises(SystemExit):
+            gate.push_version_tag('v3.0.0-rc1', SHA)
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.dict(os.environ, {'RELEASE_TAG_SSH_KEY': 'offline-fixture-key', 'RUNNER_TEMP': tmp}), \
+                mock.patch.object(gate, 'repository', return_value='owner/repo'), \
+                mock.patch.object(gate.subprocess, 'run', return_value=mock.Mock(returncode=0)) as run:
+            gate.push_version_tag('v3.0.0-rc1', SHA)
+            calls = [call.args[0] for call in run.call_args_list]
+            self.assertEqual(calls[0][:3], ['git', 'remote', 'set-url'])
+            self.assertEqual(calls[1], ['git', 'tag', 'v3.0.0-rc1', SHA])
+            self.assertEqual(calls[2], ['git', 'push', 'origin', 'refs/tags/v3.0.0-rc1'])
+            self.assertEqual(os.listdir(tmp), [], '临时私钥必须即用即删')
+            self.assertNotIn('offline-fixture-key', str(calls), '私钥不得出现在 argv')
+
     def test_publish_readback_and_no_retry_after_uncertain_write(self):
         for tagged_sha in (SHA, 'b' * 40):
             responses = [{}, {'tag_name': 'v3.0.0-rc1', 'prerelease': True, 'draft': False, 'body': SHA},
                          {'object': {'type': 'commit', 'sha': tagged_sha}}]
-            with mock.patch.object(gate, 'validate_candidate'), mock.patch.object(gate, 'api', side_effect=responses) as api:
+            with mock.patch.object(gate, 'validate_candidate'), mock.patch.object(gate, 'push_version_tag'), \
+                    mock.patch.object(gate, 'api', side_effect=responses) as api:
                 if tagged_sha == SHA:
                     gate.publish('rc', 'v3.0.0-rc1', SHA, None)
                 else:
                     with self.assertRaises(SystemExit):
                         gate.publish('rc', 'v3.0.0-rc1', SHA, None)
                 self.assertEqual(sum(c.kwargs.get('method') == 'POST' for c in api.call_args_list), 1)
-        with mock.patch.object(gate, 'validate_candidate'), mock.patch.object(gate, 'api', side_effect=SystemExit(2)) as api:
+        with mock.patch.object(gate, 'validate_candidate'), mock.patch.object(gate, 'push_version_tag'), \
+                mock.patch.object(gate, 'api', side_effect=SystemExit(2)) as api:
             with self.assertRaises(SystemExit):
                 gate.publish('rc', 'v3.0.0-rc1', SHA, None)
             self.assertEqual(api.call_count, 1)
