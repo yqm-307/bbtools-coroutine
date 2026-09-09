@@ -8,6 +8,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import urllib.error
 import urllib.request
 from typing import NoReturn
@@ -135,6 +136,45 @@ def validate_candidate(kind: str, version: str, source_sha: str, rc_tag: str | N
     print(f"release-gate: candidate validated: {version} @ {source_sha}")
 
 
+def push_version_tag(version: str, source_sha: str) -> None:
+    """用发布专用 deploy key 推送 lightweight 版本 tag。
+
+    仓库 tag ruleset 把 refs/tags/v* 的创建/更新/删除限制为唯一 bypass actor
+    （release-tag-pusher deploy key）；GITHUB_TOKEN、管理员和人工凭据都会被拒。
+    私钥只经环境变量 RELEASE_TAG_SSH_KEY 传入，落 0600 临时文件、即用即删。
+    """
+    key = os.environ.get("RELEASE_TAG_SSH_KEY", "")
+    if not key.strip():
+        fail("RELEASE_TAG_SSH_KEY is required; v* tag creation is restricted to the release deploy key")
+    repo = repository()
+    key_path = os.path.join(os.environ.get("RUNNER_TEMP") or tempfile.gettempdir(),
+                            f"release_tag_key_{os.getpid()}")
+    fd = os.open(key_path, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+    try:
+        os.write(fd, (key if key.endswith("\n") else key + "\n").encode())
+    finally:
+        os.close(fd)
+    env = dict(os.environ)
+    env["GIT_SSH_COMMAND"] = (f"ssh -i {key_path} -o IdentitiesOnly=yes -o BatchMode=yes "
+                              "-o StrictHostKeyChecking=accept-new")
+    try:
+        for args, timeout in (
+            (["git", "remote", "set-url", "origin", f"git@github.com:{repo}.git"], 60),
+            (["git", "tag", version, source_sha], 60),
+            (["git", "push", "origin", f"refs/tags/{version}"], 120),
+        ):
+            result = subprocess.run(args, env=env, text=True, capture_output=True, timeout=timeout)
+            if result.returncode:
+                fail("version tag push failed; reconcile remote tag state before retrying")
+    except (OSError, subprocess.TimeoutExpired):
+        fail("git unavailable or timed out while pushing version tag")
+    finally:
+        try:
+            os.unlink(key_path)
+        except OSError:
+            pass
+
+
 def publish(kind: str, version: str, source_sha: str, rc_tag: str | None) -> None:
     # Runs again after Environment approval; no unvalidated input reaches a remote lookup.
     validate_candidate(kind, version, source_sha, rc_tag)
@@ -146,6 +186,8 @@ def publish(kind: str, version: str, source_sha: str, rc_tag: str | None) -> Non
     body = f"Source SHA: `{source_sha}`\n\nEvidence: https://github.com/{repo}/actions/runs/{run_id}\n"
     if rc_tag:
         body += f"\nPromoted from: `{rc_tag}`\n"
+    # tag 先由发布 deploy key 推送（ruleset 唯一 bypass actor），Release 再关联既有 tag。
+    push_version_tag(version, source_sha)
     api(f"repos/{repo}/releases", method="POST", payload={
         "tag_name": version, "target_commitish": source_sha, "name": version,
         "body": body, "generate_release_notes": True, "prerelease": prerelease,

@@ -139,11 +139,11 @@ Stable Gate 额外验证：
 
 如果仓库平台能力不能完整表达上述规则，必须在 release workflow 中再次验证，不得以文档替代硬保护。
 
-GitHub tag ruleset 的“限制创建”按 bypass actor 授权，不能选择某一个 workflow。要实现“只有 release workflow 可创建 `v*`”，必须额外配置专用 GitHub App（仅授予创建版本 tag/Release 的权限）并把 App 作为唯一 bypass actor；在专用 App 和规则完成前，只能把 workflow 的版本/提交校验视为发布 Gate，不能宣称 tag 创建已被精确限制。Stable 发布还必须绑定 GitHub Environment `release-stable` 的人工审核者。
+GitHub tag ruleset 的“限制创建”按 bypass actor 授权，不能直接选择某一个 workflow。本仓库实现（2026-09-09）：ruleset `protect version tags`（`refs/tags/v*`）包含 `creation` / `update` / `deletion` 三条规则，唯一 bypass actor 是发布专用 deploy key `release-tag-pusher`；release workflow 的 publish job 用该 key 推送 lightweight tag，再由 Releases API 创建 Release（tag 已存在，Release 关联既有 tag）。私钥只存于仓库 secret `RELEASE_TAG_SSH_KEY`，`release_gate.py publish` 缺失时 fail closed。双向实测：管理员凭据推送被拒（`Cannot create ref due to creations being restricted`），deploy key 创建与删除被放行（`Bypassed rule violations`）。残余风险：deploy key 具有仓库写权限（可推送任意分支；`main` 仍受 `ban push` ruleset 保护且无 bypass），如需更小权限面可后续换成仅授予 contents:write 的专用 GitHub App。Stable 发布还必须绑定 GitHub Environment `release-stable` 的人工审核者。
 
 发布前必须使用 GitHub API 回读两个 Environment 的 `required_reviewers`、`prevent_self_review`、部署分支策略和 `can_admins_bypass`；仅有 Environment 名称不算审核门禁，缺失时 GitHub 会自动创建无保护环境。无法确认配置时不 dispatch。
 
-当前边界（2026-09-09 回读）：仓库公开；两个 Environment 均有唯一审核者 `yqm-307`，允许同账号触发后审核（`prevent_self_review=false`）。发布仍需用户授权，不要求另设账号。当前 `can_admins_bypass=true`，管理员仍有旁路能力；`v*` 规则目前只禁止更新和删除，创建者尚未收紧。
+当前边界（2026-09-09 回读）：仓库公开；两个 Environment 均有唯一审核者 `yqm-307`，允许同账号触发后审核（`prevent_self_review=false`）。发布仍需用户授权，不要求另设账号。Environment 的 `can_admins_bypass=true`，管理员仍可旁路 Environment 审核；`v*` 规则的创建已收紧到发布 deploy key（见上），管理员凭据无法创建、更新或删除版本 tag。
 
 公开仓库的 `pull_request` 执行的是 PR head 中的 workflow 文件；常驻 self-hosted runner 上，YAML 内的 `if` 无法阻止 fork 替换 workflow 后请求同一 runner。仓库 Actions `approval_policy` 已设为 `all_external_contributors`（API 回读），`GITHUB_TOKEN` 默认 `read` 且禁止用它批准 PR review。外部 fork workflow 必须由有写权限的人批准才会跑；Agent 和用户都不得批准未审查的 fork workflow 到该 runner。有写权限的人一旦批准，隔离仍不成立。完整隔离只能改为私有仓库，或撤销本仓库的 self-hosted runner。上述配置不等于发布闭环完成。
 

@@ -162,6 +162,7 @@ jobs:
       - name: "审核后重新验证并创建 Release"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG_SSH_KEY: ${{ secrets.RELEASE_TAG_SSH_KEY }}
         run: |
           python3 scripts/release_gate.py publish --kind "$RELEASE_KIND" \
             --version "$VERSION" --source-sha "$SOURCE_SHA" --rc-tag "$RC_TAG"
