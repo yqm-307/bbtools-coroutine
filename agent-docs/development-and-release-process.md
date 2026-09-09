@@ -39,24 +39,25 @@ Issue / 里程碑计划
 
 ### PR required checks
 
-PR 快速反馈，main 完整验证，Release 严格发布。普通改动先自审并运行相关测试；独立审查按风险或明确要求执行，不因非阻塞措辞调整重复整树复审。
+PR 快速反馈，main 快速集成，Release 严格发布。普通改动先自审并运行相关测试；独立审查按风险或明确要求执行，不因非阻塞措辞调整重复整树复审。
 
-以下检查是 PR 合入 main 的硬门槛：
+以下检查是 PR 合入 main 的硬门槛（均为分钟级）：
 
 - `编译 & 单元测试`
+- `性能回归检查`（unified_stress 45s/模块快速回归）
 
-`性能回归检查` 对无基线、基线损坏或环境指纹不一致保持显式 `NO_COMPARABLE_BASELINE`（warning，允许 main 建立首份基线），但不能宣称性能通过；版本发布要求可比基线。首次显式 Release 构建迁移先合入 PR，再由 main 完整长测成功后写入 Release 基线，禁止手改指纹以伪造可比性。
+`性能回归检查` 对无基线、基线损坏或环境指纹不一致保持显式 `NO_COMPARABLE_BASELINE`（warning），但不能宣称性能通过；版本发布要求可比基线。性能基线只在发布 Gate 完整长测通过后写入（见 §5），禁止手改指纹以伪造可比性。
 
-`真实客户端验收` 必须在明确的 Redis 环境中执行。Redis 不可用时，发布 Gate 失败；本地脚本允许用 CTest skip code 77 表示环境缺失，但不能把 skip 当作发布通过。
+`真实客户端验收` 与长时疲劳压测不在普通合并路径执行，只在发布 Gate 执行（见 §5）。发布 Gate 的 `真实客户端验收` 必须在明确的 Redis 环境中执行。Redis 不可用时，发布 Gate 失败；本地脚本允许用 CTest skip code 77 表示环境缺失，但不能把 skip 当作发布通过。
 
 ## 3. main 集成流程
 
-每次合入 main 后，CI 运行：
+每次合入 main 后，CI 只运行分钟级集成验证：
 
 - 编译与全量 CTest、Smoke、Reliability
-- 真实客户端验收、性能回归检查
-- 两项均通过后才运行 1 小时六模块并行疲劳压测
-- 性能基线记录和趋势检查
+- 快速性能回归检查
+
+发布级检查（真实客户端验收、可配置时长的六模块并行疲劳压测、性能基线记录与趋势检查）不在 main 路径执行，由 §5 的发布 Gate 承担。main 的定位是快速、持续可集成；发布资格由发布 Gate 证明。
 
 压测必须满足以下条件才可形成通过证据：
 
@@ -89,18 +90,22 @@ v3.0.0-rc1 -> v3.0.0-rc2（必要时） -> v3.0.0
 - `release_kind=rc`：只能由用户授权触发；Agent 可准备输入和证据，但不得自行发布 RC。
 - `version=v3.0.0-rc1`
 - `source_sha=<main 的完整 SHA>`
+- `soak_seconds=<疲劳压测秒数，默认 3600，范围 60-86400>`：发布前可提高到数小时-数十小时；长测只在发布 Gate 执行
 
 RC Gate 必须验证：
 
 1. 版本格式合法且 tag 尚不存在；
-2. `source_sha` 是当前远端 main HEAD；
+2. `source_sha` 是当前远端 main HEAD，且该 SHA 的 main 集成 CI（分钟级作业集）通过；
 3. Release 构建成功；
 4. 全量 CTest、真实客户端验收通过；
-5. 1 小时疲劳压测完整通过；
+5. 按 `soak_seconds` 完整跑满六模块并行疲劳压测；
 6. 六模块性能判定均为 `PASS` / `WARN` 且错误数为零；`NO_COMPARABLE_BASELINE` 不能作为发布资格；
-7. 发布摘要绑定 source SHA。
+7. 发布摘要绑定 source SHA；
+8. Gate 通过后记录性能基线并推送 `perf-baseline` 分支（该步骤失败即 Gate 失败）。
 
 全部通过后，workflow 创建不可移动的 RC tag 和 GitHub prerelease。任一 Gate 失败，不创建 tag 和 Release。
+
+发布 Gate 的 `gate` job 需要 `contents: write`（仅用于推送 `perf-baseline` 基线）；发布凭据（`v*` tag 的 deploy key）仍只在经过 Environment 审核的 `publish` job 中使用。
 
 ## 6. Stable 发布流程
 
@@ -129,7 +134,7 @@ Stable Gate 额外验证：
 - 禁止直接 push；
 - 禁止 force push 和删除；
 - PR 必须基于最新 main；
-- required check 仅为 `编译 & 单元测试`。
+- required checks 为 `编译 & 单元测试` 与 `性能回归检查`（均为分钟级）；发布级检查不作为合并门禁。
 
 `v*` 必须配置 tag ruleset：
 

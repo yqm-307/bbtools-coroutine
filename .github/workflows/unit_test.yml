@@ -1,8 +1,9 @@
-# CI：bbtools-coroutine 三级门禁流水线
+# CI：bbtools-coroutine 分层门禁流水线
 #
-# Layer 1 (每次 PR/commit): 编译 → ctest → Test_smoke → Test_reliability      ~90s
-# Layer 2 (每次 PR):        快速性能回归检查（unified_stress 45s/模块）        ~5min
-# Layer 3 (push main only): 1h 并行疲劳压测 + 记录新基线                       ~70min
+# Layer 1 (每次 PR / push main): 编译 → ctest → Test_smoke → Test_reliability   ~90s
+# Layer 2 (每次 PR / push main): 快速性能回归检查（unified_stress 45s/模块）    ~5min
+# 发布级检查（完整 CTest、真实客户端验收、可配置长时疲劳压测、严格性能 Gate、
+# 性能基线写入）在 release.yml 的发布 Gate 执行，不在普通合并路径上。
 #
 # 契约参考: docs/ci-guide.md
 # 公开仓库 + 常驻 self-hosted：fork PR 会执行 PR head 里的 workflow，
@@ -24,8 +25,8 @@ env:
   BUILD_DIR: ${{ github.workspace }}/build
   BASELINE_DIR: ${{ github.workspace }}/tests/baselines
 
-# 同一 ref 的 run 排队而不是互相取消：main 的 1h 压测被后续 push
-# 取消会丢基线（历史 8 次 main run 全被 cancel 的根因）
+# 同一 ref 的 run 排队而不是互相取消：PR 的新 push 取消旧 run 以省 runner，
+# main 保留排队，避免集成验证结果被后续 push 吞掉。
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -100,40 +101,11 @@ jobs:
         timeout-minutes: 8
 
   # ════════════════════════════════════════════════════════
-  # main: 真实第三方客户端验收
-  # ════════════════════════════════════════════════════════
-  real-client-acceptance:
-    name: "真实客户端验收"
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [build-and-test]
-    runs-on: ["self-hosted", "linux"]
-    timeout-minutes: 10
-    steps:
-      - name: "拉取代码库"
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-          persist-credentials: false
-
-      - name: "编译示例和验收目标"
-        run: |
-          rm -rf build && mkdir build && cd build
-          cmake .. -G Ninja -DNEED_EXAMPLE=ON -DNEED_TEST=OFF -DNEED_BENCHMARK=OFF
-          ninja -j2 echo_server co_with_hiredis
-
-      - name: "执行真实客户端验收"
-        run: |
-          python3 scripts/acceptance_real_clients.py \
-            --echo-server ./build/bin/example/echo_server \
-            --hiredis ./build/bin/example/co_with_hiredis
-
-  # ════════════════════════════════════════════════════════
-  # Layer 2: 快速性能回归检查（仅 push main）
-  # 每模块 45s 串行，~5min
+  # Layer 2: 快速性能回归检查（PR + main）
+  # 每模块 45s 串行，~5min；退化 ≥20%（CoCond ≥40%）判 FAIL
   # ════════════════════════════════════════════════════════
   perf-regression:
     name: "性能回归检查"
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [build-and-test]
     runs-on: ["self-hosted", "linux"]
     timeout-minutes: 15
@@ -196,110 +168,6 @@ jobs:
           path: tests/ci-reports/
           if-no-files-found: ignore
           retention-days: 3
-
-  # ════════════════════════════════════════════════════════
-  # Layer 3: 1h 并行疲劳压测 + 基线记录（仅 push main）
-  # ════════════════════════════════════════════════════════
-  stress-test:
-    name: "1h 并行疲劳压测"
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [build-and-test, real-client-acceptance, perf-regression]
-    runs-on: ["self-hosted", "linux"]
-    timeout-minutes: 90
-    permissions:
-      contents: write  # 仅用于推送 perf-baseline 分支基线
-    steps:
-      - name: "拉取代码库"
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-          persist-credentials: false
-
-      - name: "编译"
-        run: |
-          rm -rf build && mkdir build && cd build
-          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DNEED_TEST=ON -DNEED_BENCHMARK=ON
-          ninja -j$(nproc)
-
-      - name: "1h 并行压测"
-        run: INTERVAL=60 bash scripts/run_parallel_stress.sh 3600 2
-
-      - name: "拉取历史基线（供趋势比较与合并推送）"
-        if: success()
-        run: |
-          if git ls-remote --exit-code origin refs/heads/perf-baseline >/dev/null 2>&1; then
-            git fetch --depth=25 origin refs/heads/perf-baseline
-            git checkout FETCH_HEAD -- tests/baselines || true
-          else
-            echo "⚠️ no perf-baseline branch yet"
-          fi
-
-      - name: "上传压测报告"
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: stress-test-report
-          path: tests/reports/
-          if-no-files-found: warn
-          retention-days: 7
-
-      - name: "记录性能基线"
-        if: success()
-        # record_baseline.py 内置写入闸门：任一模块 no_data/无效指标即
-        # exit 2 拒绝落盘，本步骤失败即不推送，好基线不会被坏数据覆盖
-        run: |
-          python3 scripts/record_baseline.py record --threads=2 --dur=60 --quick
-          echo "Baseline recorded:"
-          ls -la tests/baselines/*/
-
-      - name: "趋势检查（连续小幅退化）"
-        if: success()
-        # 非阻断：发现趋势时打印要求 + warning 注解，按维护策略开专项 Issue
-        run: |
-          if ! python3 scripts/record_baseline.py trend; then
-            echo "::warning::检测到连续性能退化趋势，请创建专项修复 Issue（见 docs/ci-guide.md）"
-          fi
-
-      - name: "推送基线到 perf-baseline 分支（长期记录）"
-        if: success()
-        # artifact 只作传输；长期可追溯 = perf-baseline orphan 分支。
-        # 每机器目录保留最近 20 份，旧的清理（保留规则见 docs/ci-guide.md）
-        env:
-          GIT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-        run: |
-          set -eu
-          work="$(mktemp -d)"; cd "$work"
-          git init -q bl && cd bl
-          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
-          export GIT_CONFIG_COUNT=1
-          export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
-          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GIT_TOKEN" | base64 -w0)"
-          if git ls-remote --exit-code origin refs/heads/perf-baseline >/dev/null 2>&1; then
-            git fetch -q --depth=25 origin refs/heads/perf-baseline
-            git checkout -q -b perf-baseline FETCH_HEAD
-          else
-            git checkout -q --orphan perf-baseline
-          fi
-          mkdir -p tests/baselines
-          cp -r "$GITHUB_WORKSPACE/tests/baselines/." tests/baselines/
-          for d in tests/baselines/*/; do
-            ( cd "$d"; ls -1t *.json 2>/dev/null | tail -n +21 | xargs -r rm -f ) || true
-          done
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A tests/baselines
-          if git diff --cached --quiet; then echo "no baseline change"; exit 0; fi
-          git commit -q -m "perf: main baseline ${GITHUB_SHA::7}"
-          git push -q origin perf-baseline:perf-baseline
-
-      - name: "上传基线（仅传输副本）"
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: performance-baseline
-          path: tests/baselines/
-          retention-days: 30
 
   # ════════════════════════════════════════════════════════
   # Layer 2b: Sanitizer 检查（仅 workflow_dispatch 手动触发）
