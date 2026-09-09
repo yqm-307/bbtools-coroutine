@@ -30,22 +30,23 @@ git push -u origin feat/my-change
 # GitHub 上创建 PR，CI 自动运行编译+测试
 ```
 
-CI 在 PR 创建/更新时只运行编译、单元测试、Smoke 和 Reliability。
-**合并到 main 后运行真实客户端、性能回归，通过后再跑 1h 疲劳压测和记录基线**。
+CI 在 PR 创建/更新时运行编译、单元测试、Smoke、Reliability 和快速性能回归（约 8 分钟）。
+**发布级检查（真实客户端验收、可配置时长的疲劳压测、基线写入）只在发布 Gate 执行**。
 
 ### 我是 reviewer，要审 PR
 
-CI 通过（编译+ctest+smoke 全绿）是 merge 的前提条件。
+CI 通过（编译+ctest+smoke 全绿、快速性能回归不退化）是 merge 的前提条件。
 检查 PR 页面上的 CI checks 状态：
 
 | 信号 | 含义 | 动作 |
 |------|------|------|
 | ✅ `编译 & 单元测试` pass | 编译通过+全部测试通过 | 可以 review 代码 |
-| ❌ required check fail | 编译、验收或性能门禁失败 | 要求修复后重推 |
+| ✅ `性能回归检查` pass | 45s/模块快速回归未超阈值 | 可以 review 性能敏感改动 |
+| ❌ required check fail | 编译、单测或性能门禁失败 | 要求修复后重推 |
 
-**性能影响：** 性能检查放在 main；FAIL 或指标无效会阻断发布，不把环境依赖放在普通 PR 的关键路径。性能敏感变更仍应在合入前定向验证。
+**性能影响：** 快速性能回归检查在 PR 和 main 都执行（45s/模块，退化 ≥20% 阻断合并）；完整性能 Gate、长时疲劳压测和基线写入只在发布 Gate 执行。性能敏感变更仍应在合入前定向验证。
 
-### 1.1 真实客户端验收（main / Release）
+### 1.1 真实客户端验收（发布 Gate）
 
 `真实客户端验收` 使用 `scripts/acceptance_real_clients.py`，由 CI 独立构建示例目标并直接运行：
 
@@ -71,10 +72,11 @@ python3 scripts/acceptance_real_clients.py \
 
 ### CI 工作流：unit_test.yml
 
-| 事件 | 触发 | 编译+测试 | 1h 压测 |
-|------|------|:---------:|:-------:|
-| **PR 创建/更新** | `pull_request → main` | ✅ | ❌ |
-| **push main** | `push → main` | ✅ | ✅ |
+| 事件 | 触发 | 编译+测试 | 快速性能回归 | 疲劳压测 |
+|------|------|:---------:|:------------:|:--------:|
+| **PR 创建/更新** | `pull_request → main` | ✅ | ✅ | ❌ |
+| **push main** | `push → main` | ✅ | ✅ | ❌ |
+| **发布 Gate** | `workflow_dispatch` + Environment 审核 | ✅ | ✅（严格） | ✅（默认 1h，可配到 24h） |
 
 ### 运行环境
 
@@ -87,10 +89,8 @@ python3 scripts/acceptance_real_clients.py \
 | 阶段 | timeout | 说明 |
 |------|---------|------|
 | build-and-test | 未设置 job 超时（GitHub 默认 6h） | CTest step 10min；Smoke / Reliability step 各 8min |
-| real-client-acceptance | 10 min | Echo/hiredis 真实客户端验收 |
-| perf-regression | 15 min | 每模块快速性能回归 |
-| stress-test | 90 min | 含构建、1h 压测、基线记录；模块进程另有超时兜底 |
-| release / gate | 120 min | 含构建、验收、性能检查和 1h 压测；不是实测完成时间承诺 |
+| perf-regression | 15 min | 每模块快速性能回归（45s/模块） |
+| release / gate | 1500 min | 含构建、验收、性能 Gate、可配置时长压测（默认 1h，最长 24h）与基线写入；不是实测完成时间承诺 |
 | release / CTest | step 15 min | `ctest --timeout 60`，避免单测挂死吃完 120 min |
 | release / 真实客户端验收 | step 10 min | Redis 缺失必须失败，不走 skip |
 
@@ -99,14 +99,14 @@ python3 scripts/acceptance_real_clients.py \
 ## 3. 流水线详解
 
 ```
-每个 PR/push main:
+每个 PR/push main（分钟级）:
   build-and-test:  编译 → ctest（37 suites）→ Test_smoke    ~90s
+  perf-regression: 45s/模块快速性能回归门禁                  ~5min
 
-仅 push main:
-  real-client-acceptance: Echo/hiredis 真实验收
-  perf-regression: 性能基线回归门禁
-  两项通过后:
-  stress-test:     1h 并行疲劳压测（6 模块同时跑）           ~70min
+发布 Gate（workflow_dispatch + Environment 审核）:
+  Release 构建 → 全量 CTest → 真实客户端验收 → 严格性能 Gate
+  → 可配置时长并行疲劳压测（soak_seconds，默认 3600）
+  → 性能基线记录 / 趋势检查 / 推送 perf-baseline
 ```
 
 ### 3.1 编译与单元测试（每次 PR/push 必跑）
@@ -144,28 +144,28 @@ Test_reliability
 - ctest 失败 → 某测试用例失败，检查对应模块的 `--output-on-failure` 输出
 - Test_smoke 失败 → 核心模块 happy-path 被破坏
 
-### 3.2 1h 并行疲劳压测（仅 push main）
+### 3.2 并行疲劳压测（仅发布 Gate）
 
-**条件：** `github.event_name == 'push' && github.ref == 'refs/heads/main'`
+**条件：** 发布 Gate（`workflow_dispatch`）且 Environment 审核通过。
 
-**运行方式：** `INTERVAL=60 bash scripts/run_parallel_stress.sh 3600 2`
+**运行方式：** `INTERVAL=60 bash scripts/run_parallel_stress.sh "$SOAK_SECONDS" 2`（`soak_seconds` 默认 3600，范围 60-86400）
 
 6 个模块独立进程并行运行：
 - `comutex, corwmutex, cocond, chan, copool, coroutine`
 - 每模块 2 个 processer 线程，60s 间隔采样
-- job 超时 90min；模块进程在计划时长后 120s 发送 TERM，再给 30s 退出兜底
+- job 超时 1500min（覆盖最长 24h 压测）；模块进程在计划时长后 120s 发送 TERM，再给 30s 退出兜底
 
 **产物：**
 - 汇总报告 `tests/reports/<timestamp>/summary.txt` — 各模块最终 ops + errors
 - 每模块独立日志 `tests/reports/<timestamp>/<module>.log`
-- CI 自动上传 `stress-test-report` artifact，保留 7 天；本地运行时报告仍只写入 `tests/reports/`
+- 发布 Gate 自动上传 `release-gate` artifact；本地运行时报告仍只写入 `tests/reports/`
 
 ### 3.3 性能回归门禁（#310）
 
 **三级结构：**
-- main push（Layer 2 `perf-regression`）：`ci_perf_check.py --threads=2 --dur=45`，
+- PR / push main（`perf-regression`）：`ci_perf_check.py --threads=2 --dur=45`，
   与最近可比基线对比，只检查不写基线。
-- main push（Layer 3 尾部）：1h 压测成功后 `record_baseline.py record`
+- 发布 Gate 尾部：压测成功后 `record_baseline.py record`
   生成新基线，并 `trend` 检查连续退化，最后推送到长期分支。
 - 基线长期记录：orphan 分支 `perf-baseline`（目录 `tests/baselines/<machine>/`），
   artifact `performance-baseline` 仅作传输副本。main 检查先 fetch 该分支再比较，
@@ -187,12 +187,12 @@ runner 时钟噪声天然敏感，10% 会大量误报（历史压测观察）。
 - `WARN` → exit 0 + GitHub `::warning::` 注解和 summary 显式标注。不阻塞
   合并，但不得当作 PASS。
 - `FAIL` / `METRIC_INVALID`（timeout/crash/zero ops/缺字段）→ exit 2，
-  步骤红叉。**main 性能检查启用 `--gate-enabled`**：吞吐退化 ≥20%（CoCond ≥40%）
-  使 main CI 失败并阻断发布；10%~20% 仍是 WARN。
+  步骤红叉。**PR/main 性能检查启用 `--gate-enabled`**：吞吐退化 ≥20%（CoCond ≥40%）
+  使 required check 失败并阻断合并与发布；10%~20% 仍是 WARN。
 
 **main 与发布的区别：** main 对 `NO_COMPARABLE_BASELINE` 保持 exit 0，并显示 warning；它只说明缺少性能比较证据，不是 PASS。Release Gate 仅接受六模块均为 `PASS` / `WARN` 且 `errors=0`；无基线、损坏或指纹不一致均阻断发布。
 
-**Release 基线迁移：** 旧流程记录的空 `build_type` 与显式 `Release` 不可比。首个迁移 PR 允许显式不可比状态合入；合入后 main 完成 1h 长测并通过 record 写入闸门，生成同 runner / 参数的 Release 基线，再执行 RC Gate。不手改基线指纹、不伪造数据、不关闭 required check。
+**Release 基线迁移：** 旧流程记录的空 `build_type` 与显式 `Release` 不可比。首个迁移 PR 允许显式不可比状态合入；合入后由发布 Gate 完成长测并通过 record 写入闸门，生成同 runner / 参数的 Release 基线，再执行 RC Gate。不手改基线指纹、不伪造数据、不关闭 required check。
 
 **故障分类：** runner/环境故障看「编译 & 单元测试」是否同挂与 `NO_COMPARABLE_BASELINE`
 的 reason 键；harness 故障 = `METRIC_INVALID`（指标缺失/进程崩溃）；代码性能回退 =
@@ -202,10 +202,10 @@ runner 时钟噪声天然敏感，10% 会大量误报（历史压测观察）。
 拒绝落盘（exit 2）；失败、取消、超时的 run 不会覆盖好基线。
 
 **趋势与修复义务：** `record_baseline.py trend` 比较最近 4 份基线，逐次下降且累计
-≥15% 时告警。**连续两次 main 或发布前确认性能回退，必须创建专项修复 Issue**；
+≥15% 时告警。**连续两次发布基线或发布前确认性能回退，必须创建专项修复 Issue**；
 单次异常先复测并记录环境。
 
-**基线保留规则：** 推送步骤自动裁剪每机器目录至最近 20 份（约 20 次 main）；
+**基线保留规则：** 推送步骤自动裁剪每机器目录至最近 20 份（约 20 次发布）；
 关键发布基线打 tag（在 `perf-baseline` 分支上，如 `baseline-v2.1.0`）长期保留。
 
 **本地复现：**
@@ -250,10 +250,11 @@ python3 scripts/record_baseline.py trend
 
 ### 5.1 GitHub Checks
 
-PR 的必需检查只有 `编译 & 单元测试`；其余 job 在 PR 跳过，在 main 的 Actions run 检查：
+PR 的必需检查为 `编译 & 单元测试` 与 `性能回归检查`；发布级 job（真实客户端验收、疲劳压测）只在发布 Gate 执行：
 
 - ✅ **`编译 & 单元测试`** — 绿色 = 编译、CTest、Smoke、Reliability 全部通过
-- main 集成后才检查 **`真实客户端验收`** 与 **`性能回归检查`**
+- ✅ **`性能回归检查`** — 绿色 = 45s/模块快速回归未超阈值
+- 发布 Gate 才检查 **`真实客户端验收`** 与并行疲劳压测
 - ❌ 红色 = 失败，点击展开查看具体失败的 step 日志
 
 ### 5.2 ctest 输出解读
@@ -293,7 +294,7 @@ Test project /path/to/build
 - 全部进程成功退出，六模块 `ops_total > 0`、`errors=0`、`elapsed_s` 达到计划时长，才可判 PASS。
 - 零操作、错误计数、缺失指标或提前结束均判 FAIL；错误原因需结合模块日志定位，不能仅凭计数断言是 CoCond 问题。
 
-**性能回归：** CI 通过 `perf-regression` 自动执行基线对比。`PASS` 正常，`WARN` 会显式标注但不阻塞，`FAIL`、`METRIC_INVALID` 和无可比基线按流程分类处理；不得把 `WARN` 说成 `PASS`。
+**性能回归：** CI 通过 `perf-regression`（PR + main）和发布 Gate 自动执行基线对比。`PASS` 正常，`WARN` 会显式标注但不阻塞，`FAIL`、`METRIC_INVALID` 和无可比基线按流程分类处理；不得把 `WARN` 说成 `PASS`。
 
 ---
 
@@ -428,7 +429,7 @@ p.terminate()
 
 确认本地也失败后修复，确保本地通过后再推。
 
-### Q: push main 后的 1h 压测失败了怎么办？
+### Q: 发布 Gate 的疲劳压测失败了怎么办？
 
 检查 `tests/reports/` 下的压测日志：
 
@@ -559,14 +560,14 @@ add_test(NAME Test_my_module COMMAND Test_my_module)
 |------|------|----------|
 | **developer** | 提交代码 | build-and-test pass + 本地压测自查 |
 | **reviewer** | 审查 PR | CI 全部 pass，性能关键路径需附压测数据 |
-| **qa** | 质量放行 | push main 后 1h 压测结果 + 内存检测报告 |
+| **qa** | 质量放行 | 发布 Gate 压测结果 + 内存检测报告 |
 | **pm** | 发布管理 | 压测结果趋势 + 里程碑健康度 |
 | **architect** | API 设计 | breaking change 影响评估 |
 
 ### 通知机制
 
 - **PR 提交者：** CI 结果通过 GitHub Checks API 直接显示在 PR 页面
-- **push main 后：** 1h 压测结果在 Actions 日志中查看
+- **发布 Gate：** 压测结果在 Release Gate 的 Actions 日志与 artifact 中查看
 - **定期监控：** 每周五 17:30（UTC+8）自动运行内存检测
 
 ---
@@ -581,7 +582,7 @@ add_test(NAME Test_my_module COMMAND Test_my_module)
 v3.0.0-rc1 -> v3.0.0-rcN -> v3.0.0
 ```
 
-RC 输入 `release_kind=rc`、`version=v3.0.0-rc1`、当前 main 的完整 `source_sha`。Stable 输入 `release_kind=stable`、`version=v3.0.0`、RC 的完整 `source_sha` 和 `rc_tag`。Release Gate 会执行 Release 构建、全量 CTest、真实客户端验收、1h 疲劳压测，并校验版本、main HEAD、RC tag 和 GitHub Release。
+RC 输入 `release_kind=rc`、`version=v3.0.0-rc1`、当前 main 的完整 `source_sha`、可选 `soak_seconds`（默认 3600）。Stable 输入 `release_kind=stable`、`version=v3.0.0`、RC 的完整 `source_sha` 和 `rc_tag`。Release Gate 会执行 Release 构建、全量 CTest、真实客户端验收、可配置时长疲劳压测，并在通过后写入性能基线，同时校验版本、main HEAD、RC tag 和 GitHub Release。
 
 任一 Gate 失败都不会创建 tag 或 Release。Stable 只能从已验证 RC 的同一 commit 晋级；需要修复时递增 RC 序号，不移动已发布 tag。若创建后回读失败，先按 workflow run 对账，禁止盲目重试。
 
@@ -602,4 +603,4 @@ GitHub tag ruleset 按 bypass actor 限制创建者，不能直接指定 workflo
 
 ---
 
-> **最后更新**: 2026-09-09 | **下次评审**: CI 流程变更时更新
+> **最后更新**: 2026-09-10 | **下次评审**: CI 流程变更时更新
