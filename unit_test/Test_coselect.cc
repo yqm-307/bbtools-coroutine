@@ -18,13 +18,14 @@ BOOST_AUTO_TEST_CASE(t_begin)
     g_scheduler->Start();
 }
 
-// 两路 CaseRead：只往 ch1 写，Run 返回 0，out 正确
+// 两路 CaseRead：只往 ch1 写，Run 返回 0，out 正确；且必须被写入唤醒而非超时兜底
 BOOST_AUTO_TEST_CASE(t_select_case_read)
 {
     bbt::core::thread::CountDownLatch l{1};
     int index = -999;
     int out1 = 0;
     int out2 = 0;
+    int elapsed_ms = -1;
 
     bbtco [&](){
         sync::Chan<int, 4> ch1;
@@ -35,17 +36,21 @@ BOOST_AUTO_TEST_CASE(t_select_case_read)
             BOOST_CHECK_EQUAL(ch1.TryWrite(42), 0);
         };
 
+        auto begin = bbt::core::clock::gettime_mono();
         index = sync::CoSelect()
                     .CaseRead(ch1, out1)
                     .CaseRead(ch2, out2)
                     .CaseTimeout(2000)
                     .Run();
+        elapsed_ms = bbt::core::clock::gettime_mono() - begin;
         l.Down();
     };
 
     l.Wait();
     BOOST_CHECK_EQUAL(index, 0);
     BOOST_CHECK_EQUAL(out1, 42);
+    // 写入发生在 30ms：唤醒必须及时，不能靠 2000ms 超时后的重试兜底（#314）
+    BOOST_CHECK_LT(elapsed_ms, 500);
 }
 
 // 两路都有数据：命中注册序优先（0 或 1），对应 out 正确
