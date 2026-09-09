@@ -46,7 +46,7 @@
 
 ## 开发与发布硬流程
 - 唯一流程真源：`agent-docs/development-and-release-process.md`。
-- Agent 通过分支和 PR 开发；PR required check 仅为 `编译 & 单元测试`；真实客户端和性能回归在 main 集成验证。
-- main 集成后还需真实客户端验收、1 小时疲劳压测和性能基线；取消或部分压测不能作为通过。
+- Agent 通过分支和 PR 开发；PR required checks 为 `编译 & 单元测试` 与 `性能回归检查`（均为分钟级）。
+- 真实客户端验收、可配置时长疲劳压测和性能基线写入只在发布 Gate（`release.yml`）执行；取消或部分压测不能作为通过。
 - RC/Stable 只能通过 `.github/workflows/release.yml` 发布；Agent 不直接推送 main，不手工创建、移动或删除 `v*` tag。
 - 发布流程失败时保留证据，不创建半成品 tag/Release；本地成功不能替代远端 Gate。
