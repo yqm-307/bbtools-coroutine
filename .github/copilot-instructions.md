@@ -43,3 +43,10 @@
 - `utils/lockfree` 内嵌 moodycamel 队列，为头文件实现；使用时避免在队列回调里阻塞。
 - 调试开关：`-DDEBUG_INFO` 或 `-DSTRINGENT_DEBUG` 打开详细日志，`-DPROFILE` 启用 `detail::Profiler` 采样。
 - 若需扩展新的阻塞 syscall，请在 `Hook.cc` 中按 `YieldUntilFdReadable/Writeable` 模式处理 errno，保持与现有 Hook 行为一致。
+
+## 开发与发布硬流程
+- 唯一流程真源：`agent-docs/development-and-release-process.md`。
+- Agent 通过分支和 PR 开发；PR required checks 必须包含 `编译 & 单元测试`、`真实客户端验收`、`性能回归检查`。
+- main 集成后还需真实客户端验收、1 小时疲劳压测和性能基线；取消或部分压测不能作为通过。
+- RC/Stable 只能通过 `.github/workflows/release.yml` 发布；Agent 不直接推送 main，不手工创建、移动或删除 `v*` tag。
+- 发布流程失败时保留证据，不创建半成品 tag/Release；本地成功不能替代远端 Gate。

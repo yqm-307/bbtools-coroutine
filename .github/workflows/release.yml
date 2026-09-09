@@ -1,0 +1,167 @@
+name: Release Gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_kind:
+        description: "发布类型（须先获得用户授权）"
+        required: true
+        type: choice
+        options: [rc, stable]
+      version:
+        description: "vX.Y.Z-rcN 或 vX.Y.Z"
+        required: true
+        type: string
+      source_sha:
+        description: "完整 40 位 commit SHA"
+        required: true
+        type: string
+      rc_tag:
+        description: "Stable 来源 RC tag；RC 留空"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  RELEASE_KIND: ${{ inputs.release_kind }}
+  VERSION: ${{ inputs.version }}
+  SOURCE_SHA: ${{ inputs.source_sha }}
+  RC_TAG: ${{ inputs.rc_tag }}
+  OUTDIR: tests/reports/release-${{ github.run_id }}-${{ github.run_attempt }}
+
+jobs:
+  gate:
+    name: "Release Gate"
+    if: github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, linux]
+    timeout-minutes: 120
+    steps:
+      - name: "固定受信任流程版本"
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: "发布工具自测"
+        run: python3 scripts/test_release_gate.py
+
+      - name: "验证发布资格及精确 SHA 的 main CI"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 scripts/release_gate.py validate --kind "$RELEASE_KIND" \
+            --version "$VERSION" --source-sha "$SOURCE_SHA" --rc-tag "$RC_TAG"
+
+      - name: "拉取已校验的候选源码"
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: "发布基线预检（缺失提前失败，不跳过 Gate）"
+        env:
+          GIT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GIT_TOKEN" | base64 -w0)"
+          if ! git -C source ls-remote --exit-code origin refs/heads/perf-baseline >/dev/null; then
+            echo '::error::发布缺少可访问的 perf-baseline；先完成 main 长测和基线记录'
+            exit 2
+          fi
+          git -C source fetch --depth=25 origin refs/heads/perf-baseline
+          git -C source checkout FETCH_HEAD -- tests/baselines
+
+      - name: "Release 库构建（测试和示例沿用 CMake 的 Debug 子目录）"
+        run: |
+          cmake -S source -B source/build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DNEED_TEST=ON -DNEED_BENCHMARK=ON -DNEED_EXAMPLE=ON
+          cmake --build source/build -j2
+
+      - name: "全量 CTest"
+        timeout-minutes: 15
+        run: ctest --test-dir source/build --timeout 60 --output-on-failure
+
+      - name: "真实客户端验收（Redis 缺失必须失败）"
+        timeout-minutes: 10
+        run: |
+          python3 source/scripts/acceptance_real_clients.py \
+            --echo-server ./source/build/bin/example/echo_server \
+            --hiredis ./source/build/bin/example/co_with_hiredis
+
+      - name: "性能发布 Gate"
+        run: |
+          python3 source/scripts/ci_perf_check.py --threads=2 --dur=45 --gate-enabled \
+            --output source/tests/ci-reports/release-performance.json
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          report = json.loads(Path('source/tests/ci-reports/release-performance.json').read_text())
+          modules = report.get('modules', {})
+          assert set(modules) == {'comutex', 'corwmutex', 'cocond', 'chan', 'copool', 'coroutine'}
+          assert report.get('verdict') in {'PASS', 'WARN'}
+          assert all(m.get('status') in {'PASS', 'WARN'} and m.get('errors') == 0 for m in modules.values())
+          commit = report.get('commit', '')
+          assert len(commit) >= 7 and os.environ['SOURCE_SHA'].startswith(commit)
+          PY
+
+      - name: "1h 并行疲劳压测（唯一新目录）"
+        working-directory: source
+        run: |
+          PROJECT_ROOT="$GITHUB_WORKSPACE/source" INTERVAL=60 \
+            bash ../scripts/run_parallel_stress.sh 3600 2
+          test -s "$OUTDIR/summary.txt"
+
+      - name: "发布证据索引"
+        if: success()
+        run: |
+          printf 'Source SHA: `%s`\nWorkflow SHA: `%s`\nVersion: `%s`\n' \
+            "$SOURCE_SHA" "$GITHUB_SHA" "$VERSION" | tee release-evidence.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: "保留发布证据"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-gate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            release-evidence.md
+            source/tests/reports/release-*/
+            source/tests/ci-reports/release-performance.*
+            source/build/Testing/Temporary/LastTest.log
+          if-no-files-found: warn
+          retention-days: 30
+
+  publish:
+    name: "Publish GitHub Release"
+    needs: [gate]
+    if: github.ref == 'refs/heads/main'
+    # 独立一次性 runner；候选构建不接触发布凭据。
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.release_kind == 'stable' && 'release-stable' || 'release-rc' }}
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: "使用与 Gate 相同的受信任发布脚本"
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: "审核后重新验证并创建 Release"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 scripts/release_gate.py publish --kind "$RELEASE_KIND" \
+            --version "$VERSION" --source-sha "$SOURCE_SHA" --rc-tag "$RC_TAG"
