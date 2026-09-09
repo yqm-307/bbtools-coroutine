@@ -56,7 +56,7 @@ class ReleaseGateTest(unittest.TestCase):
 
     def test_main_ci_requires_successful_exact_sha_and_all_jobs(self):
         run = {'id': 1, 'head_sha': SHA, 'head_branch': 'main', 'event': 'push', 'conclusion': 'success'}
-        names = ['编译 & 单元测试', '真实客户端验收', '性能回归检查', '1h 并行疲劳压测']
+        names = ['编译 & 单元测试', '性能回归检查']
         for conclusion in ('success', 'skipped', 'failure'):
             jobs = [{'name': name, 'conclusion': 'success'} for name in names]
             jobs[-1]['conclusion'] = conclusion
@@ -179,13 +179,27 @@ sys.exit(1 if mode == 'crash' else 0)
         self.assertRegex(release, r'name: "全量 CTest"\n        timeout-minutes: 15')
         self.assertRegex(release, r'name: "真实客户端验收（Redis 缺失必须失败）"\n        timeout-minutes: 10')
 
-    def test_main_only_integration_jobs(self):
+    def test_soak_seconds_bounds(self):
+        for value in ('60', '3600', '86400'):
+            self.assertEqual(gate.validate_soak_seconds(value), int(value))
+        for value in ('', '0', '59', '86401', '1h', '3600 ', '-1', 'abc'):
+            with self.subTest(value=value), self.assertRaises(SystemExit):
+                gate.validate_soak_seconds(value)
+
+    def test_gate_layering_keeps_merge_path_cheap(self):
+        # 开发路径只做分钟级检查；发布级重型 Gate 只能留在 release.yml。
         import re
         text = (ROOT / '.github/workflows/unit_test.yml').read_text()
-        for job in ('real-client-acceptance', 'perf-regression', 'stress-test'):
-            block = re.search(r'(?ms)^  ' + job + r':\n(.*?)(?=^  [a-z][a-z-]*:|\Z)', text).group(1)
-            self.assertIn("if: github.event_name == 'push' && github.ref == 'refs/heads/main'", block)
-        self.assertIn('needs: [build-and-test, real-client-acceptance, perf-regression]', text)
+        for gone in ('real-client-acceptance', 'stress-test', 'run_parallel_stress.sh'):
+            self.assertNotIn(gone, text, '发布级检查不得留在普通 CI')
+        perf = re.search(r'(?ms)^  perf-regression:\n(.*?)(?=^  [a-z][a-z-]*:|\Z)', text)
+        assert perf is not None
+        self.assertNotIn("github.event_name == 'push'", perf.group(1), '快速性能回归必须在 PR 上执行')
+        release = (ROOT / '.github/workflows/release.yml').read_text()
+        self.assertIn('soak_seconds', release)
+        self.assertIn('run_parallel_stress.sh "$SOAK_SECONDS"', release)
+        self.assertIn('record_baseline.py record', release)
+        self.assertIn('perf-baseline:perf-baseline', release)
 
     def test_latency_warning_cannot_hide_throughput_failure(self):
         import ci_perf_check as perf

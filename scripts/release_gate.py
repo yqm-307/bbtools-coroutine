@@ -28,7 +28,19 @@ def parse_version(version: str) -> re.Match[str]:
     return match
 
 
-def validate_inputs(kind: str, version: str, source_sha: str, rc_tag: str | None) -> None:
+def validate_soak_seconds(value: str) -> int:
+    """疲劳压测时长（秒）：60 - 86400（24h），防误 dispatch 出超短或失控长测。"""
+    if not re.fullmatch(r"[0-9]+", value or ""):
+        fail("soak_seconds must be a positive integer")
+    seconds = int(value)
+    if not 60 <= seconds <= 86400:
+        fail("soak_seconds must be within 60..86400")
+    return seconds
+
+
+def validate_inputs(kind: str, version: str, source_sha: str, rc_tag: str | None,
+                    soak_seconds: str = "3600") -> None:
+    validate_soak_seconds(soak_seconds)
     version_match = parse_version(version)
     if not re.fullmatch(r"[0-9a-f]{40}", source_sha):
         fail("source_sha must be a full 40-character lowercase commit SHA")
@@ -109,12 +121,13 @@ def validate_main_ci(source_sha: str) -> None:
     if jobs.get("total_count", 0) > len(jobs.get("jobs", [])):
         fail("incomplete CI jobs response")
     passed = {j["name"] for j in jobs.get("jobs", []) if j.get("conclusion") == "success"}
-    if not {"编译 & 单元测试", "真实客户端验收", "性能回归检查", "1h 并行疲劳压测"} <= passed:
+    if not {"编译 & 单元测试", "性能回归检查"} <= passed:
         fail("required main CI jobs missing, skipped or failed")
 
 
-def validate_candidate(kind: str, version: str, source_sha: str, rc_tag: str | None) -> None:
-    validate_inputs(kind, version, source_sha, rc_tag)
+def validate_candidate(kind: str, version: str, source_sha: str, rc_tag: str | None,
+                       soak_seconds: str = "3600") -> None:
+    validate_inputs(kind, version, source_sha, rc_tag, soak_seconds)
     ensure_absent(version)
     repo = repository()
     main_sha = api(f"repos/{repo}/git/ref/heads/main")["object"]["sha"]
@@ -175,9 +188,10 @@ def push_version_tag(version: str, source_sha: str) -> None:
             pass
 
 
-def publish(kind: str, version: str, source_sha: str, rc_tag: str | None) -> None:
+def publish(kind: str, version: str, source_sha: str, rc_tag: str | None,
+            soak_seconds: str = "3600") -> None:
     # Runs again after Environment approval; no unvalidated input reaches a remote lookup.
-    validate_candidate(kind, version, source_sha, rc_tag)
+    validate_candidate(kind, version, source_sha, rc_tag, soak_seconds)
     run_id = os.environ.get("GITHUB_RUN_ID", "")
     if not re.fullmatch(r"[0-9]+", run_id):
         fail("publish requires a GitHub Actions run ID")
@@ -214,14 +228,16 @@ def main() -> None:
         command.add_argument("--version", required=True)
         command.add_argument("--source-sha", required=True)
         command.add_argument("--rc-tag")
+        command.add_argument("--soak-seconds", default="3600")
     args = parser.parse_args()
     if args.command == "validate-version":
         parse_version(args.version)
         print("release-gate: version valid")
     elif args.command == "validate":
-        validate_candidate(args.kind, args.version, args.source_sha, args.rc_tag)
+        validate_candidate(args.kind, args.version, args.source_sha, args.rc_tag,
+                           args.soak_seconds)
     else:
-        publish(args.kind, args.version, args.source_sha, args.rc_tag)
+        publish(args.kind, args.version, args.source_sha, args.rc_tag, args.soak_seconds)
 
 
 if __name__ == "__main__":
