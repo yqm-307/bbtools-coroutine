@@ -27,11 +27,11 @@ ctest --output-on-failure                          # 37 个核心测试套件，
 
 # 3. 推送分支 → 创建 PR
 git push -u origin feat/my-change
-# GitHub 上创建 PR，CI 自动运行编译+测试+真实客户端验收+性能回归
+# GitHub 上创建 PR，CI 自动运行编译+测试
 ```
 
-CI 在 PR 创建/更新时自动运行编译+单元测试、真实客户端验收和性能回归（~90s 起）。
-**合并到 main 后触发 1h 疲劳压测**。
+CI 在 PR 创建/更新时只运行编译、单元测试、Smoke 和 Reliability。
+**合并到 main 后运行真实客户端、性能回归，通过后再跑 1h 疲劳压测和记录基线**。
 
 ### 我是 reviewer，要审 PR
 
@@ -43,9 +43,9 @@ CI 通过（编译+ctest+smoke 全绿）是 merge 的前提条件。
 | ✅ `编译 & 单元测试` pass | 编译通过+全部测试通过 | 可以 review 代码 |
 | ❌ required check fail | 编译、验收或性能门禁失败 | 要求修复后重推 |
 
-**性能影响：** PR 会运行性能回归检查。性能 Gate 的 WARN 会显式显示但不阻塞；FAIL 或指标无效会阻塞合入。
+**性能影响：** 性能检查放在 main；FAIL 或指标无效会阻断发布，不把环境依赖放在普通 PR 的关键路径。性能敏感变更仍应在合入前定向验证。
 
-### 1.1 真实客户端验收（PR / main）
+### 1.1 真实客户端验收（main / Release）
 
 `真实客户端验收` 使用 `scripts/acceptance_real_clients.py`，由 CI 独立构建示例目标并直接运行：
 
@@ -101,12 +101,11 @@ python3 scripts/acceptance_real_clients.py \
 ```
 每个 PR/push main:
   build-and-test:  编译 → ctest（37 suites）→ Test_smoke    ~90s
-  real-client-acceptance: Echo/hiredis 真实验收
-
-仅 PR:
-  perf-regression: 性能基线回归门禁
 
 仅 push main:
+  real-client-acceptance: Echo/hiredis 真实验收
+  perf-regression: 性能基线回归门禁
+  两项通过后:
   stress-test:     1h 并行疲劳压测（6 模块同时跑）           ~70min
 ```
 
@@ -118,6 +117,7 @@ python3 scripts/acceptance_real_clients.py \
    `shell/workflow/unit_test/compile_code.sh` 是遗留的本地辅助脚本，不是当前 CI 入口。
 2. **ctest：** `cd build && ctest --output-on-failure` — 运行全部 37 个核心测试套件
 3. **冒烟测试：** `build/bin/unit_test/Test_smoke --log_level=test_suite` — 覆盖 8 个核心模块 happy-path
+4. **可靠性测试：** 独立运行 `Test_reliability`。
 
 基础测试列表（37 个）：
 
@@ -163,12 +163,12 @@ Test_reliability
 ### 3.3 性能回归门禁（#310）
 
 **三级结构：**
-- PR（Layer 2 `perf-regression`）：`ci_perf_check.py --threads=2 --dur=45`，
+- main push（Layer 2 `perf-regression`）：`ci_perf_check.py --threads=2 --dur=45`，
   与最近可比基线对比，只检查不写基线。
 - main push（Layer 3 尾部）：1h 压测成功后 `record_baseline.py record`
   生成新基线，并 `trend` 检查连续退化，最后推送到长期分支。
 - 基线长期记录：orphan 分支 `perf-baseline`（目录 `tests/baselines/<machine>/`），
-  artifact `performance-baseline` 仅作传输副本。PR 检查先 fetch 该分支再比较，
+  artifact `performance-baseline` 仅作传输副本。main 检查先 fetch 该分支再比较，
   分支缺失时显式 `NO_COMPARABLE_BASELINE`。
 
 **判定阈值（沿用 ADR D6）：**
@@ -180,17 +180,17 @@ Test_reliability
 CoCond 放宽原因：其 ops 由 frame/timeout 定时器节拍驱动，对调度抖动和
 runner 时钟噪声天然敏感，10% 会大量误报（历史压测观察）。
 
-**`ci_perf_check.py` 的 verdict 与退出码（PR 沿用，发布额外收紧）：**
+**`ci_perf_check.py` 的 verdict 与退出码（main 沿用，发布额外收紧）：**
 - `PASS` / `NO_COMPARABLE_BASELINE` → exit 0。无基线、基线损坏、环境指纹
   （machine/cpu/内存/编译器/cmake/ninja/build type/线程数）任一不一致，
   一律 `NO_COMPARABLE_BASELINE`，**不伪装成性能通过**，也不做静默比较。
 - `WARN` → exit 0 + GitHub `::warning::` 注解和 summary 显式标注。不阻塞
   合并，但不得当作 PASS。
 - `FAIL` / `METRIC_INVALID`（timeout/crash/zero ops/缺字段）→ exit 2，
-  步骤红叉。**PR 门禁已开启 `--gate-enabled`**：吞吐退化 ≥20%（CoCond ≥40%）
-  直接阻断合并；10%~20% 仍是 WARN 不阻断。
+  步骤红叉。**main 性能检查启用 `--gate-enabled`**：吞吐退化 ≥20%（CoCond ≥40%）
+  使 main CI 失败并阻断发布；10%~20% 仍是 WARN。
 
-**PR 与发布的区别：** PR 对 `NO_COMPARABLE_BASELINE` 保持 exit 0，并显示 warning；它只说明缺少性能比较证据，不是 PASS。Release Gate 仅接受六模块均为 `PASS` / `WARN` 且 `errors=0`；无基线、损坏或指纹不一致均阻断发布。
+**main 与发布的区别：** main 对 `NO_COMPARABLE_BASELINE` 保持 exit 0，并显示 warning；它只说明缺少性能比较证据，不是 PASS。Release Gate 仅接受六模块均为 `PASS` / `WARN` 且 `errors=0`；无基线、损坏或指纹不一致均阻断发布。
 
 **Release 基线迁移：** 旧流程记录的空 `build_type` 与显式 `Release` 不可比。首个迁移 PR 允许显式不可比状态合入；合入后 main 完成 1h 长测并通过 record 写入闸门，生成同 runner / 参数的 Release 基线，再执行 RC Gate。不手改基线指纹、不伪造数据、不关闭 required check。
 
@@ -250,11 +250,10 @@ python3 scripts/record_baseline.py trend
 
 ### 5.1 GitHub Checks
 
-CI 结果直接显示在 PR 页面的 **Checks** 区域：
+PR 的必需检查只有 `编译 & 单元测试`；其余 job 在 PR 跳过，在 main 的 Actions run 检查：
 
 - ✅ **`编译 & 单元测试`** — 绿色 = 编译、CTest、Smoke、Reliability 全部通过
-- ✅ **`真实客户端验收`** — Echo/hiredis 场景通过
-- ✅ **`性能回归检查`** — 性能 Gate 通过或明确 WARN
+- main 集成后才检查 **`真实客户端验收`** 与 **`性能回归检查`**
 - ❌ 红色 = 失败，点击展开查看具体失败的 step 日志
 
 ### 5.2 ctest 输出解读

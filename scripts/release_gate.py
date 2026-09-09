@@ -108,7 +108,7 @@ def validate_main_ci(source_sha: str) -> None:
     if jobs.get("total_count", 0) > len(jobs.get("jobs", [])):
         fail("incomplete CI jobs response")
     passed = {j["name"] for j in jobs.get("jobs", []) if j.get("conclusion") == "success"}
-    if not {"编译 & 单元测试", "真实客户端验收", "1h 并行疲劳压测"} <= passed:
+    if not {"编译 & 单元测试", "真实客户端验收", "性能回归检查", "1h 并行疲劳压测"} <= passed:
         fail("required main CI jobs missing, skipped or failed")
 
 

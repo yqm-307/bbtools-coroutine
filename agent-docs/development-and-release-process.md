@@ -39,13 +39,13 @@ Issue / 里程碑计划
 
 ### PR required checks
 
+PR 快速反馈，main 完整验证，Release 严格发布。普通改动先自审并运行相关测试；独立审查按风险或明确要求执行，不因非阻塞措辞调整重复整树复审。
+
 以下检查是 PR 合入 main 的硬门槛：
 
 - `编译 & 单元测试`
-- `真实客户端验收`
-- `性能回归检查`
 
-`性能回归检查` 对无基线、基线损坏或环境指纹不一致保持显式 `NO_COMPARABLE_BASELINE`（warning，不阻断 PR），但不能宣称性能通过；版本发布要求可比基线。首次显式 Release 构建迁移先合入 PR，再由 main 完整长测成功后写入 Release 基线，禁止手改指纹以伪造可比性。
+`性能回归检查` 对无基线、基线损坏或环境指纹不一致保持显式 `NO_COMPARABLE_BASELINE`（warning，允许 main 建立首份基线），但不能宣称性能通过；版本发布要求可比基线。首次显式 Release 构建迁移先合入 PR，再由 main 完整长测成功后写入 Release 基线，禁止手改指纹以伪造可比性。
 
 `真实客户端验收` 必须在明确的 Redis 环境中执行。Redis 不可用时，发布 Gate 失败；本地脚本允许用 CTest skip code 77 表示环境缺失，但不能把 skip 当作发布通过。
 
@@ -54,8 +54,8 @@ Issue / 里程碑计划
 每次合入 main 后，CI 运行：
 
 - 编译与全量 CTest、Smoke、Reliability
-- 真实客户端验收
-- 1 小时六模块并行疲劳压测
+- 真实客户端验收、性能回归检查
+- 两项均通过后才运行 1 小时六模块并行疲劳压测
 - 性能基线记录和趋势检查
 
 压测必须满足以下条件才可形成通过证据：
@@ -129,7 +129,7 @@ Stable Gate 额外验证：
 - 禁止直接 push；
 - 禁止 force push 和删除；
 - PR 必须基于最新 main；
-- required checks 为 `编译 & 单元测试`、`真实客户端验收`、`性能回归检查`。
+- required check 仅为 `编译 & 单元测试`。
 
 `v*` 必须配置 tag ruleset：
 
@@ -143,7 +143,7 @@ GitHub tag ruleset 的“限制创建”按 bypass actor 授权，不能选择�
 
 发布前必须使用 GitHub API 回读两个 Environment 的 `required_reviewers`、`prevent_self_review`、部署分支策略和 `can_admins_bypass`；仅有 Environment 名称不算审核门禁，缺失时 GitHub 会自动创建无保护环境。无法确认配置时不 dispatch。
 
-当前边界（2026-09-09 回读）：仓库公开；两个 Environment 均有唯一审核者 `yqm-307`，且禁止自审。若以同一账号触发，唯一审核者不能正常批准；必须由用户决定独立触发身份或审核者配置后再演练，不能绕过审核。当前 `can_admins_bypass=true`，管理员仍有旁路能力；`v*` 规则目前只禁止更新和删除，创建者尚未收紧。
+当前边界（2026-09-09 回读）：仓库公开；两个 Environment 均有唯一审核者 `yqm-307`，允许同账号触发后审核（`prevent_self_review=false`）。发布仍需用户授权，不要求另设账号。当前 `can_admins_bypass=true`，管理员仍有旁路能力；`v*` 规则目前只禁止更新和删除，创建者尚未收紧。
 
 公开仓库的 `pull_request` 执行的是 PR head 中的 workflow 文件；常驻 self-hosted runner 上，YAML 内的 `if` 无法阻止 fork 替换 workflow 后请求同一 runner。仓库 Actions `approval_policy` 已设为 `all_external_contributors`（API 回读），`GITHUB_TOKEN` 默认 `read` 且禁止用它批准 PR review。外部 fork workflow 必须由有写权限的人批准才会跑；Agent 和用户都不得批准未审查的 fork workflow 到该 runner。有写权限的人一旦批准，隔离仍不成立。完整隔离只能改为私有仓库，或撤销本仓库的 self-hosted runner。上述配置不等于发布闭环完成。
 

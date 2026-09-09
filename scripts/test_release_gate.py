@@ -56,11 +56,11 @@ class ReleaseGateTest(unittest.TestCase):
 
     def test_main_ci_requires_successful_exact_sha_and_all_jobs(self):
         run = {'id': 1, 'head_sha': SHA, 'head_branch': 'main', 'event': 'push', 'conclusion': 'success'}
-        names = ['编译 & 单元测试', '真实客户端验收', '1h 并行疲劳压测']
+        names = ['编译 & 单元测试', '真实客户端验收', '性能回归检查', '1h 并行疲劳压测']
         for conclusion in ('success', 'skipped', 'failure'):
             jobs = [{'name': name, 'conclusion': 'success'} for name in names]
             jobs[-1]['conclusion'] = conclusion
-            with mock.patch.object(gate, 'api', side_effect=[{'workflow_runs': [run]}, {'jobs': jobs, 'total_count': 3}]):
+            with mock.patch.object(gate, 'api', side_effect=[{'workflow_runs': [run]}, {'jobs': jobs, 'total_count': len(jobs)}]):
                 if conclusion == 'success':
                     gate.validate_main_ci(SHA)
                 else:
@@ -137,7 +137,7 @@ sys.exit(1 if mode == 'crash' else 0)
         import sys
         import textwrap
         for workflow, report_path, strict in (
-            ('unit_test.yml', 'tests/ci-reports/pr-performance.json', False),
+            ('unit_test.yml', 'tests/ci-reports/main-performance.json', False),
             ('release.yml', 'source/tests/ci-reports/release-performance.json', True),
         ):
             text = (ROOT / '.github/workflows' / workflow).read_text()
@@ -161,6 +161,14 @@ sys.exit(1 if mode == 'crash' else 0)
         self.assertIn('ctest --test-dir source/build --timeout 60 --output-on-failure', release)
         self.assertRegex(release, r'name: "全量 CTest"\n        timeout-minutes: 15')
         self.assertRegex(release, r'name: "真实客户端验收（Redis 缺失必须失败）"\n        timeout-minutes: 10')
+
+    def test_main_only_integration_jobs(self):
+        import re
+        text = (ROOT / '.github/workflows/unit_test.yml').read_text()
+        for job in ('real-client-acceptance', 'perf-regression', 'stress-test'):
+            block = re.search(r'(?ms)^  ' + job + r':\n(.*?)(?=^  [a-z][a-z-]*:|\Z)', text).group(1)
+            self.assertIn("if: github.event_name == 'push' && github.ref == 'refs/heads/main'", block)
+        self.assertIn('needs: [build-and-test, real-client-acceptance, perf-regression]', text)
 
     def test_latency_warning_cannot_hide_throughput_failure(self):
         import ci_perf_check as perf
