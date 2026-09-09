@@ -38,8 +38,11 @@ public:
     /* 线程安全，多次调用仅第一次有效 */
     int                             NotifyCustomEvent(std::shared_ptr<CoPollEvent> event);
 
-    /* 延迟销毁 Event —— 在 Scheduler/PollOnce 线程安全执行 */
+    /* 延迟销毁 Event；由 FlushDeferredEvents 在唤醒协程前兑现。 */
     void                            DeferDestroyEvent(std::shared_ptr<bbt::pollevent::Event> event);
+
+    /* 事件完成后，在唤醒协程重新注册同一 FD 前释放底层 Event。 */
+    void                            FlushDeferredEvents();
 
     std::shared_ptr<bbt::pollevent::EventLoop>
                                     GetEventLoop() const;

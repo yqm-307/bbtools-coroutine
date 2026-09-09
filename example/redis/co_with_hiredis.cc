@@ -1,4 +1,5 @@
 #include <hiredis/hiredis.h>
+#include <random>
 #include <bbt/coroutine/coroutine.hpp>
 
 /**
@@ -67,8 +68,37 @@ public:
             return;
         }
 
+        const int reply_type = reply->type;
         freeReplyObject(reply);
-        throw std::runtime_error("Unexpected reply type from Redis server, Reply type: " + std::to_string(reply->type));
+        throw std::runtime_error("Unexpected reply type from Redis server, Reply type: " + std::to_string(reply_type));
+    }
+
+    bool Exists(const std::string& key)
+    {
+        redisReply* reply = static_cast<redisReply*>(redisCommand(m_context, "EXISTS %s", key.c_str()));
+        if (reply == nullptr)
+            throw std::runtime_error("Failed to get EXISTS reply from Redis server");
+        if (reply->type != REDIS_REPLY_INTEGER) {
+            const int reply_type = reply->type;
+            freeReplyObject(reply);
+            throw std::runtime_error("Unexpected EXISTS reply type: " + std::to_string(reply_type));
+        }
+        const bool exists = reply->integer != 0;
+        freeReplyObject(reply);
+        return exists;
+    }
+
+    void Delete(const std::string& key)
+    {
+        redisReply* reply = static_cast<redisReply*>(redisCommand(m_context, "DEL %s", key.c_str()));
+        if (reply == nullptr)
+            throw std::runtime_error("Failed to get DEL reply from Redis server");
+        if (reply->type != REDIS_REPLY_INTEGER) {
+            const int reply_type = reply->type;
+            freeReplyObject(reply);
+            throw std::runtime_error("Unexpected DEL reply type: " + std::to_string(reply_type));
+        }
+        freeReplyObject(reply);
     }
 
     void Run() {
@@ -120,25 +150,45 @@ void Example1()
  */
 void Example2()
 {
-    RedisClient client("127.0.0.1", 6379);
-    auto comutex = bbt::co::sync::StdLockWapper(bbtco_make_comutex());
     auto copool = bbtco_make_copool(10);
-    auto wg = bbt::core::thread::CountDownLatch(10000);
+    constexpr int kWorkers = 10;
+    constexpr int kOperationsPerWorker = 1000;
+    auto wg = bbt::core::thread::CountDownLatch(kWorkers);
     std::atomic_int success_count{0};
     std::atomic_int error_count{0};
 
-    for (int i = 0; i < 10000; ++i)
+    for (int worker = 0; worker < kWorkers; ++worker)
     {
-        copool->Submit([&, i]() {
-            std::unique_lock<bbt::co::sync::StdLockWapper> lock(comutex);            
+        copool->Submit([&, worker]() {
             try {
-                client.Set("key" + std::to_string(i), "value" + std::to_string(i));
-                std::string value = client.Get("key" + std::to_string(i));
-                // std::cout << "Value for key" << i << ": " << value << std::endl;
-                if (value != "value" + std::to_string(i))
-                    error_count++;
-                else
-                    success_count++;
+                RedisClient client("127.0.0.1", 6379);
+                std::mt19937 rng(0x6d315f07u + static_cast<unsigned>(worker));
+                for (int i = 0; i < kOperationsPerWorker; ++i) {
+                    const int operation_id = worker * kOperationsPerWorker + i;
+                    const std::string key = "m1:acceptance:" + std::to_string(operation_id);
+                    const size_t value_len = 1 + (rng() % 256);
+                    std::string value(value_len, 'a');
+                    for (char& ch : value)
+                        ch = static_cast<char>(' ' + (rng() % 95));
+
+                    client.Set(key, value);
+                    std::string actual = client.Get(key);
+                    if (actual != value || !client.Exists(key))
+                        error_count++;
+                    else
+                        success_count++;
+
+                    if ((rng() % 3) == 0) {
+                        client.Set(key, "");
+                        if (client.Get(key) != "")
+                            error_count++;
+                    }
+                    if ((rng() % 4) == 0) {
+                        client.Delete(key);
+                        if (client.Exists(key))
+                            error_count++;
+                    }
+                }
 
                 wg.Down();
             } catch (const std::exception& e) {
@@ -151,6 +201,7 @@ void Example2()
 
     wg.Wait();
     std::cout << "Total successful operations: " << success_count.load() << std::endl;
+    std::cout << "Total errors: " << error_count.load() << std::endl;
 }
 
 int main()

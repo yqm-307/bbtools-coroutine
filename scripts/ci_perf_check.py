@@ -390,8 +390,10 @@ def main():
                 latency_warn, latency_delta = check_latency(old_mod, new_mod)
                 if latency_warn:
                     print(f"  ⚠️ lock_avg_us +{latency_delta:.1f}%")
-                    status = "WARN"
-                    entry["status"] = "WARN"
+                    # 延迟告警只能升级 PASS，不能掩盖吞吐 FAIL 或无可比基线。
+                    if status == "PASS":
+                        status = "WARN"
+                        entry["status"] = "WARN"
 
         # 冻结检测（仅长时间测试且出现错误计数）
         if dur >= 30 and new_mod.get("errors", 0) > 0:

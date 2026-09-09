@@ -46,3 +46,17 @@ target_link_libraries(co_with_hiredis ${MY_LIBS} hiredis dl)
 
 add_executable(co_with_mysql mysqlpp/co_with_mysql.cc)
 target_link_libraries(co_with_mysql ${MY_LIBS} pthread mysqlclient dl)
+
+if (NEED_TEST)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_test(
+        NAME Test_real_clients
+        COMMAND ${Python3_EXECUTABLE}
+                ${PROJECT_SOURCE_DIR}/scripts/acceptance_real_clients.py
+                --echo-server $<TARGET_FILE:echo_server>
+                --hiredis $<TARGET_FILE:co_with_hiredis>)
+    set_tests_properties(Test_real_clients PROPERTIES
+        TIMEOUT 180
+        RUN_SERIAL TRUE
+        SKIP_RETURN_CODE 77)
+endif()

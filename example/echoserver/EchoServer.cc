@@ -1,4 +1,5 @@
 #include <iostream>
+#include <csignal>
 #include <bbt/core/net/SocketUtil.hpp>
 #include <bbt/core/thread/Lock.hpp>
 #include <bbt/coroutine/coroutine.hpp>
@@ -55,9 +56,18 @@ protected:
                         break;
                     }
 
-                    int write_len = ::write(new_fd, buf, read_len);
+                    int write_len = 0;
+                    while (write_len < read_len) {
+                        const int n = ::send(new_fd, buf + write_len,
+                                             read_len - write_len, MSG_NOSIGNAL);
+                        if (n <= 0) {
+                            close = true;
+                            break;
+                        }
+                        write_len += n;
+                    }
 
-                    if (read_len <= 0 or write_len <= 0)
+                    if (read_len <= 0 or write_len != read_len)
                         close = true;
 
                     // printf("echo: %s\n", buf);
@@ -77,6 +87,7 @@ private:
 
 int main()
 {
+    std::signal(SIGPIPE, SIG_IGN);
     g_scheduler->Start();
     Server s{10010};
     s.Start();

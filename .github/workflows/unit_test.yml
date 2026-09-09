@@ -5,8 +5,14 @@
 # Layer 3 (push main only): 1h 并行疲劳压测 + 记录新基线                       ~70min
 #
 # 契约参考: docs/ci-guide.md
+# 公开仓库 + 常驻 self-hosted：fork PR 会执行 PR head 里的 workflow，
+# YAML 内 if 挡不住被替换的文件。硬闸门是仓库 Actions
+# approval_policy=all_external_contributors；不得批准未审查的 fork workflow。
 
 name: CI
+
+permissions:
+  contents: read
 
 on:
   pull_request:
@@ -42,8 +48,13 @@ jobs:
       - name: "编译"
         run: |
           rm -rf build && mkdir build && cd build
-          cmake .. -G Ninja -DNEED_TEST=ON -DNEED_BENCHMARK=ON
+          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DNEED_TEST=ON -DNEED_BENCHMARK=ON
           ninja -j$(nproc)
+
+      - name: "CI 与发布工具自测"
+        run: |
+          python3 scripts/test_release_gate.py
+          python3 -m unittest discover -s scripts/ci -p 'test_*.py'
 
       - name: "采集 runner 调度能力"
         if: always()
@@ -89,15 +100,45 @@ jobs:
         timeout-minutes: 8
 
   # ════════════════════════════════════════════════════════
-  # Layer 2: 快速性能回归检查（仅 PR）
+  # main: 真实第三方客户端验收
+  # ════════════════════════════════════════════════════════
+  real-client-acceptance:
+    name: "真实客户端验收"
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [build-and-test]
+    runs-on: ["self-hosted", "linux"]
+    timeout-minutes: 10
+    steps:
+      - name: "拉取代码库"
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: "编译示例和验收目标"
+        run: |
+          rm -rf build && mkdir build && cd build
+          cmake .. -G Ninja -DNEED_EXAMPLE=ON -DNEED_TEST=OFF -DNEED_BENCHMARK=OFF
+          ninja -j2 echo_server co_with_hiredis
+
+      - name: "执行真实客户端验收"
+        run: |
+          python3 scripts/acceptance_real_clients.py \
+            --echo-server ./build/bin/example/echo_server \
+            --hiredis ./build/bin/example/co_with_hiredis
+
+  # ════════════════════════════════════════════════════════
+  # Layer 2: 快速性能回归检查（仅 push main）
   # 每模块 45s 串行，~5min
   # ════════════════════════════════════════════════════════
   perf-regression:
     name: "性能回归检查"
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [build-and-test]
     runs-on: ["self-hosted", "linux"]
     timeout-minutes: 15
+    permissions:
+      contents: read
     steps:
       - name: "拉取代码库"
         uses: actions/checkout@v4
@@ -108,13 +149,18 @@ jobs:
       - name: "编译（复用 build 产物？不 — 独立 build 目录保证一致性）"
         run: |
           rm -rf build && mkdir build && cd build
-          cmake .. -G Ninja -DNEED_TEST=ON -DNEED_BENCHMARK=ON
+          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DNEED_TEST=ON -DNEED_BENCHMARK=ON
           ninja -j$(nproc)
 
       - name: "拉取历史性能基线（perf-baseline 分支）"
         # 临时 checkout 里没有历史基线；长期记录在 orphan 分支 perf-baseline，
         # artifact 仅作传输。分支缺失时 ci_perf_check 显式输出 NO_COMPARABLE_BASELINE。
+        env:
+          GIT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GIT_TOKEN" | base64 -w0)"
           if git ls-remote --exit-code origin refs/heads/perf-baseline >/dev/null 2>&1; then
             git fetch --depth=1 origin refs/heads/perf-baseline
             mkdir -p tests
@@ -126,15 +172,28 @@ jobs:
           fi
 
       - name: "快速性能回归检查"
-        # --gate-enabled：退化 ≥20%（CoCond ≥40%）判 FAIL 并阻断合并（#310 收口后开启）
-        run: python3 scripts/ci_perf_check.py --threads=2 --dur=45 --gate-enabled
+        # --gate-enabled：退化 ≥20%（CoCond ≥40%）判 FAIL 并阻断 main 验证
+        run: |
+          python3 scripts/ci_perf_check.py --threads=2 --dur=45 --gate-enabled --output tests/ci-reports/main-performance.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('tests/ci-reports/main-performance.json').read_text())
+          modules = report.get('modules', {})
+          assert set(modules) == {'comutex', 'corwmutex', 'cocond', 'chan', 'copool', 'coroutine'}
+          allowed = {'PASS', 'WARN', 'NO_COMPARABLE_BASELINE'}
+          assert report.get('verdict') in allowed, report.get('verdict')
+          assert all(m.get('status') in allowed and m.get('errors') == 0 for m in modules.values())
+          if any(m.get('status') == 'NO_COMPARABLE_BASELINE' for m in modules.values()):
+              print('::warning::NO_COMPARABLE_BASELINE：main 缺少性能可比性证据；允许建立首份基线，发布仍阻断')
+          PY
 
       - name: "上传压测日志"
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: perf-regression-logs
-          path: /tmp/asan_report.*
+          path: tests/ci-reports/
           if-no-files-found: ignore
           retention-days: 3
 
@@ -144,7 +203,7 @@ jobs:
   stress-test:
     name: "1h 并行疲劳压测"
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [build-and-test]
+    needs: [build-and-test, real-client-acceptance, perf-regression]
     runs-on: ["self-hosted", "linux"]
     timeout-minutes: 90
     permissions:
@@ -159,7 +218,7 @@ jobs:
       - name: "编译"
         run: |
           rm -rf build && mkdir build && cd build
-          cmake .. -G Ninja -DNEED_TEST=ON -DNEED_BENCHMARK=ON
+          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DNEED_TEST=ON -DNEED_BENCHMARK=ON
           ninja -j$(nproc)
 
       - name: "1h 并行压测"
@@ -180,7 +239,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: stress-test-report
-          path: tests/reports/latest/
+          path: tests/reports/
           if-no-files-found: warn
           retention-days: 7
 
@@ -207,11 +266,15 @@ jobs:
         # 每机器目录保留最近 20 份，旧的清理（保留规则见 docs/ci-guide.md）
         env:
           GIT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           set -eu
           work="$(mktemp -d)"; cd "$work"
           git init -q bl && cd bl
-          git remote add origin "https://x-access-token:${GIT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GIT_TOKEN" | base64 -w0)"
           if git ls-remote --exit-code origin refs/heads/perf-baseline >/dev/null 2>&1; then
             git fetch -q --depth=25 origin refs/heads/perf-baseline
             git checkout -q -b perf-baseline FETCH_HEAD
