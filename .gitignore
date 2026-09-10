@@ -40,8 +40,7 @@ build*/
 .superpowers/
 
 # Test and benchmark outputs
-/tests/reports/*
-!tests/reports/README.md
+# 细则在 tests/reports/.gitignore：work/ 与时间戳目录忽略，archive/ 结论可提交
 /tests/ci-reports/
 # 性能基线长期记录在 perf-baseline orphan 分支，main 工作区不跟踪
 /tests/baselines/
