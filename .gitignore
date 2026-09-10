@@ -34,8 +34,10 @@
 build*/
 /coverage_report/
 
-# 本地工具会话文件
+# 本地工具会话与状态
 .kilo/
+.state/
+.superpowers/
 
 # Test and benchmark outputs
 /tests/reports/*
@@ -47,6 +49,10 @@ build*/
 
 # Local worktrees
 .worktrees/
+
+# agent-docs 本地构建与临时物；不忽略 references/（以后可提交参考）
+/agent-docs/build-readiness/
+/agent-docs/.tmp/
 
 # Runtime logs and temporary files
 /tmp/
