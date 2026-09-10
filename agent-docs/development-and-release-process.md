@@ -36,6 +36,20 @@ Issue / 里程碑计划
 - 新测试必须注册到 CTest；行为变更必须留下可重复验证入口。
 - PR 必须关联 Issue，并写明范围、验证命令、结果和未覆盖边界。
 - CI 失败先读取日志、定位根因，再修改；业务代码修复可自主执行，CI/CD 配置修改必须先获确认；不靠重复重跑掩盖失败。
+- 开 Issue / PR 用 `.github/ISSUE_TEMPLATE/task.md` 与 `.github/pull_request_template.md`。验证按下表选现有命令，不另起流程。
+
+### 验证阶梯
+
+| 改动类型 | 本地最低验证 | 合入仍走的 PR Checks | 不要在普通 PR 当完成证据 |
+|----------|--------------|----------------------|--------------------------|
+| 仅文档 / 模板 / gitignore | `git diff --check`；抽查链接 | `编译 & 单元测试`、`性能回归检查` | 真实客户端、疲劳 |
+| `scripts/` 或 `release_gate.py` | `python3 scripts/test_release_gate.py` 或对应 `scripts/ci/test_*.py` | 同上 | 发布 Gate、dispatch RC |
+| 单测 / example | 相关 `ctest` 或该 example | 同上 | 1h soak |
+| 运行时 / 公开 API | 全量 `ctest --test-dir build --output-on-failure` | 同上 | 真实客户端 |
+| Hook / 兼容行为 | 相关 hook 单测 + 全量 ctest | 同上 | #256/#284 长测与发布 Gate |
+| 压测程序本身 | 短跑或相关 benchmark | `性能回归检查` | 未授权的长 soak |
+
+本地命令见 §9。普通 PR 不把 `scripts/acceptance_real_clients.py`、1h `run_fatigue.py` / `run_parallel_stress.sh` 当合入完成证据。
 
 ### PR required checks
 
