@@ -30,6 +30,7 @@
 
 - 唯一流程真源：`agent-docs/development-and-release-process.md`
 - 开发、PR、main 集成、RC 和 Stable 发布均按该文档执行。
+- 开 Issue / PR 用仓库模板（落地后见 `.github/ISSUE_TEMPLATE/` 与 `.github/pull_request_template.md`）；验证按流程文档「验证阶梯」选现有命令，不另起流程。
 - Agent 不直接推送 `main`，不手工创建或移动 `v*` tag，不绕过 required checks。
 - CI 结果、压测完整性和发布 Gate 是事实依据；文档不能替代远端硬保护。
 
@@ -37,8 +38,7 @@
 
 所有非 trivial 变更必须经过：**现状分析 → 需求确认 → 方案共识 → 实现验证** 四个阶段。在没有与用户就目标、范围和方案达成共识之前，不得进入实现阶段。简单 bug 修复可直接实现。有疑问先问用户，不猜测用户的意图。
 
-
-> 具体流程（头脑风暴、子代理编排、审查验收等）由工具专属的 superpowers skills 和流程配置负责推进。本文件定义规范与标准，不定义流程步骤。
+本文件定义规范与标准，不定义工具专属流程步骤。仓内不放第二套通用 Agent 脚手架。本仓 skill 仅 `.github/skills/bbtools-coroutine/` 与 `.github/skills/managing-fatigue-tests/`，不算通用脚手架。
 
 ## 项目契约真源
 
@@ -57,9 +57,34 @@
 - 当前用户的最新明确指令优先于历史 Issue/PR 消息；代码和测试是当前实现事实。发现消息、契约、实现或测试冲突时，必须显式记录冲突，不得静默选择。
 - 提交和推送后应回读远端分支、提交或 PR，确认仓库消息与实际状态一致。
 
+## 工程结构
+
+下表是收束后允许布局，不是当前跟踪树。`openspec/`、`.kilo/`、通用 Copilot/OpenSpec/superpowers skill 由 #327 删除，不得加回。禁止新建顶层目录。构建产物只进已忽略的 `build*/`，不进 `agent-docs/`。规范/决策不进 `tests/reports/`；运行结论不进 `agent-docs/`。
+
+| 路径 | 用途 | Agent 写入 | 入仓 |
+|------|------|------------|------|
+| `bbt/` | 库源码 | 实现时 | 是 |
+| `unit_test/` | Boost 单测 | 实现时 | 是 |
+| `example/` | 示例 | 实现时 | 是 |
+| `benchmark_test/` | 疲劳/基准源码 | 实现时 | 是 |
+| `debug/` | 手工调试程序 | 不新增文件，除非 Issue 要求 | 已有保留 |
+| `context/` | 自带 fcontext | 否 | 是 |
+| `scripts/` | 验证与发布脚本 | 改验证入口时 | 是 |
+| `shell/` | 遗留 shell | 不新增 | 已有保留 |
+| `ci/` | Jenkinsfile 遗留 | 不新增 | 已有保留 |
+| `docs/` | 用户向 CI 指南 | 只改现有已跟踪的 `ci-guide.md` | 是（新文件仍被 `/docs/` 忽略） |
+| `agent-docs/` | 契约、流程、API、使用手册 | 按产物治理 | 是 |
+| `.github/` | workflows、Issue/PR 模板、本仓 skill（仅 `bbtools-coroutine` 与 `managing-fatigue-tests`） | 按对应 Issue | 是 |
+| `tests/` | 报告工作区 | 验证时 | 仅 `reports/README.md`；`archive/` 见 #330 |
+| `.vscode/` | 本地调试配置 | 不改，除非 Issue 要求 | 已有保留 |
+| `CMakeLists.txt` `build.sh` `README.md` `AGENTS.md` `LICENSE` | 入口 | 按变更类型 | 是 |
+
 ## AI 产物治理
 
-- git、svn仓库中AI需要留下的仓内产物都在agent-docs目录下面存放。
+- 长期规范、决策、契约、流程：`agent-docs/`。
+- 验证运行结论：`tests/reports/archive/`（#330 落地后；此前不提交 raw 运行目录）。
+- 原始运行：`tests/reports/work/` 或脚本默认时间戳目录，不提交。
+- 通用 Agent 脚手架不进本仓。
 - AI 完成重要设计、调查、压测或验证后，主动判断是否需要留下仓内产物。
 - 长期资产（后续开发、维护或决策仍需引用的规格、决策、稳定计划、可复用方法和故障结论）必须追踪并随相关变更提交。
 - 阶段性交付证据仅在支撑重要结论、记录风险或未覆盖范围、后续需要复核，或结果无法稳定重现时，才简短记录并提交；说明结论、关键依据和限制即可。
@@ -181,4 +206,4 @@ git commit --author="agent <agent@users.noreply.github.com>"
 
 ## 与工具特定配置的关系
 
-本文件是跨工具的通用规范。工具专属配置（`.github/copilot-instructions.md`、OpenSpec、superpowers skills 等）定义「怎么做」——本文件定义「做成什么样」和「遵守什么」。两者冲突时以本文件为准。
+仓内真源是本文件、`agent-docs/development-and-release-process.md` 和 Issue/PR 模板。本文件定义「做成什么样」和「遵守什么」。流程步骤不在仓内放第二套 skill。外部工具配置不得覆盖本文件、契约或流程文档。
