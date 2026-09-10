@@ -3,49 +3,57 @@ name: bbtools-coroutine
 description: >
   Use when writing, reviewing, or debugging application code that calls
   bbtools-coroutine (bbtco, Scheduler, Chan, CoMutex, CoPool, Hook).
-  Load before inventing signatures or copy-pasting README tables.
+  Load before inventing signatures or copying README tables.
 ---
 
-# bbtools-coroutine 使用
+# bbtools-coroutine
 
-写调用本库的代码时先读本 skill。改运行时实现仍以 `AGENTS.md` 和核心契约为准。
+写**调用本库**的代码时用本 skill。改运行时实现改读 `AGENTS.md` 和 `agent-docs/2026-09-07-core-runtime-contract.md`。
 
-## 先读
+签名冲突：头文件 + 测试 > `agent-docs/api-reference.md` > README 速查表。不要凭速查表补重载。
 
-1. `agent-docs/user-guide.md` — 最小程序、组合、禁区
-2. `agent-docs/api-reference.md` — 按符号的签名、返回码、挂起语义
-3. 对应头文件 — 签名真源；文档与头文件冲突时以头文件 + 测试为准
+## 1. 架构简介
 
-不要凭 README 速查表补全重载或返回码。README 只作入门。
+有栈协程，boost.context 切换，仅 Linux。全局单例 `g_scheduler` 管调度；多个 Processer（worker 线程）跑协程。同一协程同一时刻只在一个 worker 上；挂起后可在别的 worker 恢复。
 
-## 硬规则
+`EventLoop` / `CoPoller` 驱动 fd、定时器、唤醒。协程里的阻塞 syscall 由 Hook 转成等待，不占死 worker；非协程上下文直通原生。
 
-- Linux only。入口 `#include <bbt/coroutine/coroutine.hpp>`。
-- 先 `g_scheduler->Start()`，最后 `Stop()`。`Start` 后不要再 `LoopOnce`。
-- `bbtco_sleep` / `bbtco_yield` / `bbtco_wait_for` / 同步原语 Wait/Lock/Chan 读写：必须在协程内。
-- 返回码优先：`0` 成功、`-1` 失败、`1` 超时。`Chan` 另有 `-2` 错误。
-- `Stop()` 是取消式停机，不排空业务。需要“跑完”就自己 latch，再 `Stop`。
-- `Stop` 后 `bbtco` 抛 `std::runtime_error`；`bbtco_noexcept(&succ)` 置 `succ=false`。
-- `CoSelect` 不支持 `Chan<T,0>`（`static_assert`）。
-- 不要在协程闭包里捕获即将销毁的栈引用，除非生命周期覆盖该协程。
-- Hook 只在协程上下文把阻塞 syscall 转等待；非协程直通原生。不要为“避免阻塞”去改 FD flags。
-- 宏只映射已有 C++ API，禁止发明新宏或新状态机。
+用户同步工具（`Chan`、`CoMutex`、`CoCond`、`CoPool`、宏）不是调度器状态机。协程是 detached：`bbtco` 注册后不 join。
 
-## 常用入口
+详细：`references/architecture.md`
 
-| 目的 | API |
-|------|-----|
-| 注册协程 | `bbtco` / `bbtco_desc("name")` / `bbtco_noexcept(&succ)` |
-| 睡眠 / 让出 | `bbtco_sleep(ms)` / `bbtco_yield` |
-| 通道 | `sync::Chan<T, N>`，`Write`/`Read` 或 `<<` / `>>` |
-| 锁 | `bbtco_make_comutex()` + `CoLockGuard<CoMutex>` |
-| 条件变量 | `bbtco_make_cocond()`，`Wait` / `NotifyOne` / `NotifyAll` |
-| 池 | `bbtco_make_copool(n)`，结束用 `Release()`（取消式排空） |
+## 2. 用法
 
-完整签名与禁区见 `agent-docs/api-reference.md`。
+| 章节 | 何时读 |
+|------|--------|
+| 基本用法 | `Start` / `bbtco` / `sleep` / `Stop` |
+| 进阶用法 | Chan、锁、CoSelect、事件、Hook IO、配置 |
+| 使用范式 | 生产消费、锁+条件变量、CoPool、事件驱动 |
 
-## 完成前自检
+正文：`references/usage.md`
 
-- 示例能编译：对照 `example/` 或 `unit_test/`，不要手写未存在的 API。
-- 时间单位是毫秒，除非头文件写明微秒（`GlobalConfig` 里部分字段是微秒）。
-- 未在参考文档出现的符号：先打开头文件，标「待核实」，不要猜。
+## 3. API 文档
+
+只引用，不在 skill 里复制签名：
+
+- `agent-docs/api-reference.md` — 当前用户 API（签名、返回码、挂起、前置条件）
+- 对应 `.hpp` — 签名真源
+
+未出现在 API 参考里的符号：打开头文件，不要猜。
+
+## 4. 坑点与禁止行为
+
+必读，写代码前过一遍。展开：`references/pitfalls.md`
+
+禁止：
+
+- 在即将销毁的栈变量上挂协程引用捕获（`bbtco` 是 detached）
+- 把 `Stop()` 当成「等任务跑完」
+- `Start(SCHE_START_OPT_SCHE_THREAD)` 之后调用 `LoopOnce()`
+- 非协程上下文调用会挂起的 API（`Wait` / `Lock` 等待 / `Chan` 阻塞读写 / `bbtco_wait_for`）
+- `CoSelect` 搭配 `Chan<T,0>`
+- 为「避免阻塞」手动改 FD 的 `O_NONBLOCK`；多线程对同一 fd 并发 IO
+- 在 `CoPool` 任务里跑长时间 CPU 循环占住池协程
+- 发明新宏或让宏承载另一套状态机
+- 用 `auto x = mutex->Lock()`（`Lock()` 返回 `void`）
+- 停机后再 `bbtco` 还不接异常 / 不查 `bbtco_noexcept` 的 `succ`
