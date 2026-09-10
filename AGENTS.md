@@ -75,15 +75,18 @@
 | `docs/` | 用户向 CI 指南 | 只改现有已跟踪的 `ci-guide.md` | 是（新文件仍被 `/docs/` 忽略） |
 | `agent-docs/` | 契约、流程、API、使用手册 | 按产物治理 | 是 |
 | `.github/` | workflows、Issue/PR 模板、本仓 skill（仅 `bbtools-coroutine` 与 `managing-fatigue-tests`） | 按对应 Issue | 是 |
-| `tests/` | 报告工作区 | 验证时 | 仅 `reports/README.md`；`archive/` 见 #330 |
+| `tests/` | 报告工作区 | 验证时 | 仅 `reports/README.md` 与 `reports/archive/`（无 raw/log） |
 | `.vscode/` | 本地调试配置 | 不改，除非 Issue 要求 | 已有保留 |
 | `CMakeLists.txt` `build.sh` `README.md` `AGENTS.md` `LICENSE` | 入口 | 按变更类型 | 是 |
 
 ## AI 产物治理
 
 - 长期规范、决策、契约、流程：`agent-docs/`。
-- 验证运行结论：`tests/reports/archive/`（#330 落地后；此前不提交 raw 运行目录）。
-- 原始运行：`tests/reports/work/` 或脚本默认时间戳目录，不提交。
+- 验证运行结论：`tests/reports/archive/`。只提交 `summary.md` / `summary.json` 与已有曲线图。
+- 原始运行：`tests/reports/work/`，以及脚本默认时间戳目录（视为 work，不入仓）。
+- 何时归档：支撑 Issue/PR/发布结论、无法稳定重现、或后续要对照。日常本地跑只进 `work/`。
+- 基线只写 `perf-baseline` 分支的 `tests/baselines/`，不在 main 的 `archive/` 再存一份。
+- CI 仍写 `tests/ci-reports/`（gitignore，Actions artifact）。要把一次 CI 结论留在 main，拷 `summary.*` 进 `archive/`，不改 workflow。
 - 通用 Agent 脚手架不进本仓。
 - AI 完成重要设计、调查、压测或验证后，主动判断是否需要留下仓内产物。
 - 长期资产（后续开发、维护或决策仍需引用的规格、决策、稳定计划、可复用方法和故障结论）必须追踪并随相关变更提交。

@@ -1,5 +1,24 @@
-# 忽略自动生成的报告数据，保留目录结构
-*/
-!README.md
-!latest
-latest
+# 默认忽略本目录下文件（含历史散文件、latest 链接）
+*
+# 允许进入子目录，后续规则才能命中
+!*/
+
+!/README.md
+!/.gitignore
+!archive/.gitkeep
+
+# 结论归档目录链
+!archive/
+!archive/*/
+!archive/*/*/
+
+# 运行目录内默认忽略，只放行结论文件与已有图
+archive/*/*/*
+!archive/*/*/summary.md
+!archive/*/*/summary.json
+!archive/*/*/*.png
+!archive/*/*/*.svg
+
+# 更深一层的原始物
+archive/**/raw/
+archive/**/*.log

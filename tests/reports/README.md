@@ -1,41 +1,48 @@
-# 疲劳测试报告
+# 验证报告
 
-此目录存放所有疲劳测试的运行报告。每次运行生成一个时间戳子目录。
+唯一报告根。规范文档仍只在 `agent-docs/`。
 
-## 目录结构
+## 目录
 
-```
+```text
 tests/reports/
-├── README.md
-├── latest -> 2026-06-12_16-30-00/    # 符号链接指向最近一次
-└── 2026-06-12_16-30-00/              # 单次运行
-    ├── summary.json                  # 总览（JSON）
-    ├── summary.md                    # 可读报告（Markdown）
-    ├── comutex.json                  # comutex 模块完整指标时间序列
-    ├── coroutine.json                # ...
-    ├── chan.json
-    ├── corwmutex.json
-    ├── cocond.json
-    ├── copool.json
-    └── raw/                          # 原始 stdout 日志
-        ├── comutex.log
-        ├── coroutine.log
-        └── ...
+  README.md                 # 本文件，入仓
+  archive/                  # 入仓：结论级
+    <kind>/<YYYYMMDD>-<sha>/
+      summary.md
+      summary.json          # 结论与关键指标，不要完整时间序列
+      *.png / *.svg         # 仅当这次运行已经产出图
+  work/                     # gitignore：原始运行
+    <kind>/<run-id>/        # raw 日志、完整序列、ctest.xml、stdout
 ```
 
-## 运行
+`<kind>` 只允许：`smoke` `soak` `fatigue` `perf` `sanitizer`。不另开 kind。
+
+脚本若仍写到 `tests/reports/<时间戳>/`（如 `run_fatigue.py`），视为 work，不入仓。不在本 Issue 改脚本默认路径。
+
+CI 仍写 `tests/ci-reports/` 与 Actions artifact；基线仍只在 `perf-baseline` 的 `tests/baselines/`。
+
+## 入仓
+
+提交：
+
+- `summary.md`、`summary.json`（结论、关键指标、风险/未覆盖）
+- 已有 `*.png` / `*.svg`
+
+不提交：
+
+- `raw/`、`*.log`
+- 完整 `FATIGUE_METRIC` 时间序列
+- `ctest.xml`、覆盖率 `.gcda`、构建树
+
+何时归档：支撑 Issue/PR/发布结论、无法稳定重现、或后续要对照。日常本地跑只进 `work/`。没有自动晋升脚本：Agent 或人拷 `summary.*`。
+
+## 本地疲劳（现有入口，输出视为 work）
 
 ```bash
-# 1 小时全模块疲劳测试
 python3 scripts/run_fatigue.py --duration 3600
-
-# 30 分钟只跑 comutex
 python3 scripts/run_fatigue.py --duration 1800 --filter comutex
-
-# 查看最近报告
 python3 scripts/run_fatigue.py --show-latest
-
-# 对比最近两次
 python3 scripts/run_fatigue.py --compare
 ```
 
