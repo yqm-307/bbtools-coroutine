@@ -46,6 +46,8 @@
 - 任何涉及核心协程、Scheduler、EventLoop、Poller、CoroutineEvent、Hook、异常、取消、Stop 或公共 API 的设计、实现、审查和验证，先读取该文档。
 - 该文档记录目标契约，不等同于当前实现；实现与契约不一致时，先记录差异并补回归测试，不得用当前行为默默改写契约。
 - `AGENTS.md` 负责跨工具通用规范；README 负责用户说明；M1 计划负责任务范围；三者不得复制或替代契约真源。
+- 用户可依赖的调用方式：`agent-docs/user-guide.md`；按符号 API：`agent-docs/api-reference.md`。二者描述当前实现，与契约冲突时显式记录，不反向改契约。
+- 编写**调用本库**的应用代码时先读 `.github/skills/bbtools-coroutine/SKILL.md`；改运行时实现仍以本文件与契约为准。
 
 ## 仓库消息真源
 

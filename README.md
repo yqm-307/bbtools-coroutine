@@ -16,6 +16,12 @@ bbtools-coroutine 有以下特点：
 7、高性能的无锁队列实现
 8、支持协程间的 defer 语义和异常处理
 
+按符号查阅与组合用法（不要只靠本节速查表）：
+
+- 使用手册：`agent-docs/user-guide.md`
+- API 参考：`agent-docs/api-reference.md`
+- Agent 写调用代码：`.github/skills/bbtools-coroutine/SKILL.md`
+
 ## 一、安装
 
 ### 依赖
@@ -544,6 +550,8 @@ int main()
 调用矩阵与契约测试：`Test_hook_contract`、`Test_hook_blocking_fd`、`Test_hook_timeout_flags`、`Test_hook_error_matrix`。
 
 ## 三、API参考
+
+完整签名、返回码、挂起条件和生命周期见 `agent-docs/api-reference.md`。下表只作速查。
 
 ### 基础API
 
