@@ -47,7 +47,6 @@ BOOST_AUTO_TEST_CASE(t_begin)
     }
 
     cfg->m_cfg_static_thread_num = 1;
-    cfg->m_cfg_stack_size = 4096;
     cfg->m_cfg_stack_protect = false;
     cfg->m_ext_coevent_exception_callback = nullptr;
 
