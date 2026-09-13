@@ -22,7 +22,6 @@ BOOST_AUTO_TEST_CASE(t_bbtco_family_registers)
     const auto stack = cfg->m_cfg_stack_size;
     const auto protect = cfg->m_cfg_stack_protect;
     cfg->m_cfg_static_thread_num = 1;
-    cfg->m_cfg_stack_size = 4096;
     cfg->m_cfg_stack_protect = false;
 
     g_scheduler->Start(SCHE_START_OPT_SCHE_THREAD);
@@ -51,7 +50,6 @@ BOOST_AUTO_TEST_CASE(t_yield_and_sleep_are_wrappers)
     const auto stack = cfg->m_cfg_stack_size;
     const auto protect = cfg->m_cfg_stack_protect;
     cfg->m_cfg_static_thread_num = 1;
-    cfg->m_cfg_stack_size = 4096;
     cfg->m_cfg_stack_protect = false;
 
     g_scheduler->Start(SCHE_START_OPT_SCHE_THREAD);

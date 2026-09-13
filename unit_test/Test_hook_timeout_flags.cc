@@ -40,7 +40,6 @@ struct CoFixture
         m_stack = cfg->m_cfg_stack_size;
         m_protect = cfg->m_cfg_stack_protect;
         cfg->m_cfg_static_thread_num = 1;
-        cfg->m_cfg_stack_size = 4096;
         cfg->m_cfg_stack_protect = false;
         g_scheduler->Start(SCHE_START_OPT_SCHE_THREAD);
     }
