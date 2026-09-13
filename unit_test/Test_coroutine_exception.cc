@@ -91,7 +91,6 @@ BOOST_AUTO_TEST_CASE(t_begin)
     }
 
     cfg->m_cfg_static_thread_num = 1;
-    cfg->m_cfg_stack_size = 4096;
     cfg->m_cfg_stack_protect = false;
 
     g_scheduler->Start(SCHE_START_OPT_SCHE_THREAD);

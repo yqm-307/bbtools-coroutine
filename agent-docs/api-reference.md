@@ -60,6 +60,7 @@
 
 - 签名：`void Stop();`
 - 语义：取消式停机。停止接新任务；join worker；回收全局队列中未执行的协程；回收 parked（fd/定时器等待）协程。不保证业务任务执行完。
+- 挂起协程在 Stop 时被**直接销毁，不做栈展开**（契约 §6 显式例外）：栈上对象不执行析构与 RAII。需要可靠清理的资源必须在挂起点之前释放或改由栈外管理。
 - 停机后 `RegistCoroutineTask`（非 noexcept）抛 `std::runtime_error("scheduler stopped: coroutine task rejected")`。
 
 ### `Scheduler::RegistCoroutineTask`

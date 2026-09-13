@@ -28,6 +28,9 @@ target_link_libraries(echo_server ${MY_LIBS})
 add_executable(copool copool.cc)
 target_link_libraries(copool ${MY_LIBS})
 
+add_executable(socketpair_adapter socketpair_adapter.cc)
+target_link_libraries(socketpair_adapter ${MY_LIBS})
+
 add_executable(waitfor waitfor.cc)
 target_link_libraries(waitfor ${MY_LIBS})
 

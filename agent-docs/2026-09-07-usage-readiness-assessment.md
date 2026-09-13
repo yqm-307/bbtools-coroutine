@@ -1,150 +1,71 @@
-# bbtools-coroutine 使用期评估（2026-09-07）
+# bbtools-coroutine 使用期评估
+
+**状态：** 2026-09-10 收口（#286）。已进入受控使用期。
+**版本：** `v3.0.0-rc1`（`d2ab06e053e6dbf558865ee99f3cef5b02641b6c`）
+**权威：** 使用边界以本文为准；核心语义仍以 [`2026-09-07-core-runtime-contract.md`](./2026-09-07-core-runtime-contract.md) 为准。
+
+> 本文取代 2026-09-07 评估中已过时的探针结论（`MSG_DONTWAIT` 会挂起、Release 栈泄漏、`bbtco_desc` 空壳、`CoPool::Release` 不排空等）。那些行为已由后续 Issue 修掉并锁进测试。
 
 ## 结论
 
-当前版本适合在明确约束下作为自用服务的试点底座，不适合直接承诺为“主流阻塞式框架透明兼容”的通用协程运行时。
+允许作为自用服务的试点底座，版本钉 `v3.0.0-rc1`。不承诺「任意阻塞式框架透明兼容」。
 
-允许进入使用期，但使用范围应限定为：
+用户 2026-09-10 决定关闭 #256 与 #286。#286 原文依赖 #284 / #285；本次不把 Hook 客户端长 soak、异常/停机资源长跑当作进入受控使用期的前置。#259 / #284 / #285 保持开放。
 
-- 已知 Hook 覆盖的 Linux 网络、时间、多路复用和 DNS 调用路径；
-- 应用能够遵守协程生命周期、阻塞 FD 和停机流程约束；
-- 服务具备外部健康检查、请求超时和进程重启手段；
-- 先经过一个真实服务和真实客户端的长时间试运行。
+## 可以使用
 
-## 评估目标
+- 已知 Hook 覆盖的 Linux 网络、时间、多路复用和 DNS 路径；
+- 应用遵守协程生命周期、FD 和停机约束；
+- 服务有外部健康检查、请求超时和进程重启手段；
+- 已对实际客户端做过断连、重连和停机验证的场景。
 
-本评估从使用者角度检查四项要求：
+调用入口：[`user-guide.md`](./user-guide.md)、[`.github/skills/bbtools-coroutine/SKILL.md`](../.github/skills/bbtools-coroutine/SKILL.md)。坑点以 [`pitfalls.md`](../.github/skills/bbtools-coroutine/references/pitfalls.md) 为准。
 
-1. 协程出现问题时能否快速定位；
-2. 允许故障，但故障不能静默消失；
-3. Hook 能否把常见阻塞调用转换为非阻塞等待，并保持调用语义；
-4. 接入是否易用，运行是否可靠。
-
-## 已确认能力
-
-仓库已经具备以下基础能力：
-
-- 有栈协程、调度器、协程同步原语和协程池；
-- Hook 覆盖 socket、connect、accept、read/write、send/recv、向量 I/O、时间函数、poll/select/pselect 和 DNS 函数；
-- 协程异常有回调路径，未设置回调时有未处理异常计数；
-- 协程栈默认带保护页；
-- Profiler 能输出协程完成数、事件数、窃取数、StackPool 和 Processer 队列等统计；
-- 已有 DebugMgr，可在严格调试模式下检查部分重复 resume/yield 和事件状态错误；
-- 停止 DNS worker 的时序已有明确约束，避免 worker 回写已销毁的协程栈。
-
-## 验证证据
-
-本次使用期评估使用独立构建目录，没有修改库代码。
-
-构建配置：
-
-```text
-cmake -S . -B agent-docs/build-readiness \
-  -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-  -DNEED_TEST=ON -DNEED_EXAMPLE=OFF \
-  -DNEED_BENCHMARK=OFF -DPROFILE=ON
-```
-
-结果：构建成功，全部测试目标生成。
-
-CTest 结果：
-
-```text
-100% tests passed, 0 tests failed out of 21
-Total Test time (real) = 67.37 sec
-```
-
-额外使用探针验证了以下真实行为：
-
-- Release 构建下，`Stack::_Release()` 中写在 `assert` 参数内的 `Free()` 不会执行，导致栈内存不释放；
-- 协程内 `recv(..., MSG_DONTWAIT)` 在无数据时进入 Hook 等待，而不是立即返回 `EAGAIN`；
-- 协程内 socket 的 `SO_RCVTIMEO` 没有保持调用级超时语义，Hook 会继续等待事件；
-- 外部创建且保持 blocking 状态的 FD，在协程内执行 `read` 时仍会阻塞 worker 线程；
-- `CoPool::Release()` 会停止 worker 消费，已入队但尚未执行的任务不会被排空；
-- 未处理协程异常默认不会终止进程，但只增加计数，不主动通知业务；
-- `bbtco_desc(...)` 当前只是 `bbtco` 的宏别名，没有保存协程描述。
-
-## 主要缺口
-
-### 1. Hook 不能保证任意 FD 的阻塞语义转换
-
-`socket()` 和 `accept()` 创建的 FD 会被设置为非阻塞，但外部来源 FD 不一定如此。典型来源包括：
-
-- 协程启动前创建的 FD；
-- 其他线程或其他框架创建后传入的 FD；
-- socketpair；
-- OpenSSL、MySQL、Redis 等第三方库内部创建的 FD。
-
-这会导致 Hook 入口尚未获得 `EAGAIN`，系统调用直接阻塞 worker 线程。该类故障可能表现为整个 Processer 停顿，当前没有库内看门狗或现场报告。
-
-### 2. 部分非阻塞标志和超时语义被改变
-
-`recv`、`send`、`sendto`、`recvfrom` 等路径对 `EAGAIN` 会进入协程等待。对于调用方明确传入 `MSG_DONTWAIT` 的场景，这会把“立即返回”改变成“等待事件”。同样，socket 的 `SO_RCVTIMEO` 不会自动转换成 Hook 等待的截止时间。
-
-这不是单纯的兼容性缺失，而是调用语义变化。使用依赖这些语义的第三方库时，可能出现协程长期挂起但没有错误的情况。
-
-### 3. 协程现场不足以快速定位卡死
-
-现有 Profile 适合观察整体吞吐和队列趋势，但不能直接回答：
-
-- 哪个协程正在运行或等待；
-- 协程的业务描述是什么；
-- 正在等待哪个 FD、事件或同步原语；
-- 等待持续了多久；
-- 哪个 worker 长时间没有进展。
-
-用户代码不 yield 的死循环会持续占用 Processer，当前没有运行期检测和上报机制。
-
-### 4. 故障暴露默认不够强
-
-普通协程异常在没有回调时会被捕获并计数，避免异常逃出 fcontext 导致进程 terminate；但业务如果不主动读取计数，就可能只看到任务消失。CoPool 任务异常也存在“计数但不主动告警”的默认路径。
-
-这是正确的异常隔离基础，但还不是“故障必须暴露”的完整实现。
-
-### 5. 停机和文档契约存在偏差
-
-`CoPool::Release()` 的实现语义是停止池中协程并等待其退出，不等价于“排空所有已提交任务”。README 中将其描述为等待所有任务完成，容易造成停机时任务丢失。
-
-此外，README 中 `CoMutex` 的示例把 `Lock()` 写成返回 RAII 对象，但当前 API 的 `Lock()` 返回 `void`。这会直接影响新用户接入。
-
-### 6. Release 构建存在资源释放缺陷
-
-[Stack.cc](../bbt/coroutine/detail/Stack.cc#L89) 使用 `assert(Free(...))` 承载实际释放动作。定义 `NDEBUG` 时，整个表达式不会执行。该问题应视为使用期前的硬缺陷。
-
-## 当前使用边界
-
-### 可以使用
-
-- 由库自身 Hook 创建的网络 FD；
-- 已确认使用非阻塞模式的外部 FD；
-- 明确使用协程原语并遵守生命周期约束的服务；
-- 能接受先用外部健康检查发现卡死，再人工分析日志的自用服务；
-- 已经针对实际客户端完成超时、断连、重连和停机验证的场景。
-
-### 暂不应承诺
+## 暂不承诺
 
 - 任意第三方框架或客户端的透明兼容；
-- 任意 blocking FD 自动转换为协程等待；
-- `MSG_DONTWAIT`、`SO_RCVTIMEO` 等调用语义在所有 Hook 路径完全保持；
-- 协程死循环自动恢复；
-- 崩溃或栈溢出时自动给出完整协程现场；
-- `CoPool::Release()` 自动保证所有排队任务完成。
+- 未走 Hook 的阻塞 syscall 自动转协程等待；
+- 用户态死循环自动恢复；
+- 崩溃或栈溢出时给出完整协程现场；
+- `Scheduler::Stop()` / `CoPool::Release()` 排空业务任务；
+- `Hook_Connect` 有界超时（`ETIMEDOUT`，见 #261 已知限制）；
+- 真实客户端「服务端慢响应注入」超时场景（#256 明确边界）。
 
-## 进入更稳定使用期的最低条件
+## 2026-09-07 最低条件对照
 
-按优先级排序：
+| 条件 | 状态 | 证据 |
+|---|---|---|
+| Release 栈释放 | 已修 | #279，`t_stack_clear_releases_and_is_idempotent` |
+| blocking FD / `MSG_DONTWAIT` / `SO_*TIMEO` | 已修 | #260 / #261 / #262；`Test_hook_blocking_fd`、`Test_hook_timeout_flags`、`Test_hook_error_matrix` |
+| CoPool 生命周期 | 已修 | #281，`t_release_drains_pending_futures`（取消式排空，不保证执行） |
+| 协程最小现场 | 已修 | #276，`Test_coroutine_diag` |
+| worker 无进展检测 | 已修 | #277，`Test_worker_stall`（默认阈值 0=关闭） |
+| 真实客户端试运行 | 已验 | #263 / #283：Echo + hiredis；CTest `Test_real_clients` |
 
-1. 修复 Release 构建下的栈释放问题；
-2. 明确并修复 blocking FD、`MSG_DONTWAIT`、socket timeout 的语义边界；
-3. 将 CoPool 生命周期拆成停止接收、排空完成、取消回收等明确语义，或至少修正文档并补测试；
-4. 为协程保存并输出最小现场：ID、描述、状态、等待对象和等待时长；
-5. 增加 worker 无进展检测，避免死循环和外部 blocking FD 长时间静默；
-6. 用一个真实服务和真实第三方客户端完成长时间试运行，覆盖正常请求、超时、断连、重连、异常和停机。
+停机契约（#280）和 detached 异常日志+计数（#275）一并入 main，见 `Test_scheduler_stop`、`Test_exception_stop`。
 
-其中第 1、2 项属于底座可信度门槛；第 3、4 项属于易用性和故障处理门槛；第 5、6 项用于确认改动不会只在单元测试中成立。
+## #256 收口
+
+子项 #260 / #261 / #262 / #263 已关。父项验收里「至少一个真实客户端完成超时测试」未做：服务端慢响应注入不在 `scripts/acceptance_real_clients.py` 覆盖面（见 [`2026-09-09-real-client-acceptance.md`](./2026-09-09-real-client-acceptance.md)）。Timeout 语义由 #261 单测锁住。用户决定将该项记为边界后关闭 #256。
+
+## 发布证据
+
+- Release：[v3.0.0-rc1](https://github.com/yqm-307/bbtools-coroutine/releases/tag/v3.0.0-rc1)（prerelease）
+- Gate：[actions/runs/34385647909](https://github.com/yqm-307/bbtools-coroutine/actions/runs/34385647909)（`source_sha=d2ab06e`）
+  - 全量 CTest：success
+  - 真实客户端验收：success（Redis 缺失必须失败，本 run 未 skip）
+  - 六模块并行疲劳：success，约 60 分钟（`18:01:48Z`–`19:01:51Z`）
+  - 性能发布 Gate：success，带 WARN 注解（不阻断；Stable 前人工看）
+- 评估日 `origin/main` 为 `2e9f330`（#324 文档，运行时与 RC 相同）
+
+#263 本地补充：Release 构建，单轮 14s；20 轮 273s、fails=0。真实客户端超时注入仍未覆盖。
+
+## 留给 #284 / #285
+
+- #284：Hook 真实兼容长 soak（现有是 273s 本地重复跑 + RC 1h 六模块压测，不是客户端长 soak）
+- #285：异常 / 取消 / Stop / 资源趋势在真实服务上的长跑（单测已有，长跑未单独取证）
+- Redis 重启重连、完整协议 framing、全部第三方客户端
 
 ## 最终判断
 
-当前版本“骨架成立、边界未封闭”。
-
-可以开始受控试点，不应全面推广。后续工作重点不是继续增加 Hook 数量，而是保证已有 Hook 不改变调用语义，并让卡死、异常、资源泄漏和停机丢任务都能被使用者明确发现。
+骨架成立，2026-09-07 列出的底座门槛已封闭。进入受控试点，不全面推广。后续重点是真实负载下的长测与边界，而不是继续加 Hook 数量。
