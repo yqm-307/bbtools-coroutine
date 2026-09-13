@@ -30,7 +30,7 @@
 
 - 唯一流程真源：`agent-docs/development-and-release-process.md`
 - 开发、PR、main 集成、RC 和 Stable 发布均按该文档执行。
-- 开 Issue / PR 用仓库模板（落地后见 `.github/ISSUE_TEMPLATE/` 与 `.github/pull_request_template.md`）；验证按流程文档「验证阶梯」选现有命令，不另起流程。
+- 开 Issue / PR 用 `.github/ISSUE_TEMPLATE/task.md` 与 `.github/pull_request_template.md`；验证按 `agent-docs/development-and-release-process.md`「验证阶梯」选现有命令，不另起流程。
 - Agent 不直接推送 `main`，不手工创建或移动 `v*` tag，不绕过 required checks。
 - CI 结果、压测完整性和发布 Gate 是事实依据；文档不能替代远端硬保护。
 
