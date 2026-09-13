@@ -100,6 +100,11 @@ target_link_libraries(Test_copollevent_state ${MY_LIBS})
 add_test(NAME Test_copollevent_state COMMAND Test_copollevent_state)
 set_tests_properties(Test_copollevent_state PROPERTIES TIMEOUT 30)
 
+add_executable(Test_copoller_deferred_owner Test_copoller_deferred_owner.cc)
+target_link_libraries(Test_copoller_deferred_owner ${MY_LIBS})
+add_test(NAME Test_copoller_deferred_owner COMMAND Test_copoller_deferred_owner)
+set_tests_properties(Test_copoller_deferred_owner PROPERTIES TIMEOUT 15)
+
 add_executable(Test_eventloop_backend Test_eventloop_backend.cc)
 target_link_libraries(Test_eventloop_backend ${MY_LIBS})
 add_test(NAME Test_eventloop_backend COMMAND Test_eventloop_backend)
@@ -177,6 +182,11 @@ add_test(NAME Test_smoke COMMAND Test_smoke)
 add_executable(Test_reliability Test_reliability.cc)
 target_link_libraries(Test_reliability ${MY_LIBS})
 add_test(NAME Test_reliability COMMAND Test_reliability)
+
+add_executable(Test_stop_no_unwind Test_stop_no_unwind.cc)
+target_link_libraries(Test_stop_no_unwind ${MY_LIBS})
+add_test(NAME Test_stop_no_unwind COMMAND Test_stop_no_unwind)
+set_tests_properties(Test_stop_no_unwind PROPERTIES TIMEOUT 15)
 
 # Smoke 候选：CI 快速回归集，统一 60s 超时防止无进展挂死。
 # Test_reliability 不进 Smoke，保留给完整回归与独立 Reliability Job。
