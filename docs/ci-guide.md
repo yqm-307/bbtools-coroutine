@@ -598,8 +598,6 @@ GitHub tag ruleset 按 bypass actor 限制创建者，不能直接指定 workflo
 | 并行压测脚本 | `scripts/run_parallel_stress.sh` | 6 模块并行压测 |
 | 覆盖率脚本 | `scripts/coverage.sh` | 覆盖率报告生成 |
 | 压测运行器 | `scripts/run_fatigue.py` | 串行疲劳测试运行器 |
-| bbtools-dev skill | skill: `bbtools-dev` | 编译/测试命令、已知陷阱、冻结诊断 |
-| openspec | `openspec/specs/` | 各模块接口契约规范 |
 
 ---
 

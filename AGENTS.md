@@ -59,7 +59,7 @@
 
 ## 工程结构
 
-下表是收束后允许布局，不是当前跟踪树。`openspec/`、`.kilo/`、通用 Copilot/OpenSpec/superpowers skill 由 #327 删除，不得加回。禁止新建顶层目录。构建产物只进已忽略的 `build*/`，不进 `agent-docs/`。规范/决策不进 `tests/reports/`；运行结论不进 `agent-docs/`。
+下表是收束后允许布局。禁止把 `openspec/`、`.kilo/`、通用 Copilot/OpenSpec/superpowers skill 加回。禁止新建顶层目录。构建产物只进已忽略的 `build*/`，不进 `agent-docs/`。规范/决策不进 `tests/reports/`；运行结论不进 `agent-docs/`。
 
 | 路径 | 用途 | Agent 写入 | 入仓 |
 |------|------|------------|------|
