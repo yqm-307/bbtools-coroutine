@@ -6,16 +6,19 @@
 #include <array>
 #include <chrono>
 #include <condition_variable>
+#include <functional>
 #include <limits>
 #include <mutex>
 #include <stdexcept>
 #include <thread>
+#include <utility>
 #include <vector>
 #include <unistd.h>
 
 #include <bbt/coroutine/coroutine.hpp>
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
 #include <bbt/coroutine/detail/CoPoller.hpp>
+#include <bbt/coroutine/detail/GlobalConfig.hpp>
 
 using namespace bbt::coroutine::detail;
 
@@ -95,6 +98,25 @@ private:
     bool m_started{false};
 };
 
+class ExceptionCallbackRestore
+{
+public:
+    explicit ExceptionCallbackRestore(GlobalConfig& config):
+        m_config(config),
+        m_previous(config.m_ext_coevent_exception_callback)
+    {
+    }
+
+    ~ExceptionCallbackRestore()
+    {
+        m_config.m_ext_coevent_exception_callback = std::move(m_previous);
+    }
+
+private:
+    GlobalConfig& m_config;
+    std::function<void(const bbt::core::errcode::IErrcode&)> m_previous;
+};
+
 }
 
 BOOST_AUTO_TEST_SUITE(CoPollEventStateTest)
@@ -141,6 +163,30 @@ BOOST_AUTO_TEST_CASE(t_pending_callback_exception_does_not_escape_commit_park)
     BOOST_CHECK_EQUAL(callback_count.load(), 1);
     BOOST_CHECK(event->IsFinal());
     BOOST_CHECK_EQUAL(event->GetStatus(), POLLEVENT_FINAL);
+}
+
+BOOST_AUTO_TEST_CASE(t_parked_callback_exception_does_not_escape_trigger)
+{
+    ExceptionCallbackRestore callback_restore(*g_bbt_coroutine_config);
+    g_bbt_coroutine_config->m_ext_coevent_exception_callback = nullptr;
+    const auto before = g_bbt_coroutine_config->m_unhandled_exception_count.load();
+    std::atomic_int callback_count{0};
+    auto event = CoPollEvent::Create(1, [&](auto, int, int) {
+        callback_count.fetch_add(1);
+        throw std::runtime_error("parked callback failure");
+    });
+
+    BOOST_REQUIRE_EQUAL(event->InitCustomEvent(POLL_EVENT_CUSTOM_COND, nullptr), 0);
+    BOOST_REQUIRE_EQUAL(event->Regist(), 0);
+    BOOST_CHECK_EQUAL(event->CommitPark(), false);
+
+    int trigger_result = -1;
+    BOOST_CHECK_NO_THROW(trigger_result = event->Trigger(POLL_EVENT_CUSTOM));
+    BOOST_CHECK_EQUAL(trigger_result, 0);
+    BOOST_CHECK_EQUAL(callback_count.load(), 1);
+    BOOST_CHECK(event->IsFinal());
+    BOOST_CHECK_EQUAL(event->GetStatus(), POLLEVENT_FINAL);
+    BOOST_CHECK_EQUAL(g_bbt_coroutine_config->m_unhandled_exception_count.load(), before + 1);
 }
 
 BOOST_AUTO_TEST_CASE(t_regist_commit_park_then_trigger_completes_once)

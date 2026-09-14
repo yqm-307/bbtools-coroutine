@@ -1,4 +1,4 @@
-#include <stdio.h>
+#include <cstdio>
 #include <fcntl.h>
 #include <algorithm>
 #include <exception>
@@ -17,6 +17,38 @@
 
 namespace bbt::coroutine::detail
 {
+
+namespace
+{
+
+void ReportCoPollEventException(CoroutineId co_id, CoPollEventId event_id,
+                                std::exception_ptr eptr) noexcept
+{
+    const auto report = [co_id, event_id](const char* message) noexcept {
+        std::fprintf(stderr, "[bbtco] unhandled coevent exception co=%llu event=%llu: %.200s\n",
+                     static_cast<unsigned long long>(co_id),
+                     static_cast<unsigned long long>(event_id), message);
+        g_bbt_coroutine_config->m_unhandled_exception_count.fetch_add(1, std::memory_order_relaxed);
+    };
+
+    try
+    {
+        if (eptr != nullptr)
+            std::rethrow_exception(eptr);
+    }
+    catch (const std::exception& e)
+    {
+        report(e.what());
+        return;
+    }
+    catch (...)
+    {
+    }
+
+    report("unknown exception");
+}
+
+}
 
 int TransformToPollEventType(short pollevent_type, bool has_custom)
 {
@@ -84,7 +116,17 @@ int CoPollEvent::Trigger(short trigger_events)
         if (m_state.compare_exchange_weak(state, triggering,
                                           std::memory_order_acq_rel,
                                           std::memory_order_acquire))
-            return _Complete(trigger_events);
+        {
+            try
+            {
+                return _Complete(trigger_events);
+            }
+            catch (...)
+            {
+                ReportCoPollEventException(m_co_id, m_event_id, std::current_exception());
+                return 0;
+            }
+        }
     }
 }
 
@@ -325,6 +367,7 @@ bool CoPollEvent::CommitPark()
             }
             catch (...)
             {
+                ReportCoPollEventException(m_co_id, m_event_id, std::current_exception());
             }
             return true;
         }
