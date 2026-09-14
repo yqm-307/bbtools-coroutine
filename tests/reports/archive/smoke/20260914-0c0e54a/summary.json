@@ -1,0 +1,31 @@
+{
+  "kind": "smoke",
+  "status": "partial",
+  "subject": "A4 Linux coroutine wait lifecycle slice",
+  "date": "2026-09-14",
+  "source_sha": "0c0e54ad36fb3c2462d611cd7eeede0c517a0ddc",
+  "feature_sha": "5e68759fef14cb5d74825ee54d228af916dc92f2",
+  "repository": "https://github.com/yqm-307/bbtools-coroutine",
+  "issue": "https://github.com/yqm-307/bbtools-coroutine/issues/339",
+  "documentation_issue": "https://github.com/yqm-307/bbtools-coroutine/issues/342",
+  "pull_request": "https://github.com/yqm-307/bbtools-coroutine/pull/341",
+  "ci_run": "https://github.com/yqm-307/bbtools-coroutine/actions/runs/34817101500",
+  "checks": {
+    "compile_and_unit_tests": "SUCCESS",
+    "performance_regression": "SUCCESS",
+    "sanitizer": "SKIPPED"
+  },
+  "local_results": {
+    "stop_regression_rounds": "5/5",
+    "ctest_excluding_known_baseline_timeout": "38/38"
+  },
+  "known_limitations": [
+    "Test_hook_contract remains a known baseline timeout in the complete local CTest run",
+    "remote sanitizer job was skipped",
+    "cross-worker recovery and user TLS boundaries are not accepted",
+    "Windows/MSVC and iOS device/simulator evidence is missing",
+    "representative real third-party adapter end-to-end evidence is missing",
+    "Issue #339 remains open"
+  ],
+  "claim_boundary": "This summary records a Linux lifecycle slice and is not a three-platform completion report."
+}

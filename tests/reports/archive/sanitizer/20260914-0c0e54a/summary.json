@@ -1,0 +1,20 @@
+{
+  "kind": "sanitizer",
+  "status": "inconclusive",
+  "date": "2026-09-14",
+  "source_sha": "0c0e54ad36fb3c2462d611cd7eeede0c517a0ddc",
+  "feature_sha": "5e68759fef14cb5d74825ee54d228af916dc92f2",
+  "repository": "https://github.com/yqm-307/bbtools-coroutine",
+  "pull_request": "https://github.com/yqm-307/bbtools-coroutine/pull/341",
+  "ci_run": "https://github.com/yqm-307/bbtools-coroutine/actions/runs/34817101500",
+  "remote_job": "SKIPPED",
+  "local_targeted_cases": 17,
+  "local_leak_detection": "disabled",
+  "comparison": "Current-tree and clean-baseline smoke aggregates matched; comparison is not a no-leak proof.",
+  "limitations": [
+    "No remote ASAN/UBSAN pass result",
+    "No complete leak-detection conclusion",
+    "No Windows/MSVC or iOS evidence",
+    "No representative real third-party adapter end-to-end evidence"
+  ]
+}
