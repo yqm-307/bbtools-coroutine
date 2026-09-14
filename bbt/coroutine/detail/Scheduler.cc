@@ -1,7 +1,9 @@
 #include <cmath>
 #include <cstring>
 #include <cstdio>
+#include <memory>
 #include <stdexcept>
+#include <vector>
 #include <bbt/core/log/DebugPrint.hpp>
 #include <bbt/core/clock/Clock.hpp>
 #include <bbt/core/Attribute.hpp>
@@ -40,29 +42,37 @@ Scheduler::~Scheduler()
 
 void Scheduler::_Init()
 {
+    const bool restarting = m_run_status == ScheudlerStatus::SCHE_EXIT;
     m_sche_thread = nullptr;
-    m_is_running.store(true, std::memory_order_release);
     m_run_status = SCHE_DEFAULT;
     m_regist_coroutine_count = 0;
     m_down_latch.Reset(g_bbt_coroutine_config->m_cfg_static_thread_num);
+
+    {
+        std::lock_guard<std::mutex> lock(m_global_queue_mutex);
+        if (restarting)
+            m_run_generation.fetch_add(1, std::memory_order_acq_rel);
+        m_is_running.store(true, std::memory_order_release);
+    }
 }
 
 void Scheduler::RegistCoroutineTask(const CoroutineCallback& handle, const char* desc)
 {
-    /* 停机契约（#280）：停止接收新任务 = 明确失败。停机后 _LoadBlance2Proc
-     * 必然失败，旧代码 Release 下只打 stderr、noexcept 版还回 succ=true（假
-     * 成功且泄漏协程）。显式抛错让两条注册路径语义一致。 */
-    if (!m_is_running.load(std::memory_order_acquire))
-        throw std::runtime_error("scheduler stopped: coroutine task rejected");
-
-    auto coroutine_sptr = Coroutine::Create(
-        g_bbt_coroutine_config->m_cfg_stack_size,
-        handle,
-        g_bbt_coroutine_config->m_cfg_stack_protect,
-        desc);
-
-    /* 尝试先找个Processer放进执行队列，失败放入全局队列 */
-    AssertWithInfo(_LoadBlance2Proc(CO_PRIORITY_NORMAL, coroutine_sptr), "this is impossible!");    
+    Coroutine::Ptr coroutine = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(m_global_queue_mutex);
+        if (!m_is_running.load(std::memory_order_acquire))
+            throw std::runtime_error("scheduler stopped: coroutine task rejected");
+        coroutine = Coroutine::Create(
+            g_bbt_coroutine_config->m_cfg_stack_size,
+            handle,
+            g_bbt_coroutine_config->m_cfg_stack_protect,
+            desc);
+        if (!_LoadBlance2Proc(CO_PRIORITY_NORMAL, coroutine)) {
+            delete coroutine;
+            throw std::runtime_error("scheduler has no processer: coroutine task rejected");
+        }
+    }
 #ifdef BBT_COROUTINE_PROFILE
     g_bbt_profiler->OnEvent_RegistCoroutine();
 #endif
@@ -96,12 +106,30 @@ void Scheduler::OnActiveCoroutine(CoroutinePriority priority, Coroutine::Ptr cor
 #endif
     AssertWithInfo(priority >= CO_PRIORITY_LOW && priority < CO_PRIORITY_COUNT, "invalid priority!");
     AssertWithInfo(coroutine != nullptr, "coroutine is nullptr!");
-    /* 停机进行中（#280）：parked 回收（DestroyParkedCoroutines）接管销毁，
-     * 唤醒路径不再入队——入队会与 doomed 回收形成双释放，丢弃则泄漏有界、
-     * 且回调线程此后不再触碰协程栈，安全。 */
-    if (!m_is_running.load(std::memory_order_acquire))
-        return;
-    AssertWithInfo(m_global_coroutine_queue[priority].enqueue(coroutine), "oom!");
+    const auto current_processer = g_bbt_tls_processer;
+    const bool called_by_running_processer = current_processer != nullptr &&
+        current_processer->GetCurrentCoroutine() == coroutine;
+    bool reclaim = false;
+    {
+        std::lock_guard<std::mutex> lock(m_global_queue_mutex);
+        const bool stopped = !m_is_running.load(std::memory_order_acquire);
+        const bool stale = coroutine->m_scheduler_generation.load(std::memory_order_acquire) !=
+            m_run_generation.load(std::memory_order_acquire);
+        if (stopped || stale) {
+            if (called_by_running_processer) {
+                /* 当前 worker 仍在访问自己的栈/运行态，交给 Stop 排空。 */
+                AssertWithInfo(m_global_coroutine_queue[priority].enqueue(coroutine), "oom!");
+            } else {
+                /* 外部完成路径已离开 parked 表；事件完成回调返回后不再访问
+                 * coroutine，此处成为唯一释放者，避免对象脱离所有权集合。 */
+                reclaim = true;
+            }
+        } else {
+            AssertWithInfo(m_global_coroutine_queue[priority].enqueue(coroutine), "oom!");
+        }
+    }
+    if (reclaim)
+        delete coroutine;
 }
 
 void Scheduler::_FixTimingScan()
@@ -275,7 +303,10 @@ void Scheduler::Stop()
      */
     DnsResolver::GetInstance()->Stop();
 
-    m_is_running.store(false, std::memory_order_release);
+    {
+        std::lock_guard<std::mutex> lock(m_global_queue_mutex);
+        m_is_running.store(false, std::memory_order_release);
+    }
 
     _DestoryProcessers();
     
@@ -286,27 +317,32 @@ void Scheduler::Stop()
     }
 
     m_sche_thread = nullptr;
-    Coroutine::Ptr item = nullptr;
-    /* 停机排空（#280）：此刻全部 worker、Scheduler 线程已 join，队列无并发
-     * 消费者，逐个 delete 回收协程及其栈（旧代码只置空指针，Release 下泄漏
-     * 每个未完成任务的对象与栈）。 */
-    for (auto && queue : m_global_coroutine_queue)
-        while (queue.try_dequeue(item)) {
-            delete item;
-            item = nullptr;
+    auto drain_global_queue = [this]() {
+        std::vector<Coroutine::Ptr> reclaim;
+        {
+            std::lock_guard<std::mutex> lock(m_global_queue_mutex);
+            Coroutine::Ptr item = nullptr;
+            for (auto && queue : m_global_coroutine_queue)
+                while (queue.try_dequeue(item)) {
+                    reclaim.push_back(item);
+                    item = nullptr;
+                }
         }
+        /* 只摘链持锁，锁外析构，避免 Context/用户闭包析构重入队列锁。 */
+        for (auto* co : reclaim)
+            delete co;
+    };
+    /* 停机排空（#280）：此刻全部 worker、Scheduler 线程已 join，队列无并发
+     * 消费者。与外部 Notify 入队串行。 */
+    drain_global_queue();
 
     /* parked 协程（挂起在 fd/timer/custom 事件上、不在任何队列）在此统一回收：
      * 取消式停机不复活执行，直接注销事件并销毁。必须在全部线程 join 之后。 */
     Coroutine::DestroyParkedCoroutines();
 
-    /* 兜底：swap 与 UnRegist 间隙内若有并发 Trigger（如其它线程 Hook_Close）把
-     * 刚销毁的协程重新入队，此处再扫一遍删除，不留悬垂指针给下一次 Start。 */
-    for (auto && queue : m_global_coroutine_queue)
-        while (queue.try_dequeue(item)) {
-            delete item;
-            item = nullptr;
-        }
+    /* 兜底（#339）：DestroyParkedCoroutines 对 UnRegist 失败（唤醒在途）的协程
+     * 保持 parked 所有权；完成路径不会丢弃对象。 */
+    drain_global_queue();
 
     m_run_status = ScheudlerStatus::SCHE_EXIT;
 #ifdef BBT_COROUTINE_PROFILE

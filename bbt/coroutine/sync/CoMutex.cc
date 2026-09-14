@@ -108,14 +108,19 @@ void CoMutex::_SysUnLock()
 
 int CoMutex::_WaitUnLockUnitlTimeout(int timeout, const detail::CoroutineOnYieldCallback& cb)
 {
-    auto event = g_bbt_tls_coroutine_co->RegistCustom(detail::POLL_EVENT_CUSTOM_COMUTEX, timeout);
+    auto* coroutine = g_bbt_tls_coroutine_co;
+    AssertWithInfo(coroutine != nullptr, "current coroutine is nullptr!");
+    auto event = coroutine->RegistCustom(detail::POLL_EVENT_CUSTOM_COMUTEX, timeout);
+    if (event == nullptr)
+        return -1;
     m_wait_event_queue.push(event);
-    int ret = g_bbt_tls_coroutine_co->YieldWithCallback([this, event, cb](){
-        event->Regist();
+    int ret = coroutine->YieldWithCallback([coroutine, cb](){
+        if (!coroutine->_RegistAwaitEvent())
+            return false;
         return cb();
     });
 
-    if (g_bbt_tls_coroutine_co->GetLastResumeEvent() & detail::POLL_EVENT_TIMEOUT)
+    if (coroutine->GetLastResumeEvent() & detail::POLL_EVENT_TIMEOUT)
         return 1;  // timeout
 
     return ret;
@@ -123,10 +128,15 @@ int CoMutex::_WaitUnLockUnitlTimeout(int timeout, const detail::CoroutineOnYield
 
 int CoMutex::_WaitUnLock(const detail::CoroutineOnYieldCallback& cb)
 {
-    auto event = g_bbt_tls_coroutine_co->RegistCustom(detail::POLL_EVENT_CUSTOM_COMUTEX);
+    auto* coroutine = g_bbt_tls_coroutine_co;
+    AssertWithInfo(coroutine != nullptr, "current coroutine is nullptr!");
+    auto event = coroutine->RegistCustom(detail::POLL_EVENT_CUSTOM_COMUTEX);
+    if (event == nullptr)
+        return -1;
     m_wait_event_queue.push(event);
-    return g_bbt_tls_coroutine_co->YieldWithCallback([this, event, cb](){
-        event->Regist();
+    return coroutine->YieldWithCallback([coroutine, cb](){
+        if (!coroutine->_RegistAwaitEvent())
+            return false;
         return cb();
     });
 }

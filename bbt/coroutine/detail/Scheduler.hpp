@@ -38,6 +38,7 @@ namespace bbt::coroutine::detail
 class Scheduler
 {
 public:
+    friend class Coroutine;
     friend class Profiler;
     friend class Processer;
     typedef std::unique_ptr<Scheduler> UPtr;
@@ -72,6 +73,10 @@ protected:
 protected:
     Scheduler();
     void                                        _Init();
+    uint64_t                                   _GetRunGeneration() const noexcept
+    {
+        return m_run_generation.load(std::memory_order_acquire);
+    }
 
     void                                        _Run();
     /* 定时扫描 */
@@ -100,6 +105,10 @@ private:
 
     /* coroutine全局队列 */
     CoPriorityQueue                             m_global_coroutine_queue;
+    /* Stop 排空与外部 Notify 的在途入队必须串行，避免排空后再残留协程。 */
+    std::mutex                                  m_global_queue_mutex;
+    /* 每次重启递增；迟到的上一代唤醒不得进入新一代队列。 */
+    std::atomic_uint64_t                        m_run_generation{1};
     std::atomic_bool                            m_is_running{true};
     volatile ScheudlerStatus                    m_run_status{ScheudlerStatus::SCHE_DEFAULT};
 

@@ -30,6 +30,8 @@ CoWaiter::~CoWaiter()
 int CoWaiter::Wait()
 {
     AssertWithInfo(g_bbt_tls_helper->EnableUseCo(), "not in coroutine!");
+    auto* coroutine = g_bbt_tls_coroutine_co;
+    AssertWithInfo(coroutine != nullptr, "current coroutine is nullptr!");
 
     {
         std::lock_guard<std::mutex> lock(m_notify_mutex);
@@ -38,7 +40,7 @@ int CoWaiter::Wait()
             return -1;
         }
 
-        m_co_event = g_bbt_tls_coroutine_co->RegistCustom(detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND);
+        m_co_event = coroutine->RegistCustom(detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND);
         if (m_co_event == nullptr) {
             return -1;
         }
@@ -46,9 +48,12 @@ int CoWaiter::Wait()
         m_run_status = COND_WAIT;
     }
 
-    g_bbt_tls_coroutine_co->YieldWithCallback([this](){ 
-        Assert(m_co_event->Regist() == 0);
-        return true; 
+    /* #339：必须经 Coroutine::_RegistAwaitEvent 登记——该公共路径在事件挂上前
+     * 检查 IsCancelRequested（预取消立即自唤醒），成功后把协程纳入 parked 登记，
+     * Scheduler::Stop 才有回收点。直接 event->Regist() 会绕过两者：
+     * 预取消协程无限挂起、Stop 后任务闭包与栈泄漏。 */
+    coroutine->YieldWithCallback([coroutine](){
+        return coroutine->_RegistAwaitEvent();
     });
 
     {
@@ -62,6 +67,8 @@ int CoWaiter::Wait()
 int CoWaiter::WaitWithCallback(const detail::CoroutineOnYieldCallback& cb)
 {
     AssertWithInfo(g_bbt_tls_helper->EnableUseCo(), "not in coroutine!");
+    auto* coroutine = g_bbt_tls_coroutine_co;
+    AssertWithInfo(coroutine != nullptr, "current coroutine is nullptr!");
     Assert(cb != nullptr);
 
     {
@@ -70,7 +77,7 @@ int CoWaiter::WaitWithCallback(const detail::CoroutineOnYieldCallback& cb)
             return -1;
         }
             
-        m_co_event = g_bbt_tls_coroutine_co->RegistCustom(detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND);
+        m_co_event = coroutine->RegistCustom(detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND);
         if (m_co_event == nullptr) {
             return -1;
         }
@@ -78,8 +85,10 @@ int CoWaiter::WaitWithCallback(const detail::CoroutineOnYieldCallback& cb)
         m_run_status = COND_WAIT;
     }
 
-    int ret = g_bbt_tls_coroutine_co->YieldWithCallback([this, cb](){
-        Assert(m_co_event->Regist() == 0);
+    /* #339：同 Wait()，走公共登记路径；cb 保持"挂起后、唤醒前"的既有语义 */
+    int ret = coroutine->YieldWithCallback([coroutine, cb](){
+        if (!coroutine->_RegistAwaitEvent())
+            return false;
         cb();
         return true; 
     });
@@ -95,6 +104,8 @@ int CoWaiter::WaitWithCallback(const detail::CoroutineOnYieldCallback& cb)
 int CoWaiter::WaitWithTimeout(int ms)
 {
     AssertWithInfo(g_bbt_tls_helper->EnableUseCo(), "not in coroutine!");
+    auto* coroutine = g_bbt_tls_coroutine_co;
+    AssertWithInfo(coroutine != nullptr, "current coroutine is nullptr!");
     int ret = 0;
 
     {
@@ -103,7 +114,7 @@ int CoWaiter::WaitWithTimeout(int ms)
             return -1;
         }
 
-        m_co_event = g_bbt_tls_coroutine_co->RegistCustom(detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND, ms);
+        m_co_event = coroutine->RegistCustom(detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND, ms);
         if (m_co_event == nullptr) {
             return -1;
         }
@@ -111,12 +122,11 @@ int CoWaiter::WaitWithTimeout(int ms)
         m_run_status = COND_WAIT;
     }
 
-    ret = g_bbt_tls_coroutine_co->YieldWithCallback([this](){
-        Assert(m_co_event->Regist() == 0);
-        return true; 
+    ret = coroutine->YieldWithCallback([coroutine](){
+        return coroutine->_RegistAwaitEvent();
     });
 
-    if (g_bbt_tls_coroutine_co->GetLastResumeEvent() & POLL_EVENT_TIMEOUT)
+    if (coroutine->GetLastResumeEvent() & POLL_EVENT_TIMEOUT)
         ret = 1;
 
     {
@@ -130,6 +140,9 @@ int CoWaiter::WaitWithTimeout(int ms)
 int CoWaiter::WaitWithTimeoutAndCallback(int ms, const detail::CoroutineOnYieldCallback& cb)
 {
     AssertWithInfo(g_bbt_tls_helper->EnableUseCo(), "not in coroutine!");
+    auto* coroutine = g_bbt_tls_coroutine_co;
+    AssertWithInfo(coroutine != nullptr, "current coroutine is nullptr!");
+    Assert(cb != nullptr);
     int ret = 0;
 
     {
@@ -138,7 +151,7 @@ int CoWaiter::WaitWithTimeoutAndCallback(int ms, const detail::CoroutineOnYieldC
             return -1;
         }
 
-        m_co_event = g_bbt_tls_coroutine_co->RegistCustom(detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND, ms);
+        m_co_event = coroutine->RegistCustom(detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND, ms);
         if (m_co_event == nullptr) {
             return -1;
         }
@@ -146,13 +159,14 @@ int CoWaiter::WaitWithTimeoutAndCallback(int ms, const detail::CoroutineOnYieldC
         m_run_status = COND_WAIT;
     }
 
-    ret = g_bbt_tls_coroutine_co->YieldWithCallback([this, cb](){
-        Assert(m_co_event->Regist() == 0);
+    ret = coroutine->YieldWithCallback([coroutine, cb](){
+        if (!coroutine->_RegistAwaitEvent())
+            return false;
         cb();
         return true;
     });
 
-    if (ret == 0 && g_bbt_tls_coroutine_co->GetLastResumeEvent() & POLL_EVENT_TIMEOUT)
+    if (ret == 0 && coroutine->GetLastResumeEvent() & POLL_EVENT_TIMEOUT)
         ret = 1;
     
     {

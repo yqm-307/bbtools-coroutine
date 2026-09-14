@@ -26,13 +26,14 @@ CoroutineId Coroutine::_GenCoroutineId()
 
 Coroutine::Ptr Coroutine::Create(int stack_size, const CoroutineCallback& co_func, bool need_protect, const char* desc)
 {
-    auto* co = new Coroutine(stack_size, co_func, need_protect);
+    auto* co = new Coroutine(stack_size, co_func, need_protect, g_scheduler->_GetRunGeneration());
     if (desc != nullptr && desc[0] != '\0')
         co->m_desc = desc;    // #276：bbtco_desc 落库
     return co;
 }
 
-Coroutine::Coroutine(int stack_size, const CoroutineCallback& co_func, bool need_protect):
+Coroutine::Coroutine(int stack_size, const CoroutineCallback& co_func, bool need_protect,
+                     uint64_t scheduler_generation):
     m_context(stack_size, [=](){
         try {
             co_func();
@@ -46,6 +47,7 @@ Coroutine::Coroutine(int stack_size, const CoroutineCallback& co_func, bool need
     }, need_protect),
     m_id(_GenCoroutineId())
 {
+    m_scheduler_generation.store(scheduler_generation, std::memory_order_relaxed);
     m_run_status = CoroutineStatus::CO_RUNNABLE;
 #ifdef BBT_COROUTINE_PROFILE
     g_bbt_profiler->OnEvent_CreateCoroutine();
@@ -388,23 +390,33 @@ void Coroutine::_UntrackParked()
 
 void Coroutine::DestroyParkedCoroutines()
 {
-    std::vector<Coroutine*> doomed;
+    std::vector<Coroutine*> reclaim;
     {
-        std::lock_guard<std::mutex> lock(s_parked_mtx);
-        doomed.swap(s_parked);
-        for (auto* co : doomed)
+        /* parked 锁覆盖摘取与 UnRegist 裁决。这样完成路径必须先经过
+         * _UntrackParked 才能进入 OnActiveCoroutine，不能与本段并发释放。 */
+        std::lock_guard<std::mutex> parked_lock(s_parked_mtx);
+        reclaim.reserve(s_parked.size());
+        for (auto* co : s_parked) {
+            auto ev = co->_AwaitEvent();
+            /* nullptr 表示完成路径已经清空 await event，但尚未执行
+             * _UntrackParked；此时回调仍持有裸 this，释放责任已转交完成路径。 */
+            if (ev != nullptr && ev->UnRegist() == 0)
+                reclaim.push_back(co);
+        }
+        s_parked.erase(
+            std::remove_if(s_parked.begin(), s_parked.end(),
+                           [&reclaim](auto* co) {
+                               return std::find(reclaim.begin(), reclaim.end(), co) != reclaim.end();
+                           }),
+            s_parked.end());
+        for (auto* co : reclaim)
             co->m_parked_tracked = false;
     }
-    /* 调用前提：全部 worker、Scheduler 线程与 DNS worker 已 join——此后再无
-     * PollOnce/唤醒路径并发改队列。UnRegist 把事件置 CANCELLED 并摘出 fd 唤醒
-     * 表，此后任何线程的 Trigger（含 Hook_Close）都不会回调协程，delete 安全。
-     * 取消式停机：parked 协程直接销毁回收（含栈归还栈池），不再执行用户代码，
-     * 与"不保证业务任务完成"的 Stop 契约一致。 */
-    for (auto* co : doomed) {
-        if (co->m_await_event != nullptr)
-            co->m_await_event->UnRegist();
+
+    /* 只有 UnRegist 成功的对象才到这里；失败者仍留在 parked 表，由完成路径
+     * 先 _UntrackParked 再交给 Scheduler 接管。 */
+    for (auto* co : reclaim)
         delete co;
-    }
 }
 
 CoroutineYieldDisposition Coroutine::CommitYield()
@@ -453,6 +465,8 @@ void Coroutine::OnCoPollEvent(int event, int custom_key)
     g_bbt_dbgp_full(("[CoEvent:Trigger] co=" + std::to_string(GetId()) + " trigger_event=" + std::to_string(event) + " id=" + std::to_string(ev->GetId()) + " customkey=" + std::to_string(custom_key)).c_str());
     _SetAwaitEvent(nullptr);
     m_yield_disposition = CoroutineYieldDisposition::MANUAL;
+    /* 先移除 parked 记录，再以全局队列锁裁决回收或入队；
+     * DestroyParkedCoroutines 对同一对象持 parked 锁时不会并行处理它。 */
     _UntrackParked();  // 所有权从 parked 表转交全局队列（#280）
 
     // 超时任务优先级最高，覆盖 MLFQ 判定

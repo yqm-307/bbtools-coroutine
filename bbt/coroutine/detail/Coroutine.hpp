@@ -8,6 +8,12 @@
 #include <bbt/coroutine/detail/interface/ICoroutine.hpp>
 #include <bbt/coroutine/detail/Context.hpp>
 
+namespace bbt::coroutine::sync
+{
+class CoWaiter;
+class CoMutex;
+}
+
 namespace bbt::coroutine::detail
 {
 
@@ -52,7 +58,15 @@ class Coroutine:
 public:
     typedef Coroutine* Ptr;
 
-    Coroutine(int stack_size, const CoroutineCallback& co_func, bool need_protect);
+    /* #339：sync 层 Wait 族与 CoMutex 等待路径均经同一登记路径挂起，必须能访问
+     * _RegistAwaitEvent（取消预检 + _TrackParked），否则 custom 等待既不响应
+     * 预取消也无法被 Stop 回收。仅开放给工具层等待原语，不扩大为公共 API。 */
+    friend class bbt::coroutine::sync::CoWaiter;
+    friend class bbt::coroutine::sync::CoMutex;
+    friend class Scheduler;
+
+    Coroutine(int stack_size, const CoroutineCallback& co_func, bool need_protect,
+              uint64_t scheduler_generation);
     virtual ~Coroutine();
     
     /* 注册时携带描述（#276）：bbtco_desc 落库真源；空 desc 与不带参数等价 */
@@ -206,6 +220,8 @@ private:
     std::shared_ptr<CoPollEvent>    m_await_event{nullptr};
     mutable std::mutex              m_await_mu;
     std::atomic_bool                m_cancel_requested{false};
+    /* 首次 Resume 绑定调度代；Stop/Start 后旧协程不得重新入队。 */
+    std::atomic_uint64_t            m_scheduler_generation{0};
     std::exception_ptr              m_exception;
     CoroutineOnYieldCallback        m_co_onyield_callback{nullptr};
     CoroutineYieldDisposition       m_yield_disposition{CoroutineYieldDisposition::MANUAL};
