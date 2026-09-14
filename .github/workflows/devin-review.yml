@@ -1,0 +1,68 @@
+# Devin C++ Core Review — PR 核心 C++ 变更自动审查门禁
+#
+# 触发：PR opened/reopened/synchronize（目标分支 main）。
+#
+# 关于 paths 过滤的说明：
+#   本 workflow 故意不在 on.pull_request 上使用 paths 过滤。原因是
+#   "Devin C++ Core Review" 是 required check：若用 paths 过滤，无核心
+#   C++ 变更的 PR 不会运行本 workflow，required check 将永久 pending
+#   阻塞合并。因此改为 workflow 内部过滤——只有 diff 命中
+#   bbt/**/*.{cc,cpp,h,hpp} 时才调用 Devin reviewer，否则显式 success
+#   并在 check summary 中输出 "SKIPPED: no core C++ changes"。
+#
+# 语义（review_contract: hermes-repo-review/v1，见仓库内版本化审查提示资产
+# agent-docs/devin-review-prompt.md；该文件自上游 team-agent-repo 的
+# profiles/reviewer/{SOUL.md,review-contract.md} 迁移合并）：
+#   - success 仅当 Devin 对当前 head 完成审查且无 Critical/Important；
+#   - BLOCKED/错误/超时/旧 head/回写失败 → 非成功（failure/timed_out/cancelled）；
+#   - 无核心变更 → success + "SKIPPED: no core C++ changes"。
+#
+# 需要的配置：
+#   - secret DEVIN_API_KEY（必填；fork PR 拿不到 secret，会落 BLOCKED 失败，
+#     这是预期行为，勿把审查会话暴露给未审查的 fork 代码）
+#   - var  DEVIN_API_BASE（可选，默认 https://api.devin.ai）
+#   - var  DEVIN_ORG_ID（可选；设置后使用 Devin API v3 org sessions）
+#
+# 编排脚本：scripts/devin_review/devin_review.py（标准库，可 --selftest）
+
+name: Devin C++ Core Review
+
+permissions:
+  contents: read         # actions/checkout 拉取 PR head/base
+  pull-requests: write   # 回写 PR review(COMMENT)
+  checks: write          # 创建/更新 Devin C++ Core Review check run
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    branches: [main]
+
+# 同一 PR 的新 push 取消旧 run；脚本内还会做 head SHA 复核，
+# 防止已取消 run 的迟到回写覆盖新 head 的结论。
+concurrency:
+  group: devin-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  dispatch:
+    name: devin-review-dispatch
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: "拉取 PR head"
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: "拉取 PR base"
+        run: git fetch --depth 1 origin "${{ github.event.pull_request.base.sha }}"
+
+      - name: "Devin C++ Core Review"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEVIN_API_KEY: ${{ secrets.DEVIN_API_KEY }}
+          DEVIN_API_BASE: ${{ vars.DEVIN_API_BASE }}
+          DEVIN_ORG_ID: ${{ vars.DEVIN_ORG_ID }}
+        run: python3 scripts/devin_review/devin_review.py
