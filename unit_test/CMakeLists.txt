@@ -32,6 +32,12 @@ target_link_libraries(Test_scheduler_exec ${MY_LIBS})
 add_test(NAME Test_scheduler_exec COMMAND Test_scheduler_exec)
 set_tests_properties(Test_scheduler_exec PROPERTIES TIMEOUT 15)
 
+# 跨 worker 恢复与用户 TLS 边界回归（#339）：含事件唤醒迁移，耐心等待但必须有界。
+add_executable(Test_worker_tls_boundary Test_worker_tls_boundary.cc)
+target_link_libraries(Test_worker_tls_boundary ${MY_LIBS})
+add_test(NAME Test_worker_tls_boundary COMMAND Test_worker_tls_boundary)
+set_tests_properties(Test_worker_tls_boundary PROPERTIES TIMEOUT 40)
+
 add_executable(Test_coroutine_cancel Test_coroutine_cancel.cc)
 target_link_libraries(Test_coroutine_cancel ${MY_LIBS})
 add_test(NAME Test_coroutine_cancel COMMAND Test_coroutine_cancel)

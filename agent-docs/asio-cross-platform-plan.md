@@ -39,7 +39,7 @@ PR #341 的公开 CI 记录：
 
 - Windows/MSVC 真实构建和运行；
 - iOS 设备与模拟器构建和运行；
-- 跨 worker 恢复和用户 TLS 边界的确定性验收；
+- 跨 worker 恢复和用户 TLS 边界的 Windows/iOS 证据（Linux 侧语义回归随本次变更落地，PR 待合并，见状态矩阵）；
 - 代表性真实第三方 adapter 端到端验收；
 - Issue #339 的完整三平台交付。
 
@@ -80,8 +80,8 @@ PR #341 的公开 CI 记录：
 | Linux 等待生命周期修复 | 已合入 | [PR #341](https://github.com/yqm-307/bbtools-coroutine/pull/341)，合并提交 `0c0e54ad` |
 | Linux 事件等待、取消和 Stop 局部回归 | 部分覆盖 | PR #341 的本地与 CI 记录；不等于完整 A4 |
 | Linux 事件回调异常边界 | 部分覆盖 | PR #341 有相关实现和回归；真实第三方回调仍未验收 |
-| 跨 worker 恢复 | 未验收 | 缺少针对同一协程迁移和事件完成后恢复的确定性证据 |
-| 用户 TLS 边界 | 未验收 | 不能仅凭运行时内部 TLS 查询推断用户 TLS 安全 |
+| 跨 worker 恢复（Linux 语义回归） | 部分覆盖 | 本次变更新增 `unit_test/Test_worker_tls_boundary.cc`：事件完成后恢复到其他 worker，本地复跑 18 次观测 25–35/40 轮；仅 Linux 证据，Windows/iOS 未验收 |
+| 用户 TLS 边界（Linux 语义回归） | 部分覆盖 | 同一回归固定：用户 `thread_local` 属于 worker 线程（本地复跑 18 次，115–127/128 次 Resume 观测到同 worker 跨协程共享），挂起期间其值可能被同 worker 其他协程改写、迁移后看到的是新 worker 那份实例；运行时 TLS 在每次 Resume 上仍指向协程自身。跨挂起依赖用户 `thread_local` 不可靠 |
 | Linux Hook | 平台专属，待矩阵化 | 保留 Linux 能力；不能作为 Windows/iOS 等价证据 |
 | Windows x64/MSVC | 未验收 | 缺少真实 MSVC 构建、运行和消费示例证据 |
 | iOS 设备 | 未验收 | 缺少 arm64 设备、签名和生命周期证据 |
@@ -95,7 +95,7 @@ PR #341 的公开 CI 记录：
 
 ### A4：运行时事件适配安全闭环
 
-继续补齐驱动域、先完成后 park、重复/晚到通知、等待取消与 Stop、异常边界、跨 worker 和用户 TLS 验收。Linux 生命周期修复已合入，不代表 A4 全部关闭。
+继续补齐驱动域、先完成后 park、重复/晚到通知、等待取消与 Stop、异常边界；跨 worker 恢复与用户 TLS 边界的 Linux 语义回归随本次变更落地（PR 待合并，见状态矩阵），Windows/iOS 侧仍无证据。Linux 生命周期修复已合入，不代表 A4 全部关闭。
 
 ### A5：真实第三方 adapter
 
