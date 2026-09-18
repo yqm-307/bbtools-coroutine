@@ -1,0 +1,72 @@
+# docs-check：纯文档类变更的轻量门禁（<2min）
+#
+# 与 unit_test.yml 的 paths-ignore 互补：只有当变更全部落在文档类路径时，
+# 本 workflow 触发，unit_test.yml（含编译/单测/快速性能回归）跳过；
+# 一旦混入代码变更，unit_test.yml 正常触发（本 workflow 同时也会触发，
+# 但轻量检查先给快速反馈，不阻塞重任务）。
+# 契约参考: docs/ci-guide.md §2
+#
+# fork 安全：与 unit_test.yml 一致，硬闸门是仓库 Actions
+# approval_policy=all_external_contributors；不得批准未审查的 fork workflow。
+
+name: Docs Check
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '**.md'
+      - 'docs/**'
+      - 'agent-docs/**'
+      - 'LICENSE'
+      - '**/*.png'
+      - '**/*.jpg'
+      - '**/*.svg'
+  push:
+    branches: [main]
+    paths:
+      - '**.md'
+      - 'docs/**'
+      - 'agent-docs/**'
+      - 'LICENSE'
+      - '**/*.png'
+      - '**/*.jpg'
+      - '**/*.svg'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  docs-check:
+    name: "文档检查（空格/链接/密钥）"
+    runs-on: ["self-hosted", "linux"]
+    timeout-minutes: 5
+    steps:
+      - name: "拉取代码库"
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: "空白错误检查（PR）"
+        if: github.event_name == 'pull_request'
+        run: |
+          git diff --check "${{ github.event.pull_request.base.sha }}...HEAD"
+
+      - name: "空白错误检查（push）"
+        if: github.event_name == 'push'
+        run: |
+          git diff --check "${{ github.event.before }} ${{ github.sha }}"
+
+      - name: "密钥扫描（已跟踪源码）"
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git grep -nEI 'BEGIN (RSA|OPENSSH|EC|DSA) PRIVATE KEY|gh[pousr]_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{20,}|xox[baprs]-[A-Za-z0-9-]{20,}' -- ':!build*' ':!tests/reports/archive'; then
+            echo 'secret-like material found' >&2
+            exit 1
+          fi

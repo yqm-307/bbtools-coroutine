@@ -70,13 +70,17 @@ python3 scripts/acceptance_real_clients.py \
 
 ## 2. CI 触发机制
 
-### CI 工作流：unit_test.yml
+### CI 工作流：unit_test.yml（代码变更）与 docs-check.yml（纯文档变更）
 
 | 事件 | 触发 | 编译+测试 | 快速性能回归 | 疲劳压测 |
 |------|------|:---------:|:------------:|:--------:|
-| **PR 创建/更新** | `pull_request → main` | ✅ | ✅ | ❌ |
-| **push main** | `push → main` | ✅ | ✅ | ❌ |
+| **PR 创建/更新（含代码）** | `pull_request → main`（`unit_test.yml`，文档类路径 `paths-ignore`） | ✅ | ✅ | ❌ |
+| **push main（含代码）** | `push → main`（`unit_test.yml`，文档类路径 `paths-ignore`） | ✅ | ✅ | ❌ |
+| **纯文档 PR / push** | `docs-check.yml`（`paths` 仅文档类路径，<2min：空格/密钥扫描） | ❌ | ❌ | ❌ |
 | **发布 Gate** | `workflow_dispatch` + Environment 审核 | ✅ | ✅（严格） | ✅（默认 1h，可配到 24h） |
+
+文档类路径（两处 workflow 共用同一清单，互补）：`**.md`、`docs/**`、`agent-docs/**`、`LICENSE`、`**/*.png|jpg|svg`。
+混合变更（文档+代码）走 `unit_test.yml` 全量，`docs-check.yml` 同时给出快速反馈。
 
 ### 运行环境
 
@@ -109,7 +113,7 @@ python3 scripts/acceptance_real_clients.py \
   → 性能基线记录 / 趋势检查 / 推送 perf-baseline
 ```
 
-### 3.1 编译与单元测试（每次 PR/push 必跑）
+### 3.1 编译与单元测试（每次含代码的 PR/push 必跑，纯文档走 docs-check）
 
 **步骤（见 `.github/workflows/unit_test.yml`；CI 当前使用 workflow 内联命令）：**
 
