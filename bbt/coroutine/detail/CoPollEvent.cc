@@ -1,6 +1,10 @@
 #include <cstdio>
 #include <fcntl.h>
+#include <sys/syscall.h>
+#include <time.h>
+#include <unistd.h>
 #include <algorithm>
+#include <cerrno>
 #include <exception>
 #include <string>
 #include <bbt/core/util/Assert.hpp>
@@ -46,6 +50,17 @@ void ReportCoPollEventException(CoroutineId co_id, CoPollEventId event_id,
     }
 
     report("unknown exception");
+}
+
+/* #284：重试等待必须直达内核。std::this_thread::sleep_for 经 libc nanosleep，
+ * 而本进程 nanosleep 已被 Hook 拦截——协程上下文会重入 YieldUntilTimeout，
+ * 造成 double-wait 断言与等待状态错乱；syscall(2) 绕过全部 userspace hook。 */
+void RawSleepMs(long ms) noexcept
+{
+    struct timespec req{ms / 1000, (ms % 1000) * 1000000L};
+    while (::syscall(SYS_nanosleep, &req, &req) != 0 && errno == EINTR)
+    {
+    }
 }
 
 }
@@ -207,12 +222,34 @@ int CoPollEvent::InitFdEvent(int fd, short events, int timeout)
     m_listen_events = events;
     m_timeout = timeout;
     auto weakthis = weak_from_this();
-    m_event = g_bbt_poller->CreateEvent(fd, events, [weakthis](int fd, short events, bbt::pollevent::EventId eventid){
-        if (weakthis.expired()) return;
-        auto pthis = weakthis.lock();
-        if (pthis == nullptr) return;
-        pthis->Trigger(events);
-    });
+    /* #284：asio 侧旧监听的析构延迟到驱动线程下一次 PollOnce 兑现；本协程
+     * 被唤醒后若抢在兑现前为同一 fd 建新监听，epoll ADD 报 EEXIST，异常曾
+     * 一路逃出杀死连接协程（客户端超时）。此处有界重试：驱动约 1ms 一拍，
+     * 旧监听很快释放；仍失败则返回 -1 不抛异常，调用方按等待建立失败处理，
+     * 协程存活。常态零开销，仅竞态路径短睡 worker（默认 stall 告警关闭）。 */
+    for (int attempt = 0; ; ++attempt)
+    {
+        try
+        {
+            m_event = g_bbt_poller->CreateEvent(fd, events, [weakthis](int fd, short events, bbt::pollevent::EventId eventid){
+                if (weakthis.expired()) return;
+                auto pthis = weakthis.lock();
+                if (pthis == nullptr) return;
+                pthis->Trigger(events);
+            });
+            break;
+        }
+        catch (const std::exception& e)
+        {
+            if (attempt >= 3)
+            {
+                std::fprintf(stderr, "[bbtco] InitFdEvent give up co=%llu fd=%d: %.100s\n",
+                             static_cast<unsigned long long>(m_co_id), fd, e.what());
+                return -1;
+            }
+            RawSleepMs(1);
+        }
+    }
 
     return m_event == nullptr ? -1 : 0;
 }
