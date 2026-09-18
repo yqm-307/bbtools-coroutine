@@ -60,6 +60,15 @@ public:
         return m_is_running.load(std::memory_order_acquire);
     }
 
+    /* #347：对象身份体系（bbt::coroutine::CurrentRuntimeGeneration）读取当前运行时代际。
+     * 未启动或已开始 Stop 时返回 0——此时不存在可归属的运行时代际。 */
+    uint64_t                                    GetRunGeneration() const noexcept
+    {
+        return m_has_started.load(std::memory_order_acquire)
+            ? m_run_generation.load(std::memory_order_acquire)
+            : 0;
+    }
+
 protected:
     /* 从全局队列中取一定数量的协程 */
     size_t                                      GetCoroutineFromGlobal(CoroutinePriority priority, CoroutineQueue& queue, size_t size);
@@ -109,6 +118,8 @@ private:
     std::mutex                                  m_global_queue_mutex;
     /* 每次重启递增；迟到的上一代唤醒不得进入新一代队列。 */
     std::atomic_uint64_t                        m_run_generation{1};
+    /* #347：是否已成功启动过运行时（_Init 置位，Stop 起始清零）。 */
+    std::atomic_bool                            m_has_started{false};
     std::atomic_bool                            m_is_running{true};
     volatile ScheudlerStatus                    m_run_status{ScheudlerStatus::SCHE_DEFAULT};
 

@@ -199,6 +199,30 @@ target_link_libraries(Test_stop_no_unwind ${MY_LIBS})
 add_test(NAME Test_stop_no_unwind COMMAND Test_stop_no_unwind)
 set_tests_properties(Test_stop_no_unwind PROPERTIES TIMEOUT 15)
 
+# #347 C0：对象身份与运行时代际（C-01）
+add_executable(Test_co_object_identity Test_co_object_identity.cc)
+target_link_libraries(Test_co_object_identity ${MY_LIBS})
+add_test(NAME Test_co_object_identity COMMAND Test_co_object_identity)
+set_tests_properties(Test_co_object_identity PROPERTIES TIMEOUT 15)
+
+# #347 C1：取消令牌（值语义 + 多线程竞争）
+add_executable(Test_cancellation_token Test_cancellation_token.cc)
+target_link_libraries(Test_cancellation_token ${MY_LIBS})
+add_test(NAME Test_cancellation_token COMMAND Test_cancellation_token)
+set_tests_properties(Test_cancellation_token PROPERTIES TIMEOUT 15)
+
+# #347 C1：one-shot 完成信号（C-02..C-05）
+add_executable(Test_completion_signal Test_completion_signal.cc)
+target_link_libraries(Test_completion_signal ${MY_LIBS})
+add_test(NAME Test_completion_signal COMMAND Test_completion_signal)
+set_tests_properties(Test_completion_signal PROPERTIES TIMEOUT 30)
+
+# #347 切片②：唤醒原因独立化 + CoWaiter 窄接口单次等待结果收口
+add_executable(Test_cowaiter_outcome Test_cowaiter_outcome.cc)
+target_link_libraries(Test_cowaiter_outcome ${MY_LIBS})
+add_test(NAME Test_cowaiter_outcome COMMAND Test_cowaiter_outcome)
+set_tests_properties(Test_cowaiter_outcome PROPERTIES TIMEOUT 30)
+
 # Smoke 候选：CI 快速回归集，统一 60s 超时防止无进展挂死。
 # Test_reliability 不进 Smoke，保留给完整回归与独立 Reliability Job。
 set_tests_properties(

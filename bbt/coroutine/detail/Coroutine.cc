@@ -139,8 +139,10 @@ void Coroutine::OnException(std::exception_ptr eptr) noexcept
 void Coroutine::RequestCancel() noexcept
 {
     m_cancel_requested.store(true, std::memory_order_release);
+    /* #347②：取消唤醒使用独立取消位，不再借用超时位——恢复侧可凭
+     * 唤醒掩码直接区分「被取消」与「真超时」。 */
     if (auto ev = _AwaitEvent())
-        ev->Trigger(EventOpt::TIMEOUT);
+        ev->Trigger(POLL_EVENT_CANCELLED);
 }
 
 bool Coroutine::IsCancelRequested() const noexcept
@@ -332,9 +334,9 @@ bool Coroutine::_RegistAwaitEvent()
 {
     auto await_event = _AwaitEvent();
     // RequestCancel 可能发生在入口检查之后、事件挂上之前。
-    // 注册前再看一眼：已置位则 Trigger，CommitPark 走 PENDING 立即完成。
+    // 注册前再看一眼：已置位则以取消位 Trigger，CommitPark 走 PENDING 立即完成。
     if (await_event != nullptr && IsCancelRequested())
-        await_event->Trigger(EventOpt::TIMEOUT);
+        await_event->Trigger(POLL_EVENT_CANCELLED);
 
 
     if (await_event != nullptr && await_event->Regist() == 0)
@@ -469,8 +471,9 @@ void Coroutine::OnCoPollEvent(int event, int custom_key)
      * DestroyParkedCoroutines 对同一对象持 parked 锁时不会并行处理它。 */
     _UntrackParked();  // 所有权从 parked 表转交全局队列（#280）
 
-    // 超时任务优先级最高，覆盖 MLFQ 判定
-    if (event & EventOpt::TIMEOUT)
+    // 超时任务优先级最高，覆盖 MLFQ 判定；#347② 取消改用独立位后，
+    // 取消唤醒必须同样获得 CRITICAL 提升，否则是静默的调度行为回归。
+    if ((event & EventOpt::TIMEOUT) || (event & POLL_EVENT_CANCELLED))
         priority = CO_PRIORITY_CRITICAL;
 
     /* 底层 Event 必须先析构，否则同一 FD 的下一次等待会在 ASIO 重复注册。 */

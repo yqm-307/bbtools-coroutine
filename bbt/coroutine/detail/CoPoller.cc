@@ -81,6 +81,12 @@ int CoPoller::NotifyCustomEvent(std::shared_ptr<CoPollEvent> event)
     return event->Trigger(POLL_EVENT_CUSTOM);
 }
 
+int CoPoller::NotifyCancelEvent(std::shared_ptr<CoPollEvent> event)
+{
+    Assert(event != nullptr);
+    return event->Trigger(POLL_EVENT_CANCELLED);
+}
+
 void CoPoller::DeferDestroyEvent(std::shared_ptr<bbt::pollevent::Event> event)
 {
     if (event == nullptr) return;

@@ -254,6 +254,13 @@ enum PollEventType
     POLL_EVENT_WRITEABLE    = 1 << 1,
     POLL_EVENT_READABLE     = 1 << 2,
     POLL_EVENT_CUSTOM       = 1 << 3,
+    /* #347②：本次唤醒原因是取消（协程级 RequestCancel，或等待者订阅的取消令牌
+     * 经 CoPoller::NotifyCancelEvent 触发），与 POLL_EVENT_TIMEOUT 分离，使
+     * 「本次等待为何结束」可在仲裁点（唤醒原因掩码）直接读出。
+     * 取 bit8 以上：core 的 EventOpt 沿用 libevent 数值（0x01~0x80，含 core
+     * 尚未定义的 EV_ET 0x20），取高位与之彻底错开，不必依赖「某些位绝不会到达
+     * 触发掩码」这类边界不变量。 */
+    POLL_EVENT_CANCELLED    = 1 << 8,
 };
 
 /**
