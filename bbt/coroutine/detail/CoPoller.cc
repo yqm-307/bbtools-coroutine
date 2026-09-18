@@ -127,4 +127,11 @@ std::shared_ptr<bbt::pollevent::EventLoop> CoPoller::GetEventLoop() const
     return m_event_loop;
 }
 
+boost::asio::any_io_executor CoPoller::GetExecutor() const
+{
+    /* io_context 由 m_event_loop 持有的 EventBase 拥有；本函数不创建
+       新事件循环，只返回指向同一 context 的 executor 句柄。 */
+    return m_event_loop->GetEventBase()->GetContext().get_executor();
+}
+
 }

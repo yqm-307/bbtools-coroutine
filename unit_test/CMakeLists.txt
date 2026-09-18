@@ -121,6 +121,11 @@ target_link_libraries(Test_eventloop_contract ${MY_LIBS})
 add_test(NAME Test_eventloop_contract COMMAND Test_eventloop_contract)
 set_tests_properties(Test_eventloop_contract PROPERTIES TIMEOUT 10)
 
+add_executable(Test_io_executor Test_io_executor.cc)
+target_link_libraries(Test_io_executor ${MY_LIBS})
+add_test(NAME Test_io_executor COMMAND Test_io_executor)
+set_tests_properties(Test_io_executor PROPERTIES TIMEOUT 15)
+
 add_executable(Test_cond Test_cond.cc)
 target_link_libraries(Test_cond ${MY_LIBS})
 add_test(NAME Test_cond COMMAND Test_cond)
