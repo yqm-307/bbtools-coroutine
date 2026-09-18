@@ -44,6 +44,11 @@ public:
     /* 线程安全，多次调用仅第一次有效 */
     int                             NotifyCustomEvent(std::shared_ptr<CoPollEvent> event);
 
+    /* 取消语义的唤醒入口（#347②）：以独立取消位触发，供等待者向取消令牌
+     * 登记的唤醒回调使用；与 NotifyCustomEvent（完成语义）走不同位，
+     * 恢复侧可凭唤醒掩码直接区分。线程安全，多次调用仅第一次有效。 */
+    int                             NotifyCancelEvent(std::shared_ptr<CoPollEvent> event);
+
     /* 延迟销毁 Event；由 FlushDeferredEvents 在唤醒协程前兑现。 */
     void                            DeferDestroyEvent(std::shared_ptr<bbt::pollevent::Event> event);
 
