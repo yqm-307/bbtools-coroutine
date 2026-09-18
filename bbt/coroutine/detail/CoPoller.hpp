@@ -4,6 +4,7 @@
 #include <mutex>
 #include <thread>
 #include <vector>
+#include <boost/asio/any_io_executor.hpp>
 #include <bbt/pollevent/EventLoop.hpp>
 #include <bbt/coroutine/detail/Define.hpp>
 
@@ -58,6 +59,11 @@ public:
 
     std::shared_ptr<bbt::pollevent::EventLoop>
                                     GetEventLoop() const;
+
+    /* 只读投递入口：返回本 Poller 所持 EventLoop 的 Asio executor。
+       executor 绑定的 io_context 随本实例生命周期存在；不暴露原始
+       io_context，调用方无法经此句柄 stop/restart/run。 */
+    boost::asio::any_io_executor    GetExecutor() const;
 private:
     std::shared_ptr<bbt::pollevent::EventLoop> m_event_loop{nullptr};
     std::vector<std::shared_ptr<bbt::pollevent::Event>> m_deferred_destroy;
