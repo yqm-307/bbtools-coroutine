@@ -106,7 +106,14 @@ class SoakIntegrationTest(unittest.TestCase):
             args = self._args(build, report_root)
             binary = run_soak.validate_args(args, root)
             run_dir = run_soak.create_run_dir(report_root, root)
-            report, samples, metrics, raw = run_soak.run_soak(args, binary, run_dir)
+            # run_soak 的 dump 扫描含 Path.cwd()；CI/ARC 仓库根可能遗留 core/dump，
+            # 切到隔离 cwd 避免环境文件干扰断言。
+            old_cwd = Path.cwd()
+            os.chdir(root)
+            try:
+                report, samples, metrics, raw = run_soak.run_soak(args, binary, run_dir)
+            finally:
+                os.chdir(old_cwd)
             run_soak.write_reports(report, samples, metrics, raw, run_dir)
             self.assertEqual(report["exit_code"], 0,
                 msg="process=%s metrics=%s issues=%s" % (
