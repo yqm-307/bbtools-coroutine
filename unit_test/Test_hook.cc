@@ -49,15 +49,27 @@ BOOST_AUTO_TEST_CASE(t_hook_connect)
 
     bbtco[&l]()
     {
+        // ARC runner 容器内无 sshd 监听 22 端口，connect 会 ECONNREFUSED。
+        // 改为先建本地监听再连，保持 hook 语义一致（connect 成功路径）。
+        auto rlt = bbt::core::net::CreateListen("127.0.0.1", 0, true);
+        if (rlt.IsErr())
+            BOOST_FAIL("create listen failed: " << rlt.Err().What());
+        int srv_fd = rlt.Ok();
+        sockaddr_in srv_addr{};
+        socklen_t srv_len = sizeof(srv_addr);
+        ::getsockname(srv_fd, (sockaddr *)&srv_addr, &srv_len);
+
         sockaddr_in addr;
         addr.sin_addr.s_addr = inet_addr("127.0.0.1");
-        addr.sin_port = htons(22);
+        addr.sin_port = srv_addr.sin_port;
         addr.sin_family = AF_INET;
 
         int fd = ::socket(AF_INET, SOCK_STREAM, 0);
         BOOST_ASSERT(fd >= 0);
         int ret = ::connect(fd, (sockaddr *)(&addr), sizeof(addr));
         BOOST_CHECK_MESSAGE(ret == 0, "errno=" << errno << "\tret=" << ret << "\tfd=" << fd);
+        ::close(fd);
+        ::close(srv_fd);
         l.Down();
     };
 
