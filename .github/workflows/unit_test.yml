@@ -54,7 +54,7 @@ jobs:
   # ════════════════════════════════════════════════════════
   build-and-test:
     name: "编译 & 单元测试"
-    runs-on: ["self-hosted", "linux"]
+    runs-on: arc-s4
     steps:
       - name: "拉取代码库"
         uses: actions/checkout@v4
@@ -123,7 +123,7 @@ jobs:
   perf-regression:
     name: "性能回归检查"
     needs: [build-and-test]
-    runs-on: ["self-hosted", "linux"]
+    runs-on: arc-s4
     timeout-minutes: 15
     permissions:
       contents: read
@@ -192,7 +192,7 @@ jobs:
   sanitizer-check:
     name: "Sanitizer 检查（ASAN+UBSAN）"
     if: github.event_name == 'workflow_dispatch'
-    runs-on: ["self-hosted", "linux"]
+    runs-on: arc-s4
     timeout-minutes: 90
     steps:
       - name: "拉取代码库"
