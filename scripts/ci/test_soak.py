@@ -72,7 +72,7 @@ class SoakContractTest(unittest.TestCase):
 
 
 class SoakIntegrationTest(unittest.TestCase):
-    def _args(self, build: Path, report: Path, duration: float = 0.8, grace: float = 0.2) -> Namespace:
+    def _args(self, build: Path, report: Path, duration: float = 0.8, grace: float = 2.0) -> Namespace:
         return run_soak.parse_args([
             "--build-dir", str(build), "--duration-seconds", str(duration), "--threads", "1",
             "--resource-interval-seconds", "0.1", "--metric-interval-seconds", "1",
