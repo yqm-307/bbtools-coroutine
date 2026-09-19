@@ -108,7 +108,9 @@ class SoakIntegrationTest(unittest.TestCase):
             run_dir = run_soak.create_run_dir(report_root, root)
             report, samples, metrics, raw = run_soak.run_soak(args, binary, run_dir)
             run_soak.write_reports(report, samples, metrics, raw, run_dir)
-            self.assertEqual(report["exit_code"], 0)
+            self.assertEqual(report["exit_code"], 0,
+                msg="process=%s metrics=%s issues=%s" % (
+                    report["process"], report["metrics"], report["issues"]))
             self.assertEqual(sorted(path.name for path in run_dir.iterdir()), sorted(run_soak.REPORT_FILES))
             summary = json.loads((run_dir / "summary.json").read_text())
             self.assertTrue(summary["process"]["completed_target_duration"])
