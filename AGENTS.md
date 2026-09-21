@@ -166,6 +166,7 @@
 - C++17、`-fno-rtti`、CMake
 - 禁止引入新编译器警告
 - `build.sh` 为统一构建入口；新增模块可能需要在其 `CMakeLists.txt` 中注册
+- 同机多 agent 并行开发时本地只做增量验证：新 configure 加 `-DCMAKE_CXX_COMPILER_LAUNCHER=ccache`；本地并发取 `JOBS=$(( $(nproc) / 4 ))`（最小2，8核→2）；增量用 `cmake --build <dir> --target <t> --parallel $JOBS`；确需本地全量时串行（一次一个，`flock /tmp/bbt-build.lock cmake --build <dir> --parallel $(( $(nproc) / 2 ))`，8核→4）；禁止 bare `--parallel` / bare `ninja` / `make -j$(nproc)`
 
 ### Git 提交
 
@@ -203,6 +204,7 @@ git commit --author="agent <agent@users.noreply.github.com>"
 在宣称「已完成」前必须满足：
 
 - 涉及模块的单测全部通过（`ctest` 或 `./build.sh`）
+- 本地验证边界：必走冒烟 + 本次开发功能的单测 + 直接耦合功能的单测，三者全过；本地不跑全量 `ctest`，全量走 PR 的 CI（以 `gh pr checks` 为准）
 - 无新增编译器警告
 - 新建文件与测试已纳入 CMakeLists.txt
 - 测试覆盖验收标准中约定的场景
