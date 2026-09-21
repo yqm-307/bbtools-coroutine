@@ -18,24 +18,8 @@ permissions:
 on:
   pull_request:
     branches: [main]
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - 'agent-docs/**'
-      - 'LICENSE'
-      - '**/*.png'
-      - '**/*.jpg'
-      - '**/*.svg'
   push:
     branches: [main]
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - 'agent-docs/**'
-      - 'LICENSE'
-      - '**/*.png'
-      - '**/*.jpg'
-      - '**/*.svg'
 
 env:
   BUILD_DIR: ${{ github.workspace }}/build
@@ -48,33 +32,70 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # docs-only 变更检测：纯文档/图片/LICENSE PR 时 required check 直接上报 success，
+  # 避免 paths-ignore 与 ruleset required check 冲突导致无法 merge。
+  changes:
+    name: "变更类型检测"
+    runs-on: arc-s4
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - name: "拉取代码库"
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: "判断是否含代码变更"
+        id: filter
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch origin ${{ github.base_ref }} --depth=1
+            RANGE="origin/${{ github.base_ref }}...HEAD"
+          else
+            RANGE="${{ github.event.before }}..${{ github.sha }}"
+          fi
+          # 非文档路径模式：命中任一即视为代码变更
+          if git diff --name-only $RANGE | grep -vE '\.md$|^docs/|^agent-docs/|^LICENSE$|\.png$|\.jpg$|\.svg$' | grep -q .; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          fi
+
   # ════════════════════════════════════════════════════════
   # Layer 1: 编译 + 单元测试 + 冒烟测试 + 可靠性测试
-  # 每次 PR/commit 必跑，~90s
+  # 每次 PR/commit 必跑，~90s；docs-only 直接 success
   # ════════════════════════════════════════════════════════
   build-and-test:
     name: "编译 & 单元测试"
+    needs: [changes]
     runs-on: arc-s4
     steps:
+      - name: "docs-only 变更直接通过"
+        if: needs.changes.outputs.code == 'false'
+        run: echo "docs-only change, skipping build/test; check reports success."
+
       - name: "拉取代码库"
+        if: needs.changes.outputs.code == 'true'
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
           persist-credentials: false
 
       - name: "编译"
+        if: needs.changes.outputs.code == 'true'
         run: |
           rm -rf build && mkdir build && cd build
           cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DNEED_TEST=ON -DNEED_BENCHMARK=ON
           ninja -j$(nproc)
 
       - name: "CI 与发布工具自测"
+        if: needs.changes.outputs.code == 'true'
         run: |
           python3 scripts/test_release_gate.py
           python3 -m unittest discover -s scripts/ci -p 'test_*.py'
 
       - name: "采集 runner 调度能力"
-        if: always()
+        if: needs.changes.outputs.code == 'true'
         run: |
           printf 'runner=%s\n' "$RUNNER_NAME"
           nproc
@@ -82,6 +103,7 @@ jobs:
           grep -E 'Cap(Prm|Eff|Bnd)' /proc/self/status || true
 
       - name: "ctest（全部单元测试）"
+        if: needs.changes.outputs.code == 'true'
         run: |
           cd build
           # 重试最多 3 次，应对间歇性 flaky 测试
@@ -95,6 +117,7 @@ jobs:
         timeout-minutes: 10
 
       - name: "冒烟测试（Test_smoke）"
+        if: needs.changes.outputs.code == 'true'
         run: |
           cd build
           # flaky 卡死：最多重试 3 次（每次全新进程），保证 CI 稳定
@@ -106,6 +129,7 @@ jobs:
         timeout-minutes: 8
 
       - name: "可靠性测试（Test_reliability）"
+        if: needs.changes.outputs.code == 'true'
         run: |
           cd build
           # flaky 卡死/段错误：最多重试 3 次（每次全新进程），保证 CI 稳定
@@ -122,25 +146,32 @@ jobs:
   # ════════════════════════════════════════════════════════
   perf-regression:
     name: "性能回归检查"
-    needs: [build-and-test]
+    needs: [changes, build-and-test]
     runs-on: arc-s4
     timeout-minutes: 15
     permissions:
       contents: read
     steps:
+      - name: "docs-only 变更直接通过"
+        if: needs.changes.outputs.code == 'false'
+        run: echo "docs-only change, skipping perf regression; check reports success."
+
       - name: "拉取代码库"
+        if: needs.changes.outputs.code == 'true'
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
           persist-credentials: false
 
       - name: "编译（复用 build 产物？不 — 独立 build 目录保证一致性）"
+        if: needs.changes.outputs.code == 'true'
         run: |
           rm -rf build && mkdir build && cd build
           cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DNEED_TEST=ON -DNEED_BENCHMARK=ON
           ninja -j$(nproc)
 
       - name: "拉取历史性能基线（perf-baseline 分支）"
+        if: needs.changes.outputs.code == 'true'
         # 临时 checkout 里没有历史基线；长期记录在 orphan 分支 perf-baseline，
         # artifact 仅作传输。分支缺失时 ci_perf_check 显式输出 NO_COMPARABLE_BASELINE。
         env:
@@ -160,6 +191,7 @@ jobs:
           fi
 
       - name: "快速性能回归检查"
+        if: needs.changes.outputs.code == 'true'
         # --gate-enabled：退化 ≥20%（CoCond ≥40%）判 FAIL 并阻断 main 验证
         run: |
           python3 scripts/ci_perf_check.py --threads=2 --dur=45 --gate-enabled --output tests/ci-reports/main-performance.json
@@ -177,7 +209,7 @@ jobs:
           PY
 
       - name: "上传压测日志"
-        if: always()
+        if: needs.changes.outputs.code == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: perf-regression-logs
