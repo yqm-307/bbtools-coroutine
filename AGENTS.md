@@ -187,6 +187,17 @@ git commit --author="agent <agent@users.noreply.github.com>"
 
 - Author 固定为 `agent <agent@users.noreply.github.com>`；Committer 可保持操作环境默认身份
 
+## 统一编码与架构约束
+
+以下六条为三仓（bbtools-core / bbtools-coroutine / bbtools-infra）统一约束，作为代码审查门禁；与本仓「代码规范」章节冲突时以更严格的为准。
+
+1. **namespace 不超过三层**：形态为 `bbt::{大模块}::{小模块}`；禁止新增四层及以上嵌套，出现更深层级优先重新划分模块。
+2. **Boost 1.90 优先**：标准库与 Boost 已有成熟上位能力时禁止重复造轮子；保留自研实现须有可复核的差异理由（语义、性能、平台或生命周期）。
+3. **C++17**：新增与迁移代码以 C++17 为基线，不静默提升标准。
+4. **模板适度**：用模板提升类型安全与复用；禁止为技巧性引入难理解、难诊断、难维护的元编程。
+5. **基础库尽量 header-only**：纯算法、类型工具、无状态小组件优先 header-only；有稳定 ABI、重状态、I/O、平台隔离或明显编译成本的模块可保留编译单元并说明理由。
+6. **依赖方向**：`bbtools-infra → bbtools-coroutine`，禁止 `bbtools-coroutine → bbtools-infra`；coroutine 承接 core 直依赖模块后自闭环，对 infra 零依赖。
+
 ## 完成条件
 
 在宣称「已完成」前必须满足：
