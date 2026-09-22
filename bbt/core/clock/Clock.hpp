@@ -13,7 +13,7 @@ BBT_TIME_CONVERT_TYPE MinOfHour = 60;
 BBT_TIME_CONVERT_TYPE HoursPerDay = 24;
 BBT_TIME_CONVERT_TYPE DaysPerWeek = 7;
 BBT_TIME_CONVERT_TYPE SecOfMin = 60;
-BBT_TIME_CONVERT_TYPE SecOfHour = SecOfMin * MinOfHour; 
+BBT_TIME_CONVERT_TYPE SecOfHour = SecOfMin * MinOfHour;
 BBT_TIME_CONVERT_TYPE SecOfDay = SecOfMin * MinOfHour * HoursPerDay;
 BBT_TIME_CONVERT_TYPE SecOfWeek = SecOfDay * DaysPerWeek;
 
@@ -34,7 +34,7 @@ template<typename T = ms>
 using TimestampMono = std::chrono::time_point<std::chrono::steady_clock, T>;
 
 template<typename T = ms>
-using Duration = std::chrono::duration<ms>; 
+using Duration = std::chrono::duration<ms>;
 
 
 /**
@@ -68,7 +68,7 @@ inline TimestampMono<timeaccuracy> now_mono()
 
 /**
  * @brief 当前时间加interval后的时间戳
- * 
+ *
  * @param interval 加上多久时间（单位ns）
  * @return Timestamp 添加之后的时间戳
  */
@@ -78,7 +78,7 @@ inline Tsp nowAfter(timeaccuracy interval)
 
 /**
  * @brief 当前时间减去interval后的时间戳
- * 
+ *
  * @param interval 减去的多久时间（单位ns）
  * @return Timestamp 减去之后的时间戳
  */
@@ -96,7 +96,7 @@ inline uint64_t gettime_mono()
 
 /**
  * @brief 从1970年1月1日0时，到ts的ms数
- * 
+ *
  * @param ts 某个时间点
  * @return time_t 从UTC 到 ts 的毫秒数
  */
@@ -108,7 +108,7 @@ inline time_t utcms(Timestamp<ns>&& ts)
 
 /**
  * @brief 获取ts所在月的日期
- * 
+ *
  * @param ts 某时间点
  * @return time_t 日期 （0-30）
  */
@@ -122,7 +122,7 @@ inline time_t day(Timestamp<ns>&& ts= now<ns>())
 
 /**
  * @brief 获取ts所在年份的月份
- * 
+ *
  * @param ts 某时间点
  * @return time_t 月份 （0-11）
  */
@@ -135,7 +135,7 @@ inline time_t month(Timestamp<ns>&& ts=now<ns>())
 
 /**
  * @brief 获取ts所在日期的几点钟
- * 
+ *
  * @param ts 某时间点
  * @return time_t (0-23)
  */
@@ -147,7 +147,7 @@ inline time_t hour(Timestamp<ns>&& ts=now<ns>())
 
 /**
  * @brief 获取ts的年份
- * 
+ *
  * @param ts 某时间点
  * @return time_t 当前年份
  */
@@ -161,9 +161,9 @@ inline time_t year(Timestamp<ns>&& ts=now<ns>())
 
 /**
  * @brief 获取所在的分钟
- * 
- * @param ts 
- * @return time_t 
+ *
+ * @param ts
+ * @return time_t
  */
 inline time_t minute(Timestamp<ns>&& ts=now<ns>())
 {
@@ -174,9 +174,9 @@ inline time_t minute(Timestamp<ns>&& ts=now<ns>())
 
 /**
  * @brief 获取所在的秒
- * 
- * @param ts 
- * @return time_t 
+ *
+ * @param ts
+ * @return time_t
  */
 inline time_t second(Timestamp<ns>&& ts=now<ns>())
 {
@@ -187,9 +187,9 @@ inline time_t second(Timestamp<ns>&& ts=now<ns>())
 
 /**
  * @brief 获取所在的毫秒
- * 
- * @param ts 
- * @return time_t 
+ *
+ * @param ts
+ * @return time_t
  */
 inline time_t millisecond(Timestamp<ns>&& ts=now<ns>())
 {
@@ -210,7 +210,7 @@ inline std::string getnow_str()
     snprintf(str.data(), str.size(), "[%4d-%02d-%02d %02d:%02d:%02d %04d]",
                     tm_time->tm_year + 1900, tm_time->tm_mon + 1, tm_time->tm_mday,
                     tm_time->tm_hour, tm_time->tm_min, tm_time->tm_sec, static_cast<int>(dis_millseconds));
-    
+
     str.resize(strlen(str.data()));
 
     return str;
@@ -228,7 +228,7 @@ inline std::string tostr(Timestamp<> ts)
     snprintf(str.data(), str.size(), "[%4d-%02d-%02d %02d:%02d:%02d %04d]",
                     tm_time->tm_year + 1900, tm_time->tm_mon + 1, tm_time->tm_mday,
                     tm_time->tm_hour, tm_time->tm_min, tm_time->tm_sec, static_cast<int>(dis_millseconds));
-    
+
     str.resize(strlen(str.data()));
 
     return str;
@@ -237,8 +237,8 @@ inline std::string tostr(Timestamp<> ts)
 
 /**
  * @brief ts 是否小于 now
- * 
- * @param ts 
+ *
+ * @param ts
  * @return true ts超时了,false ts未超时
  */
 template<class type,class Tsp = Timestamp<type>>
@@ -257,14 +257,14 @@ inline bool is_expired(Tsp ts)
 
 /**
  * @brief 获取1970.1.1 00:00:00 到当前时间的秒数
- * @return uint32_t 
+ * @return uint32_t
  */
 static inline uint32_t UTCTime()
 { return ::time(NULL); }
 
 /**
  * @brief 获取有时区偏移的当前秒数(虚拟时间,一般用来做UTC时间计算)
- * @return uint32_t 
+ * @return uint32_t
  */
 static inline uint32_t ZoneTime()
 {
@@ -301,8 +301,8 @@ static inline int HourOfDay(time_t secs)
 
 /**
  * @brief ts 是否小于 now
- * 
- * @param ts 
+ *
+ * @param ts
  * @return true ts超时了,false ts未超时
  */
 template<class type,class Tsp = Timestamp<type>>

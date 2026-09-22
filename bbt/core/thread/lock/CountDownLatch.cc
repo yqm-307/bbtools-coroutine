@@ -21,7 +21,7 @@ void CountDownLatch::Wait()
     // 且 broadcast 后可能被其他等待者先消耗资源，需重新检查计数。
     while(m_count > 0)
         pthread_cond_wait(&m_sem,&m_lock.getlock());
-}	
+}
 
 int CountDownLatch::WaitTimeout(int timeout)
 {

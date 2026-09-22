@@ -29,7 +29,7 @@ EvThread::EvThread():
 {
 }
 
-EvThread::~EvThread() 
+EvThread::~EvThread()
 {
     Stop();
 }
@@ -129,11 +129,11 @@ bool EvThread::SyncWaitThreadExitEx(int wait_time)
 
     if(wait_time < 0 && m_thread->joinable())
         m_thread->join();
-    
+
     while (m_thread->joinable() && pass_time < wait_time)
     {
         std::this_thread::sleep_for(std::chrono::milliseconds(interval));
-        pass_time += increase;    
+        pass_time += increase;
     }
 
     return !(m_thread->joinable());

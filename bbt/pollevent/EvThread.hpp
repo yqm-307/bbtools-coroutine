@@ -34,11 +34,11 @@ public:
 
     /**
      * @brief 在当前线程中注册一个事件，并且在当前线程中触发（线程安全）
-     * 
-     * @param fd 
-     * @param events 
-     * @param onevent_cb 
-     * @return std::shared_ptr<Event> 
+     *
+     * @param fd
+     * @param events
+     * @param onevent_cb
+     * @return std::shared_ptr<Event>
      */
     std::shared_ptr<Event>  RegisterEvent(evutil_socket_t fd, short events, const bbt::pollevent::OnEventCallback& onevent_cb);
     void                    Join();
