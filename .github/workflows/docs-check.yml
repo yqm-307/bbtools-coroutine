@@ -60,7 +60,7 @@ jobs:
       - name: "空白错误检查（push）"
         if: github.event_name == 'push'
         run: |
-          git diff --check "${{ github.event.before }} ${{ github.sha }}"
+          git diff --check "${{ github.event.before }}..${{ github.sha }}"
 
       - name: "密钥扫描（已跟踪源码）"
         shell: bash
