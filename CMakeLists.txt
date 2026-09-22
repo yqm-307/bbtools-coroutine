@@ -1,6 +1,11 @@
-cmake_minimum_required(VERSION 3.1)
+cmake_minimum_required(VERSION 3.16)
 
 project(bbtools-coroutine)
+
+# Issue #12 P2：core 直接依赖闭包已内置（bbt/core 子集 + bbt/pollevent），
+# 不再外链 libbbt_core。Boost 1.90 为统一基线；context 提供 fcontext。
+find_package(Boost 1.90 REQUIRED COMPONENTS context)
+find_package(Threads REQUIRED)
 
 ################################################################
 ############## options
@@ -81,8 +86,9 @@ file(GLOB_RECURSE SRCS
 
 add_library(bbt_coroutine SHARED ${SRCS})
 target_link_libraries(bbt_coroutine
-    boost_context
-    bbt_core
+    Boost::context
+    Threads::Threads
+    ${CMAKE_DL_LIBS}    # Hook.hpp 在头文件内 dlsym(RTLD_NEXT,...)，dl 使用方是本库
     # tcmalloc
 )
 

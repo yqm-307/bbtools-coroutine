@@ -45,7 +45,7 @@ BOOST_AUTO_TEST_CASE(t_defer)
         BOOST_CHECK(i == 2);
         i = 0;
     };
-    
+
     bbtco_defer {
         BOOST_CHECK(i == 1);
         i = 2;

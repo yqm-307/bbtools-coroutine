@@ -105,7 +105,7 @@ BOOST_AUTO_TEST_CASE(t_regist_event_with_copool)
 
         l.Down();
     };
-    
+
     l.Wait();
 }
 

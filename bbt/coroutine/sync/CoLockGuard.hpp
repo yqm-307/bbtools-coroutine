@@ -1,13 +1,11 @@
 #pragma once
 #include <bbt/core/util/Assert.hpp>
+#include <bbt/coroutine/sync/CoRWMutex.hpp>
 #include <memory>
 #include <utility>
 
 namespace bbt::coroutine::sync
 {
-
-// 前向声明，供 CoReadLock / CoWriteLock 使用
-class CoRWMutex;
 
 /**
  * @brief RAII 协程锁守卫，构造时 Lock，析构时 UnLock

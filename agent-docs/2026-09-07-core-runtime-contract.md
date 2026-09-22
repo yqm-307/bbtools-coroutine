@@ -59,7 +59,7 @@
 
 ## 4. EventLoop 与 Poller
 
-当前 `CoPoller` 依赖 bbtools-core 的 `bbt::pollevent::EventLoop`。M1 固定的是本项目运行时层的职责边界，不直接冻结或修改依赖库的公共 API；涉及跨仓变更时，必须同步评估两边的契约和兼容性。
+当前 `CoPoller` 基于 `bbt::pollevent::EventLoop`；Issue #12 P2 起 `bbt/pollevent` 已内置本仓并随 `bbt_coroutine` 一同构建，不再依赖外部 bbtools-core。M1 固定的是本项目运行时层的职责边界，不直接冻结或修改该事件层的公共 API；涉及 `bbt/pollevent` 变更时，必须同步评估运行时层契约和兼容性。
 
 `EventLoop` 是核心稳定抽象，首版只承诺三类事件：
 

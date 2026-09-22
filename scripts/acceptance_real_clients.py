@@ -166,8 +166,16 @@ def run_hiredis(binary: Path, timeout: int, redis_port: int) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--echo-server", type=Path, required=True)
-    parser.add_argument("--hiredis", type=Path, required=True)
+    parser.add_argument("--mode", choices=("all", "echo", "hiredis"),
+                        default="all",
+                        help="echo 只跑 Echo 段（必跑项，PASS 即返回 0）；"
+                             "hiredis 只跑 hiredis 段；all 依次跑两段，"
+                             "缺 --hiredis 时整段按 SKIP=77 处理")
+    parser.add_argument("--echo-server", type=Path, default=None,
+                        help="echo_server 二进制路径；mode=echo/all 时必填")
+    parser.add_argument("--hiredis", type=Path, default=None,
+                        help="co_with_hiredis 二进制路径；mode=hiredis 时必填，"
+                             "mode=all 缺省时该段按 SKIP=77 处理")
     parser.add_argument("--clients", type=int, default=12)
     parser.add_argument("--rounds", type=int, default=3)
     parser.add_argument("--seed", type=int, default=20260909)
@@ -175,8 +183,17 @@ def main() -> int:
     parser.add_argument("--redis-port", type=int, default=6379)
     args = parser.parse_args()
 
-    run_echo(args.echo_server, args.clients, args.rounds, args.seed)
-    run_hiredis(args.hiredis, args.timeout, args.redis_port)
+    if args.mode in ("all", "echo"):
+        if args.echo_server is None:
+            parser.error(f"--mode {args.mode} 需要 --echo-server")
+        run_echo(args.echo_server, args.clients, args.rounds, args.seed)
+    if args.mode in ("all", "hiredis"):
+        if args.hiredis is None:
+            if args.mode == "hiredis":
+                parser.error("--mode hiredis 需要 --hiredis")
+            print("hiredis SKIP co_with_hiredis not built (hiredis lib missing)")
+            raise SystemExit(SKIP)
+        run_hiredis(args.hiredis, args.timeout, args.redis_port)
     print("real-client acceptance PASS")
     return 0
 

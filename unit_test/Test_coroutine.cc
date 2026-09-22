@@ -20,7 +20,7 @@ BOOST_AUTO_TEST_CASE(t_coroutine_run)
 
     std::atomic_int sign_value = 0;
 
-    
+
     current_coroutine = bbt::coroutine::detail::Coroutine::Create(4096,
     [&sign_value,&ncount](){
         for (int i = 0; i < 10000; ++i)

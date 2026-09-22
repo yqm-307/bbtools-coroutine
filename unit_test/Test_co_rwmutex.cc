@@ -65,7 +65,7 @@ BOOST_AUTO_TEST_CASE(t_rlock_block)
         cocond->Wait();
         l.Down();
     };
-    
+
     sleep(1);
     l.Wait();
 }
