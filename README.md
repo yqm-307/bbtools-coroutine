@@ -26,20 +26,9 @@ bbtools-coroutine 有以下特点：
 
 ### 依赖
 
-- boost.context
+- Boost >= 1.90（本库仅用 `boost.context`；CMake 以 `find_package(Boost 1.90 REQUIRED COMPONENTS context)` 强制校验，版本不足会在 configure 阶段直接报错）。发行版仓库的 `apt install libboost-all-dev` 通常不提供足够新的版本，请以实际安装的 Boost 版本为准。
 
-    ```shell
-    sudo apt install libboost-all-dev
-    ```
-
-- bbtools-core（运行时依赖，需先安装）
-
-    ```shell
-    git clone https://github.com/yqm-307/bbtools-core.git
-    cd bbtools-core
-    cd shell
-    sudo ./build.sh
-    ```
+- ~~bbtools-core~~（Issue #12 P2 起不再需要）：本仓已内置所需的 `bbt/core` 子集与 `bbt/pollevent`，无需预先安装独立 core 库。
 
 ### 构建与安装
 
@@ -56,9 +45,9 @@ CMake 开关（默认全部 `OFF`）：
 | 开关 | 作用 |
 |------|------|
 | `CMAKE_BUILD_TYPE=Release` | 优化构建；不指定时为无优化构建（本库不强制 Release） |
-| `NEED_TEST=ON` | 编译单元测试（CTest 37 个套件） |
+| `NEED_TEST=ON` | 编译单元测试（CTest 42 个 unit tests） |
 | `NEED_BENCHMARK=ON` | 编译 `benchmark_test/`（含 `unified_stress`） |
-| `NEED_EXAMPLE=ON` | 编译 `example/`（额外注册 `Test_real_clients`） |
+| `NEED_EXAMPLE=ON` | 编译 `example/`；与 `NEED_TEST=ON` 同开时额外注册无条件的 `Test_real_clients_echo`（必须 PASS），`co_with_hiredis` target 存在时再注册 `Test_real_clients_hiredis` |
 | `NEED_DEBUG=ON` | 编译 `debug/` |
 | `PROFILE=ON` | 启用 Profiler |
 | `DEBUG_INFO=ON` | 输出库 debug 信息 |
@@ -620,7 +609,7 @@ int main()
 # 构建并运行全部单元测试
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DNEED_TEST=ON
 cmake --build build --parallel
-ctest --test-dir build --output-on-failure        # 37 个核心测试套件
+ctest --test-dir build --output-on-failure        # 42 个核心测试套件
 
 # 冒烟（独立构建 + 报告）
 python3 scripts/ci/run_smoke.py --build-dir build-ci-smoke
@@ -631,8 +620,8 @@ cmake --build build-soak --target unified_stress --parallel
 python3 scripts/ci/run_soak.py --build-dir build-soak
 ```
 
-- 核心套件 37 个：协程状态机、调度与停机、取消、异常、hook 契约、同步原语、eventloop 契约、profiler 等；完整列表与 CI 说明见 `docs/ci-guide.md`。
-- 真实客户端验收：`NEED_EXAMPLE=ON` 时额外注册 `Test_real_clients`（Echo + hiredis；本机无 Redis 时以 skip 77 跳过，不伪造通过）。
+- 核心套件 42 个：协程状态机、调度与停机、取消、异常、hook 契约、同步原语、eventloop 契约、profiler 等；完整列表与 CI 说明见 `docs/ci-guide.md`。
+- 真实客户端验收：`NEED_EXAMPLE=ON` 且 `NEED_TEST=ON` 时注册 `Test_real_clients_echo`（无条件、必须 PASS）；`co_with_hiredis` target 存在（系统装有 hiredis 库）时再注册 `Test_real_clients_hiredis`，运行时本机无 Redis 以 skip 77 跳过，不伪造通过。
 - 压测：`benchmark_test/unified_stress.cc` 提供六模块长时压测入口，由 `run_soak.py` 驱动。
 - 报告目录：
   - `scripts/ci/run_smoke.py` → `tests/reports/smoke/<UTC 时间戳>/`（`summary.json`、`commands.json`、`ctest.xml`）

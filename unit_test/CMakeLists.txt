@@ -126,6 +126,18 @@ target_link_libraries(Test_io_executor ${MY_LIBS})
 add_test(NAME Test_io_executor COMMAND Test_io_executor)
 set_tests_properties(Test_io_executor PROPERTIES TIMEOUT 15)
 
+# 迁入自 bbtools-core 的 pollevent / thread 直接单测（Issue #12 P2），
+# 覆盖 EventBase/EventLoop/Event/EvThread 与 CountDownLatch 的独立行为。
+add_executable(Test_eventloop Test_eventloop.cc)
+target_link_libraries(Test_eventloop ${MY_LIBS})
+add_test(NAME Test_eventloop COMMAND Test_eventloop)
+set_tests_properties(Test_eventloop PROPERTIES TIMEOUT 30)
+
+add_executable(Test_countdown_latch Test_countdown_latch.cc)
+target_link_libraries(Test_countdown_latch ${MY_LIBS})
+add_test(NAME Test_countdown_latch COMMAND Test_countdown_latch)
+set_tests_properties(Test_countdown_latch PROPERTIES TIMEOUT 15)
+
 add_executable(Test_cond Test_cond.cc)
 target_link_libraries(Test_cond ${MY_LIBS})
 add_test(NAME Test_cond COMMAND Test_cond)

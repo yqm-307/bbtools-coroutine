@@ -1,8 +1,7 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
-#include <bbt/core/net/SocketUtil.hpp>
-#include <bbt/core/net/IPAddress.hpp>
+#include <fcntl.h>
 #include <bbt/coroutine/coroutine.hpp>
 #include <bbt/coroutine/detail/Hook.hpp>
 #include <bbt/core/clock/Clock.hpp>
@@ -11,6 +10,51 @@ using namespace bbt::coroutine;
 #define print(msg) (std::cout << msg << std::endl)
 
 const char *msg = "hello world";
+
+/* 最小本地 socket helper：替代 bbt::core::net::{CreateListen,SetFdNoBlock}。
+ * net 模块归 bbtools-infra，coroutine 不依赖。失败返回 -1。 */
+static int SetFdNoBlock_(int fd)
+{
+    int flags = ::fcntl(fd, F_GETFL, 0);
+    if (flags < 0)
+        return -1;
+    if (!(flags & O_NONBLOCK) && ::fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0)
+        return -1;
+    return 0;
+}
+
+static int CreateListenTcp(const char* ip, short port, bool noblock)
+{
+    int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0)
+        return -1;
+
+    int one = 1;
+    sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    if (ip == nullptr || strlen(ip) == 0)
+        addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    else
+        ::inet_pton(AF_INET, ip, &addr.sin_addr.s_addr);
+
+    bool failed =
+        (::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one)) < 0) ||
+        (::bind(fd, (sockaddr*)&addr, sizeof(addr)) < 0) ||
+        (::listen(fd, SOMAXCONN) < 0);
+
+    if (!failed && noblock)
+        failed = (SetFdNoBlock_(fd) < 0);
+
+    if (failed) {
+        int e = errno;
+        ::close(fd);
+        errno = e;
+        return -1;
+    }
+    return fd;
+}
 
 void echo_client(){
     printf("[client] co=%ld\n", bbt::coroutine::GetLocalCoroutineId());
@@ -36,13 +80,12 @@ void echo_server(){
     printf("[server] co=%ld\n", bbt::coroutine::GetLocalCoroutineId());
 
 
-    auto rlt = bbt::core::net::CreateListen("", 10001, true);
-    if (rlt.IsErr())
+    int fd = CreateListenTcp("", 10001, true);
+    if (fd < 0)
     {
-        printf("[server] create listen failed! err=%s\n", rlt.Err().CWhat());
+        printf("[server] create listen failed! errno=%d\n", errno);
         return;
     }
-    int fd = rlt.Ok();
 
     printf("[server] listenfd=%d\n", fd);
 
@@ -56,7 +99,7 @@ void echo_server(){
         int new_fd = ::accept(fd, (sockaddr *)(&cli_addr), &len);
         Assert(new_fd >= 0);
 
-        Assert(!bbt::core::net::SetFdNoBlock(new_fd).has_value());
+        Assert(SetFdNoBlock_(new_fd) == 0);
 
         printf("[server] read msg! fd=%d\n", new_fd);
 
@@ -77,9 +120,8 @@ void test()
     bbtco[&l]()
     {
         print("[server] server co=" << bbt::coroutine::GetLocalCoroutineId());
-        auto rlt = bbt::core::net::CreateListen("", 10001, true);
-        Assert(rlt.IsOk());
-        int fd = rlt.Ok();
+        int fd = CreateListenTcp("", 10001, true);
+        Assert(fd >= 0);
         print("[server] create succ listen fd=" << fd);
         sockaddr_in cli_addr;
         char *buf = new char[1024];
@@ -90,7 +132,7 @@ void test()
         int new_fd = ::accept(fd, (sockaddr *)(&cli_addr), &len);
         Assert(new_fd >= 0);
 
-        Assert(!bbt::core::net::SetFdNoBlock(new_fd).has_value());
+        Assert(SetFdNoBlock_(new_fd) == 0);
         print("[server] read msg! fd=" << new_fd);
         int read_len = ::read(new_fd, buf, 1024);
         Assert(read_len != 0);

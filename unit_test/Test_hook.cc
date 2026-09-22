@@ -5,10 +5,49 @@
 #include <bbt/coroutine/detail/Hook.hpp>
 #include <bbt/coroutine/coroutine.hpp>
 #include <bbt/core/thread/Lock.hpp>
-#include <bbt/core/net/SocketUtil.hpp>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#include <fcntl.h>
+#include <errno.h>
+
+/* 最小本地 listen helper：替代 bbt::core::net::CreateListen。
+ * net 模块归 bbtools-infra，coroutine 不依赖，测试侧只保留本用例所需语义。
+ * 失败返回 -1 并保留 errno。 */
+static int CreateListenTcp(const char* ip, short port, bool noblock)
+{
+    int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0)
+        return -1;
+
+    int one = 1;
+    sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    if (ip == nullptr || strlen(ip) == 0)
+        addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    else
+        ::inet_pton(AF_INET, ip, &addr.sin_addr.s_addr);
+
+    bool failed =
+        (::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one)) < 0) ||
+        (::bind(fd, (sockaddr*)&addr, sizeof(addr)) < 0) ||
+        (::listen(fd, SOMAXCONN) < 0);
+
+    if (!failed && noblock) {
+        int flags = ::fcntl(fd, F_GETFL, 0);
+        failed = (flags < 0) || (::fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0);
+    }
+
+    if (failed) {
+        int e = errno;
+        ::close(fd);
+        errno = e;
+        return -1;
+    }
+    return fd;
+}
 
 BOOST_AUTO_TEST_SUITE(HookSystemFunc)
 
@@ -85,14 +124,13 @@ BOOST_AUTO_TEST_CASE(t_hook_write)
     bbtco[&l]()
     {
         BOOST_TEST_MESSAGE("[server] server co=" << bbt::coroutine::GetLocalCoroutineId());
-        auto rlt = bbt::core::net::CreateListen("", 10001, true);
-        if (rlt.IsErr())
+        int fd = CreateListenTcp("", 10001, true);
+        if (fd < 0)
         {
-            BOOST_TEST_MESSAGE("[server] create listen failed, errno=" << rlt.Err().What());
+            BOOST_TEST_MESSAGE("[server] create listen failed, errno=" << errno);
             BOOST_FAIL("create listen failed");
         }
 
-        int fd = rlt.Ok();
         BOOST_ASSERT(fd >= 0);
         BOOST_TEST_MESSAGE("[server] create succ listen fd=" << fd);
         sockaddr_in cli_addr;
@@ -148,13 +186,12 @@ BOOST_AUTO_TEST_CASE(t_hook_send)
 
     bbtco[&l]()
     {
-        auto rlt = bbt::core::net::CreateListen("", 10001, true);
-        if (rlt.IsErr())
+        int fd = CreateListenTcp("", 10001, true);
+        if (fd < 0)
         {
-            BOOST_TEST_MESSAGE("[server] create listen failed, errno=" << rlt.Err().What());
+            BOOST_TEST_MESSAGE("[server] create listen failed, errno=" << errno);
             BOOST_FAIL("create listen failed");
         }
-        int fd = rlt.Ok();
         BOOST_ASSERT(fd >= 0);
         sockaddr_in cli_addr;
         char *buf = new char[1024];

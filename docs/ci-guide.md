@@ -463,14 +463,14 @@ ctest --output-on-failure
 pkill -TERM -f unified_stress 2>/dev/null || true
 ```
 
-如果怀疑是 bbtools-core .so 版本不对（改了 core 但 coroutine 链接了旧版）：
+P2 起本仓内置 `bbt/core` 依赖闭包与 `bbt/pollevent`，`libbbt_coroutine.so` 不再外链 `libbbt_core.so`；`ldd` 输出中不应再出现它：
 
 ```bash
 ldd build/bin/benchmark_test/unified_stress | grep libbbt
-ls -la /usr/local/lib/libbbt_*
+# 期望：只有 libbbt_coroutine.so
 ```
 
-确认 `libbbt_core.so` 日期与最后一次 `sudo make install` 一致。改了 core 代码必须先 `sudo make install` 才生效。
+如果可执行文件仍链接到旧版 `libbbt_coroutine.so`，确认其日期与最后一次构建/安装一致即可。
 
 ### Q: 如何手动触发内存检测？
 
@@ -487,18 +487,18 @@ FATIGUE_INTERVAL=2 timeout -s KILL 15 ./build/bin/benchmark_test/unified_stress 
 # 2s 间隔，10s 时长，方便快速验证
 ```
 
-### Q: 如何确认本地的 core.so 是最新的？
+### Q: 如何确认本地的 libbbt_coroutine.so 是最新的？
 
 ```bash
 # 查看编译时间
-ls -la /usr/local/lib/libbbt_core.so
-stat /usr/local/lib/libbbt_core.so
+ls -la /usr/local/lib/libbbt_coroutine.so
+stat /usr/local/lib/libbbt_coroutine.so
 
 # 查看链接的 .so 路径
 ldd build/bin/benchmark_test/unified_stress | grep bbt
 ```
 
-如果 bbtools-core 有改动，必须在 core 仓库执行 `sudo make install` 更新系统安装的 .so。
+本仓源码改动重新构建后用 `shell/install.sh` 安装即可；`bbt/core` 子集与 `bbt/pollevent` 头已随本仓一同发布，不再依赖 core 仓的 `make install`。
 
 ### Q: 压测报告怎么读？
 

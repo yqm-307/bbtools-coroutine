@@ -1,10 +1,11 @@
 #include <cmath>
+#include <random>
 #include <bbt/core/clock/Clock.hpp>
-#include <bbt/core/crypto/Random.hpp>
 #include <bbt/coroutine/coroutine.hpp>
 
 int a = 0;
-bbt::core::crypto::mt_random rd;
+// crypto::mt_random 归 bbtools-infra 不随迁；底层同为 mt19937_64，std 等价替代
+std::mt19937_64 rd;
 
 void _CoroutineTask()
 {
