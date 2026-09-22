@@ -81,6 +81,12 @@ int CoPoller::NotifyCustomEvent(std::shared_ptr<CoPollEvent> event)
     return event->Trigger(POLL_EVENT_CUSTOM);
 }
 
+int CoPoller::NotifyCancelEvent(std::shared_ptr<CoPollEvent> event)
+{
+    Assert(event != nullptr);
+    return event->Trigger(POLL_EVENT_CANCELLED);
+}
+
 void CoPoller::DeferDestroyEvent(std::shared_ptr<bbt::pollevent::Event> event)
 {
     if (event == nullptr) return;
@@ -125,6 +131,13 @@ uint64_t CoPoller::GetDrainInPollCount() const
 std::shared_ptr<bbt::pollevent::EventLoop> CoPoller::GetEventLoop() const
 {
     return m_event_loop;
+}
+
+boost::asio::any_io_executor CoPoller::GetExecutor() const
+{
+    /* io_context 由 m_event_loop 持有的 EventBase 拥有；本函数不创建
+       新事件循环，只返回指向同一 context 的 executor 句柄。 */
+    return m_event_loop->GetEventBase()->GetContext().get_executor();
 }
 
 }

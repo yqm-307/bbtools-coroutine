@@ -8,6 +8,15 @@
 
 你是 bbtools 所有 C++ 仓库（bbtools-core、bbtools-coroutine 等）的代码设计、编写与维护助手。职责收束在代码层面：代码设计、实现、调试修复、单测编写、代码审查与 Git 提交。你有执行权，但核心活动始终围绕当前代码库——你不是全权自治代理。
 
+## 职责与跨仓边界（#346）
+
+- 本仓负责协程运行时、并发原语、等待/唤醒/取消竞争及运行时自身对象安全；Linux Hook 为平台专属能力，不承诺 Windows/iOS 等价。
+- 本仓不内置 TCP/UDP/HTTP API 或第三方网络驱动，不承载业务逻辑和跨机器锁，不托管业务缓冲；不为减少依赖重造复杂协议或安全组件。
+- 新第三方协议/客户端能力统一由 bbtools-infra 接入（首批 HTTP、RPC、MCP）；infra 侧 adapter 负责网络操作与业务资源寿命，本仓不反向依赖 infra。
+- 取消等待或 `Scheduler::Stop()` 不等于第三方 I/O 已完成；挂起协程 Stop 直接销毁、不做栈展开的语义不变，以核心运行时契约为准。
+- 对 core 固定版本后的集成验证按验证阶梯复验，不把上游通过当成本仓通过；infra 消费形态未实现前不声称已联调。
+- #339 已于 2026-09-18 关闭（适配收口到 infra 层），本仓不再以该单推进三平台长程验收；后续仅为已核实的运行时缺口安排支撑任务。
+
 ## 能力与授权
 
 ### 可自主执行
@@ -157,6 +166,7 @@
 - C++17、`-fno-rtti`、CMake
 - 禁止引入新编译器警告
 - `build.sh` 为统一构建入口；新增模块可能需要在其 `CMakeLists.txt` 中注册
+- 同机多 agent 并行开发时本地只做增量验证：新 configure 加 `-DCMAKE_CXX_COMPILER_LAUNCHER=ccache`；本地并发取 `JOBS=$(( $(nproc) / 4 ))`（最小2，8核→2）；增量用 `cmake --build <dir> --target <t> --parallel $JOBS`；确需本地全量时串行（一次一个，`flock /tmp/bbt-build.lock cmake --build <dir> --parallel $(( $(nproc) / 2 ))`，8核→4）；禁止 bare `--parallel` / bare `ninja` / `make -j$(nproc)`
 
 ### Git 提交
 
@@ -178,11 +188,23 @@ git commit --author="agent <agent@users.noreply.github.com>"
 
 - Author 固定为 `agent <agent@users.noreply.github.com>`；Committer 可保持操作环境默认身份
 
+## 统一编码与架构约束
+
+以下六条为三仓（bbtools-core / bbtools-coroutine / bbtools-infra）统一约束，作为代码审查门禁；与本仓「代码规范」章节冲突时以更严格的为准。
+
+1. **namespace 不超过三层**：形态为 `bbt::{大模块}::{小模块}`；禁止新增四层及以上嵌套，出现更深层级优先重新划分模块。
+2. **Boost 1.90 优先**：标准库与 Boost 已有成熟上位能力时禁止重复造轮子；保留自研实现须有可复核的差异理由（语义、性能、平台或生命周期）。
+3. **C++17**：新增与迁移代码以 C++17 为基线，不静默提升标准。
+4. **模板适度**：用模板提升类型安全与复用；禁止为技巧性引入难理解、难诊断、难维护的元编程。
+5. **基础库尽量 header-only**：纯算法、类型工具、无状态小组件优先 header-only；有稳定 ABI、重状态、I/O、平台隔离或明显编译成本的模块可保留编译单元并说明理由。
+6. **依赖方向**：`bbtools-infra → bbtools-coroutine`，禁止 `bbtools-coroutine → bbtools-infra`；coroutine 承接 core 直依赖模块后自闭环，对 infra 零依赖。
+
 ## 完成条件
 
 在宣称「已完成」前必须满足：
 
 - 涉及模块的单测全部通过（`ctest` 或 `./build.sh`）
+- 本地验证边界：必走冒烟 + 本次开发功能的单测 + 直接耦合功能的单测，三者全过；本地不跑全量 `ctest`，全量走 PR 的 CI（以 `gh pr checks` 为准）
 - 无新增编译器警告
 - 新建文件与测试已纳入 CMakeLists.txt
 - 测试覆盖验收标准中约定的场景

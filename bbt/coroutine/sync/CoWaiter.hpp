@@ -1,5 +1,6 @@
 #pragma once
 #include <bbt/coroutine/detail/Define.hpp>
+#include <bbt/coroutine/sync/CompletionSignal.hpp>
 
 namespace bbt::coroutine::sync
 {
@@ -51,6 +52,23 @@ public:
      * @return int 
      */
     int                                 WaitWithTimeoutAndCallback(int ms, const detail::CoroutineOnYieldCallback& cb);
+
+    /**
+     * @brief 窄接口（#347②）：一次等待返回可区分的 WaitStatus，
+     *  结果由仲裁点（本次唤醒原因掩码）直接决定，恢复后不做第二遍优先级重判：
+     *    Completed          —— Notify() 到达（POLL_EVENT_CUSTOM）
+     *    TimedOut           —— 真实定时器超时（POLL_EVENT_TIMEOUT），或进入时已过期
+     *    Cancelled          —— 协程级 RequestCancel 或 options.cancel 令牌（POLL_EVENT_CANCELLED）
+     *    AlreadyWaiting     —— 已有其它等待者占用唯一等待位（前一事件已
+     *                          到终态的残留不占位，避免与未恢复的占位者互饿）
+     *    InvalidContext     —— 非协程上下文
+     *    RuntimeUnavailable —— 事件创建/登记失败（未真正挂起）
+     *  与 Wait 族不同：超时族旧入口对取消仍返回 1（兼容映射），本接口把取消
+     *  与超时分开报告。Cancel() 语义不变——只是让 Notify 跳过，不是唤醒。
+     * @param options deadline 用单调时钟；cancel 为取消令牌（登记唤醒目标，
+     *  已取消的令牌由登记路径同步触发取消唤醒，仍经掩码仲裁）
+     */
+    WaitStatus                          Wait(const WaitOptions& options);
 
     /**
      * @brief 唤醒一个因为调用Wait、WaitWithTimeout而挂起的协程

@@ -53,6 +53,7 @@ void Scheduler::_Init()
         if (restarting)
             m_run_generation.fetch_add(1, std::memory_order_acq_rel);
         m_is_running.store(true, std::memory_order_release);
+        m_has_started.store(true, std::memory_order_release);
     }
 }
 
@@ -306,6 +307,7 @@ void Scheduler::Stop()
     {
         std::lock_guard<std::mutex> lock(m_global_queue_mutex);
         m_is_running.store(false, std::memory_order_release);
+        m_has_started.store(false, std::memory_order_release);
     }
 
     _DestoryProcessers();

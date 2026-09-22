@@ -120,7 +120,9 @@ int CoMutex::_WaitUnLockUnitlTimeout(int timeout, const detail::CoroutineOnYield
         return cb();
     });
 
-    if (coroutine->GetLastResumeEvent() & detail::POLL_EVENT_TIMEOUT)
+    /* #347② 兼容映射：协程级取消现以独立取消位唤醒（原借用超时位），
+     * 本处把取消仍按超时上报 1，保持 TryLock(ms) 既有可观察行为不变。 */
+    if (coroutine->GetLastResumeEvent() & (detail::POLL_EVENT_TIMEOUT | detail::POLL_EVENT_CANCELLED))
         return 1;  // timeout
 
     return ret;

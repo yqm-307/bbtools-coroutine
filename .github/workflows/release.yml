@@ -46,7 +46,7 @@ jobs:
   gate:
     name: "Release Gate"
     if: github.ref == 'refs/heads/main'
-    runs-on: [self-hosted, linux]
+    runs-on: arc-s4
     # 默认 1h 压测 + 构建/测试/性能 Gate；压测可加长到 24h，给足超时。
     timeout-minutes: 1500
     permissions:
