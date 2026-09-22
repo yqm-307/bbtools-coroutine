@@ -90,10 +90,9 @@ BOOST_AUTO_TEST_CASE(t_hook_connect)
     {
         // ARC runner 容器内无 sshd 监听 22 端口，connect 会 ECONNREFUSED。
         // 改为先建本地监听再连，保持 hook 语义一致（connect 成功路径）。
-        auto rlt = bbt::core::net::CreateListen("127.0.0.1", 0, true);
-        if (rlt.IsErr())
-            BOOST_FAIL("create listen failed: " << rlt.Err().What());
-        int srv_fd = rlt.Ok();
+        int srv_fd = CreateListenTcp("127.0.0.1", 0, true);
+        if (srv_fd < 0)
+            BOOST_FAIL("create listen failed, errno=" << errno);
         sockaddr_in srv_addr{};
         socklen_t srv_len = sizeof(srv_addr);
         ::getsockname(srv_fd, (sockaddr *)&srv_addr, &srv_len);
