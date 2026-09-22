@@ -6,6 +6,38 @@ namespace bbt::coroutine::sync
 {
 
 /**
+ * @brief #346 组合等待结果：首胜原因可区分（同窄接口 WaitStatus 的扩展口径）
+ */
+enum class CombinedWaitStatus
+{
+    FdReadable,         ///< fd 可读就绪首胜
+    FdWriteable,        ///< fd 可写就绪首胜
+    Completed,          ///< Notify() 到达
+    TimedOut,           ///< deadline 到点（或进入时已过期）
+    Cancelled,          ///< 协程级 RequestCancel 或 cancel 令牌取消
+    AlreadyWaiting,     ///< 已有其它等待者占用唯一等待位
+    InvalidContext,     ///< 非协程上下文
+    InvalidOptions,     ///< 申请 fd interest 但 fd < 0
+    RuntimeUnavailable, ///< 事件创建/登记失败（未真正挂起）
+};
+
+/**
+ * @brief #346 组合等待选项
+ *
+ * interest 可独立或同时申请 READABLE / WRITEABLE，二者皆空表示纯信号
+ * 等待；fd 仅在申请 interest 时使用，其余调用者不得依赖其值。deadline
+ * 单调时钟，默认 max() 表示不设截止。
+ */
+struct CombinedWaitOptions
+{
+    bool                want_readable{false};   ///< 申请可读 interest
+    bool                want_writeable{false};  ///< 申请可写 interest
+    int                 fd{-1};                 ///< 等待的描述符
+    Deadline            deadline = Deadline::max();
+    CancellationToken   cancel{};
+};
+
+/**
  * @brief 实现协程等待和唤醒的功能
  * 
  * 通过CoWaiter可以定制的去实现协程间的同步机制，事实上
@@ -69,6 +101,26 @@ public:
      *  已取消的令牌由登记路径同步触发取消唤醒，仍经掩码仲裁）
      */
     WaitStatus                          Wait(const WaitOptions& options);
+
+    /**
+     * @brief #346 组合等待（最小稳定切片）：FD interests、绝对 deadline、
+     *  既有 Notify()（custom）与 CancellationToken/协程级 RequestCancel 的
+     *  首胜等待，恢复后返回可区分结果，不做第二遍优先级重判：
+     *    FdReadable / FdWriteable —— fd interest 就绪首胜（底层 EV_READ/EV_WRITE 位）
+     *    Completed                —— Notify() 到达（POLL_EVENT_CUSTOM 位）
+     *    TimedOut                 —— 真实定时器超时，或进入时已过期
+     *    Cancelled                —— 协程级 RequestCancel 或 options.cancel 令牌
+     *    AlreadyWaiting / InvalidContext / RuntimeUnavailable —— 同窄接口 Wait
+     *    InvalidOptions           —— 申请 fd interest 但 fd < 0
+     *  胜负仍由 CoPollEvent 状态机首个胜出 Trigger 锁定的 flags 定死。
+     *  fd 触发位沿用 pollevent EventOpt 数值（READABLE=0x02/WRITEABLE=0x04），
+     *  与 PollEventType 的可读/可写位数值互换，判定不得混用两套常量。
+     * @param options fd 须为合法描述符（仅当申请 interest 时）；deadline 单调
+     *  时钟，max() 表示不设截止；cancel 为取消令牌（登记唤醒目标，已取消的
+     *  令牌由登记路径同步触发取消唤醒，仍经掩码仲裁）。Notify() 复用既有
+     *  等待位，本等待期间外部 Notify() 照常生效。
+     */
+    CombinedWaitStatus                  Wait(const CombinedWaitOptions& options);
 
     /**
      * @brief 唤醒一个因为调用Wait、WaitWithTimeout而挂起的协程
