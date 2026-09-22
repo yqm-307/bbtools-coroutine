@@ -3,6 +3,7 @@
 #include <chrono>
 #include <limits>
 #include <bbt/coroutine/sync/CoWaiter.hpp>
+#include <bbt/pollevent/Event.hpp>
 #include <bbt/coroutine/detail/CoPoller.hpp>
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
 #include <bbt/coroutine/detail/Scheduler.hpp>
@@ -295,6 +296,116 @@ WaitStatus CoWaiter::Wait(const WaitOptions& options)
         return WaitStatus::Completed;
     /* 无明确决议位的异常唤醒按取消处理（沿用 CompletionSignal 兜底先例） */
     return WaitStatus::Cancelled;
+}
+
+CombinedWaitStatus CoWaiter::Wait(const CombinedWaitOptions& options)
+{
+    /* 环境检查先于一切（对齐窄接口）：非协程上下文一律拒绝 */
+    if (!g_bbt_tls_helper->EnableUseCo())
+        return CombinedWaitStatus::InvalidContext;
+    auto* coroutine = g_bbt_tls_coroutine_co;
+    if (coroutine == nullptr)
+        return CombinedWaitStatus::InvalidContext;
+
+    const bool want_fd = options.want_readable || options.want_writeable;
+    /* fd<0 时 fd 事件无法建立，立即拒绝；READABLE/WRITEABLE 可同时申请，
+     * 底层 Event 以 OR interest 监听，恢复时按首个交付位返回原因。 */
+    if (want_fd && options.fd < 0)
+        return CombinedWaitStatus::InvalidOptions;
+
+    const short fd_listen_events =
+        (options.want_readable ? pollevent::EventOpt::READABLE : 0) |
+        (options.want_writeable ? pollevent::EventOpt::WRITEABLE : 0);
+
+    int timeout_ms = -1;
+    std::shared_ptr<detail::CoPollEvent> wait_event;
+    {
+        std::lock_guard<std::mutex> lock(m_notify_mutex);
+        /* 入口校验顺序对齐窄接口：取消先于 deadline 与等待位占用检查 */
+        if (options.cancel.IsCancellationRequested() || coroutine->IsCancelRequested())
+            return CombinedWaitStatus::Cancelled;
+        if (options.deadline <= std::chrono::steady_clock::now())
+            return CombinedWaitStatus::TimedOut;    /* 已过期：不注册事件 */
+        if (m_co_event != nullptr) {
+            /* 终态残留不占等待位（同窄接口 Wait）：避免恢复前占位互饿 */
+            if (!m_co_event->IsFinal())
+                return CombinedWaitStatus::AlreadyWaiting;
+            m_co_event = nullptr;
+            m_run_status = COND_FREE;
+        }
+
+        const auto remain_ms = std::chrono::ceil<std::chrono::milliseconds>(
+            options.deadline - std::chrono::steady_clock::now()).count();
+        /* 上方过期检查与 remain 计算之间可能刚好耗尽剩余期限：remain<=0
+         * 时定时器口径为 0ms 不挂定时器，fd 等待会永久悬挂，按已过期拒绝 */
+        if (remain_ms <= 0)
+            return CombinedWaitStatus::TimedOut;
+        const bool has_timer = remain_ms < std::numeric_limits<int>::max();
+        if (has_timer)
+            timeout_ms = static_cast<int>(remain_ms);
+
+        /* 单事件同时承载 fd interest、custom 通知与定时器（Event 的 fd 与
+         * timer 可共存）：RegistCustom 只建 custom 骨架，fd interest 与
+         * 定时器经一次 InitFdEvent 挂上——同一事件 m_event 仅能建立一次，
+         * 不能先 RegistCustom(timeout) 再补 fd。真正注册在挂起成功后的
+         * _RegistAwaitEvent 中完成。 */
+        wait_event = coroutine->RegistCustom(detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND);
+        if (wait_event == nullptr)
+            return CombinedWaitStatus::RuntimeUnavailable;
+
+        const short listen_events = fd_listen_events |
+            (has_timer ? pollevent::EventOpt::TIMEOUT : 0);
+        if (listen_events != 0 &&
+            wait_event->InitFdEvent(options.fd, listen_events, has_timer ? timeout_ms : 0) != 0) {
+            /* 事件建立失败：事件未注册，清掉 await 登记防协程悬挂 */
+            coroutine->_SetAwaitEvent(nullptr);
+            m_co_event = nullptr;
+            m_run_status = COND_FREE;
+            return CombinedWaitStatus::RuntimeUnavailable;
+        }
+
+        m_co_event = wait_event;
+        m_run_status = COND_WAIT;
+    }
+
+    /* 取消令牌登记同窄接口 Wait：持事件 shared_ptr，终态后 Trigger 为 no-op */
+    const auto cb_id = options.cancel._RegisterCancelCallback([wait_event]() {
+        g_bbt_poller->NotifyCancelEvent(wait_event);
+    });
+
+    const int yield_ret = coroutine->YieldWithCallback([coroutine]() {
+        return coroutine->_RegistAwaitEvent();
+    });
+
+    options.cancel._UnregisterCancelCallback(cb_id);
+
+    {
+        std::lock_guard<std::mutex> lock(m_notify_mutex);
+        if (m_co_event == wait_event) {
+            m_co_event = nullptr;
+            m_run_status = COND_FREE;
+        }
+    }
+
+    if (yield_ret != 0)
+        return CombinedWaitStatus::RuntimeUnavailable;
+
+    /* 决议只读唤醒原因掩码：fd 位沿用底层 EventOpt 数值交付
+     * （READABLE=0x02/WRITEABLE=0x04，与 PollEventType 同名位数值互换），
+     * 取消/超时/自定义用 PollEventType 位，首个胜出 Trigger 锁定为准。 */
+    const int resume_event = coroutine->GetLastResumeEvent();
+    if (resume_event & detail::POLL_EVENT_CANCELLED)
+        return CombinedWaitStatus::Cancelled;
+    if (resume_event & detail::POLL_EVENT_TIMEOUT)
+        return CombinedWaitStatus::TimedOut;
+    if (resume_event & detail::POLL_EVENT_CUSTOM)
+        return CombinedWaitStatus::Completed;
+    if (resume_event & pollevent::EventOpt::READABLE)
+        return CombinedWaitStatus::FdReadable;
+    if (resume_event & pollevent::EventOpt::WRITEABLE)
+        return CombinedWaitStatus::FdWriteable;
+    /* 无明确决议位的异常唤醒按取消处理（同窄接口兜底先例） */
+    return CombinedWaitStatus::Cancelled;
 }
 
 int CoWaiter::Notify()

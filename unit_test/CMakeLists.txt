@@ -235,6 +235,12 @@ target_link_libraries(Test_cowaiter_outcome ${MY_LIBS})
 add_test(NAME Test_cowaiter_outcome COMMAND Test_cowaiter_outcome)
 set_tests_properties(Test_cowaiter_outcome PROPERTIES TIMEOUT 30)
 
+# #346：CoWaiter 组合等待最小稳定入口（单 FD interest + deadline + Notify + 取消首胜）
+add_executable(Test_combined_wait Test_combined_wait.cc)
+target_link_libraries(Test_combined_wait ${MY_LIBS})
+add_test(NAME Test_combined_wait COMMAND Test_combined_wait)
+set_tests_properties(Test_combined_wait PROPERTIES TIMEOUT 30)
+
 # Smoke 候选：CI 快速回归集，统一 60s 超时防止无进展挂死。
 # Test_reliability 不进 Smoke，保留给完整回归与独立 Reliability Job。
 set_tests_properties(
