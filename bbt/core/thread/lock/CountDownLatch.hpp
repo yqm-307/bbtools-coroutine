@@ -8,7 +8,7 @@ class CountDownLatch:
     public boost::noncopyable
 {
 public:
-   	CountDownLatch(int cot);
+	CountDownLatch(int cot);
 	~CountDownLatch();
     void Wait();
 

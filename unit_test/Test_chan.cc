@@ -50,7 +50,7 @@ BOOST_AUTO_TEST_CASE(t_chan_1_vs_1)
     bbt::core::thread::CountDownLatch l{1};
     bbtco [&count, &l](){
         auto c = Chan<int, 65535>();
-        
+
         bbtco [&c](){
             for (int i = 0; i < 100; ++i)
                 BOOST_ASSERT(c->Write(i) == 0);
@@ -78,7 +78,7 @@ BOOST_AUTO_TEST_CASE(t_chan_1_vs_n)
     std::atomic_int count = 0;
     bbtco [&](){
         auto c = Chan<int, 65535>();
-        
+
         for (int i = 0; i < 1000; ++i)
         {
             bbtco [&c, i](){
@@ -92,7 +92,7 @@ BOOST_AUTO_TEST_CASE(t_chan_1_vs_n)
         for (int i = 0; i < 1000 * 100; ++i) {
             int val;
             BOOST_ASSERT(c->Read(val) == 0);
-            count++;                                                                                                                                                                                    
+            count++;
         }
 
         l.Down();
@@ -258,7 +258,7 @@ BOOST_AUTO_TEST_CASE(t_nocache_chan_1vn)
         int val;
         while (chan >> val) {
             ncount++;
-            if (ncount >= nwrite_co_num) 
+            if (ncount >= nwrite_co_num)
                 chan->Close();
         }
         l.Down();
@@ -269,12 +269,12 @@ BOOST_AUTO_TEST_CASE(t_nocache_chan_1vn)
     BOOST_ASSERT(ncount == nwrite_co_num);
 }
 
-BOOST_AUTO_TEST_CASE(t_close) 
+BOOST_AUTO_TEST_CASE(t_close)
 {
     BOOST_TEST_MESSAGE("enter t_close");
     std::atomic_bool flag{false};
     bbt::core::thread::CountDownLatch l{2};
-    
+
     auto chan = Chan<int, 65535>();
     bbtco [&flag, &chan, &l](){
         bbtco [&chan, &l](){
