@@ -24,9 +24,11 @@ namespace bbt::coroutine::detail
  * - work 引用的结果变量在调用方协程栈上，挂起期间保持有效；因此
  *   Scheduler::Stop 必须先 Stop 本池（join worker、唤醒全部排队 Job），
  *   再销毁 Processer——否则 work 写回/Notify 时调用方栈可能已析构。
- * - 懒启动：第一次 Enqueue 才创建线程；Stop 后不再允许重启（后续任务直接失败）。
+ * - 懒启动：第一次 Enqueue 才创建线程；Scheduler::Start 在下一代重置停止标记。
+ * - 排队数有上限；容量耗尽时拒绝入队而不丢弃已接纳任务。
  *
- * ponytail: 单 worker，QPS 不够再加池。无解析缓存、无超时（issue #231 本期不做）。
+ * ponytail: 单 worker，QPS 不够再加池。无解析缓存；有期限的调用须
+ * 捕获堆上结果并在超时/取消后负责清理晚到结果，禁止引用协程栈。
  */
 class DnsResolver
 {
@@ -41,10 +43,22 @@ public:
      *
      * @param work 真正的阻塞调用；结果由 work 写回调用方捕获的变量
      * @return int 0 表示 work 已执行（成败看调用方自己的错误码变量），
-     *             -1 表示未能入队（池已停止），work 不会执行
+     *             -1 表示未能入队（池已停止或队列已满），work 不会执行
      */
     int Await(const std::function<void()>& work);
+    /**
+     * @brief 同一 DNS worker 执行 work，按单调绝对期限/取消返回首胜原因。
+     * @note 超时/取消只终止调用方等待；已开始的 libc 工作无法强杀，
+     *       Stop 会 join。work 必须自行拥有跨等待的参数与结果寿命。
+     *       Completed 仅表示已唤醒：Stop 可能丢弃队列中的 work，调用方须预置失败结果。
+     *       队列满/池停止时返回 RuntimeUnavailable，work 不执行。
+     */
+    sync::CombinedWaitStatus AwaitBounded(
+        const std::function<void()>& work,
+        const sync::CombinedWaitOptions& options);
 
+    /** @brief 新一代 Scheduler 启动时重开入队；须与 Stop 串行。 */
+    void Start();
     /**
      * @brief 置停、唤醒 worker、join 线程；队列剩余 Job 不执行 work、只 Notify 唤醒
      *
@@ -53,6 +67,7 @@ public:
     void Stop();
 
 private:
+    static constexpr std::size_t kMaxPendingJobs = 256;
     struct Job
     {
         std::function<void()> work;

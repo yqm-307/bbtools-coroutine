@@ -254,6 +254,7 @@ void Scheduler::_Run()
 
 void Scheduler::Start(SchedulerStartOpt opt)
 {
+    DnsResolver::GetInstance()->Start();
     _InitGlobalUniqInstance();
     _Init();
     bbt::core::thread::CountDownLatch wg{1};

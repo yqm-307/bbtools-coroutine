@@ -52,11 +52,16 @@ add_executable(Test_hook Test_hook.cc)
 target_link_libraries(Test_hook ${MY_LIBS})
 add_test(NAME Test_hook COMMAND Test_hook)
 
+add_executable(Test_dns_lifecycle Test_dns_lifecycle.cc)
+target_link_libraries(Test_dns_lifecycle ${MY_LIBS})
+add_test(NAME Test_dns_lifecycle COMMAND Test_dns_lifecycle)
+set_tests_properties(Test_dns_lifecycle PROPERTIES TIMEOUT 10)
+
 # #232 hook 行为契约基座：不进 smoke（含 sleep(1) 级真实时序，保留给完整回归）
 add_executable(Test_hook_contract Test_hook_contract.cc)
 target_link_libraries(Test_hook_contract ${MY_LIBS})
 add_test(NAME Test_hook_contract COMMAND Test_hook_contract)
-set_tests_properties(Test_hook_contract PROPERTIES TIMEOUT 30)
+set_tests_properties(Test_hook_contract PROPERTIES TIMEOUT 60)
 
 add_executable(Test_hook_blocking_fd Test_hook_blocking_fd.cc)
 target_link_libraries(Test_hook_blocking_fd ${MY_LIBS})

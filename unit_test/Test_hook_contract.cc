@@ -10,11 +10,15 @@
 #include "hook_contract.hpp"
 
 #include <bbt/coroutine/coroutine.hpp>
+#include <bbt/coroutine/detail/DnsResolver.hpp>
 #include <bbt/core/thread/Lock.hpp>
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstring>
+#include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <sys/uio.h>
@@ -1009,38 +1013,55 @@ BOOST_AUTO_TEST_CASE(t_contract_gethostbyaddr)
     });
 }
 
-// Stop：DNS 协程在途时 Scheduler::Stop，3s 内返回、不挂死（#231）
-// 时序：drain 保证 worker 已启动且队列空 → 注册一个 .invalid 解析协程（worker 侧
-// 真实 DNS 失败路径约百 ms，制造可观测的在途窗口）→ 等它进入挂起 → Stop。
-// Scheduler::Stop 先 DnsResolver::Stop（join worker、唤醒全部 Job）再销毁
-// Processer，唤醒路径有人执行；DNS 池一次性停止，故本用例放在全部 DNS 用例之后。
+// Stop 必须等已经进入 worker 的 DNS 工作结束并完成 Notify，再销毁 Processer。
+// 用可控门栓替代外部 .invalid 查询，保证确实进入 in-flight，避免公网 DNS
+// 驻留时长决定测试成败；getaddrinfo Hook 的行为由上面的独立用例覆盖。
 BOOST_AUTO_TEST_CASE(t_contract_dns_stop_with_inflight)
 {
-    // drain：跑一次即时成功的数值解析，排空 worker 队列并确认池可用
-    RunInCo([&]() {
-        struct addrinfo* ai = nullptr;
-        BOOST_CHECK_EQUAL(::getaddrinfo("127.0.0.1", nullptr, nullptr, &ai), 0);
-        if (ai != nullptr)
-            ::freeaddrinfo(ai);
-    });
-
-    std::atomic_bool co_started{false};
-    bbtco [&]() {
-        co_started = true;
-        struct addrinfo* ai = nullptr;
-        (void)::getaddrinfo("stop-inflight-231.invalid", nullptr, nullptr, &ai);
-        if (ai != nullptr)
-            ::freeaddrinfo(ai);
+    struct Gate {
+        std::mutex mutex;
+        std::condition_variable cv;
+        bool entered{false};
+        bool release{false};
     };
-    while (!co_started.load())
-        std::this_thread::yield();
-    // 协程已启动；Enqueue 发生在其首个时间片内，20ms 足够它挂起且 Job 入队/在途
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
-
+    auto gate = std::make_shared<Gate>();
+    bbtco [gate]() {
+        bbt::coroutine::detail::DnsResolver::GetInstance()->Await([gate]() {
+            std::unique_lock<std::mutex> lock(gate->mutex);
+            gate->entered = true;
+            gate->cv.notify_all();
+            gate->cv.wait(lock, [&]() { return gate->release; });
+        });
+    };
+    bool entered = false;
+    {
+        std::unique_lock<std::mutex> lock(gate->mutex);
+        entered = gate->cv.wait_for(lock, std::chrono::seconds{2},
+                                    [&]() { return gate->entered; });
+    }
+    if (!entered) {
+        g_scheduler->Stop();
+        g_scheduler->Start();
+        BOOST_FAIL("DNS worker did not enter in-flight work");
+        return;
+    }
+    std::thread releaser([gate]() {
+        std::this_thread::sleep_for(std::chrono::milliseconds{20});
+        {
+            std::lock_guard<std::mutex> lock(gate->mutex);
+            gate->release = true;
+        }
+        gate->cv.notify_all();
+    });
     auto begin = std::chrono::steady_clock::now();
     g_scheduler->Stop();
-    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+    const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - begin).count();
+    {
+        std::lock_guard<std::mutex> lock(gate->mutex);
+        BOOST_CHECK(gate->release); // Stop 不得在 worker 完成前返回
+    }
+    releaser.join();
     BOOST_TEST(elapsed_ms < 3000);
     g_scheduler->Start();
 }

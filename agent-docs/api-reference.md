@@ -37,7 +37,7 @@
 
 - 头文件：`Scheduler.hpp`
 - 签名：`void Start(SchedulerStartOpt opt = SCHE_START_OPT_SCHE_THREAD);`
-- 前置：进程内只启动一次；`THREAD` 模式 assert `m_sche_thread == nullptr`。
+- 前置：运行期间不得重复启动；`THREAD` 模式 assert `m_sche_thread == nullptr`。`Stop` 完成后可再次 `Start`，DNS worker 的停止状态随新一代调度器重置。
 - 选项（`Define.hpp`）：
 
 | 值 | 行为 |
