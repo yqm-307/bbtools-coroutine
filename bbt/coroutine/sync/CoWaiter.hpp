@@ -121,6 +121,9 @@ public:
      *  等待位，本等待期间外部 Notify() 照常生效。
      */
     CombinedWaitStatus                  Wait(const CombinedWaitOptions& options);
+    CombinedWaitStatus                  Wait(
+        const CombinedWaitOptions& options,
+        const detail::CoroutineOnYieldCallback& on_registered);
 
     /**
      * @brief 唤醒一个因为调用Wait、WaitWithTimeout而挂起的协程

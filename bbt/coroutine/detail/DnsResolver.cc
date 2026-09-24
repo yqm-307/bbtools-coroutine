@@ -14,7 +14,7 @@ bool DnsResolver::Enqueue(Job job)
 {
     {
         std::lock_guard<std::mutex> lock(m_mutex);
-        if (m_stopping)
+        if (m_stopping || m_queue.size() >= kMaxPendingJobs)
             return false;
         m_queue.push(std::move(job));
         if (!m_thread) {
@@ -55,6 +55,13 @@ void DnsResolver::_Worker()
     }
 }
 
+void DnsResolver::Start()
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (!m_thread)
+        m_stopping = false;
+}
+
 int DnsResolver::Await(const std::function<void()>& work)
 {
     AssertWithInfo(g_bbt_tls_helper->EnableUseCo(), "DnsResolver::Await must be in coroutine!");
@@ -76,6 +83,28 @@ int DnsResolver::Await(const std::function<void()>& work)
     });
 
     return enqueued ? 0 : -1;
+}
+
+sync::CombinedWaitStatus DnsResolver::AwaitBounded(
+    const std::function<void()>& work,
+    const sync::CombinedWaitOptions& options)
+{
+    AssertWithInfo(g_bbt_tls_helper->EnableUseCo(),
+                   "DnsResolver::AwaitBounded must be in coroutine!");
+    auto waiter = sync::CoWaiter::Create();
+    bool enqueued = false;
+    bool enqueue_attempted = false;
+    const auto status = waiter->Wait(options, [this, waiter, work,
+                                               &enqueue_attempted, &enqueued]() {
+        enqueue_attempted = true;
+        enqueued = Enqueue(Job{work, waiter});
+        if (!enqueued)
+            waiter->Notify();
+        return true;
+    });
+    if (enqueue_attempted && !enqueued)
+        return sync::CombinedWaitStatus::RuntimeUnavailable;
+    return status;
 }
 
 void DnsResolver::Stop()

@@ -300,6 +300,13 @@ WaitStatus CoWaiter::Wait(const WaitOptions& options)
 
 CombinedWaitStatus CoWaiter::Wait(const CombinedWaitOptions& options)
 {
+    return Wait(options, {});
+}
+
+CombinedWaitStatus CoWaiter::Wait(
+    const CombinedWaitOptions& options,
+    const detail::CoroutineOnYieldCallback& on_registered)
+{
     /* 环境检查先于一切（对齐窄接口）：非协程上下文一律拒绝 */
     if (!g_bbt_tls_helper->EnableUseCo())
         return CombinedWaitStatus::InvalidContext;
@@ -373,8 +380,12 @@ CombinedWaitStatus CoWaiter::Wait(const CombinedWaitOptions& options)
         g_bbt_poller->NotifyCancelEvent(wait_event);
     });
 
-    const int yield_ret = coroutine->YieldWithCallback([coroutine]() {
-        return coroutine->_RegistAwaitEvent();
+    const int yield_ret = coroutine->YieldWithCallback([coroutine, on_registered]() {
+        if (!coroutine->_RegistAwaitEvent())
+            return false;
+        if (on_registered)
+            on_registered();
+        return true;
     });
 
     options.cancel._UnregisterCancelCallback(cb_id);
