@@ -11,6 +11,7 @@
 ## 职责与跨仓边界（#346）
 
 - 本仓负责协程运行时、并发原语、等待/唤醒/取消竞争及运行时自身对象安全；Linux Hook 为平台专属能力，不承诺 Windows/iOS 等价。
+- 分布式服务端框架的跨仓架构基调真源位于 `bbt-framework/docs/architecture/distributed-framework-baseline.md`；本地并列检出时对应 `../bbt-framework/bbt-framework/docs/architecture/distributed-framework-baseline.md`。本仓只负责 coroutine 层的调度、等待/唤醒、取消竞争和对象寿命，不承载 framework 的 Service、路由、重试、发现、owner/fencing 或业务事务语义。
 - 本仓不内置 TCP/UDP/HTTP API 或第三方网络驱动，不承载业务逻辑和跨机器锁，不托管业务缓冲；不为减少依赖重造复杂协议或安全组件。
 - 新第三方协议/客户端能力统一由 bbtools-infra 接入（首批 HTTP、RPC、MCP）；infra 侧 adapter 负责网络操作与业务资源寿命，本仓不反向依赖 infra。
 - 取消等待或 `Scheduler::Stop()` 不等于第三方 I/O 已完成；挂起协程 Stop 直接销毁、不做栈展开的语义不变，以核心运行时契约为准。
