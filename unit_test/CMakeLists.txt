@@ -246,6 +246,12 @@ target_link_libraries(Test_combined_wait ${MY_LIBS})
 add_test(NAME Test_combined_wait COMMAND Test_combined_wait)
 set_tests_properties(Test_combined_wait PROPERTIES TIMEOUT 30)
 
+# #369：旧超时族接口登记失败回归（固定失败注入 _TestFailNextAwaitRegist）
+add_executable(Test_cowaiter_regist_fail Test_cowaiter_regist_fail.cc)
+target_link_libraries(Test_cowaiter_regist_fail ${MY_LIBS})
+add_test(NAME Test_cowaiter_regist_fail COMMAND Test_cowaiter_regist_fail)
+set_tests_properties(Test_cowaiter_regist_fail PROPERTIES TIMEOUT 30)
+
 # Smoke 候选：CI 快速回归集，统一 60s 超时防止无进展挂死。
 # Test_reliability 不进 Smoke，保留给完整回归与独立 Reliability Job。
 set_tests_properties(
