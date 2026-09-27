@@ -92,6 +92,12 @@ target_link_libraries(Test_hook_error_matrix ${MY_LIBS})
 add_test(NAME Test_hook_error_matrix COMMAND Test_hook_error_matrix)
 set_tests_properties(Test_hook_error_matrix PROPERTIES TIMEOUT 20)
 
+# #370 FD epoch 线性化回归：close+reuse 的三类判别性用例
+add_executable(Test_hook_fd_epoch Test_hook_fd_epoch.cc)
+target_link_libraries(Test_hook_fd_epoch ${MY_LIBS})
+add_test(NAME Test_hook_fd_epoch COMMAND Test_hook_fd_epoch)
+set_tests_properties(Test_hook_fd_epoch PROPERTIES TIMEOUT 20)
+
 add_executable(Test_scheduler_stop Test_scheduler_stop.cc)
 target_link_libraries(Test_scheduler_stop ${MY_LIBS})
 add_test(NAME Test_scheduler_stop COMMAND Test_scheduler_stop)

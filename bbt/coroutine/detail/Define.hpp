@@ -261,6 +261,11 @@ enum PollEventType
      * 尚未定义的 EV_ET 0x20），取高位与之彻底错开，不必依赖「某些位绝不会到达
      * 触发掩码」这类边界不变量。 */
     POLL_EVENT_CANCELLED    = 1 << 8,
+    /* #370：本次唤醒原因是 fd 被 Hook_Close 摘除（close+代际推进的
+     * 线性化点内完成）。与 CANCELLED 同取高位区，与 core EventOpt
+     * 0x01~0x80 错开；恢复方据此把挂起等待映射为 EBADF，禁止在
+     * close 后已复用的同号新对象上重试 syscall。 */
+    POLL_EVENT_CLOSED       = 1 << 9,
 };
 
 /**

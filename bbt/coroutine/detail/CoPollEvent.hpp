@@ -41,6 +41,10 @@ public:
     CoPollEventId                   GetId() const;
     int                             GetFd() const;
     int64_t                         GetTimeout() const;
+    /* 登记时采样的 fd 代际（#370）；非 fd 事件时为 0。
+     * 该值在 InitFdEvent 建立等待时采样（establish-epoch），_TrackWaiter
+     * 与恢复路径都以它作为「本次等待所针对的 fd 代际」基线。 */
+    uint64_t                        GetWaitEpoch() const noexcept { return m_wait_epoch; }
 
     /* 初始化后调用Regist注册事件 */
     int                             InitFdEvent(int fd, short events, int timeout);
@@ -53,13 +57,57 @@ public:
     bool                            CommitPark();
 
     /**
-     * @brief 唤醒正在等待 fd 的全部协程事件（#262）
+     * @brief fd 当前代际（#370 epoch 校验）
+     *
+     * 每次 BeginFdClose 推进 +1；waiter 在登记时锁内采样
+     * m_wait_epoch，恢复后与当前值比对即可识别 close+reuse。
+     * fd 无记录时返回 0（等价于初始代际）。
+     */
+    static uint64_t                 FdEpoch(int fd);
+    /* 测试探针：fd 上当前登记的活跃 waiter 数（锁内统计未过期项）；
+     * 无槽位返回 0。仅用于测试同步，不参与协议判定。 */
+    static size_t                   FdWaiterCount(int fd);
+
+    /**
+     * @brief close 线性化协议（#370）：close 前调用，锁内 claim+代际推进+摘 waiter
      *
      * WHY: Linux 下 close(fd) 会把 epoll 关注项静默移除，不产生任何事件，
-     * 等待该 fd 的协程将永久挂起。Hook_Close 在真正 close 前调用本函数，
-     * 让被唤醒的协程重试 syscall 拿到 EBADF，按原生语义返回 -1/EBADF。
+     * 等待该 fd 的协程将永久挂起（#262）。本函数必须在底层 close(fd) 之前
+     * 调用：同一临界区内完成代际推进 + closing 置位 + 摘走全部旧 waiter，
+     * 保证 close/代际/waiter 摘除在同一线性化点内完成。此后登记的同号 fd
+     * waiter 记新一代际、不被本批唤醒误伤。旧 waiter 统一
+     * Trigger(POLL_EVENT_CLOSED)；正常事件已就绪但尚未恢复的协程不在本
+     * 表内，由恢复后 epoch 比对兜底。
+     *
+     * 返回 true 表示本调用方获得 close 权（须继续执行底层 close 并随后
+     * 调用 EndFdClose）；false 表示该 fd 已被其它线程 claim——此时不得
+     * 再对同一数字 fd 发起底层 close（claim 方完成后 fd 号可能已被复用，
+     * 第二次 close 会误关新对象），调用方应经 WaitFdCloseReady 等待
+     * claim 方收尾后返回 EBADF。
+     *
+     * 期间到达的同号 fd waiter 会观察到 closing/新 epoch，不被本批误摘。
      */
-    static void                     WakeupFdWaiters(int fd);
+    static bool                     BeginFdClose(int fd);
+    /**
+     * @brief BeginFdClose 的收尾：底层 close 已返回后调用，解除 closing 标记。
+     * 必须在同一线程、紧接底层 close 之后调用，无论成功或失败。
+     */
+    static void                     EndFdClose(int fd);
+    /**
+     * @brief 非 claim 方的有界等待（#370 close 所有权协议）
+     *
+     * 仅当该 fd 正被其它线程 claim closing 时，以 1ms 粒度自旋等待其
+     * EndFdClose（底层 close 已返回），最多 timeout_ms 毫秒，返回 true。
+     * 无槽位或未在 closing 立即返回 true；等待超时返回 false。
+     *
+     * WHY 自旋而非 condition_variable：close 临界区仅含一个 syscall，窗口
+     * 为微秒级；本函数只服务于「同一 fd 号并发重复 close」的罕见竞态路径，
+     * 不值得为登记表引入 cv 依赖与唤醒开销。
+     */
+    static bool                     WaitFdCloseReady(int fd, int timeout_ms);
+    /* 测试探针：fd 槽位当前是否处于 closing（claim 方底层 close 未返回）。
+     * 仅用于测试同步，不参与协议判定。 */
+    static bool                     FdIsClosing(int fd);
 
 protected:
     int                             _RegistFdEvent();
@@ -80,11 +128,31 @@ private:
     CoPollEventCallback             m_onevent_callback{nullptr};
     std::atomic<uint64_t>           m_state{PackCoPollEventState(CoPollEventPhase::INITED)};
 
-    /* fd → 活跃等待事件注册表（WakeupFdWaiters 用，#262） */
+    /* fd → 活跃等待事件注册表 + fd 代际（#262、#370）
+     * FdSlot::closing：BeginFdClose 已摘表、底层 close 尚未返回期间的标记；
+     * 此窗口内到达的同号 waiter 不登记，由 Regist 尾部以 POLL_EVENT_CLOSED 自触。
+     * FdSlot::epoch：建立等待（InitFdEvent）时锁内采样为 m_wait_epoch 基线；
+     * 只要 BeginFdClose 推进过（无论 close 是否已返回），登记即拒绝。
+     * 槽位持久性：epoch>0 的槽位永不擦除——FdEpoch 对缺席槽位返回 0，
+     * 会把它与「从未 close 过」的首代 fd 别名，丢失 epoch 校验能力
+     * （#370 round-2 复审发现）。仅 epoch==0 且无 waiter 才摘除。 */
+    struct FdSlot
+    {
+        uint64_t                                epoch{0};
+        bool                                    closing{false};
+        std::vector<std::weak_ptr<CoPollEvent>> waiters;
+    };
     static std::mutex                                       s_waiters_mtx;
-    static std::unordered_map<int, std::vector<std::weak_ptr<CoPollEvent>>> s_waiters;
-    void                            _TrackWaiter();
+    static std::unordered_map<int, FdSlot>                  s_slots;
+    /* _TrackWaiter 返回 false 表示登记时 fd 已 closing，或建立等待
+     * （InitFdEvent）至今 epoch 已推进——说明底层 asio wait 绑定的 fd 对象
+     * 已死亡/换代，不可等待（由 Regist 以 POLL_EVENT_CLOSED 自触）。 */
+    bool                            _TrackWaiter();
     void                            _UntrackWaiter();
+    /* 建立等待时（InitFdEvent）锁内采样的 fd 代际基线（establish-epoch）；
+     * _TrackWaiter 据此判定建立窗口内是否发生过 close，恢复路径据此与
+     * FdEpoch 比对识别挂起期间的 close+reuse。 */
+    uint64_t                        m_wait_epoch{0};
 };
 
 }
