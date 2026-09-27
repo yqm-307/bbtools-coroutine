@@ -17,6 +17,7 @@
 #include <netinet/in.h>
 #include <netdb.h>
 #include <errno.h>
+#include <atomic>
 
 /**
  * 当协程中执行会阻塞的接口时，不能真的阻塞当前线程。
@@ -77,6 +78,11 @@ static auto g_bbt_sys_hook_readv_func       = (g_bbt_sys_hook_readv_fn_t)dlsym(R
 static auto g_bbt_sys_hook_writev_func      = (g_bbt_sys_hook_writev_fn_t)dlsym(RTLD_NEXT, "writev");
 // 部分平台/静态链接场景 dlsym 可能取不到 accept4，Hook_Accept4 里做降级处理
 static auto g_bbt_sys_hook_accept4_func     = (g_bbt_sys_hook_accept4_fn_t)dlsym(RTLD_NEXT, "accept4");
+
+/* #370 round-3：测试 seam——claim 方在 BeginFdClose 之后、底层 close 之前
+ * 睡眠的毫秒数；置 >0 使另一线程能确定性观察到 closing 并发起并发
+ * close（BeginFdClose=false 路径）。生产恒为 0，仅测试写。 */
+inline std::atomic<int> g_bbt_fd_close_stall_for_test_ms{0};
 static auto g_bbt_sys_hook_usleep_func          = (g_bbt_sys_hook_usleep_fn_t)dlsym(RTLD_NEXT, "usleep");
 static auto g_bbt_sys_hook_nanosleep_func       = (g_bbt_sys_hook_nanosleep_fn_t)dlsym(RTLD_NEXT, "nanosleep");
 static auto g_bbt_sys_hook_clock_nanosleep_func = (g_bbt_sys_hook_clock_nanosleep_fn_t)dlsym(RTLD_NEXT, "clock_nanosleep");

@@ -27,6 +27,9 @@ public:
     /* 自定义事件触发 */
     int                         Trigger(int flag);
 
+    /* 测试探针：callback_map 当前条目数（构造失败回滚验证用，不参与协议）。 */
+    static size_t               CallbackEntryCount();
+
 private:
     EventId                     GenerateId();
 
@@ -41,6 +44,10 @@ private:
     EventId                     m_id{0};
     detail::EventBase*          m_ref_base{nullptr};
     evutil_socket_t             m_fd{-1};
+    /* #370：fd 事件实际交给 asio 的内部 dup fd（构造函数 ::dup(m_fd)），
+     * 与用户 fd 号生命周期解耦；析构/取消时由本对象负责 ::close 回收。
+     * 非 fd 事件为 -1。 */
+    evutil_socket_t             m_internal_fd{-1};
     short                       m_listen_events{0};
     int64_t                     m_timeout{-1};
 

@@ -39,6 +39,15 @@ int ApplyAccept4Flags(int fd, int flags)
     return 0;
 }
 
+/* 与 CoPollEvent.cc 同义：绕过 userspace hook 的毫秒睡眠（#284/#370）。 */
+void RawSleepMs(long ms) noexcept
+{
+    struct timespec req{ms / 1000, (ms % 1000) * 1000000L};
+    while (::syscall(SYS_nanosleep, &req, &req) != 0 && errno == EINTR)
+    {
+    }
+}
+
 /**
  * @brief epoll fd 的 RAII 守卫（#230）
  *
@@ -83,6 +92,8 @@ class ErrnoGuard
 public:
     explicit ErrnoGuard(int sys_errno): m_sys_errno(sys_errno) {}
     ~ErrnoGuard() { errno = m_sys_errno; }
+    /* #370：fd 代际失配等特殊退出路径用别的 errno 覆盖原始 syscall errno */
+    void Override(int e) noexcept { m_sys_errno = e; }
 private:
     int m_sys_errno;
 };
@@ -121,6 +132,9 @@ public:
     CoIoNonblockGuard(const CoIoNonblockGuard&) = delete;
     CoIoNonblockGuard& operator=(const CoIoNonblockGuard&) = delete;
     bool ok() const { return m_ok; }
+    /* #370：fd 已在挂起期间换代（可能复用为新对象）时调用，禁止把旧 fd 的
+     * flags 回写到同号新对象上。 */
+    void Dismiss() noexcept { m_restore = false; }
 private:
     int  m_fd{-1};
     int  m_old{0};
@@ -162,23 +176,38 @@ struct IoTimeout
 };
 
 /**
- * @brief 挂起协程等待 fd 就绪（#261）
+ * @brief 挂起协程等待 fd 就绪（#261），恢复后做 fd 代际校验（#370）
  *
  * iot 有超时则用剩余时间做有界挂起，定时器到期即醒；调用方重试 syscall，下一轮
  * 仍 EAGAIN 且 remain==0 时返回 -1，errno 由循环里 ErrnoGuard 保持为 EAGAIN，
- * 对齐 POSIX「超时到期返回 -1/EAGAIN」语义。返回 0=已唤醒（数据就绪或定时器）。
+ * 对齐 POSIX「超时到期返回 -1/EAGAIN」语义。
+ *
+ * 返回值（复用 YieldUntilFd* 的三值约定，0/-1 语义保持不变）：
+ *   0  —— 已唤醒且 fd 代际未变（可安全重试 syscall）
+ *   1  —— 协程取消（IsCancelRequested），与既有 Yield* 语义一致；
+ *   2  —— fd 在挂起期间被 close/换代（POLL_EVENT_CLOSED 唤醒，或恢复时
+ *         代际与登记时不一致）。fd 数字可能已复用为新对象，禁止重试 syscall；
+ *         调用方须将 errno 置 EBADF 返回 -1，并 Dismiss 所有按 fd 恢复的守卫。
+ *  -1  —— 等待建立失败或剩余超时耗尽（语义与既有路径一致）。
  */
 static int CoWaitFdReady(Coroutine* co, int fd, bool writable, const IoTimeout& iot)
 {
+    int yret;
     if (iot.m_ms <= 0)
-        return writable ? co->YieldUntilFdWriteable(fd) : co->YieldUntilFdReadable(fd);
-
-    const int remain = iot.remain_ms();
-    if (remain <= 0)
-        return -1;
-
-    return writable ? co->YieldUntilFdWriteable(fd, remain)
-                    : co->YieldUntilFdReadable(fd, remain);
+        yret = writable ? co->YieldUntilFdWriteable(fd) : co->YieldUntilFdReadable(fd);
+    else {
+        const int remain = iot.remain_ms();
+        if (remain <= 0)
+            return -1;
+        yret = writable ? co->YieldUntilFdWriteable(fd, remain)
+                        : co->YieldUntilFdReadable(fd, remain);
+    }
+    if (yret != 0)
+        return yret;
+    /* #370：恢复后、重试 syscall 前的代际校验。正常 READABLE/WRITEABLE 唤醒
+     * 已把 waiter 摘出注册表，close 不再能找到它——只有 epoch 比对能覆盖
+     * 「事件就绪 → 协程恢复」调度间隙内的 close+reuse。 */
+    return co->FdWaitEpochValid(fd) ? 0 : 2;
 }
 
 /**
@@ -256,9 +285,17 @@ int Hook_Connect(int socket, const struct sockaddr *address, socklen_t address_l
         ErrnoGuard guard{sys_errno};
 
         try {
-            if (g_bbt_tls_coroutine_co->YieldUntilFdWriteable(socket) != 0) {
+            const int wret = g_bbt_tls_coroutine_co->YieldUntilFdWriteable(socket);
+            if (wret != 0) {
                 // 协程层失败：重置 socket 状态，使其回到未连接、可重试
                 ResetConnectState(socket);
+                return -1;
+            }
+            /* #370：writeable 唤醒后 socket 可能已 close+reuse；代际校验失败时
+             * 不重试 connect（旧 connect 可能把 SYN 发给新对象），也不回写 flags。 */
+            if (!g_bbt_tls_coroutine_co->FdWaitEpochValid(socket)) {
+                guard.Override(EBADF);
+                io.Dismiss();
                 return -1;
             }
         } catch (...) {
@@ -273,12 +310,28 @@ int Hook_Connect(int socket, const struct sockaddr *address, socklen_t address_l
 
 int Hook_Close(int fd)
 {
-    int ret = g_bbt_sys_hook_close_func(fd);
-    /* Linux 下 close 会把 epoll 关注项静默移除，等待该 fd 的协程收不到任何
-     * 事件将永久挂起；close 成功后显式唤醒，被唤醒方重试 syscall 得 EBADF，
-     * 按原生语义返回 -1/EBADF（#262）。close 失败（fd 无效）无需唤醒。 */
-    if (ret == 0)
-        CoPollEvent::WakeupFdWaiters(fd);
+    /* #370 线性化：先在锁内推进 fd 代际、置 closing 并摘走全部旧 waiter，
+     * 再执行底层 close——保证代际更新先于 fd 数字可被复用。期间到达的同号
+     * waiter 观察到 closing/新 epoch，不会被本批误摘。close 失败时
+     * BeginFdClose 已推进代际（保守视为换代），EndFdClose 解除 closing。 */
+    if (!CoPollEvent::BeginFdClose(fd)) {
+        /* #370 round-3：BeginFdClose=false 表示同号 fd 正被其它线程 claim
+         * closing。此时严禁再对 fd 数字发起底层 close——claim 方的 close
+         * 返回后该数字随时可被复用，第二次 close 会误关新对象。协议定义：
+         * 非 claim 方有界等待其 EndFdClose（close 已返回、所有权终结），
+         * 以 EBADF 收敛（等价于 glibc 对「曾被关闭的 fd」的原生语义）；
+         * 3000ms 仅为理论兜底，claim 方临界区仅一个 syscall。 */
+        CoPollEvent::WaitFdCloseReady(fd, 3000);
+        errno = EBADF;
+        return -1;
+    }
+    /* 测试 seam：构造并发 double-close 的确定性窗口时置位（ms>0），
+     * claim 方在锁外、底层 close 前睡眠，保证另一线程能观察到 closing
+     * 并发起 BeginFdClose=false 的并发 close。测试外恒为 0。 */
+    if (const int stall = g_bbt_fd_close_stall_for_test_ms.load(std::memory_order_acquire); stall > 0)
+        RawSleepMs(stall);
+    const int ret = g_bbt_sys_hook_close_func(fd);
+    CoPollEvent::EndFdClose(fd);
     return ret;
 }
 
@@ -311,9 +364,16 @@ ssize_t Hook_Read(int fd, void *buf, size_t nbytes)
         ErrnoGuard guard{sys_errno};
 
         try {
-            /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读或超时到期 */
-            if (CoWaitFdReady(g_bbt_tls_coroutine_co, fd, false, iot) != 0)
+            const int wret = CoWaitFdReady(g_bbt_tls_coroutine_co, fd, false, iot);
+            if (wret != 0) {
+                /* #370：fd 换代（close+reuse）则禁止重试 syscall；守卫不恢复 flags/偏移 */
+                if (wret == 2) {
+                    guard.Override(EBADF);
+                    io.Dismiss();
+                    offset_guard.Dismiss();
+                }
                 return -1;
+            }
         } catch (...) {
             throw;
         }
@@ -344,8 +404,15 @@ ssize_t Hook_Write(int fd, const void *buf, size_t n)
 
         try {
             /* 对当前协程注册fd可写事件，挂起当前协程直到fd可写或超时到期 */
-            if (CoWaitFdReady(g_bbt_tls_coroutine_co, fd, true, iot) != 0)
+            const int wret = CoWaitFdReady(g_bbt_tls_coroutine_co, fd, true, iot);
+            if (wret != 0) {
+                if (wret == 2) {
+                    guard.Override(EBADF);
+                    io.Dismiss();
+                    offset_guard.Dismiss();
+                }
                 return -1;
+            }
         } catch (...) {
             throw;
         }
@@ -375,8 +442,14 @@ int Hook_Accept(int fd, struct sockaddr *addr, socklen_t *len)
 
         try {
             /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读或超时到期 */
-            if (CoWaitFdReady(g_bbt_tls_coroutine_co, fd, false, iot) != 0)
+            const int wret = CoWaitFdReady(g_bbt_tls_coroutine_co, fd, false, iot);
+            if (wret != 0) {
+                if (wret == 2) {
+                    guard.Override(EBADF);
+                    io.Dismiss();
+                }
                 return -1;
+            }
         } catch (...) {
             throw;
         }
@@ -412,8 +485,14 @@ ssize_t Hook_Send(int fd, const void *buf, size_t n, int flags)
 
         try {
             /* 对当前协程注册fd可写事件，挂起当前协程直到fd可写或 SO_SNDTIMEO 到期 */
-            if (CoWaitFdReady(g_bbt_tls_coroutine_co, fd, true, iot) != 0)
+            const int wret = CoWaitFdReady(g_bbt_tls_coroutine_co, fd, true, iot);
+            if (wret != 0) {
+                if (wret == 2) {
+                    guard.Override(EBADF);
+                    io.Dismiss();
+                }
                 return -1;
+            }
         } catch (...) {
             throw;
         }
@@ -444,8 +523,14 @@ ssize_t Hook_Recv(int fd, void *buf, size_t n, int flags)
 
         try {
             /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读或 SO_RCVTIMEO 到期 */
-            if (CoWaitFdReady(g_bbt_tls_coroutine_co, fd, false, iot) != 0)
+            const int wret = CoWaitFdReady(g_bbt_tls_coroutine_co, fd, false, iot);
+            if (wret != 0) {
+                if (wret == 2) {
+                    guard.Override(EBADF);
+                    io.Dismiss();
+                }
                 return -1;
+            }
         } catch (...) {
             throw;
         }
@@ -475,8 +560,14 @@ ssize_t Hook_SendTo(int fd, const void *buf, size_t len, int flags, const struct
 
         try {
             /* 挂起直到fd可写或 SO_SNDTIMEO 到期（#261） */
-            if (CoWaitFdReady(g_bbt_tls_coroutine_co, fd, true, iot) != 0)
+            const int wret = CoWaitFdReady(g_bbt_tls_coroutine_co, fd, true, iot);
+            if (wret != 0) {
+                if (wret == 2) {
+                    guard.Override(EBADF);
+                    io.Dismiss();
+                }
                 return -1;
+            }
         } catch (...) {
             throw;
         }
@@ -506,8 +597,14 @@ ssize_t Hook_RecvFrom(int fd, void *buf, size_t len, int flags, struct sockaddr*
 
         try {
             /* 挂起直到fd可读或 SO_RCVTIMEO 到期（#261） */
-            if (CoWaitFdReady(g_bbt_tls_coroutine_co, fd, false, iot) != 0)
+            const int wret = CoWaitFdReady(g_bbt_tls_coroutine_co, fd, false, iot);
+            if (wret != 0) {
+                if (wret == 2) {
+                    guard.Override(EBADF);
+                    io.Dismiss();
+                }
                 return -1;
+            }
         } catch (...) {
             throw;
         }
@@ -537,8 +634,14 @@ ssize_t Hook_RecvMsg(int fd, struct msghdr *msg, int flags)
 
         try {
             /* 挂起直到fd可读或 SO_RCVTIMEO 到期（#261） */
-            if (CoWaitFdReady(g_bbt_tls_coroutine_co, fd, false, iot) != 0)
+            const int wret = CoWaitFdReady(g_bbt_tls_coroutine_co, fd, false, iot);
+            if (wret != 0) {
+                if (wret == 2) {
+                    guard.Override(EBADF);
+                    io.Dismiss();
+                }
                 return -1;
+            }
         } catch (...) {
             throw;
         }
@@ -568,8 +671,14 @@ ssize_t Hook_SendMsg(int fd, const struct msghdr *msg, int flags)
 
         try {
             /* 挂起直到fd可写或 SO_SNDTIMEO 到期（#261） */
-            if (CoWaitFdReady(g_bbt_tls_coroutine_co, fd, true, iot) != 0)
+            const int wret = CoWaitFdReady(g_bbt_tls_coroutine_co, fd, true, iot);
+            if (wret != 0) {
+                if (wret == 2) {
+                    guard.Override(EBADF);
+                    io.Dismiss();
+                }
                 return -1;
+            }
         } catch (...) {
             throw;
         }
@@ -598,8 +707,15 @@ ssize_t Hook_Readv(int fd, const struct iovec *iov, int iovcnt)
 
         try {
             /* 挂起直到fd可读或超时到期（#261） */
-            if (CoWaitFdReady(g_bbt_tls_coroutine_co, fd, false, iot) != 0)
+            const int wret = CoWaitFdReady(g_bbt_tls_coroutine_co, fd, false, iot);
+            if (wret != 0) {
+                if (wret == 2) {
+                    guard.Override(EBADF);
+                    io.Dismiss();
+                    offset_guard.Dismiss();
+                }
                 return -1;
+            }
         } catch (...) {
             throw;
         }
@@ -628,8 +744,15 @@ ssize_t Hook_Writev(int fd, const struct iovec *iov, int iovcnt)
 
         try {
             /* 挂起直到fd可写或超时到期（#261） */
-            if (CoWaitFdReady(g_bbt_tls_coroutine_co, fd, true, iot) != 0)
+            const int wret = CoWaitFdReady(g_bbt_tls_coroutine_co, fd, true, iot);
+            if (wret != 0) {
+                if (wret == 2) {
+                    guard.Override(EBADF);
+                    io.Dismiss();
+                    offset_guard.Dismiss();
+                }
                 return -1;
+            }
         } catch (...) {
             throw;
         }
@@ -664,8 +787,14 @@ int Hook_Accept4(int fd, struct sockaddr *addr, socklen_t *len, int flags)
 
             try {
                 /* 挂起直到fd可读或超时到期（#261） */
-                if (CoWaitFdReady(g_bbt_tls_coroutine_co, fd, false, iot) != 0)
+                const int wret = CoWaitFdReady(g_bbt_tls_coroutine_co, fd, false, iot);
+                if (wret != 0) {
+                    if (wret == 2) {
+                        guard.Override(EBADF);
+                        io.Dismiss();
+                    }
                     return -1;
+                }
             } catch (...) {
                 throw;
             }

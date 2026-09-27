@@ -487,6 +487,12 @@ void Coroutine::OnCoPollEvent(int event, int custom_key)
     Assert(ev != nullptr);
 
     m_last_resume_event = event;
+    /* #370：await_event 即将被消费清空，先把本次等待的 fd 与登记时采样的
+     * 代际捕获下来——恢复后的 syscall 重试边界据此识别 close+reuse，
+     * 覆盖「正常事件已就绪但尚未恢复」的调度间隙（此时 waiter 已被摘除，
+     * 仅 epoch 仍能证明 fd 是否已换代）。 */
+    m_last_wait_fd = ev->GetFd();
+    m_last_wait_epoch = ev->GetWaitEpoch();
     m_parked_us = 0;  // 唤醒即清等待现场（#276）
 
     // 先取消事件，然后push到全局队列中
@@ -511,6 +517,19 @@ void Coroutine::OnCoPollEvent(int event, int custom_key)
 int Coroutine::GetLastResumeEvent() const noexcept
 {
     return m_last_resume_event;
+}
+
+bool Coroutine::FdWaitEpochValid(int fd) const noexcept
+{
+    /* #370：本次等待以 POLL_EVENT_CLOSED 结束，或 fd 代际在挂起期间被
+     * BeginFdClose 推进，都说明 fd 数字可能已复用为新对象——重试 syscall
+     * 会作用在错误对象上。等不到的 fd 事件（m_last_wait_fd<0 或 fd 不
+     * 匹配）视为无代际信息，放行由原生 EBADF 兜底。 */
+    if (m_last_resume_event & POLL_EVENT_CLOSED)
+        return false;
+    if (m_last_wait_fd < 0 || m_last_wait_fd != fd)
+        return true;
+    return CoPollEvent::FdEpoch(fd) == m_last_wait_epoch;
 }
 
 size_t Coroutine::GetStackSize() const noexcept

@@ -112,6 +112,16 @@ public:
     size_t                          GetStackSize() const noexcept;
 
     /**
+     * @brief #370：本次事件等待恢复后校验 fd 代际是否仍与登记时一致。
+     *
+     * 返回 true 表示安全可重试 syscall；false 表示 fd 在挂起期间被
+     * close（epoch 已推进或事件以 POLL_EVENT_CLOSED 唤醒）——
+     * 不得对 fd 数字再发起 syscall（可能已复用为新对象）。
+     * 仅协程自身线程调用。
+     */
+    bool                            FdWaitEpochValid(int fd) const noexcept;
+
+    /**
      * @brief 诊断现场（#276，契约 §5 观测性）
      *
      * GetDescription：注册时 bbtco_desc 携带的任务描述，未命名为空串。
@@ -242,6 +252,10 @@ private:
     CoroutineYieldDisposition       m_yield_disposition{CoroutineYieldDisposition::MANUAL};
 
     int                             m_last_resume_event{-1};    // 最后一次导致此协程唤醒的事件
+    /* #370：恢复时由 OnCoPollEvent 从消费掉的 await_event 捕获，供
+     * FdWaitEpochValid 在重试 syscall 前比对；仅协程自身线程读写。 */
+    int                             m_last_wait_fd{-1};
+    uint64_t                        m_last_wait_epoch{0};
     uint64_t                        m_last_run_us{0};           // 上次运行时长（微秒），用于 MLFQ
     int                             m_mlfq_demotions{0};        // MLFQ 连续降级次数
 
