@@ -20,15 +20,19 @@
 // 复用源一律取独立 socketpair（dup2 同 socket 会因对端已关闭而 EPIPE）。
 
 #include <atomic>
+#include <algorithm>
 #include <chrono>
 #include <csignal>
+#include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
 #include <sys/resource.h>
 #include <sys/socket.h>
+#include <sys/syscall.h>
 #include <filesystem>
 #include <thread>
 #include <unistd.h>
+#include <vector>
 
 #include <bbt/core/thread/Lock.hpp>
 #include <bbt/coroutine/coroutine.hpp>
@@ -394,11 +398,16 @@ BOOST_AUTO_TEST_CASE(t_event_construct_dup_failure_rolls_back)
 {
     CoFixture fx{1};
 
-    auto FdCount = []() -> long {
-        long n = 0;
-        for (auto& e : std::filesystem::directory_iterator("/proc/self/fd"))
-            (void)e, ++n;
-        return n;
+    auto MaxFd = []() -> int {
+        int max_fd = -1;
+        for (auto& e : std::filesystem::directory_iterator("/proc/self/fd")) {
+            const std::string name = e.path().filename().string();
+            char* end = nullptr;
+            const long fd = std::strtol(name.c_str(), &end, 10);
+            if (end != name.c_str() && *end == '\0')
+                max_fd = std::max(max_fd, static_cast<int>(fd));
+        }
+        return max_fd;
     };
 
     int sp[2] = {-1, -1};
@@ -408,17 +417,30 @@ BOOST_AUTO_TEST_CASE(t_event_construct_dup_failure_rolls_back)
      * Event 构造期间的 ::dup 才会是唯一的失败点。 */
     bbt::pollevent::detail::EventBase base;
 
-    const long fd_before = FdCount();
+    const int max_fd_before = MaxFd();
     const long cb_before = static_cast<long>(bbt::pollevent::Event::CallbackEntryCount());
 
-    /* 压低 fd 上限至当前用量：Event 构造期 ::dup(fd) 必须失败（EMFILE），
-     * 走资源创建失败路径；callback 尚未注册，callback_map 不得残留，且
-     * 原有 fd 数量不应改变。setrlimit 是进程级操作，末尾必须恢复原上限。 */
+    /* RLIMIT_NOFILE 限制的是 fd 数值上限而非当前 fd 数量。先压到当前最大
+     * fd+1，再用 openat 填满上限以下的空洞，确保 Event 构造期 ::dup(fd)
+     * 稳定失败（EMFILE），走资源创建失败路径；callback 尚未注册，
+     * callback_map 不得残留。setrlimit 是进程级操作，末尾必须恢复。 */
     struct rlimit old_lim{};
     BOOST_REQUIRE_EQUAL(::getrlimit(RLIMIT_NOFILE, &old_lim), 0);
     struct rlimit cap = old_lim;
-    cap.rlim_cur = static_cast<rlim_t>(fd_before);
+    BOOST_REQUIRE_GE(max_fd_before, 0);
+    cap.rlim_cur = static_cast<rlim_t>(max_fd_before + 1);
     BOOST_REQUIRE_EQUAL(::setrlimit(RLIMIT_NOFILE, &cap), 0);
+
+    std::vector<int> fillers;
+    for (;;) {
+        const int filler = static_cast<int>(::syscall(
+            SYS_openat, AT_FDCWD, "/dev/null", O_RDONLY | O_CLOEXEC, 0));
+        if (filler < 0) {
+            BOOST_REQUIRE_EQUAL(errno, EMFILE);
+            break;
+        }
+        fillers.push_back(filler);
+    }
 
     /* 直接构造 Event：内部 dup 抛 boost::system::system_error（EMFILE）。
      * 修复语义：失败前没有 callback_map 残留，已有 fd 不受影响。 */
@@ -449,8 +471,11 @@ BOOST_AUTO_TEST_CASE(t_event_construct_dup_failure_rolls_back)
 
     BOOST_CHECK_EQUAL(static_cast<long>(bbt::pollevent::Event::CallbackEntryCount()),
                       cb_before);
-    BOOST_CHECK_EQUAL(FdCount(), fd_before);
 
+    BOOST_REQUIRE_EQUAL(::setrlimit(RLIMIT_NOFILE, &old_lim), 0);
+    for (const int filler : fillers)
+        BOOST_CHECK_EQUAL(::close(filler), 0);
+    BOOST_CHECK_EQUAL(MaxFd(), max_fd_before);
     ::close(sp[0]);
     ::close(sp[1]);
 }
