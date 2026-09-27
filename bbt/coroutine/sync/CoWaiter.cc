@@ -141,9 +141,11 @@ int CoWaiter::WaitWithTimeout(int ms)
         return coroutine->_RegistAwaitEvent();
     });
 
-    /* #347② 兼容映射：协程级取消现以独立取消位唤醒，旧超时族入口对取消
+    /* #369：登记失败（ret != 0）时本协程未真正挂起，
+     * 唤醒掩码仍是上一次等待的旧值，不得参与超时/取消映射。
+     * #347② 兼容映射：协程级取消现以独立取消位唤醒，旧超时族入口对取消
      * 仍上报 1，与取消借用超时位时期的可观察行为逐条一致。 */
-    if (coroutine->GetLastResumeEvent() & (POLL_EVENT_TIMEOUT | POLL_EVENT_CANCELLED))
+    if (ret == 0 && coroutine->GetLastResumeEvent() & (POLL_EVENT_TIMEOUT | POLL_EVENT_CANCELLED))
         ret = 1;
 
     {

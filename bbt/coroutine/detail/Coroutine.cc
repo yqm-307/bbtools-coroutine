@@ -18,6 +18,9 @@ std::vector<Coroutine*>         Coroutine::s_parked;
 
 typedef bbt::pollevent::EventOpt EventOpt;
 
+/* #369 单测故障注入标志（定义，声明见 Coroutine.hpp） */
+std::atomic_bool                Coroutine::s_test_fail_await_regist{false};
+
 CoroutineId Coroutine::_GenCoroutineId()
 {
     static std::atomic_uint64_t _generate_id{BBT_COROUTINE_INVALID_COROUTINE_ID};
@@ -99,7 +102,17 @@ int Coroutine::YieldWithCallback(const CoroutineOnYieldCallback& cb)
     g_bbt_dbgmgr->OnEvent_YieldCo(shared_from_this());
 #endif
     g_bbt_dbgp_full(("[Coroutine::YieldWithCallback] co=" + std::to_string(GetId())).c_str());
-    return m_context.YieldWithCallback(cb);
+    const int ret = m_context.YieldWithCallback(cb);
+    /* #369：挂起回调失败（CHECK_FAILED）时协程被立刻重入、并未真正挂起，
+     * 必须把运行态还原为 CO_RUNNING——否则 m_run_status 残留 CO_SUSPEND，
+     * 本协程仍在运行却对外谎报挂起，下一次 Yield* 的 CO_RUNNING 断言会
+     * 误触发（单测中表现为 SIGABRT）。仅失败路径补偿，正常唤醒路径的
+     * 状态推进不变。 */
+    if (bbt_unlikely(ret != 0)) {
+        m_yield_disposition = CoroutineYieldDisposition::MANUAL;
+        m_run_status = CoroutineStatus::CO_RUNNING;
+    }
+    return ret;
 }
 
 void Coroutine::YieldAndPushGCoQueue()
@@ -330,9 +343,22 @@ int Coroutine::YieldUntilFdEx(int fd, short events, int timeout_ms)
     });
 }
 
+void Coroutine::_TestFailNextAwaitRegist() noexcept
+{
+    s_test_fail_await_regist.store(true, std::memory_order_release);
+}
+
 bool Coroutine::_RegistAwaitEvent()
 {
     auto await_event = _AwaitEvent();
+    /* #369 单测故障注入：置位时先取消本次 await 事件，让下方 Regist() 走
+     * 真实失败分支（CANCELLED 态 CAS 失败），等价于生产上事件在挂起回调
+     * 执行前已被反注册的时序；一次性消费，不影响后续等待。 */
+    if (await_event != nullptr &&
+        s_test_fail_await_regist.exchange(false, std::memory_order_acq_rel))
+    {
+        await_event->UnRegist();
+    }
     // RequestCancel 可能发生在入口检查之后、事件挂上之前。
     // 注册前再看一眼：已置位则以取消位 Trigger，CommitPark 走 PENDING 立即完成。
     if (await_event != nullptr && IsCancelRequested())

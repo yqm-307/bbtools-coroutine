@@ -143,23 +143,25 @@ int Context::YieldWithCallback(const CoroutineOnYieldCallback& cb)
 
 void Context::Resume()
 {
-    bool check_succ = true;
-
     _Resume();
 
-    // 执行on yield success，然后清除掉
-    if (m_onyield_callback) {
-        check_succ = m_onyield_callback();
-        if (bbt_likely(check_succ)) {
-            m_onyield_callback_result = YieldCheckStatus::CHECK_SUCCESS;
-        } else {
-            m_onyield_callback_result = YieldCheckStatus::CHECK_FAILED;
-        }
-    }
-
-    // check失败就回到原本协程通知一下check失败了
-    if (!check_succ)
+    /* 执行on yield success。check 失败的重入会继续执行协程，其间协程
+     * 可能再次 YieldWithCallback 挂出新的 onyield 回调——必须循环处理
+     * 直到没有待执行回调。只重入一次的旧实现会丢掉新回调：协程带着未
+     * 注册的 await 事件停在 EVENT_WAIT，CommitYield 的 CommitPark 失败
+     * 后被 Processer 丢弃引用，协程永久悬挂且无回收点。（#369）
+     * 注：协程侧 YieldWithCallback 在 _Yield 返回后自行清空
+     * m_onyield_callback，本循环每次读到的是协程最新挂出的回调。 */
+    while (m_onyield_callback) {
+        const bool check_succ = m_onyield_callback();
+        m_onyield_callback_result =
+            bbt_likely(check_succ) ? YieldCheckStatus::CHECK_SUCCESS
+                                 : YieldCheckStatus::CHECK_FAILED;
+        if (bbt_likely(check_succ))
+            break;
+        /* check失败就回到原本协程通知一下check失败了 */
         _Resume();
+    }
 }
 
 
