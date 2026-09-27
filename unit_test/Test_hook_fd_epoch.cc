@@ -411,19 +411,17 @@ BOOST_AUTO_TEST_CASE(t_event_construct_dup_failure_rolls_back)
     const long fd_before = FdCount();
     const long cb_before = static_cast<long>(bbt::pollevent::Event::CallbackEntryCount());
 
-    /* 压低 fd 上限至当前用量+1：Event 构造期 ::dup(fd) 成功（占最后 1 个
-     * 余量），随后 stream_descriptor 内部 eventfd 必败（EMFILE）——走
-     * 「dup 成功、asio 对象失败」的回滚路径，内部 fd 必须被 ::close 回收，
-     * callback_map 不得残留。setrlimit 是进程级操作，末尾必须恢复原上限。 */
+    /* 压低 fd 上限至当前用量：Event 构造期 ::dup(fd) 必须失败（EMFILE），
+     * 走资源创建失败路径；callback 尚未注册，callback_map 不得残留，且
+     * 原有 fd 数量不应改变。setrlimit 是进程级操作，末尾必须恢复原上限。 */
     struct rlimit old_lim{};
     BOOST_REQUIRE_EQUAL(::getrlimit(RLIMIT_NOFILE, &old_lim), 0);
     struct rlimit cap = old_lim;
-    cap.rlim_cur = static_cast<rlim_t>(fd_before + 1);
+    cap.rlim_cur = static_cast<rlim_t>(fd_before);
     BOOST_REQUIRE_EQUAL(::setrlimit(RLIMIT_NOFILE, &cap), 0);
 
-    /* 直接构造 Event：fd 事件的内部 dup 成功、stream_descriptor 构造
-     * 抛 boost::system::system_error（EMFILE）。修复语义：dup fd 回收、
-     * callback_map 不残留（AddEventCallback 已延后到全部资源就绪后）。 */
+    /* 直接构造 Event：内部 dup 抛 boost::system::system_error（EMFILE）。
+     * 修复语义：失败前没有 callback_map 残留，已有 fd 不受影响。 */
     std::exception_ptr eptr{nullptr};
     try {
         auto ev = std::make_shared<bbt::pollevent::Event>(

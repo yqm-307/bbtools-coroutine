@@ -701,19 +701,22 @@ BOOST_AUTO_TEST_CASE(t_multi_processer_yield_requeues_each_coroutine_once_per_it
 
 BOOST_AUTO_TEST_CASE(t_init_fd_event_with_live_duplicate_never_throws)
 {
-    /* #284：同一 fd 已有未析构监听时建新监听，asio 构造即报 EEXIST；
-     * InitFdEvent 必须有界重试后返回 -1，异常不得逃出杀死协程。 */
+    /* #284/#370：Event 为每个用户 fd 保留私有 dup，重复监听不再因
+     * epoll 使用同一 fd 号而报 EEXIST；两个监听都应能注册且不抛异常。 */
     int fds[2];
     BOOST_REQUIRE_EQUAL(::pipe(fds), 0);
 
     auto first = CoPollEvent::Create(1, [&](auto, int, int) {});
     BOOST_REQUIRE_EQUAL(first->InitFdEvent(fds[0], bbt::pollevent::EventOpt::READABLE, 0), 0);
+    BOOST_REQUIRE_EQUAL(first->Regist(), 0);
 
     auto second = CoPollEvent::Create(2, [&](auto, int, int) {});
+    BOOST_REQUIRE_EQUAL(second->InitFdEvent(fds[0], bbt::pollevent::EventOpt::READABLE, 0), 0);
     int ret = -99;
-    BOOST_CHECK_NO_THROW(ret = second->InitFdEvent(fds[0], bbt::pollevent::EventOpt::READABLE, 0));
-    BOOST_CHECK_EQUAL(ret, -1);
+    BOOST_CHECK_NO_THROW(ret = second->Regist());
+    BOOST_CHECK_EQUAL(ret, 0);
 
+    BOOST_CHECK_EQUAL(second->UnRegist(), 0);
     first->UnRegist();
     BOOST_CHECK_EQUAL(::close(fds[0]), 0);
     BOOST_CHECK_EQUAL(::close(fds[1]), 0);
