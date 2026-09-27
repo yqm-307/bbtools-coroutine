@@ -184,6 +184,18 @@ public:
     int                             YieldUntilFdWriteable(int fd, int timeout_ms);
     int                             YieldUntilFdEx(int fd, short events, int timeout_ms = 0);
 
+    /**
+     * @brief #369 单测故障注入：置位后本进程下一次带 await 事件的
+     *  _RegistAwaitEvent 先把该事件 UnRegist 成 CANCELLED，再走真实
+     *  Regist() → -1（事件注册阶段失败，非 RegistCustom 创建阶段），
+     *  YieldWithCallback 因此返回 -1 且协程未真正挂起。用于复现"登记
+     *  失败时旧返回码误读上次唤醒掩码"的回归。
+     *
+     *  只应在单测中使用；标志一次性消费（exchange 清零），不影响后续
+     *  等待。无任何并发语义保证之外的副作用，生产路径代价是一次原子读。
+     */
+    static void                     _TestFailNextAwaitRegist() noexcept;
+
 protected:
     void                            OnCoPollEvent(int event, int custom_key);
 
@@ -208,6 +220,9 @@ private:
     static std::mutex                           s_parked_mtx;
     static std::vector<Coroutine*>              s_parked;
     bool                                        m_parked_tracked{false};
+
+    /* #369 单测故障注入标志：见 _TestFailNextAwaitRegist 注释 */
+    static std::atomic_bool                     s_test_fail_await_regist;
 
 private:
     Context                         m_context;
