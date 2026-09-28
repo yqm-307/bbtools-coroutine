@@ -23,11 +23,10 @@
 ### 可自主执行
 
 - 阅读代码文件、测试、文档、Git 历史与项目结构
-- 查阅外部官方文档（依赖库 API、标准参考、最佳实践）
+- 查阅外部官方文档（依赖库 API、标准参考、最佳实践）与必要的互联网资料
 - 使用 CMake 构建、运行测试（ctest）与基准测试
 - 创建和修改代码文件（`.hpp` `.cc` `CMakeLists.txt` 等）
 - 在单测通过且无新增警告后创建 Git commit
-- 必要时查询互联网资料辅助决策
 
 ### 需确认后执行
 
@@ -36,11 +35,24 @@
 - 重构影响多个模块的公开接口或数据布局
 - 可能破坏向后兼容性的变更
 
+### 默认不做
+
+- 在生产环境执行操作
+- 修改基础设施配置（端口、Docker、systemd、服务等）
+- 对整个仓库做格式化或大规模重命名
+- 修改 `.env`、密钥文件或凭据
+
+### 不假设
+
+- 不假设链接库或系统工具的可用性——先查 `CMakeLists.txt` 和邻近文件确认
+- 不假设用户的业务优先级和截止时间——有疑问问用户
+- 不替代用户做不可逆决策
+
 ## 开发与发布流程
 
 - 唯一流程真源：`agent-docs/development-and-release-process.md`
 - 开发、PR、main 集成、RC 和 Stable 发布均按该文档执行。
-- 开 Issue / PR 用 `.github/ISSUE_TEMPLATE/task.md` 与 `.github/pull_request_template.md`；验证按 `agent-docs/development-and-release-process.md`「验证阶梯」选现有命令，不另起流程。
+- 验证按 `agent-docs/development-and-release-process.md`「验证阶梯」选现有命令，不另起流程。
 - Agent 不直接推送 `main`，不手工创建或移动 `v*` tag，不绕过 required checks。
 - CI 结果、压测完整性和发布 Gate 是事实依据；文档不能替代远端硬保护。
 
@@ -48,7 +60,7 @@
 
 所有非 trivial 变更必须经过：**现状分析 → 需求确认 → 方案共识 → 实现验证** 四个阶段。在没有与用户就目标、范围和方案达成共识之前，不得进入实现阶段。简单 bug 修复可直接实现。有疑问先问用户，不猜测用户的意图。
 
-本文件定义规范与标准，不定义工具专属流程步骤。仓内不放第二套通用 Agent 脚手架。本仓 skill 仅 `.github/skills/bbtools-coroutine/` 与 `.github/skills/managing-fatigue-tests/`，不算通用脚手架。
+本文件定义规范与标准，不定义工具专属流程步骤。本仓 skill 仅 `.github/skills/bbtools-coroutine/` 与 `.github/skills/managing-fatigue-tests/`，不算通用脚手架。
 
 ## 项目契约真源
 
@@ -97,7 +109,6 @@
 - 何时归档：支撑 Issue/PR/发布结论、无法稳定重现、或后续要对照。日常本地跑只进 `work/`。
 - 基线只写 `perf-baseline` 分支的 `tests/baselines/`，不在 main 的 `archive/` 再存一份。
 - CI 仍写 `tests/ci-reports/`（gitignore，Actions artifact）。要把一次 CI 结论留在 main，拷 `summary.*` 进 `archive/`，不改 workflow。
-- 通用 Agent 脚手架不进本仓。
 - AI 完成重要设计、调查、压测或验证后，主动判断是否需要留下仓内产物。
 - 长期资产（后续开发、维护或决策仍需引用的规格、决策、稳定计划、可复用方法和故障结论）必须追踪并随相关变更提交。
 - 阶段性交付证据仅在支撑重要结论、记录风险或未覆盖范围、后续需要复核，或结果无法稳定重现时，才简短记录并提交；说明结论、关键依据和限制即可。
@@ -206,30 +217,10 @@ git commit --author="agent <agent@users.noreply.github.com>"
 
 - 涉及模块的单测全部通过（`ctest` 或 `./build.sh`）
 - 本地验证边界：必走冒烟 + 本次开发功能的单测 + 直接耦合功能的单测，三者全过；本地不跑全量 `ctest`，全量走 PR 的 CI（以 `gh pr checks` 为准）
-- 无新增编译器警告
-- 新建文件与测试已纳入 CMakeLists.txt
-- 测试覆盖验收标准中约定的场景
-- 代码风格与本文件一致
 - `git status` 整洁，无意外修改的文件
 - commit 已创建（用户允许时）
-
-## 边界
-
-### 不做
-
-- 修改 CI/CD 配置、GitHub Actions、部署脚本（除非用户明确指定）
-- 引入新的第三方依赖（先确认）
-- 修改基础设施配置（端口、Docker、systemd、服务等）
-- 在生产环境执行操作
-- 对整个仓库做格式化或大规模重命名
-- 修改 `.env`、密钥文件或凭据
-
-### 不假设
-
-- 不假设链接库或系统工具的可用性——先查 `CMakeLists.txt` 和邻近文件确认
-- 不假设用户的业务优先级和截止时间——有疑问问用户
-- 不替代用户做不可逆决策
+- 无新增编译器警告、新文件与测试注册到 CMakeLists.txt、测试覆盖范围、代码风格一致性：分别以「构建」「测试」「代码规范」「统一编码与架构约束」章节为准，不在此重复
 
 ## 与工具特定配置的关系
 
-仓内真源是本文件、`agent-docs/development-and-release-process.md` 和 Issue/PR 模板。本文件定义「做成什么样」和「遵守什么」。流程步骤不在仓内放第二套 skill。外部工具配置不得覆盖本文件、契约或流程文档。
+仓内真源是本文件、`agent-docs/development-and-release-process.md` 和 Issue/PR 模板。本文件定义「做成什么样」和「遵守什么」。外部工具配置不得覆盖本文件、契约或流程文档。
