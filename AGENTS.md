@@ -14,7 +14,7 @@
 - 分布式服务端框架的跨仓架构基调真源位于 `bbt-framework/docs/architecture/distributed-framework-baseline.md`；本地并列检出时对应 `../bbt-framework/bbt-framework/docs/architecture/distributed-framework-baseline.md`。本仓只负责 coroutine 层的调度、等待/唤醒、取消竞争和对象寿命，不承载 framework 的 Service、路由、重试、发现、owner/fencing 或业务事务语义。
 - 本仓不内置 TCP/UDP/HTTP API 或第三方网络驱动，不承载业务逻辑和跨机器锁，不托管业务缓冲；不为减少依赖重造复杂协议或安全组件。
 - 新第三方协议/客户端能力统一由 bbtools-infra 接入（首批 HTTP、RPC、MCP）；infra 侧 adapter 负责网络操作与业务资源寿命，本仓不反向依赖 infra。
-- 取消等待或 `Scheduler::Stop()` 不等于第三方 I/O 已完成；挂起协程 Stop 直接销毁、不做栈展开的语义不变，以核心运行时契约为准。
+- 协程等待取消不等于第三方 I/O 已完成；coroutine runtime 随进程存在、只初始化一次，不提供业务 `Stop()` 或 restart；挂起协程不做栈展开，由上层和资源 owner 各自负责业务关闭与物理收口。
 - 对 core 固定版本后的集成验证按验证阶梯复验，不把上游通过当成本仓通过；infra 消费形态未实现前不声称已联调。
 - #339 已于 2026-09-18 关闭（适配收口到 infra 层），本仓不再以该单推进三平台长程验收；后续仅为已核实的运行时缺口安排支撑任务。
 
