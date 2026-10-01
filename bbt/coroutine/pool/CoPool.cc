@@ -163,7 +163,9 @@ void CoPool::_HandleWorkException(Work* work, const std::exception_ptr& eptr) no
 void CoPool::Release()
 {
     m_is_running.store(false, std::memory_order_release);
-    while (m_running_co_num != 0 && g_scheduler->IsRunning()) {
+    /* 无停机逃生条件：不再依赖 Scheduler::IsRunning()——运行时不设停机，
+     * 该条件在进程寿命模型下恒真，留着只会掩盖真实的无进展。 */
+    while (m_running_co_num != 0) {
         m_cond->NotifyAll();
 
         if (g_bbt_tls_helper->EnableUseCo())
@@ -172,9 +174,7 @@ void CoPool::Release()
             std::this_thread::sleep_for(bbt::core::clock::ms(5));
     } 
 
-    if (g_scheduler->IsRunning()) {
-        m_latch.Wait();
-    }
+    m_latch.Wait();
 
     /* #281 取消式停机：worker 全部退出后 drain 滞留任务。delete Work 释放其
      * promise，未执行的 SubmitWithFuture 任务以 broken_promise 兑现，调用方

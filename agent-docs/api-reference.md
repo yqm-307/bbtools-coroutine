@@ -8,7 +8,7 @@
 
 ## 覆盖范围
 
-- 运行时：`g_scheduler`、`Start` / `Stop` / `LoopOnce` / `IsRunning`、`SchedulerStartOpt`
+- **运行时**：`g_scheduler`、`Start` / `LoopOnce` / `IsInitialized`、`SchedulerStartOpt`
 - 注册：`bbtco` / `bbtco_desc` / `bbtco_ref` / `bbtco_noexcept`
 - 让出：`bbtco_yield`、`bbtco_sleep`
 - 查询：`GetLocalCoroutineId`、`GetLocalCoroutineStackSize`
@@ -37,7 +37,7 @@
 
 - 头文件：`Scheduler.hpp`
 - 签名：`void Start(SchedulerStartOpt opt = SCHE_START_OPT_SCHE_THREAD);`
-- 前置：运行期间不得重复启动；`THREAD` 模式 assert `m_sche_thread == nullptr`。`Stop` 完成后可再次 `Start`，DNS worker 的停止状态随新一代调度器重置。
+- 前置：一次性启动。成功初始化后重复 `Start`（含并发 `Start`）抛 `std::logic_error`，不重置配置/队列、不新增 worker；`THREAD` 模式 assert `m_sche_thread == nullptr`。
 - 选项（`Define.hpp`）：
 
 | 值 | 行为 |
@@ -51,24 +51,22 @@
 - 签名：`void LoopOnce();`
 - 前置：仅 `NO_LOOP`。已 `Start(THREAD)` 时 assert。
 
-### `Scheduler::IsRunning`
+### `Scheduler::IsInitialized`
 
-- 签名：`bool IsRunning() const noexcept;`
-- 说明：`Stop` 将标志置 `false`。
+- 签名：`bool IsInitialized() const noexcept;`
+- 说明：运行时是否已完成必要初始化（runtime/worker/poller）。初始化标志在进入运行循环前发布，完成后恒为 true——没有停机状态，因此不会因业务关闭归零。
 
-### `Scheduler::Stop`
+### `Scheduler::Stop`（已删除）
 
-- 签名：`void Stop();`
-- 语义：取消式停机。停止接新任务；join worker；回收全局队列中未执行的协程；回收 parked（fd/定时器等待）协程。不保证业务任务执行完。
-- 挂起协程在 Stop 时被**直接销毁，不做栈展开**（契约 §6 显式例外）：栈上对象不执行析构与 RAII。需要可靠清理的资源必须在挂起点之前释放或改由栈外管理。
-- 停机后 `RegistCoroutineTask`（非 noexcept）抛 `std::runtime_error("scheduler stopped: coroutine task rejected")`。
+- 旧签名 `void Stop();` 与 `void Scheduler::GetRunGeneration()`、`RuntimeGeneration` 一起删除，**不留兼容壳**。运行时是进程寿命对象，不做取消式停机、不排空任务、不 unload（契约 §6）。
+- 旧语义（停止接新任务、join worker、回收未执行与 parked 协程、停机后 `RegistCoroutineTask` 抛 `std::runtime_error`）**superseded**，历史报告保持原文并在迁移说明中标注，不作为当前实现依据。
 
 ### `Scheduler::RegistCoroutineTask`
 
 - 签名：
   - `void RegistCoroutineTask(const CoroutineCallback& handle, const char* desc = nullptr);`
   - `void RegistCoroutineTask(const CoroutineCallback& handle, bool& succ) noexcept;`
-- 前置：调度器运行中。超过 `m_cfg_max_coroutine` 会抛异常。
+- 前置：运行时已初始化。超过 `m_cfg_max_coroutine` 会抛异常。
 - `desc`：写入协程，诊断可读回。空表示未命名。
 
 ---

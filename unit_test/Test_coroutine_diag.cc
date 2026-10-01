@@ -1,6 +1,7 @@
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MAIN
 #include <boost/test/included/unit_test.hpp>
+#include <mutex>
 
 // #276 协程诊断现场：bbtco_desc 落库 + 挂起现场（状态/等待类型/等待对象/等待时长）。
 // 契约：现场由协程自身（同线程）读取；外部线程并发快照属 #277 范围。
@@ -14,6 +15,18 @@
 #include <bbt/coroutine/detail/GlobalConfig.hpp>
 #include <bbt/coroutine/detail/Scheduler.hpp>
 
+/* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。 */
+namespace
+{
+void EnsureRuntime()
+{
+    static std::once_flag once;
+    std::call_once(once, [](){
+        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
+    });
+}
+}
+
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::detail;
 
@@ -25,7 +38,7 @@ BOOST_AUTO_TEST_CASE(t_begin)
     cfg->m_cfg_static_thread_num = 1;
     cfg->m_cfg_stack_size = 8192;
     cfg->m_cfg_stack_protect = false;
-    g_scheduler->Start(SCHE_START_OPT_SCHE_THREAD);
+    EnsureRuntime();
 }
 
 // desc 落库：_CoHelper 把 bbtco_desc 的字符串存入协程，协程内可读回
@@ -114,7 +127,6 @@ BOOST_AUTO_TEST_CASE(t_waited_us_bounded_after_wake)
 
 BOOST_AUTO_TEST_CASE(t_end)
 {
-    g_scheduler->Stop();
 }
 
 BOOST_AUTO_TEST_SUITE_END()

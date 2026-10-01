@@ -27,5 +27,4 @@ int main()
 
     dbg_coroutine_wait();
 
-    g_scheduler->Stop();
 }

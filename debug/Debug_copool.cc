@@ -25,5 +25,4 @@ int main()
 
     Pool();
 
-    g_scheduler->Stop();
 }

@@ -12,11 +12,25 @@
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MAIN
 #include <boost/test/included/unit_test.hpp>
+#include <mutex>
 
 #include <chrono>
 #include <stdexcept>
 
 #include <bbt/coroutine/coroutine.hpp>
+
+/* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
+ * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。 */
+namespace
+{
+void EnsureRuntime()
+{
+    static std::once_flag once;
+    std::call_once(once, [](){
+        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
+    });
+}
+}
 
 using namespace bbt::coroutine;
 
@@ -25,114 +39,45 @@ using namespace bbt::coroutine;
    ========================================================================= */
 BOOST_AUTO_TEST_SUITE(Smoke_Scheduler)
 
-BOOST_AUTO_TEST_CASE(smoke_scheduler_start_stop)
+/* 运行时只初始化一次：Start 成功后再调用抛 std::logic_error（没有 Stop/重启）。 */
+BOOST_AUTO_TEST_CASE(smoke_scheduler_start_once_and_reject_repeat)
 {
     auto& sche = detail::Scheduler::GetInstance();
     BOOST_REQUIRE(sche != nullptr);
 
-    // Stop first to ensure clean state (may have been started by earlier tests)
-    sche->Stop();
-    sche->Start();
-    BOOST_CHECK(sche->IsRunning());
-    sche->Stop();
-    BOOST_CHECK(!sche->IsRunning());
-}
+    EnsureRuntime();
+    BOOST_CHECK(sche->IsInitialized());
 
-BOOST_AUTO_TEST_CASE(smoke_scheduler_repeated_start_stop)
-{
-    auto& sche = detail::Scheduler::GetInstance();
-    BOOST_REQUIRE(sche != nullptr);
-
-    constexpr int kRestartRounds = 64;
-    sche->Stop();
-    for (int round = 0; round < kRestartRounds; ++round)
-    {
-        sche->Start();
-        BOOST_REQUIRE(sche->IsRunning());
-        sche->Stop();
-        BOOST_CHECK(!sche->IsRunning());
-    }
-}
-
-// #192: Stop 时存在 in-flight 协程（挂起在定时器上）——
-// 应快速完成且不泄漏、进程不崩（#218 修复的停止协议回归）
-BOOST_AUTO_TEST_CASE(smoke_scheduler_stop_with_inflight_coroutines)
-{
-    auto& sche = detail::Scheduler::GetInstance();
-    sche->Stop();
-    sche->Start();
-
-    std::atomic_int started{0};
-
-    // 3 个长挂起协程（sleep 5s，远超本用例时长）
-    for (int i = 0; i < 3; ++i) {
-        sche->RegistCoroutineTask([&started]() {
-            started++;
-            bbtco_sleep(5000);
-        });
-    }
-
-    // 等待协程进入挂起
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    BOOST_CHECK_GE(started.load(), 1);
-
-    // Stop 应在短时间完成（不等待 5s sleep 到期）
-    auto begin = std::chrono::steady_clock::now();
-    sche->Stop();
-    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::steady_clock::now() - begin).count();
-
-    BOOST_CHECK(!sche->IsRunning());
-    BOOST_CHECK_LT(elapsed_ms, 3000);
-
-    // Stop 后可再次 Start（冷重启仍正常）
-    sche->Start();
-    BOOST_CHECK(sche->IsRunning());
-    sche->Stop();
-    BOOST_CHECK(!sche->IsRunning());
-}
-
-// #192: 异常路径——协程内抛异常后 Stop 正常（协程异常不阻塞停止协议）
-BOOST_AUTO_TEST_CASE(smoke_scheduler_stop_with_throwing_coroutine)
-{
-    auto& sche = detail::Scheduler::GetInstance();
-    sche->Stop();
-    sche->Start();
-
-    std::atomic_int threw{0};
-    sche->RegistCoroutineTask([&threw]() {
-        threw++;
-        throw std::runtime_error("scheduler-level throw");
-    });
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    BOOST_CHECK_GE(threw.load(), 1);
-
-    sche->Stop();
-    BOOST_CHECK(!sche->IsRunning());
-
-    // 恢复运行态供后续用例使用
-    sche->Start();
-    BOOST_CHECK(sche->IsRunning());
+    BOOST_CHECK_THROW(sche->Start(), std::logic_error);
+    BOOST_CHECK(sche->IsInitialized());
 }
 
 BOOST_AUTO_TEST_CASE(smoke_scheduler_regist_run_coroutine)
 {
-    auto& sche = detail::Scheduler::GetInstance();
-    sche->Stop();
-    sche->Start();
+    EnsureRuntime();
 
     std::atomic_int counter{0};
-
-    sche->RegistCoroutineTask([&counter]() {
+    g_scheduler->RegistCoroutineTask([&counter]() {
         counter++;
     });
 
-    // Give scheduler time to execute the task
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    sche->Stop();
+    for (int i = 0; i < 300 && counter.load() == 0; ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    BOOST_CHECK_GE(counter.load(), 1);
+}
 
-    BOOST_CHECK_GE(counter, 1);
+BOOST_AUTO_TEST_CASE(smoke_scheduler_regist_succ_out_param)
+{
+    EnsureRuntime();
+
+    std::atomic_int counter{0};
+    bool succ = false;
+    g_scheduler->RegistCoroutineTask([&counter]() { counter++; }, succ);
+    BOOST_CHECK(succ);
+
+    for (int i = 0; i < 300 && counter.load() == 0; ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    BOOST_CHECK_GE(counter.load(), 1);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
@@ -145,8 +90,7 @@ BOOST_AUTO_TEST_SUITE(Smoke_Chan)
 BOOST_AUTO_TEST_CASE(smoke_chan_buffered_write_read)
 {
     auto& sche = detail::Scheduler::GetInstance();
-    sche->Stop();
-    sche->Start();
+    EnsureRuntime();
 
     auto ch = Chan<int, 8>();
 
@@ -167,16 +111,13 @@ BOOST_AUTO_TEST_CASE(smoke_chan_buffered_write_read)
     });
 
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    sche->Stop();
-
     BOOST_CHECK(done);
 }
 
 BOOST_AUTO_TEST_CASE(smoke_chan_unbuffered_write_read)
 {
     auto& sche = detail::Scheduler::GetInstance();
-    sche->Stop();
-    sche->Start();
+    EnsureRuntime();
 
     auto ch = Chan<int, 0>();
 
@@ -197,8 +138,6 @@ BOOST_AUTO_TEST_CASE(smoke_chan_unbuffered_write_read)
     });
 
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    sche->Stop();
-
     BOOST_CHECK_EQUAL(result, 99);
 }
 
@@ -220,8 +159,7 @@ BOOST_AUTO_TEST_SUITE(Smoke_CoMutex)
 BOOST_AUTO_TEST_CASE(smoke_comutex_lock_unlock)
 {
     auto& sche = detail::Scheduler::GetInstance();
-    sche->Stop();
-    sche->Start();
+    EnsureRuntime();
 
     auto mtx = sync::CoMutex::Create();
 
@@ -240,16 +178,13 @@ BOOST_AUTO_TEST_CASE(smoke_comutex_lock_unlock)
     });
 
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    sche->Stop();
-
     BOOST_CHECK_EQUAL(counter, 2);
 }
 
 BOOST_AUTO_TEST_CASE(smoke_comutex_trylock_immediate)
 {
     auto& sche = detail::Scheduler::GetInstance();
-    sche->Stop();
-    sche->Start();
+    EnsureRuntime();
 
     auto mtx = sync::CoMutex::Create();
     std::atomic_bool trylock_ok{false};
@@ -264,8 +199,6 @@ BOOST_AUTO_TEST_CASE(smoke_comutex_trylock_immediate)
     });
 
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    sche->Stop();
-
     BOOST_CHECK(trylock_ok);
 }
 
@@ -279,8 +212,7 @@ BOOST_AUTO_TEST_SUITE(Smoke_CoCond)
 BOOST_AUTO_TEST_CASE(smoke_cocond_wait_notify_one)
 {
     auto& sche = detail::Scheduler::GetInstance();
-    sche->Stop();
-    sche->Start();
+    EnsureRuntime();
 
     auto cond = sync::CoCond::Create();
     std::atomic_bool woken{false};
@@ -296,8 +228,6 @@ BOOST_AUTO_TEST_CASE(smoke_cocond_wait_notify_one)
     cond->NotifyOne();
 
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    sche->Stop();
-
     BOOST_CHECK(woken);
 }
 
@@ -311,8 +241,7 @@ BOOST_AUTO_TEST_SUITE(Smoke_CoRWMutex)
 BOOST_AUTO_TEST_CASE(smoke_corwmutex_read_lock_unlock)
 {
     auto& sche = detail::Scheduler::GetInstance();
-    sche->Stop();
-    sche->Start();
+    EnsureRuntime();
 
     auto rwmtx = sync::CoRWMutex::Create();
 
@@ -331,16 +260,13 @@ BOOST_AUTO_TEST_CASE(smoke_corwmutex_read_lock_unlock)
     });
 
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    sche->Stop();
-
     BOOST_CHECK_EQUAL(read_count, 2);
 }
 
 BOOST_AUTO_TEST_CASE(smoke_corwmutex_write_lock_unlock)
 {
     auto& sche = detail::Scheduler::GetInstance();
-    sche->Stop();
-    sche->Start();
+    EnsureRuntime();
     std::this_thread::sleep_for(std::chrono::milliseconds(1)); // 确保 Processer 启动完毕
 
     auto rwmtx = sync::CoRWMutex::Create();
@@ -362,7 +288,6 @@ BOOST_AUTO_TEST_CASE(smoke_corwmutex_write_lock_unlock)
     // 等待协程执行完毕，最多 3 秒
     BOOST_REQUIRE(fut.wait_for(std::chrono::seconds(3)) == std::future_status::ready);
 
-    sche->Stop();
     BOOST_CHECK_EQUAL(shared, 43);
 }
 
@@ -375,9 +300,7 @@ BOOST_AUTO_TEST_SUITE(Smoke_CoPool)
 
 BOOST_AUTO_TEST_CASE(smoke_copool_submit_and_release)
 {
-    auto& sche = detail::Scheduler::GetInstance();
-    sche->Stop();
-    sche->Start();
+    EnsureRuntime();
 
     auto pool = pool::CoPool::Create(2);
     std::atomic_int counter{0};
@@ -393,8 +316,6 @@ BOOST_AUTO_TEST_CASE(smoke_copool_submit_and_release)
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
     pool->Release();
 
-    sche->Stop();
-
     BOOST_CHECK_EQUAL(counter, 2);
 }
 
@@ -408,8 +329,7 @@ BOOST_AUTO_TEST_SUITE(Smoke_Hook)
 BOOST_AUTO_TEST_CASE(smoke_hook_sleep)
 {
     auto& sche = detail::Scheduler::GetInstance();
-    sche->Stop();
-    sche->Start();
+    EnsureRuntime();
 
     std::atomic_bool slept{false};
 
@@ -420,8 +340,6 @@ BOOST_AUTO_TEST_CASE(smoke_hook_sleep)
     });
 
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    sche->Stop();
-
     BOOST_CHECK(slept);
 }
 
@@ -435,8 +353,7 @@ BOOST_AUTO_TEST_SUITE(Smoke_Defer)
 BOOST_AUTO_TEST_CASE(smoke_defer_execute)
 {
     auto& sche = detail::Scheduler::GetInstance();
-    sche->Stop();
-    sche->Start();
+    EnsureRuntime();
 
     std::atomic_bool defer_executed{false};
 
@@ -448,8 +365,6 @@ BOOST_AUTO_TEST_CASE(smoke_defer_execute)
     });
 
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    sche->Stop();
-
     BOOST_CHECK(defer_executed);
 }
 

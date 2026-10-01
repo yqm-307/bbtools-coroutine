@@ -66,7 +66,6 @@ void debug_notify()
 
     std::this_thread::sleep_for(bbt::core::clock::milliseconds(2000));
 
-    g_scheduler->Stop();
 }
 
 // 协程挂起功能是否有问题
@@ -215,5 +214,4 @@ int main()
     // consumer_producer();
     single_cond();
 
-    g_scheduler->Stop();
 }

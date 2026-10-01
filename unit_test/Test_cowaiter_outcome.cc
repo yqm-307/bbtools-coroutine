@@ -12,6 +12,7 @@
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MAIN
 #include <boost/test/included/unit_test.hpp>
+#include <mutex>
 
 #include <atomic>
 #include <chrono>
@@ -24,8 +25,19 @@
 #include <bbt/coroutine/detail/Coroutine.hpp>
 #include <bbt/coroutine/detail/GlobalConfig.hpp>
 #include <bbt/coroutine/detail/Scheduler.hpp>
-#include <bbt/coroutine/sync/Cancellation.hpp>
 #include <bbt/coroutine/sync/CoWaiter.hpp>
+
+/* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。 */
+namespace
+{
+void EnsureRuntime()
+{
+    static std::once_flag once;
+    std::call_once(once, [](){
+        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
+    });
+}
+}
 
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::detail;
@@ -88,9 +100,9 @@ BOOST_AUTO_TEST_CASE(t_begin)
         g_cfg.saved = true;
     }
 
-    g_scheduler->Start(SCHE_START_OPT_SCHE_THREAD);
+    EnsureRuntime();
     g_started.store(true);
-    BOOST_REQUIRE(g_scheduler->IsRunning());
+    BOOST_REQUIRE(g_scheduler->IsInitialized());
 }
 
 /* 1. 唤醒原因三向可区分：真超时→TimedOut(TIMEOUT 位)、协程级取消→
@@ -237,52 +249,43 @@ BOOST_AUTO_TEST_CASE(t_timeout_wins_then_complete_stays_timedout)
 
 /* 4. 旧订阅晚到：第一轮等待退出后取消令牌才置位——登记已随 Wait 返回
  * 解绑、旧事件已 FINAL，晚到的取消不得误唤醒或影响下一次等待 */
-BOOST_AUTO_TEST_CASE(t_late_subscription_after_wait_returns)
+/* 4. 晚到取消：两轮等待都已返回后才 RequestCancel——旧等待位与旧事件
+ * （FINAL / Trigger no-op）不得被误唤醒，之后的新等待明确报 Cancelled */
+BOOST_AUTO_TEST_CASE(t_late_cancel_after_wait_returns)
 {
     auto waiter = sync::CoWaiter::Create();
-    CancellationSource source;
 
-    bbt::core::thread::CountDownLatch first_done{1}, done{1};
+    bbt::core::thread::CountDownLatch first_done{1}, second_done{1}, done{1};
     std::atomic<Coroutine*> co_p{nullptr};
     std::atomic<WaitStatus> st1{}, st2{}, st3{};
 
-    WaitOptions opt1;
-    opt1.cancel = source.Token();
-
     bbtco [&]() {
         co_p.store(g_bbt_tls_coroutine_co);
-        st1.store(waiter->Wait(opt1));
+        st1.store(waiter->Wait(WaitOptions{}));
         first_done.Down();
-        /* 第二轮不带令牌：若旧订阅残留，任何晚到回调都可能误伤本轮 */
+        /* 第二轮不带任何取消：晚到取消不得污染等待位 */
         st2.store(waiter->Wait(WaitOptions{}));
-        /* 第三轮带同一已取消令牌：验证令牌路径本身仍正确工作 */
-        WaitOptions opt3;
-        opt3.cancel = source.Token();
-        st3.store(waiter->Wait(opt3));
+        second_done.Down();
+        /* 第三轮：本协程已被 RequestCancel，入口预检直接返回 Cancelled */
+        st3.store(waiter->Wait(WaitOptions{}));
         done.Down();
     };
 
-    /* 第一轮：令牌取消挂起中被正常 Notify 完成 */
+    /* 第一轮：挂起中被正常 Notify 完成 */
     BOOST_REQUIRE(WaitUntil([&]() { return CoroutineSuspended(co_p); }));
     BOOST_CHECK_EQUAL(waiter->Notify(), 0);
     first_done.Wait();
     BOOST_CHECK(st1.load() == WaitStatus::Completed);
 
-    /* 等待已返回后令牌才取消：登记已解绑，晚到订阅即便在途也只打在
-     * FINAL 事件上（Trigger 终态 no-op） */
-    source.RequestCancel();
-
-    /* 第二轮：必须仍由 Notify 正常完成——晚到取消没有污染等待位。
-     * 自旋随全部三轮结束退出：第三轮走入口取消预检不挂起，无需 Notify。 */
-    std::atomic_bool stop_spin{false};
-    std::thread notifier([&]() {
-        while (!stop_spin.load(std::memory_order_acquire) && waiter->Notify() != 0)
-            std::this_thread::yield();
-    });
-    done.Wait();
-    stop_spin.store(true, std::memory_order_release);
-    notifier.join();
+    /* 第二轮同样由 Notify 完成 */
+    BOOST_REQUIRE(WaitUntil([&]() { return CoroutineSuspended(co_p); }));
+    BOOST_CHECK_EQUAL(waiter->Notify(), 0);
+    second_done.Wait();
     BOOST_CHECK(st2.load() == WaitStatus::Completed);
+
+    /* 两轮都已返回后才发起取消：晚到取消只影响后续等待入口 */
+    co_p.load()->RequestCancel();
+    done.Wait();
     BOOST_CHECK(st3.load() == WaitStatus::Cancelled);
 }
 
@@ -366,14 +369,13 @@ BOOST_AUTO_TEST_CASE(t_legacy_waiter_behavior_unchanged)
 }
 
 /* 6. 令牌取消与完成在窄接口上可区分 */
-BOOST_AUTO_TEST_CASE(t_token_cancel_distinct_from_completed)
+/* 6. 协程级取消与完成在窄接口上可区分 */
+BOOST_AUTO_TEST_CASE(t_cancel_distinct_from_completed)
 {
-    /* (a) 挂起中令牌取消 → Cancelled，掩码为 CANCELLED */
+    /* (a) 挂起中协程级取消 → Cancelled，掩码为 CANCELLED */
     {
         auto waiter = sync::CoWaiter::Create();
-        CancellationSource source;
         WaitOptions opt;
-        opt.cancel = source.Token();
 
         bbt::core::thread::CountDownLatch done{1};
         std::atomic<Coroutine*> co_p{nullptr};
@@ -387,7 +389,7 @@ BOOST_AUTO_TEST_CASE(t_token_cancel_distinct_from_completed)
             done.Down();
         };
         BOOST_REQUIRE(WaitUntil([&]() { return CoroutineSuspended(co_p); }));
-        source.RequestCancel();
+        co_p.load()->RequestCancel();
         done.Wait();
         BOOST_CHECK(st.load() == WaitStatus::Cancelled);
         BOOST_CHECK(mask.load() & POLL_EVENT_CANCELLED);
@@ -398,9 +400,7 @@ BOOST_AUTO_TEST_CASE(t_token_cancel_distinct_from_completed)
     /* (b) 同一形态等待由 Notify 完成 → Completed，掩码为 CUSTOM */
     {
         auto waiter = sync::CoWaiter::Create();
-        CancellationSource source;
         WaitOptions opt;
-        opt.cancel = source.Token();
 
         bbt::core::thread::CountDownLatch done{1};
         std::atomic<Coroutine*> co_p{nullptr};
@@ -468,8 +468,6 @@ BOOST_AUTO_TEST_CASE(t_narrow_wait_rejections)
 BOOST_AUTO_TEST_CASE(t_end)
 {
     if (g_started.exchange(false))
-        g_scheduler->Stop();
-
     if (g_cfg.saved) {
         auto* cfg = g_bbt_coroutine_config.get();
         cfg->m_cfg_static_thread_num = g_cfg.threads;

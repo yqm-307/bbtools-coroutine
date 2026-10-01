@@ -1,14 +1,28 @@
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MAIN
 #include <boost/test/included/unit_test.hpp>
+#include <mutex>
 
 #include <bbt/coroutine/coroutine.hpp>
+
+/* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
+ * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。 */
+namespace
+{
+void EnsureRuntime()
+{
+    static std::once_flag once;
+    std::call_once(once, [](){
+        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
+    });
+}
+}
 
 BOOST_AUTO_TEST_SUITE(CoEventRegist)
 
 BOOST_AUTO_TEST_CASE(t_begin)
 {
-    g_scheduler->Start();
+    EnsureRuntime();
 }
 
 /* 外部事件注册 */
@@ -132,7 +146,6 @@ BOOST_AUTO_TEST_CASE(t_regist_event_fd_timeout)
 
 BOOST_AUTO_TEST_CASE(t_end)
 {
-    g_scheduler->Stop();
 }
 
 BOOST_AUTO_TEST_SUITE_END()

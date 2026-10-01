@@ -9,11 +9,10 @@ namespace bbt::coroutine::detail
 
 StackPool::UPtr& StackPool::GetInstance()
 {
-    static UPtr _inst = nullptr;
-    if (_inst == nullptr)
-        _inst = UPtr{new StackPool()};
+    /* 进程寿命：运行期对象，不在静态退出期析构 */
+    static UPtr* _holder = new UPtr{new StackPool()};
     
-    return _inst;
+    return *_holder;
 }
 
 StackPool::StackPool():

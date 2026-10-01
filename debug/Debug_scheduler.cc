@@ -26,11 +26,9 @@ void SchedulerThread()
     std::this_thread::sleep_for(bbt::core::clock::milliseconds(1000));
     if (g_count != 50000) {
         printf("final count: %d\n", g_count.load());
-        g_scheduler->Stop();
         return;
     }
 
-    g_scheduler->Stop();
 }
 
 void LoopOnce()
@@ -52,7 +50,6 @@ void LoopOnce()
     // g_scheduler->LoopOnce();
     sleep(1);
 
-    g_scheduler->Stop();
 }
 
 void SetThreadCount()
@@ -62,7 +59,6 @@ void SetThreadCount()
 
 
     sleep(10);
-    g_scheduler->Stop();
 }
 
 int main()

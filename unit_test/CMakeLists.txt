@@ -98,10 +98,12 @@ target_link_libraries(Test_hook_fd_epoch ${MY_LIBS})
 add_test(NAME Test_hook_fd_epoch COMMAND Test_hook_fd_epoch)
 set_tests_properties(Test_hook_fd_epoch PROPERTIES TIMEOUT 20)
 
-add_executable(Test_scheduler_stop Test_scheduler_stop.cc)
-target_link_libraries(Test_scheduler_stop ${MY_LIBS})
-add_test(NAME Test_scheduler_stop COMMAND Test_scheduler_stop)
-set_tests_properties(Test_scheduler_stop PROPERTIES TIMEOUT 30)
+# 多 worker close+reuse 必须独立进程：worker 数在首次 Start 时固定，
+# 同一可执行内无法从 1 切到 4（一次初始化契约），故单列一个进程。
+add_executable(Test_hook_fd_epoch_multi Test_hook_fd_epoch_multi.cc)
+target_link_libraries(Test_hook_fd_epoch_multi ${MY_LIBS})
+add_test(NAME Test_hook_fd_epoch_multi COMMAND Test_hook_fd_epoch_multi)
+set_tests_properties(Test_hook_fd_epoch_multi PROPERTIES TIMEOUT 20)
 
 add_executable(Test_poller Test_poller.cc)
 target_link_libraries(Test_poller ${MY_LIBS})
@@ -217,28 +219,11 @@ add_executable(Test_reliability Test_reliability.cc)
 target_link_libraries(Test_reliability ${MY_LIBS})
 add_test(NAME Test_reliability COMMAND Test_reliability)
 
-add_executable(Test_stop_no_unwind Test_stop_no_unwind.cc)
-target_link_libraries(Test_stop_no_unwind ${MY_LIBS})
-add_test(NAME Test_stop_no_unwind COMMAND Test_stop_no_unwind)
-set_tests_properties(Test_stop_no_unwind PROPERTIES TIMEOUT 15)
-
 # #347 C0：对象身份与运行时代际（C-01）
 add_executable(Test_co_object_identity Test_co_object_identity.cc)
 target_link_libraries(Test_co_object_identity ${MY_LIBS})
 add_test(NAME Test_co_object_identity COMMAND Test_co_object_identity)
 set_tests_properties(Test_co_object_identity PROPERTIES TIMEOUT 15)
-
-# #347 C1：取消令牌（值语义 + 多线程竞争）
-add_executable(Test_cancellation_token Test_cancellation_token.cc)
-target_link_libraries(Test_cancellation_token ${MY_LIBS})
-add_test(NAME Test_cancellation_token COMMAND Test_cancellation_token)
-set_tests_properties(Test_cancellation_token PROPERTIES TIMEOUT 15)
-
-# #347 C1：one-shot 完成信号（C-02..C-05）
-add_executable(Test_completion_signal Test_completion_signal.cc)
-target_link_libraries(Test_completion_signal ${MY_LIBS})
-add_test(NAME Test_completion_signal COMMAND Test_completion_signal)
-set_tests_properties(Test_completion_signal PROPERTIES TIMEOUT 30)
 
 # #347 切片②：唤醒原因独立化 + CoWaiter 窄接口单次等待结果收口
 add_executable(Test_cowaiter_outcome Test_cowaiter_outcome.cc)
@@ -271,3 +256,133 @@ set_tests_properties(
     Test_smoke
     PROPERTIES LABELS "smoke" TIMEOUT 60
 )
+
+################################################################
+# coroutine process-lifetime 公共迁移（coroutine 隔离实现）
+#  - CoEventValue / 带参等待 新公共面
+#  - 公共头逐头独立 TU 编译（仅含伞头不能证明每个头自给）
+#  - CoEventValue 跨 DSO 类型识别（两个独立产物 + 一个消费方）
+################################################################
+
+add_executable(Test_coeventvalue Test_coeventvalue.cc)
+target_link_libraries(Test_coeventvalue ${MY_LIBS})
+add_test(NAME Test_coeventvalue COMMAND Test_coeventvalue)
+set_tests_properties(Test_coeventvalue PROPERTIES TIMEOUT 15)
+
+add_executable(Test_cowaiter_payload Test_cowaiter_payload.cc)
+target_link_libraries(Test_cowaiter_payload ${MY_LIBS})
+add_test(NAME Test_cowaiter_payload COMMAND Test_cowaiter_payload)
+set_tests_properties(Test_cowaiter_payload PROPERTIES TIMEOUT 30)
+
+# 等待代次载荷隔离：确定性交错需单 worker，单列进程固定 1 worker。
+add_executable(Test_cowaiter_payload_rounds Test_cowaiter_payload_rounds.cc)
+target_link_libraries(Test_cowaiter_payload_rounds ${MY_LIBS})
+add_test(NAME Test_cowaiter_payload_rounds COMMAND Test_cowaiter_payload_rounds)
+set_tests_properties(Test_cowaiter_payload_rounds PROPERTIES TIMEOUT 30)
+
+# 三种 Start 模式 / 并发 Start / 进程 exit：各自独立子进程（fork）验证
+add_executable(Test_scheduler_start_modes Test_scheduler_start_modes.cc)
+target_link_libraries(Test_scheduler_start_modes ${MY_LIBS})
+add_test(NAME Test_scheduler_start_modes COMMAND Test_scheduler_start_modes)
+set_tests_properties(Test_scheduler_start_modes PROPERTIES TIMEOUT 30)
+
+# 驱动模式不能在同一可执行内切换：NO_LOOP + LoopOnce 单列进程
+add_executable(Test_scheduler_noloop Test_scheduler_noloop.cc)
+target_link_libraries(Test_scheduler_noloop ${MY_LIBS})
+add_test(NAME Test_scheduler_noloop COMMAND Test_scheduler_noloop)
+set_tests_properties(Test_scheduler_noloop PROPERTIES TIMEOUT 20)
+
+# 跨 DSO：a 构造载荷、b 读取；两侧 traits 依赖公共头的显式登记 ID
+add_library(coeventvalue_dso_a SHARED coeventvalue_dso_a.cc)
+target_link_libraries(coeventvalue_dso_a ${MY_LIBS})
+add_library(coeventvalue_dso_b SHARED coeventvalue_dso_b.cc)
+target_link_libraries(coeventvalue_dso_b ${MY_LIBS})
+add_executable(Test_coeventvalue_dso Test_coeventvalue_dso.cc)
+target_link_libraries(Test_coeventvalue_dso ${MY_LIBS} coeventvalue_dso_a coeventvalue_dso_b)
+add_test(NAME Test_coeventvalue_dso COMMAND Test_coeventvalue_dso)
+set_tests_properties(Test_coeventvalue_dso PROPERTIES TIMEOUT 15)
+
+# 公共头逐头独立 TU：每个头单独编译一个 TU，证明头自给（不依赖伞头的包含顺序）
+set(PUBLIC_HEADER_TU_DIR ${PROJECT_BINARY_DIR}/public_header_tu)
+file(MAKE_DIRECTORY ${PUBLIC_HEADER_TU_DIR})
+set(BBT_PUBLIC_HEADERS
+    bbt/coroutine/sync/WaitTypes.hpp
+    bbt/coroutine/sync/CoEventValue.hpp
+    bbt/coroutine/sync/CoWaiter.hpp
+    bbt/coroutine/sync/CoMutex.hpp
+    bbt/coroutine/sync/CoCond.hpp
+    bbt/coroutine/sync/CoRWMutex.hpp
+    bbt/coroutine/sync/Chan.hpp
+    bbt/coroutine/sync/CoSelect.hpp
+    bbt/coroutine/object/interface/ICoObject.hpp
+    bbt/coroutine/object/CoObject.hpp
+    bbt/coroutine/pool/CoPool.hpp
+    bbt/coroutine/detail/Scheduler.hpp
+    bbt/coroutine/coroutine.hpp
+)
+set(BBT_PUBLIC_HEADER_TUS "")
+foreach(_hdr ${BBT_PUBLIC_HEADERS})
+    string(REPLACE "/" "_" _tu_name ${_hdr})
+    string(REPLACE ".hpp" "" _tu_name ${_tu_name})
+    set(_tu_file ${PUBLIC_HEADER_TU_DIR}/tu_${_tu_name}.cc)
+    file(WRITE ${_tu_file} "#include <${_hdr}>\n")
+    list(APPEND BBT_PUBLIC_HEADER_TUS ${_tu_file})
+endforeach()
+add_library(bbt_public_header_tu OBJECT ${BBT_PUBLIC_HEADER_TUS})
+target_link_libraries(bbt_public_header_tu PRIVATE ${MY_LIBS})
+
+# 负向编译检查：超过 24B 的载荷与越界自定义登记 ID 必须编译失败，且失败
+# 原因必须是预期的那条断言（不能是命名空间/拼写等无关错误）。
+set(BBT_NEGATIVE_DIR ${PROJECT_BINARY_DIR}/negative_compile)
+file(MAKE_DIRECTORY ${BBT_NEGATIVE_DIR})
+
+# 正向对照：同款 include + 合法 24B 载荷 + 合法自定义登记 ID 必须通过编译，
+# 证明后续负例的失败只来自被检查的断言，而非公共头/命名空间本身。
+file(WRITE ${BBT_NEGATIVE_DIR}/ok_24b.cc
+    "#include <bbt/coroutine/sync/CoEventValue.hpp>\nstruct OkPayload { unsigned char b[24]; };\nBBT_COEVENT_VALUE_REGISTER_TYPE(OkPayload, 0x100);\nint main() { auto v = bbt::coroutine::CoEventValue::From(OkPayload{}); (void)v; return 0; }\n")
+
+# 容量负例：类型已合法登记（ID 合法），唯一可能的编译错误就是 24B 容量断言。
+file(WRITE ${BBT_NEGATIVE_DIR}/too_large.cc
+    "#include <bbt/coroutine/sync/CoEventValue.hpp>\nstruct Oversize { unsigned char b[25]; };\nBBT_COEVENT_VALUE_REGISTER_TYPE(Oversize, 0x1ff);\nint main() { auto v = bbt::coroutine::CoEventValue::From(Oversize{}); (void)v; return 0; }\n")
+# ID 负例：登记 ID=1 越出自定义区间，须命中区间断言。
+file(WRITE ${BBT_NEGATIVE_DIR}/bad_id.cc
+    "#include <bbt/coroutine/sync/CoEventValue.hpp>\nstruct BadId { int a; };\nBBT_COEVENT_VALUE_REGISTER_TYPE(BadId, 1);\nint main() { return (int)bbt::coroutine::CoEventValueTraits<BadId>::id; }\n")
+
+# 指针层级负例：超过 kCoEventValueMaxPointerDepth 的层级 ID 会 uint32 回绕并
+# 与低位类型撞号，必须由 traits 的 static_assert 拒绝（而非静默回绕）。
+# 正向对照：合法深度见 ok_24b.cc 与 Test_coeventvalue 的 t_pointer_depth_within_capacity。
+file(WRITE ${BBT_NEGATIVE_DIR}/too_deep.cc
+    "#include <bbt/coroutine/sync/CoEventValue.hpp>\nusing P1 = int*; using P2 = P1*; using P3 = P2*; using P4 = P3*;\nusing P5 = P4*; using P6 = P5*; using P7 = P6*; using P8 = P7*;\nint main() { return (int)bbt::coroutine::CoEventValueTraits<P8>::id; }\n")
+
+try_compile(_bbt_pos_compiled
+    ${PROJECT_BINARY_DIR}/negative_compile/ok_24b
+    ${BBT_NEGATIVE_DIR}/ok_24b.cc
+    CMAKE_FLAGS "-DINCLUDE_DIRECTORIES=${PROJECT_SOURCE_DIR}"
+    CXX_STANDARD 17
+    OUTPUT_VARIABLE _bbt_pos_out)
+if(NOT _bbt_pos_compiled)
+    message(FATAL_ERROR "正向对照编译失败：ok_24b.cc 本应通过：\n${_bbt_pos_out}")
+endif()
+
+foreach(_neg too_large bad_id too_deep)
+    try_compile(_bbt_neg_compiled
+        ${PROJECT_BINARY_DIR}/negative_compile/${_neg}
+        ${BBT_NEGATIVE_DIR}/${_neg}.cc
+        CMAKE_FLAGS "-DINCLUDE_DIRECTORIES=${PROJECT_SOURCE_DIR}"
+        CXX_STANDARD 17
+        OUTPUT_VARIABLE _bbt_neg_out)
+    if(_bbt_neg_compiled)
+        message(FATAL_ERROR "负向编译检查失败：${_neg}.cc 本应被拒绝却编译通过")
+    endif()
+    set(_bbt_neg_out_${_neg} "${_bbt_neg_out}")
+endforeach()
+
+if(NOT _bbt_neg_out_too_large MATCHES "载荷超过 24 字节内联容量")
+    message(FATAL_ERROR "too_large.cc 的失败原因不是容量断言：\n${_bbt_neg_out_too_large}")
+endif()
+if(NOT _bbt_neg_out_bad_id MATCHES "自定义类型 ID 必须落在自定义登记区间")
+    message(FATAL_ERROR "bad_id.cc 的失败原因不是 ID 区间断言：\n${_bbt_neg_out_bad_id}")
+endif()
+if(NOT _bbt_neg_out_too_deep MATCHES "指针层级超过 kCoEventValueMaxPointerDepth")
+    message(FATAL_ERROR "too_deep.cc 的失败原因不是层级容量断言：\n${_bbt_neg_out_too_deep}")
+endif()

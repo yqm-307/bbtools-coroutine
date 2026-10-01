@@ -44,6 +44,5 @@ int main()
 
     dbg_bbtco_yield();
 
-    g_scheduler->Stop();
     return 0;
 }

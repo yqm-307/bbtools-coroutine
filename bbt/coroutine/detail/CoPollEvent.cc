@@ -151,17 +151,33 @@ CoPollEventId CoPollEvent::_GenerateId()
     return ++_id;
 }
 
-/* fd → {代际, closing, 活跃等待事件}（#262 唤醒 + #370 代际线性化） */
-std::mutex CoPollEvent::s_waiters_mtx;
-std::unordered_map<int, CoPollEvent::FdSlot> CoPollEvent::s_slots;
+/* fd → {代际, closing, 活跃等待事件}（#262 唤醒 + #370 代际线性化）
+ *
+ * 进程寿命持有：本表与互斥量被 worker / poller 在进程寿命内持续可达
+ * （worker 活到进程结束，没有 Stop/join 可等待）。若它们参与静态析构，
+ * 正常退出时注册表的析构与在途 worker 的表访问构成竞态窗口。
+ * 与 Scheduler / GlobalConfig / CoPoller / StackPool / Profiler 五个单例
+ * 同一策略：只泄漏、不在静态退出期析构（退出由 OS 回收）。
+ * 用函数局部静态保证首次使用时初始化，避免动态初始化顺序问题。 */
+std::mutex& CoPollEvent::_WaitersMtx()
+{
+    static std::mutex* mtx = new std::mutex();
+    return *mtx;
+}
+
+CoPollEvent::FdSlots& CoPollEvent::_Slots()
+{
+    static FdSlots* slots = new FdSlots();
+    return *slots;
+}
 
 bool CoPollEvent::_TrackWaiter()
 {
     if (m_fd < 0 || m_event == nullptr)
         return true;    // 非 fd 事件：不登记，也无须代际判定
 
-    std::lock_guard<std::mutex> lock(s_waiters_mtx);
-    auto& slot = s_slots[m_fd];
+    std::lock_guard<std::mutex> lock(_WaitersMtx());
+    auto& slot = _Slots()[m_fd];
     /* #370 建立窗口闭合：登记与采样虽然仍在同一临界区，但判定基线是
      * InitFdEvent 时锁内采样的 establish-epoch（m_wait_epoch），而非
      * 此刻的 slot.epoch。两种失败形态：
@@ -185,7 +201,7 @@ bool CoPollEvent::_TrackWaiter()
                                  [](const std::weak_ptr<CoPollEvent>& w) { return w.expired(); }),
                   vec.end());
         if (vec.empty() && !slot.closing && slot.epoch == 0)
-            s_slots.erase(m_fd);
+            _Slots().erase(m_fd);
     }
     return true;
 }
@@ -195,9 +211,9 @@ void CoPollEvent::_UntrackWaiter()
     if (m_fd < 0)
         return;
 
-    std::lock_guard<std::mutex> lock(s_waiters_mtx);
-    auto it = s_slots.find(m_fd);
-    if (it == s_slots.end())
+    std::lock_guard<std::mutex> lock(_WaitersMtx());
+    auto it = _Slots().find(m_fd);
+    if (it == _Slots().end())
         return;
 
     auto& vec = it->second.waiters;
@@ -212,21 +228,21 @@ void CoPollEvent::_UntrackWaiter()
      * FdWaitEpochValid 误判合法（#370 round-2 复审发现）。closing 槽位
      * 由 EndFdClose 收尾；仅 epoch==0（从未 close）且无 waiter 才摘除。 */
     if (vec.empty() && !it->second.closing && it->second.epoch == 0)
-        s_slots.erase(it);
+        _Slots().erase(it);
 }
 
 uint64_t CoPollEvent::FdEpoch(int fd)
 {
-    std::lock_guard<std::mutex> lock(s_waiters_mtx);
-    auto it = s_slots.find(fd);
-    return it == s_slots.end() ? 0 : it->second.epoch;
+    std::lock_guard<std::mutex> lock(_WaitersMtx());
+    auto it = _Slots().find(fd);
+    return it == _Slots().end() ? 0 : it->second.epoch;
 }
 
 size_t CoPollEvent::FdWaiterCount(int fd)
 {
-    std::lock_guard<std::mutex> lock(s_waiters_mtx);
-    auto it = s_slots.find(fd);
-    if (it == s_slots.end())
+    std::lock_guard<std::mutex> lock(_WaitersMtx());
+    auto it = _Slots().find(fd);
+    if (it == _Slots().end())
         return 0;
     size_t n = 0;
     for (auto& w : it->second.waiters)
@@ -239,11 +255,11 @@ bool CoPollEvent::BeginFdClose(int fd)
 {
     std::vector<SPtr> snapshot;
     {
-        std::lock_guard<std::mutex> lock(s_waiters_mtx);
+        std::lock_guard<std::mutex> lock(_WaitersMtx());
         /* #370 线性化点：在底层 close 之前，于同一临界区内完成
          * 代际推进 + closing 置位 + 摘走全部旧 waiter。此后到达的同号
          * waiter 采样新 epoch 或看到 closing，均不会被本批误摘/误醒。 */
-        auto& slot = s_slots[fd];
+        auto& slot = _Slots()[fd];
         if (slot.closing)
             return false;   // 已被其它线程 claim；本 close 走 EBADF/原语义
         ++slot.epoch;
@@ -265,15 +281,15 @@ void CoPollEvent::EndFdClose(int fd)
     /* 底层 close 已返回（成功或失败），解除 closing；此后登记的同号 waiter
      * 属于复用后的新对象，采样新一代际。close 失败时旧对象仍存在，但代际
      * 已推进——保守地把同号 fd 视为新一代，旧 waiter 已摘走不重挂。 */
-    std::lock_guard<std::mutex> lock(s_waiters_mtx);
-    auto it = s_slots.find(fd);
-    if (it == s_slots.end())
+    std::lock_guard<std::mutex> lock(_WaitersMtx());
+    auto it = _Slots().find(fd);
+    if (it == _Slots().end())
         return;
     it->second.closing = false;
     /* epoch>0 的槽位必须保留：FdEpoch 缺席返回 0 会与首代 establish-epoch
      * 别名，使「触发后未恢复」窗口内的 close 无法被识别（#370 round-2）。 */
     if (it->second.waiters.empty() && it->second.epoch == 0)
-        s_slots.erase(it);
+        _Slots().erase(it);
 }
 
 bool CoPollEvent::WaitFdCloseReady(int fd, int timeout_ms)
@@ -282,23 +298,23 @@ bool CoPollEvent::WaitFdCloseReady(int fd, int timeout_ms)
      * 1ms 粒度足够。槽位缺席 ⇒ closing 已解除或本 fd 从未被 claim，均安全。 */
     for (int i = 0; i < timeout_ms; ++i) {
         {
-            std::lock_guard<std::mutex> lock(s_waiters_mtx);
-            auto it = s_slots.find(fd);
-            if (it == s_slots.end() || !it->second.closing)
+            std::lock_guard<std::mutex> lock(_WaitersMtx());
+            auto it = _Slots().find(fd);
+            if (it == _Slots().end() || !it->second.closing)
                 return true;
         }
         RawSleepMs(1);
     }
-    std::lock_guard<std::mutex> lock(s_waiters_mtx);
-    auto it = s_slots.find(fd);
-    return it == s_slots.end() || !it->second.closing;
+    std::lock_guard<std::mutex> lock(_WaitersMtx());
+    auto it = _Slots().find(fd);
+    return it == _Slots().end() || !it->second.closing;
 }
 
 bool CoPollEvent::FdIsClosing(int fd)
 {
-    std::lock_guard<std::mutex> lock(s_waiters_mtx);
-    auto it = s_slots.find(fd);
-    return it != s_slots.end() && it->second.closing;
+    std::lock_guard<std::mutex> lock(_WaitersMtx());
+    auto it = _Slots().find(fd);
+    return it != _Slots().end() && it->second.closing;
 }
 
 int CoPollEvent::InitFdEvent(int fd, short events, int timeout)
@@ -316,8 +332,8 @@ int CoPollEvent::InitFdEvent(int fd, short events, int timeout)
      * 拒绝——asio async_wait 若绑在已死 fd 上事件永不触发，必须在此
      * 拦下而不是等一个不会到的唤醒。 */
     if (fd >= 0) {
-        std::lock_guard<std::mutex> lock(s_waiters_mtx);
-        m_wait_epoch = s_slots[fd].epoch;
+        std::lock_guard<std::mutex> lock(_WaitersMtx());
+        m_wait_epoch = _Slots()[fd].epoch;
     }
     auto weakthis = weak_from_this();
     /* #284：asio 侧旧监听的析构延迟到驱动线程下一次 PollOnce 兑现；本协程

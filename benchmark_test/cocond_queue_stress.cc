@@ -49,7 +49,7 @@ int main(int argc, char** argv) {
     double elapsed = std::chrono::duration<double>(t1 - t0).count();
     uint64_t ops = g_ops.load();
 
-    g_scheduler->Stop();
+    /* process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出 */
     printf("ops=%lu elapsed=%.2fs ops/s=%.0f\n", ops, elapsed, ops / elapsed);
     return 0;
 }

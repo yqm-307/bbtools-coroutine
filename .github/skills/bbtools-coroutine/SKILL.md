@@ -22,11 +22,13 @@ description: >
 
 详细：`references/architecture.md`
 
+维护契约：[`.skill-charter/CHARTER.md`](.skill-charter/CHARTER.md)
+
 ## 2. 用法
 
 | 章节 | 何时读 |
 |------|--------|
-| 基本用法 | `Start` / `bbtco` / `sleep` / `Stop` |
+| 基本用法 | `Start` / `bbtco` / `sleep` / `IsInitialized` |
 | 进阶用法 | Chan、锁、CoSelect、事件、Hook IO、配置 |
 | 使用范式 | 生产消费、锁+条件变量、CoPool、事件驱动 |
 
@@ -48,7 +50,7 @@ description: >
 禁止：
 
 - 在即将销毁的栈变量上挂协程引用捕获（`bbtco` 是 detached）
-- 把 `Stop()` 当成「等任务跑完」
+- 把进程退出当成「等任务跑完」：无业务停机入口，业务完成要用 latch/Chan 收齐后再返回 main
 - `Start(SCHE_START_OPT_SCHE_THREAD)` 之后调用 `LoopOnce()`
 - 非协程上下文调用会挂起的 API（`Wait` / `Lock` 等待 / `Chan` 阻塞读写 / `bbtco_wait_for`）
 - `CoSelect` 搭配 `Chan<T,0>`
@@ -56,4 +58,4 @@ description: >
 - 在 `CoPool` 任务里跑长时间 CPU 循环占住池协程
 - 发明新宏或让宏承载另一套状态机
 - 用 `auto x = mutex->Lock()`（`Lock()` 返回 `void`）
-- 停机后再 `bbtco` 还不接异常 / 不查 `bbtco_noexcept` 的 `succ`
+- 未 `Start`（未初始化）就 `bbtco` 还不接异常 / 不查 `bbtco_noexcept` 的 `succ`

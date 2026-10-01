@@ -86,8 +86,7 @@ int main()
 
     sleep(1);
     
-    // 停止调度器
-    g_scheduler->Stop();
+    // 无停机入口：进程寿命模型下调度器随进程退出，不需要 Stop
     return 0;
 }
 ```
@@ -159,7 +158,6 @@ int main()
     printf("=== Multi Writer Example ===\n");
     MultiWriterExample();
     
-    g_scheduler->Stop();
     return 0;
 }
 ```
@@ -226,7 +224,6 @@ int main()
     printf("=== NotifyAll Example ===\n");
     NotifyAllExample();
     
-    g_scheduler->Stop();
     return 0;
 }
 ```
@@ -273,7 +270,6 @@ int main()
     printf("=== CoMutex Example ===\n");
     CoMutexExample();
     
-    g_scheduler->Stop();
     return 0;
 }
 ```
@@ -318,7 +314,6 @@ int main()
     printf("=== CoPool Example ===\n");
     CoPoolExample();
     
-    g_scheduler->Stop();
     return 0;
 }
 ```
@@ -384,7 +379,6 @@ int main()
     printf("=== Timeout Example ===\n");
     TimeoutExample();
     
-    g_scheduler->Stop();
     return 0;
 }
 ```
@@ -446,7 +440,6 @@ int main()
     printf("=== Defer Resource Example ===\n");
     DeferWithResourceExample();
     
-    g_scheduler->Stop();
     return 0;
 }
 ```
@@ -479,7 +472,6 @@ int main()
 {
     g_scheduler->Start();
     CoSelectExample();
-    g_scheduler->Stop();
     return 0;
 }
 ```
@@ -520,7 +512,6 @@ int main()
 {
     g_scheduler->Start();
     CoRWMutexExample();
-    g_scheduler->Stop();
     return 0;
 }
 ```
@@ -580,19 +571,20 @@ int main()
 
 | 方法 | 描述 | 示例 |
 |------|------|------|
-| `g_scheduler->Start(opt)` | 启动调度器（默认后台线程模式） | 程序开始时调用 |
-| `g_scheduler->Stop()` | 停止调度器（取消式停机，见下） | 程序结束时调用 |
-| `g_scheduler->LoopOnce()` | 单次调度循环（用于手动驱动/测试） | 手动模式循环调用 |
-| `g_scheduler->IsRunning()` | 调度器是否在运行 | 注册任务前检查 |
+| `g_scheduler->Start(opt)` | 启动调度器（默认后台线程模式）；成功后重复调用抛 `std::logic_error` | 程序开始时调用一次 |
+| `g_scheduler->LoopOnce()` | 单次调度循环（仅 `NO_LOOP` 模式，用于手动驱动/测试） | 手动模式循环调用 |
+| `g_scheduler->IsInitialized()` | 运行时是否已完成初始化（进程寿命内恒为 true） | 注册任务前检查 |
 
-## 三之二、停机与生命周期契约（v1 M1）
+## 三之二、进程寿命与生命周期契约（v1 M1）
 
 与旧文档/旧行为的关键差异，迁移时必读：
 
 | 变更 | 新契约 | 迁移动作 |
 |------|--------|----------|
-| `Scheduler::Stop()` | 取消式停机：不强杀运行中协程；parked（fd/定时器等待）协程被唤醒销毁；未执行任务真回收（不再泄漏）。Stop 有界返回，可重复调用 | 停机时刻不要依赖任务"跑完"；需要完成语义的，停机前自行等待业务 latch |
-| Stop 后注册任务 | 明确失败：`bbtco_noexcept` 的 succ=false，无 noexcept 版抛异常（旧行为：Release 下假成功+泄漏） | 注册前检查 `IsRunning()` 或接住异常 |
+| `Scheduler::Stop()` / 重启 | 已删除，不留兼容壳；运行时是进程寿命对象：不做取消式停机、不排空任务、不 unload、不 join worker。旧「取消式停机：不强杀运行中协程；parked 协程被唤醒销毁；未执行任务真回收；Stop 有界可重复调用」的说明 **superseded** | 删除 `Stop()` 调用与停机后重启逻辑；把「停机前自行等业务 latch」这类依赖改为进程退出即结束 |
+| `Scheduler::IsRunning()` | 已删除，改为 `Scheduler::IsInitialized()`：初始化完成后恒为 true，不因业务关闭归零 | 把 `IsRunning()` 判断改为 `IsInitialized()`；不再有「已停止」分支 |
+| 运行时代际 | `RuntimeGeneration` / `CurrentRuntimeGeneration()` / `Scheduler::GetRunGeneration()` / `CoObjectInfo::generation` 全部删除；`CreateObjectInfo` 前置条件改为「运行时已初始化」 | 删除代际字段与代际查询调用；对象身份只保留进程内递增、不复用的 `id` |
+| 静态退出期析构 | 运行时及其依赖（poller/config/DNS worker/Scheduler 单例）按进程寿命策略不在静态退出期析构（实例持有者刻意泄漏，不 detach 线程） | 不要依赖运行时析构做收尾清理 |
 | `CoPool::Release()` | 取消式：停止接收新任务、等待运行中协程退出、排空未执行任务；带 future 的被排任务以 `broken_promise` 兑现，不会永挂 | `SubmitAndWait` 的 future 增加 `broken_promise` catch；不要指望 Release 后 future 全部有效 |
 | Hook IO 与 FD | 库不要求也不期望传入 blocking fd：协程 IO 期间临时强制 `O_NONBLOCK`，返回时恢复原 flags（#260）；`MSG_DONTWAIT` 直通原生（#261）；`SO_RCVTIMEO/SNDTIMEO` 由协程 deadline 实现有界返回 `-1/EAGAIN`（#261） | 多线程共享同一 fd 并发做 IO 的旧代码需自查 flags 竞态（契约排除项） |
 | 等待中 fd 被 close | 唤醒等待协程，重试 syscall 返回 `EBADF`（#262，不再永久挂起） | 依赖"close 后等待者自醒"的代码语义已可正常工作 |
@@ -800,9 +792,6 @@ int main()
     
     // 运行示例
     ProducerConsumerExample();
-    
-    // 停止调度器
-    g_scheduler->Stop();
     
     printf("Example completed successfully!\n");
     return 0;

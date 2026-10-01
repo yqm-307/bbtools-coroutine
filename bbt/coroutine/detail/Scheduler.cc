@@ -14,7 +14,6 @@
 #include <bbt/coroutine/detail/Profiler.hpp>
 #include <bbt/coroutine/detail/LocalThread.hpp>
 #include <bbt/coroutine/detail/StackPool.hpp>
-#include <bbt/coroutine/detail/DnsResolver.hpp>
 #include <bbt/coroutine/detail/debug/DebugMgr.hpp>
 
 namespace bbt::coroutine::detail
@@ -22,11 +21,12 @@ namespace bbt::coroutine::detail
 
 Scheduler::UPtr& Scheduler::GetInstance()
 {
-    static UPtr _inst{nullptr};
-    if (_inst == nullptr)
-        _inst = UPtr(new Scheduler());
-    
-    return _inst;
+    /* 进程寿命（process-lifetime）策略：运行时实例与其依赖的 poller/config/
+     * worker 一起活到进程结束，不在静态退出期析构。Stop 已删除，静态析构会
+     * 直接销毁仍被 worker 线程使用的对象，因此这里故意让持有者泄漏——不是
+     * detach 线程，也不依赖“退出时没人用”的假设（atexit 顺序不可依赖）。 */
+    static UPtr* _holder = new UPtr(new Scheduler());
+    return *_holder;
 }
 
 Scheduler::Scheduler():
@@ -34,27 +34,24 @@ Scheduler::Scheduler():
 {
 }
 
-Scheduler::~Scheduler()
-{
-    if (m_is_running.load(std::memory_order_acquire) || m_sche_thread != nullptr)
-        Stop();
-}
+/* 进程寿命：本析构实际不会被调用（实例持有者泄漏）；保留默认实现，
+ * 不得在这里恢复任何停机收口。 */
+Scheduler::~Scheduler() = default;
 
 void Scheduler::_Init()
 {
-    const bool restarting = m_run_status == ScheudlerStatus::SCHE_EXIT;
     m_sche_thread = nullptr;
-    m_run_status = SCHE_DEFAULT;
     m_regist_coroutine_count = 0;
     m_down_latch.Reset(g_bbt_coroutine_config->m_cfg_static_thread_num);
+}
 
-    {
-        std::lock_guard<std::mutex> lock(m_global_queue_mutex);
-        if (restarting)
-            m_run_generation.fetch_add(1, std::memory_order_acq_rel);
-        m_is_running.store(true, std::memory_order_release);
-        m_has_started.store(true, std::memory_order_release);
-    }
+void Scheduler::_PublishInitialized()
+{
+    /* “初始化完成”= worker 已创建并登记、poller/config 已就绪。
+     * 标志必须在进入运行循环前发布：LOOP 模式（Start 不返回）下这是
+     * 外部唯一能观察到初始化完成的时刻。m_start_state 停在 Starting
+     * 即表示“已启动过”，重复 Start 由它拒绝。 */
+    m_initialized.store(true, std::memory_order_release);
 }
 
 void Scheduler::RegistCoroutineTask(const CoroutineCallback& handle, const char* desc)
@@ -62,8 +59,6 @@ void Scheduler::RegistCoroutineTask(const CoroutineCallback& handle, const char*
     Coroutine::Ptr coroutine = nullptr;
     {
         std::lock_guard<std::mutex> lock(m_global_queue_mutex);
-        if (!m_is_running.load(std::memory_order_acquire))
-            throw std::runtime_error("scheduler stopped: coroutine task rejected");
         coroutine = Coroutine::Create(
             g_bbt_coroutine_config->m_cfg_stack_size,
             handle,
@@ -107,30 +102,12 @@ void Scheduler::OnActiveCoroutine(CoroutinePriority priority, Coroutine::Ptr cor
 #endif
     AssertWithInfo(priority >= CO_PRIORITY_LOW && priority < CO_PRIORITY_COUNT, "invalid priority!");
     AssertWithInfo(coroutine != nullptr, "coroutine is nullptr!");
-    const auto current_processer = g_bbt_tls_processer;
-    const bool called_by_running_processer = current_processer != nullptr &&
-        current_processer->GetCurrentCoroutine() == coroutine;
-    bool reclaim = false;
+    /* 无停机、无代际：激活的协程一律回全局队列；没有需要 reclaim 的
+     * “已停止/旧代际”路径，也不再有 Stop 排空的所有权交接。 */
     {
         std::lock_guard<std::mutex> lock(m_global_queue_mutex);
-        const bool stopped = !m_is_running.load(std::memory_order_acquire);
-        const bool stale = coroutine->m_scheduler_generation.load(std::memory_order_acquire) !=
-            m_run_generation.load(std::memory_order_acquire);
-        if (stopped || stale) {
-            if (called_by_running_processer) {
-                /* 当前 worker 仍在访问自己的栈/运行态，交给 Stop 排空。 */
-                AssertWithInfo(m_global_coroutine_queue[priority].enqueue(coroutine), "oom!");
-            } else {
-                /* 外部完成路径已离开 parked 表；事件完成回调返回后不再访问
-                 * coroutine，此处成为唯一释放者，避免对象脱离所有权集合。 */
-                reclaim = true;
-            }
-        } else {
-            AssertWithInfo(m_global_coroutine_queue[priority].enqueue(coroutine), "oom!");
-        }
+        AssertWithInfo(m_global_coroutine_queue[priority].enqueue(coroutine), "oom!");
     }
-    if (reclaim)
-        delete coroutine;
 }
 
 void Scheduler::_FixTimingScan()
@@ -243,7 +220,8 @@ void Scheduler::_Run()
 #ifdef BBT_COROUTINE_PROFILE
     g_bbt_profiler->OnEvent_StartScheudler();
 #endif
-    while(m_is_running.load(std::memory_order_acquire))
+    /* 进程寿命：调度循环不设退出条件——没有业务停机入口，退出即进程结束 */
+    for (;;)
     {
         _OnUpdate();
 
@@ -254,7 +232,15 @@ void Scheduler::_Run()
 
 void Scheduler::Start(SchedulerStartOpt opt)
 {
-    DnsResolver::GetInstance()->Start();
+    {
+        /* Start 一次性：状态检查与转移同锁，拒绝重复与并发 Start。
+         * 不能用布尔字段代替同步——两个线程同时读到 false 会双双进入初始化。 */
+        std::lock_guard<std::mutex> lock(m_start_mutex);
+        if (m_start_state != StartState::NotStarted)
+            throw std::logic_error{"Scheduler::Start: runtime already started"};
+        m_start_state = StartState::Starting;
+    }
+
     _InitGlobalUniqInstance();
     _Init();
     bbt::core::thread::CountDownLatch wg{1};
@@ -265,6 +251,8 @@ void Scheduler::Start(SchedulerStartOpt opt)
         Assert(m_sche_thread == nullptr);
         m_sche_thread = new std::thread([this, &wg](){
             _CreateProcessers();
+            /* 初始化标志先于运行循环发布；latch 放行表示 Start 即将返回 */
+            _PublishInitialized();
             wg.Down();
             _Run();
         });
@@ -273,10 +261,12 @@ void Scheduler::Start(SchedulerStartOpt opt)
 
     case SCHE_START_OPT_SCHE_NO_LOOP:
         _CreateProcessers();
+        _PublishInitialized();
         break;
 
     case SCHE_START_OPT_SCHE_LOOP:
         _CreateProcessers();
+        _PublishInitialized();
         _Run();
         break;
 
@@ -292,68 +282,6 @@ void Scheduler::LoopOnce()
     AssertWithInfo(m_sche_thread == nullptr, "the sche-thread has been started!");
 
     _OnUpdate();
-}
-
-
-void Scheduler::Stop()
-{
-    /**
-     * 时序约束（#231）：先停 DNS 池——Stop 会 join worker 并 Notify 全部
-     * 排队/在途 Job 的 CoWaiter，唤醒路径要把协程重新投入调度队列；
-     * 必须在 _DestoryProcessers() 之前执行，否则被唤醒的协程无人执行、
-     * 且 worker 写回调用方协程栈时栈可能已析构。
-     */
-    DnsResolver::GetInstance()->Stop();
-
-    {
-        std::lock_guard<std::mutex> lock(m_global_queue_mutex);
-        m_is_running.store(false, std::memory_order_release);
-        m_has_started.store(false, std::memory_order_release);
-    }
-
-    _DestoryProcessers();
-    
-    if (m_sche_thread != nullptr) {
-        if (m_sche_thread->joinable())
-            m_sche_thread->join();
-        delete m_sche_thread;
-    }
-
-    m_sche_thread = nullptr;
-    auto drain_global_queue = [this]() {
-        std::vector<Coroutine::Ptr> reclaim;
-        {
-            std::lock_guard<std::mutex> lock(m_global_queue_mutex);
-            Coroutine::Ptr item = nullptr;
-            for (auto && queue : m_global_coroutine_queue)
-                while (queue.try_dequeue(item)) {
-                    reclaim.push_back(item);
-                    item = nullptr;
-                }
-        }
-        /* 只摘链持锁，锁外析构，避免 Context/用户闭包析构重入队列锁。 */
-        for (auto* co : reclaim)
-            delete co;
-    };
-    /* 停机排空（#280）：此刻全部 worker、Scheduler 线程已 join，队列无并发
-     * 消费者。与外部 Notify 入队串行。 */
-    drain_global_queue();
-
-    /* parked 协程（挂起在 fd/timer/custom 事件上、不在任何队列）在此统一回收：
-     * 取消式停机不复活执行，直接注销事件并销毁。必须在全部线程 join 之后。 */
-    Coroutine::DestroyParkedCoroutines();
-
-    /* 兜底（#339）：DestroyParkedCoroutines 对 UnRegist 失败（唤醒在途）的协程
-     * 保持 parked 所有权；完成路径不会丢弃对象。 */
-    drain_global_queue();
-
-    m_run_status = ScheudlerStatus::SCHE_EXIT;
-#ifdef BBT_COROUTINE_PROFILE
-    std::string profileinfo;
-    g_bbt_profiler->ProfileInfo(profileinfo);
-    bbt::core::log::DebugPrint(profileinfo.c_str());
-#endif
-
 }
 
 size_t Scheduler::GetCoroutineFromGlobal(CoroutinePriority priority, CoroutineQueue& queue, size_t size)
@@ -387,9 +315,9 @@ void Scheduler::_CreateProcessers()
                 this->m_processer_map.insert(std::make_pair(processer->GetId(), processer));
                 m_load_blance_vec.push_back(processer);
             }
-            // 时序约束：必须在 latch 放行前完成初始化。latch 放行表示 Start() 即将返回，
-            // 调用方随后可能立即 Stop()；若初始化延后到放行后，会把 Stop() 已发布的
-            // 停止标志重置为 true，导致该 Processer 在空闲等待中永久挂起。
+            // 时序约束：必须在 latch 放行前完成初始化。latch 放行表示 Start() 即将
+            // 返回，外部可能立刻开始注册/驱动协程；若初始化延后到放行后，
+            // Processer 会在尚未就绪时被投递任务。
             processer->_Init();
             this->m_down_latch.Down();
             this->m_down_latch.Wait();
@@ -401,29 +329,6 @@ void Scheduler::_CreateProcessers()
     m_down_latch.Wait();
 }
 
-void Scheduler::_DestoryProcessers()
-{
-    /* 停止所有执行processer */
-    for (auto item : m_processer_map)
-        item.second->Stop();
-    /* #277 review：调度线程(_FixTimingScan)持锁迭代 map，clear 必须同锁，
-     * 否则 Stop 时并发 erase/iterate = UB（sche 线程此刻尚未 join） */
-    {
-        std::lock_guard<std::mutex> _(m_processer_map_mutex);
-        m_processer_map.clear();
-        m_load_blance_vec.clear();
-    }
-
-    /* 释放所有执行processer的线程 */
-    for (auto&& proc_thread : m_proc_threads) {
-        if (proc_thread->joinable())
-            proc_thread->join();
-        delete proc_thread;
-    }
-
-    m_proc_threads.clear();
-}
-
 bool Scheduler::_LoadBlance2Proc(CoroutinePriority priority, Coroutine::Ptr co)
 {
     std::lock_guard<std::mutex> _(m_processer_map_mutex);
@@ -433,7 +338,11 @@ bool Scheduler::_LoadBlance2Proc(CoroutinePriority priority, Coroutine::Ptr co)
     uint32_t index = m_load_idx;
     m_load_idx++;
 
-    index %= g_bbt_coroutine_config->m_cfg_static_thread_num;
+    /* 按实际登记表容量取模，不能读 m_cfg_static_thread_num：worker 数在
+     * Start 时按当次配置建成，此后 m_load_blance_vec 才是权威；配置项在
+     * Start 之后被外部改写会让下标越界（验收发现的多 worker 崩溃：
+     * std::vector<shared_ptr<Processer>>::operator[] 断言）。 */
+    index %= m_load_blance_vec.size();
     auto proc = m_load_blance_vec[index];
     proc->AddCoroutineTask(priority, co);
 
@@ -452,7 +361,10 @@ int Scheduler::TryWorkSteal(Processer::SPtr thief)
      */
     uint32_t index = m_steal_idx;
     int steal_num = 0;
-    int max_processer_num = m_processer_map.size();
+    /* 与 _LoadBlance2Proc 同口径：窃取也以实际登记表容量为准 */
+    int max_processer_num = static_cast<int>(m_load_blance_vec.size());
+    if (max_processer_num <= 0)
+        return 0;
 
     for (int i = 0; i < max_processer_num; i++) {
         m_steal_idx++;

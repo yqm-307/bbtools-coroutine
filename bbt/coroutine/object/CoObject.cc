@@ -15,17 +15,12 @@ std::atomic<CoObjectId> g_next_object_id{1};
 
 }
 
-RuntimeGeneration CurrentRuntimeGeneration() noexcept
-{
-    return static_cast<RuntimeGeneration>(
-        detail::Scheduler::GetInstance()->GetRunGeneration());
-}
-
 CoObjectInfo CreateObjectInfo(std::string kind, std::string name)
 {
-    const auto generation = CurrentRuntimeGeneration();
-    if (generation == 0)
-        throw std::logic_error{"CoObject: runtime generation unavailable"};
+    /* 前置条件不再是「有可归属的运行时代际」，而是「运行时已初始化」：
+     * 没有停机/重启，身份一旦可分配就永远有效。 */
+    if (!detail::Scheduler::GetInstance()->IsInitialized())
+        throw std::logic_error{"CoObject: runtime not initialized"};
 
     auto cur = g_next_object_id.load(std::memory_order_relaxed);
     for (;;)
@@ -38,7 +33,7 @@ CoObjectInfo CreateObjectInfo(std::string kind, std::string name)
             break;
     }
 
-    return CoObjectInfo{cur, generation, std::move(kind), std::move(name)};
+    return CoObjectInfo{cur, std::move(kind), std::move(name)};
 }
 
 } // namespace bbt::coroutine

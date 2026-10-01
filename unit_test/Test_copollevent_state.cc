@@ -20,6 +20,19 @@
 #include <bbt/coroutine/detail/CoPoller.hpp>
 #include <bbt/coroutine/detail/GlobalConfig.hpp>
 
+/* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
+ * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。 */
+namespace
+{
+void EnsureRuntime()
+{
+    static std::once_flag once;
+    std::call_once(once, [](){
+        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
+    });
+}
+}
+
 using namespace bbt::coroutine::detail;
 
 namespace
@@ -87,9 +100,10 @@ public:
 
     void Stop()
     {
+        /* 进程寿命：运行时不再有停机入口（Scheduler::Stop 已删除）。
+         * 本 guard 保留为无操作——用例级停机不存在，也不新增替代停机路径。 */
         if (!m_started)
             return;
-        m_scheduler.Stop();
         m_started = false;
     }
 
@@ -650,7 +664,7 @@ BOOST_AUTO_TEST_CASE(t_multi_processer_yield_requeues_each_coroutine_once_per_it
     config.m_cfg_static_thread_num = kProcesserCount;
     auto& scheduler = g_scheduler;
     SchedulerStopGuard scheduler_stop{*scheduler};
-    scheduler->Start();
+    EnsureRuntime();
     scheduler_stop.MarkStarted();
 
     for (int coroutine_index = 0; coroutine_index < kCoroutineCount; ++coroutine_index)

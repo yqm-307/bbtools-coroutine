@@ -104,5 +104,4 @@ int main()
     FixSizeChan();
     ReadMulti();
     DebugWriteBlock();
-    g_scheduler->Stop();
 }

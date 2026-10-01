@@ -22,5 +22,4 @@ int main()
     while(true) 
         sleep(1);
 
-    g_scheduler->Stop();
 }

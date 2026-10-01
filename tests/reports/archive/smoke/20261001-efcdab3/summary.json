@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "kind": "smoke",
+  "date": "2026-10-01",
+  "repository": "yqm-307/bbtools-coroutine",
+  "base_sha": "efcdab3da0a4957b1f3647d9e390bb6517f35c0e",
+  "branch": "refactor/process-lifetime-b2bc245c1a48",
+  "candidate_state": {
+    "committed": false,
+    "pushed": false,
+    "pull_request": false,
+    "index_empty": true
+  },
+  "acceptance": {
+    "configure": {"exit_code": 0, "directory": "build/acceptance-r2-alice"},
+    "build": {
+      "exit_code": 0,
+      "built_target_lines": 56,
+      "unique_targets": 30,
+      "warnings": 0,
+      "errors": 0,
+      "need_test": true,
+      "need_debug": true
+    },
+    "ctest": {
+      "exit_code": 0,
+      "total": 11,
+      "passed": 11,
+      "failed": 0
+    },
+    "diff_check_exit_code": 0,
+    "manifest": {
+      "files": 120,
+      "sha256_mismatches": 0,
+      "deleted_entries": 8,
+      "deleted_entries_still_present": 0
+    }
+  },
+  "independent_reviews": {
+    "r2_code_review": "conditional_commit",
+    "fatigue_skill_doc_review": "pass"
+  },
+  "blockers": [
+    {
+      "path": "AGENTS.md",
+      "issue": "Legacy Stop wording remains; protected write was rejected and not bypassed.",
+      "status": "blocked"
+    }
+  ],
+  "non_blocking_unverified": [
+    "No cv-qualified intermediate pointer-depth compile-time positive/negative examples.",
+    "Full ctest, Windows/iOS, mysql/hiredis examples, and remote CI were not run."
+  ],
+  "scope_exclusions": [
+    "No infra/framework downstream migration.",
+    "No dependency lock or CI changes.",
+    "No commit, push, pull request, merge, or release."
+  ],
+  "evidence_paths": {
+    "parent_logs": "build/acceptance-r2-alice/",
+    "candidate_manifest": "build/repair-r2/r2-candidate-manifest.json",
+    "r2_implementation_summary": "external task scratch: repair-r2-summary.md",
+    "r2_independent_review": "external task scratch: independent-review-r2.md"
+  }
+}

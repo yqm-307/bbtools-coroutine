@@ -6,18 +6,16 @@ namespace bbt::coroutine
 {
 
 using CoObjectId = std::uint64_t;
-using RuntimeGeneration = std::uint64_t;
 
 /**
- * @brief 对象身份快照：id 与创建时的运行时代际。
+ * @brief 对象身份快照：进程内唯一且永不复用的 id + 可读描述。
  *
- * id 在单个进程内严格递增、永不复用；generation 为 0 表示对象不是在
- * 一个已启动的运行时里创建的。
+ * 不再携带运行时代际：运行时不设停机/重启，「对象属于哪一代」不再是可观察
+ * 语义；创建前置条件改为「运行时已初始化」。
  */
 struct CoObjectInfo
 {
     CoObjectId          id{0};
-    RuntimeGeneration   generation{0};
     std::string         kind;
     std::string         name;
 };

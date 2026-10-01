@@ -29,9 +29,11 @@ namespace bbt::coroutine::detail
  * 一个 Processer 上 Resume；挂起后可入全局队列并被其他 Processer 取出。
  * TLS（g_bbt_tls_processer / g_bbt_tls_coroutine_co）只在 Processer 线程、
  * 当前协程栈上有效。
- * 稳定入口：GetInstance / Start / Stop / LoopOnce / RegistCoroutineTask / IsRunning。
- * g_scheduler 即 GetInstance()，本阶段单例。
- * Start(THREAD) 后不要 LoopOnce。Stop 不排空业务等待（#267/#280）。
+ * 稳定入口：GetInstance / Start / LoopOnce / RegistCoroutineTask / IsInitialized。
+ * g_scheduler 即 GetInstance()，本阶段单例，进程寿命（不在静态退出期析构）。
+ * Start 一次：成功初始化后重复 Start 抛 std::logic_error，不再重置配置/队列或新增 worker。
+ * 没有业务停机入口：不提供 Stop/restart，挂起协程不做栈展开的语义不变。
+ * Start(THREAD) 后不要 LoopOnce。
  * EventLoop 只通过 CoPoller::PollOnce 驱动。不直接依赖 Poller/epoll/ASIO。
  * 换 backend 改 CoPoller，不改本头。
  */
@@ -46,27 +48,27 @@ public:
 
     static UPtr& GetInstance();
 
-    /* 显示指定运行线程 */
+    /**
+     * @brief 启动运行时（三选一驱动模式）。
+     * @throw std::logic_error 已成功启动过或正在启动（并发 Start 同样拒绝）
+     */
     void                                        Start(SchedulerStartOpt opt = SCHE_START_OPT_SCHE_THREAD);
-    void                                        Stop();
     void                                        LoopOnce();
 
     void                                        RegistCoroutineTask(const CoroutineCallback& handle, const char* desc = nullptr);
     void                                        RegistCoroutineTask(const CoroutineCallback& handle, bool& succ) noexcept;
     /* 协程被激活，重新加入全局队列 */
     void                                        OnActiveCoroutine(CoroutinePriority priority, Coroutine::Ptr coroutine);
-    bool                                        IsRunning() const noexcept
-    {
-        return m_is_running.load(std::memory_order_acquire);
-    }
 
-    /* #347：对象身份体系（bbt::coroutine::CurrentRuntimeGeneration）读取当前运行时代际。
-     * 未启动或已开始 Stop 时返回 0——此时不存在可归属的运行时代际。 */
-    uint64_t                                    GetRunGeneration() const noexcept
+    /**
+     * @brief 运行时是否已完成必要初始化（runtime/worker/poller）。
+     *
+     * 初始化完成后恒为 true，不因业务关闭归零——进程寿命内不会再有
+     * “已停止”状态。初始化标志在进入运行循环前发布。
+     */
+    bool                                        IsInitialized() const noexcept
     {
-        return m_has_started.load(std::memory_order_acquire)
-            ? m_run_generation.load(std::memory_order_acquire)
-            : 0;
+        return m_initialized.load(std::memory_order_acquire);
     }
 
 protected:
@@ -82,20 +84,20 @@ protected:
 protected:
     Scheduler();
     void                                        _Init();
-    uint64_t                                   _GetRunGeneration() const noexcept
-    {
-        return m_run_generation.load(std::memory_order_acquire);
-    }
+
+    /** Start 状态机：NotStarted → Starting → Initialized；其它转移即重复启动 */
+    enum class StartState { NotStarted, Starting, Initialized };
 
     void                                        _Run();
     /* 定时扫描 */
     void                                        _FixTimingScan();
     void                                        _CreateProcessers();
-    void                                        _DestoryProcessers();
 
     bool                                        _LoadBlance2Proc(CoroutinePriority priority, Coroutine::Ptr co);
     /* 初始化全局实例 */
     void                                        _InitGlobalUniqInstance();
+    /* worker 就绪后、进入运行循环前发布初始化完成标志 */
+    void                                        _PublishInitialized();
 
     void                                        _OnUpdate();
 private:
@@ -114,14 +116,12 @@ private:
 
     /* coroutine全局队列 */
     CoPriorityQueue                             m_global_coroutine_queue;
-    /* Stop 排空与外部 Notify 的在途入队必须串行，避免排空后再残留协程。 */
+    /* 外部 Notify 的在途入队必须串行，避免与队列遍历并发。 */
     std::mutex                                  m_global_queue_mutex;
-    /* 每次重启递增；迟到的上一代唤醒不得进入新一代队列。 */
-    std::atomic_uint64_t                        m_run_generation{1};
-    /* #347：是否已成功启动过运行时（_Init 置位，Stop 起始清零）。 */
-    std::atomic_bool                            m_has_started{false};
-    std::atomic_bool                            m_is_running{true};
-    volatile ScheudlerStatus                    m_run_status{ScheudlerStatus::SCHE_DEFAULT};
+    /* Start 一次性：状态转移与检查同锁，布尔字段不足以拒绝并发 Start。 */
+    std::mutex                                  m_start_mutex;
+    StartState                                  m_start_state{StartState::NotStarted};
+    std::atomic_bool                            m_initialized{false};
 
     uint64_t                                    m_regist_coroutine_count{0};
 };

@@ -12,10 +12,6 @@
 namespace bbt::coroutine::detail
 {
 
-/* #280 parked 协程登记表（定义，声明见 Coroutine.hpp） */
-std::mutex                      Coroutine::s_parked_mtx;
-std::vector<Coroutine*>         Coroutine::s_parked;
-
 typedef bbt::pollevent::EventOpt EventOpt;
 
 /* #369 单测故障注入标志（定义，声明见 Coroutine.hpp） */
@@ -29,14 +25,13 @@ CoroutineId Coroutine::_GenCoroutineId()
 
 Coroutine::Ptr Coroutine::Create(int stack_size, const CoroutineCallback& co_func, bool need_protect, const char* desc)
 {
-    auto* co = new Coroutine(stack_size, co_func, need_protect, g_scheduler->_GetRunGeneration());
+    auto* co = new Coroutine(stack_size, co_func, need_protect);
     if (desc != nullptr && desc[0] != '\0')
         co->m_desc = desc;    // #276：bbtco_desc 落库
     return co;
 }
 
-Coroutine::Coroutine(int stack_size, const CoroutineCallback& co_func, bool need_protect,
-                     uint64_t scheduler_generation):
+Coroutine::Coroutine(int stack_size, const CoroutineCallback& co_func, bool need_protect):
     m_context(stack_size, [=](){
         try {
             co_func();
@@ -50,7 +45,6 @@ Coroutine::Coroutine(int stack_size, const CoroutineCallback& co_func, bool need
     }, need_protect),
     m_id(_GenCoroutineId())
 {
-    m_scheduler_generation.store(scheduler_generation, std::memory_order_relaxed);
     m_run_status = CoroutineStatus::CO_RUNNABLE;
 #ifdef BBT_COROUTINE_PROFILE
     g_bbt_profiler->OnEvent_CreateCoroutine();
@@ -369,11 +363,6 @@ bool Coroutine::_RegistAwaitEvent()
     {
         /* 现场时戳（#276）：parked 起点；唤醒时清零 */
         m_parked_us = bbt::core::clock::gettime_mono<bbt::core::clock::microseconds>();
-        /* 停机契约（#280）：注册成功进入 PARKED 的协程脱离任何队列，唯一引用
-         * 是事件回调里的裸 this；纳入 parked 登记，Scheduler::Stop 才有回收点。
-         * 唤醒（OnCoPollEvent）或销毁时注销，保持"协程只属于 parked 表或某个队列"
-         * 的单所有权不变式。 */
-        _TrackParked();
         return true;
     }
 
@@ -394,57 +383,6 @@ int Coroutine::GetWaitInfo(CoroutineWaitInfo& out) const noexcept
     out.m_timeout_ms = m_await_event->GetTimeout() > 0 ? m_await_event->GetTimeout() : 0;
     out.m_waited_us = bbt::core::clock::gettime_mono<bbt::core::clock::microseconds>() - m_parked_us;
     return 0;
-}
-
-void Coroutine::_TrackParked()
-{
-    std::lock_guard<std::mutex> lock(s_parked_mtx);
-    if (m_parked_tracked)
-        return;
-    m_parked_tracked = true;
-    s_parked.push_back(this);
-}
-
-void Coroutine::_UntrackParked()
-{
-    std::lock_guard<std::mutex> lock(s_parked_mtx);
-    if (!m_parked_tracked)
-        return;
-    m_parked_tracked = false;
-    auto it = std::find(s_parked.begin(), s_parked.end(), this);
-    if (it != s_parked.end())
-        s_parked.erase(it);
-}
-
-void Coroutine::DestroyParkedCoroutines()
-{
-    std::vector<Coroutine*> reclaim;
-    {
-        /* parked 锁覆盖摘取与 UnRegist 裁决。这样完成路径必须先经过
-         * _UntrackParked 才能进入 OnActiveCoroutine，不能与本段并发释放。 */
-        std::lock_guard<std::mutex> parked_lock(s_parked_mtx);
-        reclaim.reserve(s_parked.size());
-        for (auto* co : s_parked) {
-            auto ev = co->_AwaitEvent();
-            /* nullptr 表示完成路径已经清空 await event，但尚未执行
-             * _UntrackParked；此时回调仍持有裸 this，释放责任已转交完成路径。 */
-            if (ev != nullptr && ev->UnRegist() == 0)
-                reclaim.push_back(co);
-        }
-        s_parked.erase(
-            std::remove_if(s_parked.begin(), s_parked.end(),
-                           [&reclaim](auto* co) {
-                               return std::find(reclaim.begin(), reclaim.end(), co) != reclaim.end();
-                           }),
-            s_parked.end());
-        for (auto* co : reclaim)
-            co->m_parked_tracked = false;
-    }
-
-    /* 只有 UnRegist 成功的对象才到这里；失败者仍留在 parked 表，由完成路径
-     * 先 _UntrackParked 再交给 Scheduler 接管。 */
-    for (auto* co : reclaim)
-        delete co;
 }
 
 CoroutineYieldDisposition Coroutine::CommitYield()
@@ -499,9 +437,6 @@ void Coroutine::OnCoPollEvent(int event, int custom_key)
     g_bbt_dbgp_full(("[CoEvent:Trigger] co=" + std::to_string(GetId()) + " trigger_event=" + std::to_string(event) + " id=" + std::to_string(ev->GetId()) + " customkey=" + std::to_string(custom_key)).c_str());
     _SetAwaitEvent(nullptr);
     m_yield_disposition = CoroutineYieldDisposition::MANUAL;
-    /* 先移除 parked 记录，再以全局队列锁裁决回收或入队；
-     * DestroyParkedCoroutines 对同一对象持 parked 锁时不会并行处理它。 */
-    _UntrackParked();  // 所有权从 parked 表转交全局队列（#280）
 
     // 超时任务优先级最高，覆盖 MLFQ 判定；#347② 取消改用独立位后，
     // 取消唤醒必须同样获得 CRITICAL 提升，否则是静默的调度行为回归。

@@ -1,6 +1,7 @@
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MAIN
 #include <boost/test/included/unit_test.hpp>
+#include <mutex>
 
 // #261 Hook flags 与 socket timeout 语义保持。
 // 铁律：① MSG_DONTWAIT 在 send/recv/sendto/recvfrom 也立即返回 EAGAIN（不只 msg 家族）
@@ -23,6 +24,18 @@
 #include <bbt/coroutine/detail/GlobalConfig.hpp>
 #include <bbt/coroutine/detail/Scheduler.hpp>
 
+/* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。 */
+namespace
+{
+void EnsureRuntime()
+{
+    static std::once_flag once;
+    std::call_once(once, [](){
+        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
+    });
+}
+}
+
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::detail;
 
@@ -41,11 +54,10 @@ struct CoFixture
         m_protect = cfg->m_cfg_stack_protect;
         cfg->m_cfg_static_thread_num = 1;
         cfg->m_cfg_stack_protect = false;
-        g_scheduler->Start(SCHE_START_OPT_SCHE_THREAD);
+        EnsureRuntime();
     }
     ~CoFixture()
     {
-        g_scheduler->Stop();
         auto* cfg = g_bbt_coroutine_config.get();
         cfg->m_cfg_static_thread_num = m_threads;
         cfg->m_cfg_stack_size = m_stack;

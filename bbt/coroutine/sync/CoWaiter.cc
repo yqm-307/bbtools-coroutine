@@ -53,10 +53,10 @@ int CoWaiter::Wait()
         m_run_status = COND_WAIT;
     }
 
-    /* #339：必须经 Coroutine::_RegistAwaitEvent 登记——该公共路径在事件挂上前
-     * 检查 IsCancelRequested（预取消立即自唤醒），成功后把协程纳入 parked 登记，
-     * Scheduler::Stop 才有回收点。直接 event->Regist() 会绕过两者：
-     * 预取消协程无限挂起、Stop 后任务闭包与栈泄漏。 */
+    /* 必须经 Coroutine::_RegistAwaitEvent 登记——该公共路径在事件挂上前
+     * 检查 IsCancelRequested（预取消立即自唤醒），成功后把协程纳入登记，
+     * 事件状态机回收才有落点。直接 event->Regist() 会绕过两者：
+     * 预取消协程无限挂起。 */
     coroutine->YieldWithCallback([coroutine](){
         return coroutine->_RegistAwaitEvent();
     });
@@ -95,7 +95,7 @@ int CoWaiter::WaitWithCallback(const detail::CoroutineOnYieldCallback& cb)
         m_run_status = COND_WAIT;
     }
 
-    /* #339：同 Wait()，走公共登记路径；cb 保持"挂起后、唤醒前"的既有语义 */
+    /* 同 Wait()，走公共登记路径；cb 保持"挂起后、唤醒前"的既有语义 */
     int ret = coroutine->YieldWithCallback([coroutine, cb](){
         if (!coroutine->_RegistAwaitEvent())
             return false;
@@ -207,6 +207,14 @@ int CoWaiter::WaitWithTimeoutAndCallback(int ms, const detail::CoroutineOnYieldC
 
 WaitStatus CoWaiter::Wait(const WaitOptions& options)
 {
+    return WaitWithCallback(options, {}, nullptr);
+}
+
+WaitStatus CoWaiter::WaitWithCallback(
+    const WaitOptions& options,
+    const detail::CoroutineOnYieldCallback& on_registered,
+    CoEventValue* value)
+{
     /* 环境检查先于一切（对齐 §C1）：非协程上下文一律拒绝 */
     if (!g_bbt_tls_helper->EnableUseCo())
         return WaitStatus::InvalidContext;
@@ -221,7 +229,7 @@ WaitStatus CoWaiter::Wait(const WaitOptions& options)
         /* 入口校验顺序对齐 §C1：已有取消先于 deadline 与等待位占用检查。
          * 预取消在此直接返回，不进入挂起；挂起中到达的取消则全部由下方
          * 唤醒掩码仲裁，两条路径产出同一 WaitStatus::Cancelled。 */
-        if (options.cancel.IsCancellationRequested() || coroutine->IsCancelRequested())
+        if (coroutine->IsCancelRequested())
             return WaitStatus::Cancelled;
         if (options.deadline <= std::chrono::steady_clock::now())
             return WaitStatus::TimedOut;    /* 已过期：不注册事件（对齐 §C1） */
@@ -238,7 +246,7 @@ WaitStatus CoWaiter::Wait(const WaitOptions& options)
         }
 
         /* deadline 转毫秒定时：粒度上取整保证不提前超时；剩余期限达到
-         * INT_MAX 毫秒（含 max() 无期限）即不挂定时器（同 CompletionSignal）。 */
+         * INT_MAX 毫秒（含 max() 无期限）即不挂定时器。 */
         const auto remain_ms = std::chrono::ceil<std::chrono::milliseconds>(
             options.deadline - std::chrono::steady_clock::now()).count();
         const bool has_timer = remain_ms < std::numeric_limits<int>::max();
@@ -254,22 +262,22 @@ WaitStatus CoWaiter::Wait(const WaitOptions& options)
             return WaitStatus::RuntimeUnavailable;
 
         m_co_event = wait_event;
+        /* 本轮载荷归属本轮事件（CoPollEvent）：共享槽无需清旧值 */
         m_run_status = COND_WAIT;
     }
 
-    /* 向取消令牌登记唤醒目标：回调持事件 shared_ptr，事件终态后 Trigger
-     * 为 no-op，晚到订阅不触碰已结束的等待（t_late_subscription）。令牌已
-     * 取消时 Register 在调用线程同步回调——此刻事件尚未注册，触发落在
-     * INITED 阶段由 PENDING 吸收，CommitPark 消费后仍按取消掩码决议。 */
-    const auto cb_id = options.cancel._RegisterCancelCallback([wait_event]() {
-        g_bbt_poller->NotifyCancelEvent(wait_event);
+    const int yield_ret = coroutine->YieldWithCallback([coroutine, on_registered]() {
+        if (!coroutine->_RegistAwaitEvent())
+            return false;   /* 登记失败不投递回调，调用方按 RuntimeUnavailable 收尾 */
+        if (on_registered)
+            on_registered();
+        return true;
     });
 
-    const int yield_ret = coroutine->YieldWithCallback([coroutine]() {
-        return coroutine->_RegistAwaitEvent();
-    });
-
-    options.cancel._UnregisterCancelCallback(cb_id);
+    /* 决议只读唤醒原因掩码：CoPollEvent 状态机保证仅首个胜出 Trigger 的
+     * flags 被锁存并交付（PENDING 提前触发同样经掩码兑现），恢复后不按
+     * 优先级重判第二遍。 */
+    const int resume_event = (yield_ret == 0) ? coroutine->GetLastResumeEvent() : 0;
 
     {
         std::lock_guard<std::mutex> lock(m_notify_mutex);
@@ -280,34 +288,48 @@ WaitStatus CoWaiter::Wait(const WaitOptions& options)
             m_co_event = nullptr;
             m_run_status = COND_FREE;
         }
+        /* 载荷与首胜原因同锁取出：只有 custom 首胜才交付载荷，定时器/取消
+         * 首胜一律置空，败方 Notify 也不覆盖赢家（Notify 侧同锁只落首胜值） */
+        /* 载荷从本轮事件取出（不是共享槽）：上一轮等待的载荷留在上一轮
+         * 事件对象上，不会被本轮等待覆写。 */
+        if (value) {
+            if (yield_ret == 0 && (resume_event & POLL_EVENT_CUSTOM))
+                *value = wait_event->GetNotifyValue();
+            else
+                *value = CoEventValue{};
+        }
     }
 
     /* 事件登记失败即未真正挂起，唤醒掩码仍是上一次等待的旧值，不能参与决议 */
     if (yield_ret != 0)
         return WaitStatus::RuntimeUnavailable;
 
-    /* 决议只读唤醒原因掩码：CoPollEvent 状态机保证仅首个胜出 Trigger 的
-     * flags 被锁存并交付（PENDING 提前触发同样经掩码兑现），恢复后不按
-     * 优先级重判第二遍。 */
-    const int resume_event = coroutine->GetLastResumeEvent();
     if (resume_event & detail::POLL_EVENT_CANCELLED)
         return WaitStatus::Cancelled;
     if (resume_event & detail::POLL_EVENT_TIMEOUT)
         return WaitStatus::TimedOut;
     if (resume_event & detail::POLL_EVENT_CUSTOM)
         return WaitStatus::Completed;
-    /* 无明确决议位的异常唤醒按取消处理（沿用 CompletionSignal 兜底先例） */
+    /* 无明确决议位的异常唤醒按取消处理（沿用既有兜底先例） */
     return WaitStatus::Cancelled;
 }
 
 CombinedWaitStatus CoWaiter::Wait(const CombinedWaitOptions& options)
 {
-    return Wait(options, {});
+    return Wait(options, {}, nullptr);
 }
 
 CombinedWaitStatus CoWaiter::Wait(
     const CombinedWaitOptions& options,
     const detail::CoroutineOnYieldCallback& on_registered)
+{
+    return Wait(options, on_registered, nullptr);
+}
+
+CombinedWaitStatus CoWaiter::Wait(
+    const CombinedWaitOptions& options,
+    const detail::CoroutineOnYieldCallback& on_registered,
+    CoEventValue* value)
 {
     /* 环境检查先于一切（对齐窄接口）：非协程上下文一律拒绝 */
     if (!g_bbt_tls_helper->EnableUseCo())
@@ -331,7 +353,7 @@ CombinedWaitStatus CoWaiter::Wait(
     {
         std::lock_guard<std::mutex> lock(m_notify_mutex);
         /* 入口校验顺序对齐窄接口：取消先于 deadline 与等待位占用检查 */
-        if (options.cancel.IsCancellationRequested() || coroutine->IsCancelRequested())
+        if (coroutine->IsCancelRequested())
             return CombinedWaitStatus::Cancelled;
         if (options.deadline <= std::chrono::steady_clock::now())
             return CombinedWaitStatus::TimedOut;    /* 已过期：不注册事件 */
@@ -377,11 +399,6 @@ CombinedWaitStatus CoWaiter::Wait(
         m_run_status = COND_WAIT;
     }
 
-    /* 取消令牌登记同窄接口 Wait：持事件 shared_ptr，终态后 Trigger 为 no-op */
-    const auto cb_id = options.cancel._RegisterCancelCallback([wait_event]() {
-        g_bbt_poller->NotifyCancelEvent(wait_event);
-    });
-
     const int yield_ret = coroutine->YieldWithCallback([coroutine, on_registered]() {
         if (!coroutine->_RegistAwaitEvent())
             return false;
@@ -390,13 +407,21 @@ CombinedWaitStatus CoWaiter::Wait(
         return true;
     });
 
-    options.cancel._UnregisterCancelCallback(cb_id);
+    const int resume_event = (yield_ret == 0) ? coroutine->GetLastResumeEvent() : 0;
 
     {
         std::lock_guard<std::mutex> lock(m_notify_mutex);
         if (m_co_event == wait_event) {
             m_co_event = nullptr;
             m_run_status = COND_FREE;
+        }
+        /* 载荷从本轮事件取出（不是共享槽）：上一轮等待的载荷留在上一轮
+         * 事件对象上，不会被本轮等待覆写。 */
+        if (value) {
+            if (yield_ret == 0 && (resume_event & POLL_EVENT_CUSTOM))
+                *value = wait_event->GetNotifyValue();
+            else
+                *value = CoEventValue{};
         }
     }
 
@@ -406,7 +431,6 @@ CombinedWaitStatus CoWaiter::Wait(
     /* 决议只读唤醒原因掩码：fd 位沿用底层 EventOpt 数值交付
      * （READABLE=0x02/WRITEABLE=0x04，与 PollEventType 同名位数值互换），
      * 取消/超时/自定义用 PollEventType 位，首个胜出 Trigger 锁定为准。 */
-    const int resume_event = coroutine->GetLastResumeEvent();
     if (resume_event & detail::POLL_EVENT_CANCELLED)
         return CombinedWaitStatus::Cancelled;
     if (resume_event & detail::POLL_EVENT_TIMEOUT)
@@ -430,6 +454,24 @@ int CoWaiter::Notify()
         return -1;
     }
 
+    m_run_status = COND_ACTIVE;
+    return g_bbt_poller->NotifyCustomEvent(m_co_event);
+}
+
+int CoWaiter::Notify(const CoEventValue& value)
+{
+    /* 新入口不带无参 Notify 的 COND_DEFAULT 断言前置条件：fresh / 无有效
+     * 等待 / 已决议时一律返回 -1，不保存载荷、不 assert。 */
+    std::lock_guard<std::mutex> lock(m_notify_mutex);
+
+    if (m_co_event == nullptr || m_run_status != COND_WAIT) {
+        return -1;
+    }
+
+    /* 首胜才落载荷：载荷落到本轮事件对象（归属该轮等待），状态在同一把
+     * 锁内转为 COND_ACTIVE，后到的 Notify 直接在上面的判断退出，不覆盖
+     * 赢家载荷，也不影响尚未取走结果的上一轮等待。 */
+    m_co_event->SetNotifyValue(value);
     m_run_status = COND_ACTIVE;
     return g_bbt_poller->NotifyCustomEvent(m_co_event);
 }

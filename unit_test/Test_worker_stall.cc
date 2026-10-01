@@ -1,6 +1,7 @@
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MAIN
 #include <boost/test/included/unit_test.hpp>
+#include <mutex>
 
 // #277 Worker 无进展检测：死循环/外部阻塞协程占住 worker 超过阈值时，
 // 调度线程（独立于 worker）通过锁存快照上报现场（co id/desc/运行时长/积压）。
@@ -15,6 +16,18 @@
 #include <bbt/coroutine/coroutine.hpp>
 #include <bbt/coroutine/detail/GlobalConfig.hpp>
 #include <bbt/coroutine/detail/Scheduler.hpp>
+
+/* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。 */
+namespace
+{
+void EnsureRuntime()
+{
+    static std::once_flag once;
+    std::call_once(once, [](){
+        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
+    });
+}
+}
 
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::detail;
@@ -42,11 +55,10 @@ struct ProbeFixture
             g_last_stall = info;
             ++g_stall_reports;
         };
-        g_scheduler->Start(SCHE_START_OPT_SCHE_THREAD);
+        EnsureRuntime();
     }
     ~ProbeFixture()
     {
-        g_scheduler->Stop();
         g_bbt_coroutine_config->m_ext_worker_stall_callback = nullptr;
     }
 };

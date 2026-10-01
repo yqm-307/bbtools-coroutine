@@ -62,5 +62,4 @@ int main()
 
     DeadLockAssert();
 
-    g_scheduler->Stop();
 }

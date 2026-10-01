@@ -17,10 +17,9 @@ class GlobalConfig
 public:
     typedef std::unique_ptr<GlobalConfig> UPtr;
     static UPtr& GetInstance() {
-        static UPtr _inst{nullptr};
-        if (_inst == nullptr)
-            _inst = UPtr(new GlobalConfig());
-        return _inst;
+        /* 进程寿命：配置被 worker/poller 在运行期读取，不在静态退出期析构 */
+        static UPtr* _holder = new UPtr(new GlobalConfig());
+        return *_holder;
     }
 
 

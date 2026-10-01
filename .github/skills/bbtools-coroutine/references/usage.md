@@ -26,8 +26,7 @@ int main()
     };
 
     sleep(1);
-    g_scheduler->Stop();
-    return 0;
+    return 0;   // process-lifetime：无业务停机入口，返回 main 即进程退出
 }
 ```
 
@@ -35,7 +34,8 @@ int main()
 
 - 默认 `Start()` = 后台调度线程。返回后即可 `bbtco`。
 - `bbtco` 是 detached，注册后不保证执行顺序。
-- 主线程要用普通 `sleep`/`latch` 等协程跑一段时间；`Stop()` 不会等业务结束。
+- 主线程要用普通 `sleep`/`latch` 等协程跑一段时间；没有业务停机入口，业务完成后返回 main 即进程退出。
+- 运行时一次初始化：重复 `Start()` 抛 `std::logic_error`；`IsInitialized()` 初始化后恒真。
 - 给关键协程起名：`bbtco_desc("worker") [](){};`
 
 ### 让出与睡眠
@@ -46,7 +46,7 @@ int main()
 
 ### 注册失败
 
-停机后：`bbtco` 抛 `std::runtime_error`。需要不抛：
+未初始化（未 `Start`）时：`bbtco` 抛 `std::runtime_error`。需要不抛：
 
 ```cpp
 bool succ = false;
