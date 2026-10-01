@@ -1,6 +1,7 @@
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MAIN
 #include <boost/test/included/unit_test.hpp>
+#include <mutex>
 
 #include <bbt/coroutine/detail/Hook.hpp>
 #include <bbt/coroutine/coroutine.hpp>
@@ -10,6 +11,19 @@
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <errno.h>
+
+/* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
+ * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。 */
+namespace
+{
+void EnsureRuntime()
+{
+    static std::once_flag once;
+    std::call_once(once, [](){
+        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
+    });
+}
+}
 
 /* 最小本地 listen helper：替代 bbt::core::net::CreateListen。
  * net 模块归 bbtools-infra，coroutine 不依赖，测试侧只保留本用例所需语义。
@@ -53,7 +67,7 @@ BOOST_AUTO_TEST_SUITE(HookSystemFunc)
 
 BOOST_AUTO_TEST_CASE(test_env_setup)
 {
-    g_scheduler->Start();
+    EnsureRuntime();
 }
 
 BOOST_AUTO_TEST_CASE(t_hook_call)
@@ -571,7 +585,6 @@ BOOST_AUTO_TEST_CASE(t_hook_accept_listen_socket_unaffected)
 
 BOOST_AUTO_TEST_CASE(test_env_unload)
 {
-    g_scheduler->Stop();
 }
 
 BOOST_AUTO_TEST_SUITE_END()

@@ -10,7 +10,7 @@
         │
         ▼
    Scheduler（单例 g_scheduler）
-        │  注册、全局队列、停机
+        │  注册、全局队列、生命周期
         ▼
    Processer × N（worker 线程）
         │  Resume 当前协程
@@ -22,7 +22,7 @@
         fd / timer / wakeup → 再入队 Resume
 ```
 
-- **Scheduler**：创建 worker、把任务丢给 Processer 或全局队列、work steal、`Start`/`Stop`。
+- **Scheduler**：创建 worker、把任务丢给 Processer 或全局队列、work steal、`Start`/`IsInitialized`。无业务停机入口（`Stop` 已删除）。
 - **Processer**：每线程一个。从本地队列或全局队列取协程执行。
 - **Coroutine**：用户函数跑在独立栈上。`Yield` 后栈冻结，唤醒后从断点继续，可能换 worker。
 - **CoPoller**：等待 fd/定时器就绪，唤醒对应协程。底层 Poller 可替换；用户代码不依赖 epoll。
@@ -41,7 +41,7 @@
 
 1. `g_scheduler->Start()` 拉起 worker（默认后台线程）。
 2. `bbtco` → `RegistCoroutineTask` → 某个 Processer 执行。
-3. 协程函数返回则销毁；`Stop()` 停止接新任务、唤醒并回收等待中的协程、join worker。不保证业务任务执行完。
+3. 协程函数返回则销毁。运行时不设退出条件：没有业务停机入口（`Stop` 已删除），等待中的协程随进程寿命结束，不做栈展开；单例持有着泄漏，不在静态退出期析构（含 fd→epoch/waiter 注册表这类 worker 可达静态）。
 
 ## 工具层
 

@@ -29,6 +29,5 @@ int main()
         std::this_thread::sleep_for(bbt::core::clock::milliseconds(100));
     }
 
-    g_scheduler->Stop();
     return 0;
 }

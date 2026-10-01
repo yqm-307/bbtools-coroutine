@@ -75,5 +75,4 @@ int main()
     debug_1();
     debug_2();
 
-    g_scheduler->Stop();
 }

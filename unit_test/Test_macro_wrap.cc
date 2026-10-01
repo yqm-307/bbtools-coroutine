@@ -1,6 +1,7 @@
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MAIN
 #include <boost/test/included/unit_test.hpp>
+#include <mutex>
 
 #include <atomic>
 #include <chrono>
@@ -9,6 +10,18 @@
 #include <bbt/coroutine/coroutine.hpp>
 #include <bbt/coroutine/detail/GlobalConfig.hpp>
 #include <bbt/coroutine/detail/Scheduler.hpp>
+
+/* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。 */
+namespace
+{
+void EnsureRuntime()
+{
+    static std::once_flag once;
+    std::call_once(once, [](){
+        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
+    });
+}
+}
 
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::detail;
@@ -24,7 +37,7 @@ BOOST_AUTO_TEST_CASE(t_bbtco_family_registers)
     cfg->m_cfg_static_thread_num = 1;
     cfg->m_cfg_stack_protect = false;
 
-    g_scheduler->Start(SCHE_START_OPT_SCHE_THREAD);
+    EnsureRuntime();
     bbt::core::thread::CountDownLatch done{3};
     std::atomic_int n{0};
 
@@ -37,7 +50,6 @@ BOOST_AUTO_TEST_CASE(t_bbtco_family_registers)
     BOOST_CHECK(succ);
     BOOST_CHECK_EQUAL(n.load(), 3);
 
-    g_scheduler->Stop();
     cfg->m_cfg_static_thread_num = threads;
     cfg->m_cfg_stack_size = stack;
     cfg->m_cfg_stack_protect = protect;
@@ -52,7 +64,7 @@ BOOST_AUTO_TEST_CASE(t_yield_and_sleep_are_wrappers)
     cfg->m_cfg_static_thread_num = 1;
     cfg->m_cfg_stack_protect = false;
 
-    g_scheduler->Start(SCHE_START_OPT_SCHE_THREAD);
+    EnsureRuntime();
     bbt::core::thread::CountDownLatch done{1};
     const auto t0 = std::chrono::steady_clock::now();
 
@@ -67,7 +79,6 @@ BOOST_AUTO_TEST_CASE(t_yield_and_sleep_are_wrappers)
         std::chrono::steady_clock::now() - t0).count();
     BOOST_CHECK_GE(ms, 15);
 
-    g_scheduler->Stop();
     cfg->m_cfg_static_thread_num = threads;
     cfg->m_cfg_stack_size = stack;
     cfg->m_cfg_stack_protect = protect;

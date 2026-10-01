@@ -12,6 +12,7 @@
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MAIN
 #include <boost/test/included/unit_test.hpp>
+#include <mutex>
 
 #include <atomic>
 #include <chrono>
@@ -29,8 +30,19 @@
 #include <bbt/coroutine/detail/Coroutine.hpp>
 #include <bbt/coroutine/detail/GlobalConfig.hpp>
 #include <bbt/coroutine/detail/Scheduler.hpp>
-#include <bbt/coroutine/sync/Cancellation.hpp>
 #include <bbt/coroutine/sync/CoWaiter.hpp>
+
+/* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。 */
+namespace
+{
+void EnsureRuntime()
+{
+    static std::once_flag once;
+    std::call_once(once, [](){
+        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
+    });
+}
+}
 
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::detail;
@@ -118,9 +130,9 @@ BOOST_AUTO_TEST_CASE(t_begin)
         g_cfg.saved = true;
     }
 
-    g_scheduler->Start(SCHE_START_OPT_SCHE_THREAD);
+    EnsureRuntime();
     g_started.store(true);
-    BOOST_REQUIRE(g_scheduler->IsRunning());
+    BOOST_REQUIRE(g_scheduler->IsInitialized());
 }
 
 /* 1. FD 首胜：无 Notify、无超时竞争，fd 就绪即返回 FdReadable，掩码含可读位 */
@@ -256,12 +268,12 @@ BOOST_AUTO_TEST_CASE(t_request_cancel_first_win)
 }
 
 /* 6. 取消令牌首胜：挂起中 RequestCancel → Cancelled；入口预取消不挂起 */
-BOOST_AUTO_TEST_CASE(t_token_cancel_first_win)
+/* 6. 取消首胜：挂起中协程级 RequestCancel → Cancelled；入口预取消不挂起 */
+BOOST_AUTO_TEST_CASE(t_cancel_first_win)
 {
-    /* (a) 挂起中令牌取消 */
+    /* (a) 挂起中取消 */
     {
         auto waiter = sync::CoWaiter::Create();
-        CancellationSource source;
         PipeFds pipe = MakePipe();
         bbt::core::thread::CountDownLatch done{1};
         std::atomic<sync::CombinedWaitStatus> st{};
@@ -270,7 +282,6 @@ BOOST_AUTO_TEST_CASE(t_token_cancel_first_win)
         sync::CombinedWaitOptions opt;
         opt.want_readable = true;
         opt.fd = pipe.read;
-        opt.cancel = source.Token();
 
         bbtco [&]() {
             co_p.store(g_bbt_tls_coroutine_co);
@@ -278,7 +289,7 @@ BOOST_AUTO_TEST_CASE(t_token_cancel_first_win)
             done.Down();
         };
         BOOST_REQUIRE(WaitUntil([&]() { return CoroutineSuspended(co_p); }));
-        source.RequestCancel();
+        co_p.load()->RequestCancel();
         done.Wait();
         ClosePipe(pipe);
         BOOST_CHECK(st.load() == sync::CombinedWaitStatus::Cancelled);
@@ -287,8 +298,6 @@ BOOST_AUTO_TEST_CASE(t_token_cancel_first_win)
     /* (b) 入口已取消：立即返回，不发生挂起 */
     {
         auto waiter = sync::CoWaiter::Create();
-        CancellationSource source;
-        source.RequestCancel();
         PipeFds pipe = MakePipe();
         bbt::core::thread::CountDownLatch done{1};
         std::atomic<sync::CombinedWaitStatus> st{};
@@ -296,9 +305,9 @@ BOOST_AUTO_TEST_CASE(t_token_cancel_first_win)
         sync::CombinedWaitOptions opt;
         opt.want_readable = true;
         opt.fd = pipe.read;
-        opt.cancel = source.Token();
 
         bbtco [&]() {
+            g_bbt_tls_coroutine_co->RequestCancel();
             st.store(waiter->Wait(opt));
             done.Down();
         };
@@ -423,9 +432,9 @@ BOOST_AUTO_TEST_CASE(t_repeated_wait_slot_reuse)
     BOOST_CHECK(st3.load() == sync::CombinedWaitStatus::Completed);
 }
 
-/* 10. Stop parked 回收（复用既有 Stop 契约）：组合等待挂起中的协程在
- * Scheduler::Stop 后被安全回收，进程不崩（本用例随测试进程结束验收） */
-BOOST_AUTO_TEST_CASE(t_stop_recovers_parked_combined_wait)
+/* 10. 进程寿命（无业务停机入口）：组合等待挂起中（无 deadline）的协程不阻止
+ * 进程寿命，IsInitialized 恒真；本用例随测试进程结束验收 */
+BOOST_AUTO_TEST_CASE(t_parked_combined_wait_does_not_block_process_lifetime)
 {
     auto waiter = sync::CoWaiter::Create();
     PipeFds pipe = MakePipe();
@@ -440,20 +449,17 @@ BOOST_AUTO_TEST_CASE(t_stop_recovers_parked_combined_wait)
     };
     BOOST_CHECK(WaitUntil([&]() { return entered.load(); }));
 
-    g_scheduler->Stop();
     g_started.store(false);
     ClosePipe(pipe);
-    /* 回收后允许重新 Start（复用既有 Stop 契约），供后续必要时扩展 */
-    g_scheduler->Start(SCHE_START_OPT_SCHE_THREAD);
+    /* 无停机入口：Start 一次性，EnsureRuntime 只是 no-op 幂等壳 */
+    EnsureRuntime();
     g_started.store(true);
-    BOOST_CHECK(g_scheduler->IsRunning());
+    BOOST_CHECK(g_scheduler->IsInitialized());
 }
 
 BOOST_AUTO_TEST_CASE(t_end)
 {
     if (g_started.exchange(false))
-        g_scheduler->Stop();
-
     if (g_cfg.saved) {
         auto* cfg = g_bbt_coroutine_config.get();
         cfg->m_cfg_static_thread_num = g_cfg.threads;

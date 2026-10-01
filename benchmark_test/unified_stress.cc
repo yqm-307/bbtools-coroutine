@@ -177,7 +177,7 @@ int main(int argc,char**argv){
     // 若依赖隐式析构，CoPool::Release() 会访问已析构的 g_scheduler（use-after-free），
     // 在无优化构建下表现为 5ms 死循环（CI 复现）。
     g_ps_pool.reset();
-    stop_all();g_scheduler->Stop();
+    stop_all();/* process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出 */
     printf("[unified_stress] done\n");
     return 0;
 }

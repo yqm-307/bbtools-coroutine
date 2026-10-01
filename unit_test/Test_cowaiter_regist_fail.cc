@@ -16,6 +16,7 @@
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MAIN
 #include <boost/test/included/unit_test.hpp>
+#include <mutex>
 
 #include <atomic>
 #include <chrono>
@@ -29,6 +30,18 @@
 #include <bbt/coroutine/detail/GlobalConfig.hpp>
 #include <bbt/coroutine/detail/Scheduler.hpp>
 #include <bbt/coroutine/sync/CoWaiter.hpp>
+
+/* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。 */
+namespace
+{
+void EnsureRuntime()
+{
+    static std::once_flag once;
+    std::call_once(once, [](){
+        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
+    });
+}
+}
 
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::detail;
@@ -71,9 +84,9 @@ BOOST_AUTO_TEST_CASE(t_begin)
         g_cfg.saved = true;
     }
 
-    g_scheduler->Start(SCHE_START_OPT_SCHE_THREAD);
+    EnsureRuntime();
     g_started.store(true);
-    BOOST_REQUIRE(g_scheduler->IsRunning());
+    BOOST_REQUIRE(g_scheduler->IsInitialized());
 }
 
 /* 1. 注入确实落在事件注册阶段而非创建阶段：
@@ -206,8 +219,6 @@ BOOST_AUTO_TEST_CASE(t_injection_is_one_shot)
 BOOST_AUTO_TEST_CASE(t_end)
 {
     if (g_started.exchange(false))
-        g_scheduler->Stop();
-
     if (g_cfg.saved) {
         auto* cfg = g_bbt_coroutine_config.get();
         cfg->m_cfg_static_thread_num = g_cfg.threads;

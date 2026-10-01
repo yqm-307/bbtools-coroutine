@@ -1,6 +1,7 @@
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MAIN
 #include <boost/test/included/unit_test.hpp>
+#include <mutex>
 
 // #370 FD epoch 线性化回归：close 后同号 fd 复用不得把旧等待/新等待串线。
 //
@@ -11,10 +12,9 @@
 //  2) close 与新 waiter 并发：BeginFdClose 摘表后到 EndFdClose 解 closing
 //     之间的窗口内，同号 fd 上的新 waiter 不得被误摘/误醒；底层 close
 //     完成后新 waiter 采样新一代际，应被真实事件正常唤醒。
-//  3) 多 worker close+reuse：非单 worker 配置下，协程在 fd 上 park 后
-//     由另一线程并发 close+dup2——旧协程得 EBADF、新对象不受影响。
+//  （多 worker close+reuse 移到独立可执行 Test_hook_fd_epoch_multi，见该文件。）
 //
-// 同步约定：fixture 固定 m_cfg_static_thread_num（用例 3 用多 worker），
+// 同步约定：本文件全部用单 worker（m_cfg_static_thread_num=1）；
 // 协程内禁止 CountDownLatch::Wait（阻塞 worker 会饿死同 worker 其它协程），
 // 一律用 atomic flag + bbtco_sleep 让出轮询；主线程侧用 WaitLatch 有界等待。
 // 复用源一律取独立 socketpair（dup2 同 socket 会因对端已关闭而 EPIPE）。
@@ -25,11 +25,11 @@
 #include <csignal>
 #include <cstdlib>
 #include <cstring>
+#include <dirent.h>
 #include <fcntl.h>
 #include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/syscall.h>
-#include <filesystem>
 #include <thread>
 #include <unistd.h>
 #include <vector>
@@ -41,6 +41,18 @@
 #include <bbt/coroutine/detail/Scheduler.hpp>
 #include <bbt/pollevent/Event.hpp>
 #include <bbt/pollevent/EventLoop.hpp>
+
+/* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。 */
+namespace
+{
+void EnsureRuntime()
+{
+    static std::once_flag once;
+    std::call_once(once, [](){
+        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
+    });
+}
+}
 
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::detail;
@@ -61,12 +73,11 @@ struct CoFixture
         m_protect = cfg->m_cfg_stack_protect;
         cfg->m_cfg_static_thread_num = threads;
         cfg->m_cfg_stack_protect = false;
-        g_scheduler->Start(SCHE_START_OPT_SCHE_THREAD);
+        EnsureRuntime();
     }
     ~CoFixture()
     {
         std::signal(SIGPIPE, m_old_pipe);
-        g_scheduler->Stop();
         auto* cfg = g_bbt_coroutine_config.get();
         cfg->m_cfg_static_thread_num = m_threads;
         cfg->m_cfg_stack_size = m_stack;
@@ -240,68 +251,8 @@ BOOST_AUTO_TEST_CASE(t_concurrent_close_and_new_waiter_not_miswoken)
     ::close(np[1]);
 }
 
-/* ------------------------------------------------------------------ *
- * 用例 3：多 worker（非单线程配置）下的 close+reuse。
- *
- * 多 worker 时等待协程可能被触发后跨 worker 恢复，调度间隙真实存在。
- * close+dup2 由主线程直接发起（不经协程），更贴近真实并发形态。
- *
- * 判别：协程的 read 必须返回 -1（不读新对象）；且复用对象上预置的
- * 'z' 字节在协程结束后必须仍能被主线程读到——若旧等待被重定向到
- * 新对象，'z' 会被旧 read 消耗，主线程只能读到 EAGAIN。
- * （errno 值在协程上下文中依赖 TLS 槽绑定，多 worker 下观测不稳定，
- *  故以「返回值 + 数据不串线」为断言，errno 仅作信息输出。）
- * ------------------------------------------------------------------ */
-BOOST_AUTO_TEST_CASE(t_multi_worker_close_reuse_returns_ebadf)
-{
-    CoFixture fx{4};   // 多 worker：调度间隙真实存在
-    int fds[2] = {-1, -1};
-    int np[2]  = {-1, -1};
-    BOOST_REQUIRE_EQUAL(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
-    BOOST_REQUIRE_EQUAL(::socketpair(AF_UNIX, SOCK_STREAM, 0, np), 0);
-
-    bbt::core::thread::CountDownLatch done{1};
-    std::atomic<ssize_t> result{12345};
-    std::atomic_int errcode{0};
-
-    bbtco [&]() {
-        char buf[1];
-        errno = 0;
-        const ssize_t r = ::read(fds[0], buf, 1);
-        result.store(r);
-        errcode.store(errno);
-        done.Down();
-    };
-
-    // 主线程（非协程）：FdWaiterCount 探针确认 A 已登记，随后 close+dup2+喂数据。
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(3000);
-    while (CoPollEvent::FdWaiterCount(fds[0]) == 0 &&
-           std::chrono::steady_clock::now() < deadline)
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    BOOST_REQUIRE(CoPollEvent::FdWaiterCount(fds[0]) > 0);
-
-    BOOST_REQUIRE_EQUAL(::close(fds[0]), 0);
-    BOOST_REQUIRE_EQUAL(::dup2(np[0], fds[0]), fds[0]);
-    const char z = 'z';
-    BOOST_REQUIRE_EQUAL(::write(np[1], &z, 1), 1);
-
-    const bool ok = WaitLatch(done, 5000);
-    BOOST_REQUIRE_MESSAGE(ok, "coroutine did not finish after multi-worker close+dup2");
-    BOOST_CHECK_EQUAL(result.load(), -1);
-
-    /* 判别核心：旧等待若误重试到复用后的 fds[0]，'z' 会被消耗；
-     * 正确语义下 'z' 必须仍在复用对象上可读。 */
-    int fl = ::fcntl(fds[0], F_GETFL, 0);
-    BOOST_REQUIRE(fl >= 0);
-    BOOST_REQUIRE_EQUAL(::fcntl(fds[0], F_SETFL, fl | O_NONBLOCK), 0);
-    char probe = 0;
-    const ssize_t got = ::read(fds[0], &probe, 1);
-    BOOST_CHECK_MESSAGE(got == 1 && probe == 'z',
-                        "reused-fd byte was consumed by stale coroutine read (got=" << got << ")");
-    if (::fcntl(fds[0], F_GETFD) >= 0) ::close(fds[0]);
-    ::close(fds[1]);
-    ::close(np[1]);
-}
+/* 用例 3（多 worker close+reuse）已移至独立可执行 Test_hook_fd_epoch_multi：
+ * worker 数在首次 Start 时固定，同进程内无法从 1 切换为 4（一次初始化契约）。 */
 
 /* ------------------------------------------------------------------ *
  * 用例 4（round-3 修复）：并发重复 close 的所有权归属。
@@ -387,28 +338,68 @@ BOOST_AUTO_TEST_CASE(t_concurrent_double_close_does_not_close_reused_fd)
 }
 
 /* ------------------------------------------------------------------ *
- * 用例 5（round-3 修复）：Event 构造失败时 callback_map 与内部 dup fd
- * 均回滚——把进程 fd 上限压到当前用量，使 Event 构造期的 ::dup 必然
- * 以 EMFILE 失败。
+ * 用例 5（round-3 修复 / r2 稳定度量）：Event 构造失败时 callback_map 与
+ * 内部 dup fd 均回滚——把进程 fd 上限压到当前占用，使 Event 构造期的
+ * ::dup 必然以 EMFILE 失败。
  *
- * 判别：InitFdEvent 返回 -1（等待建立失败收敛），且不残留 callback 条目
- *       （CallbackEntryCount 不变）、不泄漏 fd（/proc/self/fd 计数不变）。
+ * 度量口径（r1 已证原断言不可用）：原实现只比较 /proc/self/fd 里的**最大
+ * fd 号**，而迭代目录本身会占用一个 fd 且被计入结果，fd 分配器又总是复用
+ * 最小空闲号——最大值会随无关的分配顺序上下浮动（实测失败方向是「变少」
+ * 12 != 13），既不证明泄漏也不证明回滚。这里改成：排除测量自身 fd 后的
+ * **fd 集合**比较，对「多出」和「少掉」两个方向都敏感，且与 fd 号复用无关。
+ * RLIMIT_NOFILE 是进程级限制，用 RAII 恢复，避免断言提前终止后污染后续用例。
+ *
+ * 判别：InitFdEvent / Event 构造失败必须收敛为 EMFILE 异常，且不残留
+ *       callback 条目（CallbackEntryCount 不变）、fd 集合一个不多一个不少。
  * ------------------------------------------------------------------ */
+struct RlimitRestoreGuard
+{
+    explicit RlimitRestoreGuard(const struct rlimit& saved) : m_saved(saved) {}
+    ~RlimitRestoreGuard() { ::setrlimit(RLIMIT_NOFILE, &m_saved); }
+    RlimitRestoreGuard(const RlimitRestoreGuard&) = delete;
+    RlimitRestoreGuard& operator=(const RlimitRestoreGuard&) = delete;
+    struct rlimit m_saved;
+};
+
+struct FillerFdGuard
+{
+    ~FillerFdGuard() { CloseAll(); }
+    std::vector<int>& Fds() { return m_fds; }
+    void CloseAll()
+    {
+        for (const int fd : m_fds)
+            ::close(fd);
+        m_fds.clear();
+    }
+    std::vector<int> m_fds;
+};
+
+/* 稳定 fd 快照：/proc/self/fd 集合剔除测量自身打开的目录 fd，升序返回。
+ * 打开目录失败时返回空集（调用方以非空断言暴露）。 */
+std::vector<int> OpenFdSnapshot()
+{
+    std::vector<int> fds;
+    DIR* dir = ::opendir("/proc/self/fd");
+    if (dir == nullptr)
+        return fds;
+    const int self_fd = ::dirfd(dir);
+    while (struct dirent* ent = ::readdir(dir)) {
+        char* end = nullptr;
+        const long value = std::strtol(ent->d_name, &end, 10);
+        if (end == ent->d_name || *end != '\0')
+            continue;                       // ".", ".." 等非数字项
+        if (static_cast<int>(value) == self_fd)
+            continue;                       // 测量自身，不计入
+        fds.push_back(static_cast<int>(value));
+    }
+    ::closedir(dir);
+    std::sort(fds.begin(), fds.end());
+    return fds;
+}
+
 BOOST_AUTO_TEST_CASE(t_event_construct_dup_failure_rolls_back)
 {
     CoFixture fx{1};
-
-    auto MaxFd = []() -> int {
-        int max_fd = -1;
-        for (auto& e : std::filesystem::directory_iterator("/proc/self/fd")) {
-            const std::string name = e.path().filename().string();
-            char* end = nullptr;
-            const long fd = std::strtol(name.c_str(), &end, 10);
-            if (end != name.c_str() && *end == '\0')
-                max_fd = std::max(max_fd, static_cast<int>(fd));
-        }
-        return max_fd;
-    };
 
     int sp[2] = {-1, -1};
     BOOST_REQUIRE_EQUAL(::socketpair(AF_UNIX, SOCK_STREAM, 0, sp), 0);
@@ -417,21 +408,25 @@ BOOST_AUTO_TEST_CASE(t_event_construct_dup_failure_rolls_back)
      * Event 构造期间的 ::dup 才会是唯一的失败点。 */
     bbt::pollevent::detail::EventBase base;
 
-    const int max_fd_before = MaxFd();
+    const std::vector<int> fds_before = OpenFdSnapshot();
+    /* 度量稳定性自证：同状态下连续两次快照必须一致（排除测量自身 fd 后
+     * 与 fd 号复用、分配顺序无关）。 */
+    BOOST_REQUIRE(fds_before == OpenFdSnapshot());
+    BOOST_REQUIRE(!fds_before.empty());
     const long cb_before = static_cast<long>(bbt::pollevent::Event::CallbackEntryCount());
 
     /* RLIMIT_NOFILE 限制的是 fd 数值上限而非当前 fd 数量。先压到当前最大
      * fd+1，再用 openat 填满上限以下的空洞，确保 Event 构造期 ::dup(fd)
      * 稳定失败（EMFILE），走资源创建失败路径；callback 尚未注册，
-     * callback_map 不得残留。setrlimit 是进程级操作，末尾必须恢复。 */
+     * callback_map 不得残留。setrlimit 是进程级操作，由 RAII 保证恢复。 */
     struct rlimit old_lim{};
     BOOST_REQUIRE_EQUAL(::getrlimit(RLIMIT_NOFILE, &old_lim), 0);
     struct rlimit cap = old_lim;
-    BOOST_REQUIRE_GE(max_fd_before, 0);
-    cap.rlim_cur = static_cast<rlim_t>(max_fd_before + 1);
+    cap.rlim_cur = static_cast<rlim_t>(fds_before.back() + 1);
     BOOST_REQUIRE_EQUAL(::setrlimit(RLIMIT_NOFILE, &cap), 0);
+    RlimitRestoreGuard restore_limit{old_lim};
 
-    std::vector<int> fillers;
+    FillerFdGuard fillers;
     for (;;) {
         const int filler = static_cast<int>(::syscall(
             SYS_openat, AT_FDCWD, "/dev/null", O_RDONLY | O_CLOEXEC, 0));
@@ -439,7 +434,7 @@ BOOST_AUTO_TEST_CASE(t_event_construct_dup_failure_rolls_back)
             BOOST_REQUIRE_EQUAL(errno, EMFILE);
             break;
         }
-        fillers.push_back(filler);
+        fillers.Fds().push_back(filler);
     }
 
     /* 直接构造 Event：内部 dup 抛 boost::system::system_error（EMFILE）。
@@ -453,8 +448,9 @@ BOOST_AUTO_TEST_CASE(t_event_construct_dup_failure_rolls_back)
         eptr = std::current_exception();
     }
 
-    // 恢复上限，再断言无回滚残留
+    /* 恢复上限与 filler 后再断言：空洞填满状态下无法再打开目录 fd 做快照。 */
     BOOST_REQUIRE_EQUAL(::setrlimit(RLIMIT_NOFILE, &old_lim), 0);
+    fillers.CloseAll();
 
     BOOST_REQUIRE(eptr != nullptr);
     try { std::rethrow_exception(eptr); }
@@ -472,10 +468,13 @@ BOOST_AUTO_TEST_CASE(t_event_construct_dup_failure_rolls_back)
     BOOST_CHECK_EQUAL(static_cast<long>(bbt::pollevent::Event::CallbackEntryCount()),
                       cb_before);
 
-    BOOST_REQUIRE_EQUAL(::setrlimit(RLIMIT_NOFILE, &old_lim), 0);
-    for (const int filler : fillers)
-        BOOST_CHECK_EQUAL(::close(filler), 0);
-    BOOST_CHECK_EQUAL(MaxFd(), max_fd_before);
+    const std::vector<int> fds_after = OpenFdSnapshot();
+    BOOST_CHECK_MESSAGE(fds_after.size() == fds_before.size(),
+        "fd count changed across failed Event ctor: before=" << fds_before.size()
+        << " after=" << fds_after.size());
+    BOOST_CHECK_MESSAGE(fds_after == fds_before,
+        "fd set changed across failed Event ctor (rollback leak or spurious close)");
+    BOOST_CHECK_EQUAL(static_cast<long>(::fcntl(sp[0], F_GETFD)), 0);  // 原 fd 未被误关
     ::close(sp[0]);
     ::close(sp[1]);
 }

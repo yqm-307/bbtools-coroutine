@@ -44,7 +44,6 @@ public:
 protected:
     /* 非公开库内部接口 */
     void                            Start(bool background_thread = true);
-    void                            Stop();
     size_t                          GetLoadValue();
     size_t                          GetExecutableNum(); /* 可执行协程数 */
     void                            AddCoroutineTask(CoroutinePriority priority, Coroutine::Ptr coroutine);
@@ -79,7 +78,6 @@ private:
 
     /* 运行时相关 */
     std::atomic_bool                m_is_running{true};
-    std::atomic_bool                m_is_shutdown{false};  // 强制关闭标志，跳过协程执行
     Coroutine::Ptr                  m_running_coroutine{nullptr};   // processer当前运行中的协程
     std::atomic_uint64_t            m_running_coroutine_begin{0};   // 当前运行协程开始执行的时间
 

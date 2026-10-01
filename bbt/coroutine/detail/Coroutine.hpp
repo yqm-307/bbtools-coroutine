@@ -59,14 +59,13 @@ public:
     typedef Coroutine* Ptr;
 
     /* #339：sync 层 Wait 族与 CoMutex 等待路径均经同一登记路径挂起，必须能访问
-     * _RegistAwaitEvent（取消预检 + _TrackParked），否则 custom 等待既不响应
-     * 预取消也无法被 Stop 回收。仅开放给工具层等待原语，不扩大为公共 API。 */
+     * _RegistAwaitEvent（取消预检），否则 custom 等待不响应预取消。
+     * 仅开放给工具层等待原语，不扩大为公共 API。 */
     friend class bbt::coroutine::sync::CoWaiter;
     friend class bbt::coroutine::sync::CoMutex;
     friend class Scheduler;
 
-    Coroutine(int stack_size, const CoroutineCallback& co_func, bool need_protect,
-              uint64_t scheduler_generation);
+    Coroutine(int stack_size, const CoroutineCallback& co_func, bool need_protect);
     virtual ~Coroutine();
     
     /* 注册时携带描述（#276）：bbtco_desc 落库真源；空 desc 与不带参数等价 */
@@ -207,20 +206,6 @@ private:
     std::shared_ptr<CoPollEvent>    _AwaitEvent() const;
     void                            _SetAwaitEvent(std::shared_ptr<CoPollEvent> ev);
 
-    /* #280 停机契约：PARKED 协程（唯一引用是事件回调裸 this）纳入全局登记，
-     * Scheduler::Stop 在全部线程 join 后调用 DestroyParkedCoroutines 回收。
-     * 不变式：协程同一时刻只属于 parked 表或某个队列，绝不双持。 */
-    void                            _TrackParked();
-    void                            _UntrackParked();
-
-public:
-    static void                     DestroyParkedCoroutines();
-
-private:
-    static std::mutex                           s_parked_mtx;
-    static std::vector<Coroutine*>              s_parked;
-    bool                                        m_parked_tracked{false};
-
     /* #369 单测故障注入标志：见 _TestFailNextAwaitRegist 注释 */
     static std::atomic_bool                     s_test_fail_await_regist;
 
@@ -245,8 +230,6 @@ private:
     std::shared_ptr<CoPollEvent>    m_await_event{nullptr};
     mutable std::mutex              m_await_mu;
     std::atomic_bool                m_cancel_requested{false};
-    /* 首次 Resume 绑定调度代；Stop/Start 后旧协程不得重新入队。 */
-    std::atomic_uint64_t            m_scheduler_generation{0};
     std::exception_ptr              m_exception;
     CoroutineOnYieldCallback        m_co_onyield_callback{nullptr};
     CoroutineYieldDisposition       m_yield_disposition{CoroutineYieldDisposition::MANUAL};

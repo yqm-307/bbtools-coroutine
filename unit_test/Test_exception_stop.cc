@@ -1,6 +1,7 @@
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MAIN
 #include <boost/test/included/unit_test.hpp>
+#include <mutex>
 
 #include <atomic>
 #include <chrono>
@@ -15,6 +16,18 @@
 #include <bbt/coroutine/detail/Coroutine.hpp>
 #include <bbt/coroutine/detail/GlobalConfig.hpp>
 #include <bbt/coroutine/detail/Scheduler.hpp>
+
+/* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。 */
+namespace
+{
+void EnsureRuntime()
+{
+    static std::once_flag once;
+    std::call_once(once, [](){
+        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
+    });
+}
+}
 
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::detail;
@@ -33,7 +46,7 @@ struct ConfigSnapshot
 std::atomic_bool g_started{false};
 }
 
-BOOST_AUTO_TEST_SUITE(ExceptionStopContractTest)
+BOOST_AUTO_TEST_SUITE(ExceptionContractTest)
 
 BOOST_AUTO_TEST_CASE(t_begin)
 {
@@ -50,9 +63,9 @@ BOOST_AUTO_TEST_CASE(t_begin)
     cfg->m_cfg_stack_protect = false;
     cfg->m_ext_coevent_exception_callback = nullptr;
 
-    g_scheduler->Start(SCHE_START_OPT_SCHE_THREAD);
+    EnsureRuntime();
     g_started.store(true);
-    BOOST_REQUIRE(g_scheduler->IsRunning());
+    BOOST_REQUIRE(g_scheduler->IsInitialized());
 }
 
 BOOST_AUTO_TEST_CASE(t_exception_ptr_saved_when_callback)
@@ -144,29 +157,9 @@ BOOST_AUTO_TEST_CASE(t_timeout_is_status_not_exception)
     BOOST_CHECK_NE(rc.load(), -999);
 }
 
-BOOST_AUTO_TEST_CASE(t_stop_does_not_drain_sleep)
-{
-    BOOST_REQUIRE(g_started.load());
-    std::atomic_bool finished{false};
-    bbtco [&]() {
-        g_bbt_tls_coroutine_co->YieldUntilTimeout(5000);
-        finished.store(true);
-    };
-
-    const auto begin = bbt::core::clock::gettime_mono();
-    g_scheduler->Stop();
-    g_started.store(false);
-    const auto elapsed = bbt::core::clock::gettime_mono() - begin;
-
-    BOOST_CHECK_LT(elapsed, 2000);
-    BOOST_CHECK(!finished.load());
-}
 
 BOOST_AUTO_TEST_CASE(t_end)
 {
-    if (g_started.exchange(false))
-        g_scheduler->Stop();
-
     if (g_cfg.saved) {
         auto* cfg = g_bbt_coroutine_config.get();
         cfg->m_cfg_static_thread_num = g_cfg.threads;

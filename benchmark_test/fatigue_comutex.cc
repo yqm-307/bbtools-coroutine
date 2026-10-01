@@ -81,5 +81,5 @@ int main()
 {
     g_scheduler->Start();
     fatigue_1();
-    g_scheduler->Stop();
+    /* process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出 */
 }

@@ -42,6 +42,18 @@
  *    用户 thread_local 的代码需要在三平台分别复核。
  */
 
+/* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。 */
+namespace
+{
+void EnsureRuntime()
+{
+    static std::once_flag once;
+    std::call_once(once, [](){
+        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
+    });
+}
+}
+
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::detail;
 
@@ -220,9 +232,9 @@ BOOST_AUTO_TEST_CASE(t_begin)
     /* 64 KiB 保护栈：本文件验证跨 worker/TLS 语义，不叠加 #337 的小栈（默认 12 KiB）配置问题。 */
     cfg->m_cfg_stack_size = 64 * 1024;
 
-    g_scheduler->Start(SCHE_START_OPT_SCHE_THREAD);
+    EnsureRuntime();
     g_started.store(true);
-    BOOST_REQUIRE(g_scheduler->IsRunning());
+    BOOST_REQUIRE(g_scheduler->IsInitialized());
 }
 
 /**
@@ -362,8 +374,6 @@ BOOST_AUTO_TEST_CASE(t_runtime_tls_stable_after_event_wake)
 BOOST_AUTO_TEST_CASE(t_end)
 {
     if (g_started.exchange(false))
-        g_scheduler->Stop();
-
     if (g_cfg.saved) {
         auto* cfg = g_bbt_coroutine_config.get();
         cfg->m_cfg_static_thread_num = g_cfg.threads;

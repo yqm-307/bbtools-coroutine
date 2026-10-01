@@ -32,6 +32,19 @@
 #include <bbt/coroutine/sync/Chan.hpp>
 #include <bbt/coroutine/sync/CoLockGuard.hpp>
 
+/* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
+ * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。 */
+namespace
+{
+void EnsureRuntime()
+{
+    static std::once_flag once;
+    std::call_once(once, [](){
+        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
+    });
+}
+}
+
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::sync;
 
@@ -66,7 +79,7 @@ BOOST_AUTO_TEST_SUITE(ReliabilityTraps)
 
 BOOST_AUTO_TEST_CASE(t_scheduler_start)
 {
-    g_scheduler->Start();
+    EnsureRuntime();
 }
 
 // ============================================================================
@@ -537,7 +550,8 @@ BOOST_AUTO_TEST_CASE(t_DR_03_vector_atomic_resize)
 // ============================================================================
 // DR-04 [P1]: PROFILE 模式 Profiler::ProfileInfo() 重入锁
 //
-// 📋 已知问题：Scheduler::Stop() 持 mutex 调 ProfileInfo()，后者再次锁同一 mutex。
+// 📋 历史已知问题（已失效）：旧的 Scheduler::Stop() 持 mutex 调 ProfileInfo() 会自锁；
+//    该入口已删除，本注记仅存档，不再适用于当前运行时。
 //    仅在 Test_smoke + PROFILE=ON 时触发。单元测试使用 PROFILE=OFF 规避。
 //    影响面小，不阻塞发布。
 // ============================================================================
@@ -879,7 +893,6 @@ BOOST_AUTO_TEST_CASE(t_EX_03_coroutine_exception)
 
 BOOST_AUTO_TEST_CASE(t_scheduler_stop)
 {
-    g_scheduler->Stop();
 }
 
 BOOST_AUTO_TEST_SUITE_END()

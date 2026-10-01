@@ -6,6 +6,7 @@
 #include <bbt/core/Attribute.hpp>
 #include <bbt/pollevent/Event.hpp>
 #include <bbt/coroutine/detail/Define.hpp>
+#include <bbt/coroutine/sync/CoEventValue.hpp>
 
 namespace bbt::coroutine::detail
 {
@@ -45,6 +46,13 @@ public:
      * 该值在 InitFdEvent 建立等待时采样（establish-epoch），_TrackWaiter
      * 与恢复路径都以它作为「本次等待所针对的 fd 代际」基线。 */
     uint64_t                        GetWaitEpoch() const noexcept { return m_wait_epoch; }
+
+    /* 首胜 Notify 携带的内联载荷（带参等待）。载荷归属本事件，也就归属
+     * 这一轮等待，因此下一轮等待不会覆写上一轮尚未取走的结果。
+     * 并发约定：所有读写都在拥有本事件的 CoWaiter::m_notify_mutex 临界区
+     * 内完成，故本类型不再自带锁。 */
+    void                            SetNotifyValue(const bbt::coroutine::CoEventValue& value) { m_notify_value = value; }
+    bbt::coroutine::CoEventValue    GetNotifyValue() const { return m_notify_value; }
 
     /* 初始化后调用Regist注册事件 */
     int                             InitFdEvent(int fd, short events, int timeout);
@@ -142,13 +150,20 @@ private:
         bool                                    closing{false};
         std::vector<std::weak_ptr<CoPollEvent>> waiters;
     };
-    static std::mutex                                       s_waiters_mtx;
-    static std::unordered_map<int, FdSlot>                  s_slots;
+    using FdSlots = std::unordered_map<int, FdSlot>;
+    /* fd→epoch/waiter 注册表与它的互斥量：worker / poller 在进程寿命内持续
+     * 可达，故与 Scheduler 等五个单例同一策略——进程寿命持有、不在静态
+     * 退出期析构（只泄漏，退出由 OS 回收）。函数局部静态定义见 .cc，
+     * 避免动态初始化顺序问题。 */
+    static std::mutex&                                      _WaitersMtx();
+    static FdSlots&                                         _Slots();
     /* _TrackWaiter 返回 false 表示登记时 fd 已 closing，或建立等待
      * （InitFdEvent）至今 epoch 已推进——说明底层 asio wait 绑定的 fd 对象
      * 已死亡/换代，不可等待（由 Regist 以 POLL_EVENT_CLOSED 自触）。 */
     bool                            _TrackWaiter();
     void                            _UntrackWaiter();
+    /* 本轮首胜 Notify 的载荷（见 SetNotifyValue/GetNotifyValue 的并发约定） */
+    bbt::coroutine::CoEventValue                    m_notify_value{};
     /* 建立等待时（InitFdEvent）锁内采样的 fd 代际基线（establish-epoch）；
      * _TrackWaiter 据此判定建立窗口内是否发生过 close，恢复路径据此与
      * FdEpoch 比对识别挂起期间的 close+reuse。 */

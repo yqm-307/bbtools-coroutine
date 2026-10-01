@@ -35,17 +35,16 @@ write .cc  →  register in CMakeLists.txt  →  build  →  register in config 
 
 int main()
 {
+    // 进程寿命 runtime 只初始化一次；退出由进程生命周期负责。
     g_scheduler->Start();
 
     // Stress-test logic here — run indefinitely or for N hours.
-
-    g_scheduler->Stop();
 }
 ```
 
 **Conventions:**
 - Name files `fatigue_<component>.cc` (e.g., `fatigue_comutex.cc`)
-- Use `g_scheduler->Start()` / `Stop()` as entry/exit guards
+- Fatigue 程序调用 `g_scheduler->Start()` 初始化一次进程寿命 runtime；不调用已删除的 `Stop()`，由进程退出结束运行。
 - Include `sleep(N)` or time-based loops for long-running tests
 - Print periodic status via `printf()` so it's visible in the monitor's stdout log
 

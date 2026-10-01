@@ -1,6 +1,7 @@
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MAIN
 #include <boost/test/included/unit_test.hpp>
+#include <mutex>
 
 // #262 Hook POSIX 错误、EOF、关闭与降级矩阵。
 // 探针：EOF/EPIPE/ECONNRESET 在协程内保持原生 errno；等待中 fd 被关闭必须唤醒，
@@ -18,6 +19,18 @@
 #include <bbt/coroutine/coroutine.hpp>
 #include <bbt/coroutine/detail/GlobalConfig.hpp>
 #include <bbt/coroutine/detail/Scheduler.hpp>
+
+/* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。 */
+namespace
+{
+void EnsureRuntime()
+{
+    static std::once_flag once;
+    std::call_once(once, [](){
+        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
+    });
+}
+}
 
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::detail;
@@ -40,12 +53,11 @@ struct CoFixture
         m_protect = cfg->m_cfg_stack_protect;
         cfg->m_cfg_static_thread_num = 1;
         cfg->m_cfg_stack_protect = false;
-        g_scheduler->Start(SCHE_START_OPT_SCHE_THREAD);
+        EnsureRuntime();
     }
     ~CoFixture()
     {
         std::signal(SIGPIPE, m_old_pipe);
-        g_scheduler->Stop();
         auto* cfg = g_bbt_coroutine_config.get();
         cfg->m_cfg_static_thread_num = m_threads;
         cfg->m_cfg_stack_size = m_stack;

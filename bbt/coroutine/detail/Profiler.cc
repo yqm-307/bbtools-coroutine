@@ -7,11 +7,9 @@ namespace bbt::coroutine::detail
 
 Profiler::UPtr& Profiler::GetInstance()
 {
-    static UPtr _inst = nullptr;
-    if (_inst == nullptr)
-        _inst = UPtr(new Profiler());
-
-    return _inst;
+    /* 进程寿命：运行期对象，不在静态退出期析构 */
+    static UPtr* _holder = new UPtr(new Profiler());
+    return *_holder;
 }
 
 void Profiler::OnEvent_RegistCoroutine()

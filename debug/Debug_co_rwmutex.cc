@@ -63,5 +63,4 @@ int main()
 
     rwlock_test();
 
-    g_scheduler->Stop();
 }

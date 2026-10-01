@@ -1,6 +1,7 @@
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MAIN
 #include <boost/test/included/unit_test.hpp>
+#include <mutex>
 
 #include <atomic>
 #include <vector>
@@ -9,13 +10,26 @@
 #include <bbt/coroutine/coroutine.hpp>
 #include <bbt/coroutine/sync/Chan.hpp>
 #include <bbt/coroutine/sync/CoSelect.hpp>
+/* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
+ * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。 */
+namespace
+{
+void EnsureRuntime()
+{
+    static std::once_flag once;
+    std::call_once(once, [](){
+        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
+    });
+}
+}
+
 using namespace bbt::coroutine;
 
 BOOST_AUTO_TEST_SUITE(CoSelectTest)
 
 BOOST_AUTO_TEST_CASE(t_begin)
 {
-    g_scheduler->Start();
+    EnsureRuntime();
 }
 
 // 两路 CaseRead：只往 ch1 写，Run 返回 0，out 正确；且必须被写入唤醒而非超时兜底
@@ -231,7 +245,6 @@ BOOST_AUTO_TEST_CASE(t_select_close_wakeup)
 
 BOOST_AUTO_TEST_CASE(t_end)
 {
-    g_scheduler->Stop();
 }
 
 BOOST_AUTO_TEST_SUITE_END()

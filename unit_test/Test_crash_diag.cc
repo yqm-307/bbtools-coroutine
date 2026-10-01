@@ -1,6 +1,7 @@
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MAIN
 #include <boost/test/included/unit_test.hpp>
+#include <mutex>
 
 // #278 崩溃与栈溢出诊断边界（评估+锁行为）。fork 子进程做破坏性验证，
 // 父进程 waitpid 收尸判定信号；不在测试进程内触发 SIGSEGV。
@@ -14,6 +15,18 @@
 #include <bbt/coroutine/coroutine.hpp>
 #include <bbt/coroutine/detail/GlobalConfig.hpp>
 #include <bbt/coroutine/detail/Scheduler.hpp>
+
+/* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。 */
+namespace
+{
+void EnsureRuntime()
+{
+    static std::once_flag once;
+    std::call_once(once, [](){
+        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
+    });
+}
+}
 
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::detail;
@@ -32,7 +45,7 @@ static int RunStackOverflowChild(bool protect)
         cfg->m_cfg_static_thread_num = 1;
         cfg->m_cfg_stack_size = 16384;
         cfg->m_cfg_stack_protect = protect;
-        g_scheduler->Start(SCHE_START_OPT_SCHE_THREAD);
+        EnsureRuntime();
 
         volatile char sink[4096];
         std::function<void(int)> rec = [&](int depth) {

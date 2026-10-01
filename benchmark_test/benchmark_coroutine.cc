@@ -68,6 +68,6 @@ int main()
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     
-    g_scheduler->Stop();
+    /* process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出 */
     printf("time cost: %ldms\n", bbt::core::clock::gettime() - begin);
 }

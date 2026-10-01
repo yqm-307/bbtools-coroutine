@@ -24,6 +24,19 @@
 #include <sys/uio.h>
 #include <poll.h>
 
+/* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
+ * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。 */
+namespace
+{
+void EnsureRuntime()
+{
+    static std::once_flag once;
+    std::call_once(once, [](){
+        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
+    });
+}
+}
+
 using hook_contract::BindLoopbackPort0;
 using hook_contract::EintrArm;
 using hook_contract::FdGuard;
@@ -36,7 +49,7 @@ BOOST_AUTO_TEST_SUITE(HookContract)
 
 BOOST_AUTO_TEST_CASE(test_env_setup)
 {
-    g_scheduler->Start();
+    EnsureRuntime();
 }
 
 // socket：协程内 fd 带 O_NONBLOCK（hook 挂起调度的前提）；测试线程（非协程）直通不带
@@ -1013,11 +1026,12 @@ BOOST_AUTO_TEST_CASE(t_contract_gethostbyaddr)
     });
 }
 
-// Stop 必须等已经进入 worker 的 DNS 工作结束并完成 Notify，再销毁 Processer。
-// 用可控门栓替代外部 .invalid 查询，保证确实进入 in-flight，避免公网 DNS
-// 驻留时长决定测试成败；getaddrinfo Hook 的行为由上面的独立用例覆盖。
-BOOST_AUTO_TEST_CASE(t_contract_dns_stop_with_inflight)
+// 进程寿命下无业务停机入口：已进入 worker 的 DNS 工作必须能完成并唤醒等待
+// 协程（worker 仍归本池所有）。用可控门栓替代外部 .invalid 查询，保证确实
+// 进入 in-flight；getaddrinfo Hook 的行为由上面的独立用例覆盖。
+BOOST_AUTO_TEST_CASE(t_contract_dns_inflight_completes_without_stop)
 {
+    EnsureRuntime();
     struct Gate {
         std::mutex mutex;
         std::condition_variable cv;
@@ -1025,26 +1039,26 @@ BOOST_AUTO_TEST_CASE(t_contract_dns_stop_with_inflight)
         bool release{false};
     };
     auto gate = std::make_shared<Gate>();
-    bbtco [gate]() {
+    bbt::core::thread::CountDownLatch await_done{1};
+
+    bbtco [gate, &await_done]() {
         bbt::coroutine::detail::DnsResolver::GetInstance()->Await([gate]() {
             std::unique_lock<std::mutex> lock(gate->mutex);
             gate->entered = true;
             gate->cv.notify_all();
             gate->cv.wait(lock, [&]() { return gate->release; });
         });
+        await_done.Down();
     };
+
     bool entered = false;
     {
         std::unique_lock<std::mutex> lock(gate->mutex);
         entered = gate->cv.wait_for(lock, std::chrono::seconds{2},
                                     [&]() { return gate->entered; });
     }
-    if (!entered) {
-        g_scheduler->Stop();
-        g_scheduler->Start();
-        BOOST_FAIL("DNS worker did not enter in-flight work");
-        return;
-    }
+    BOOST_REQUIRE_MESSAGE(entered, "DNS worker did not enter in-flight work");
+
     std::thread releaser([gate]() {
         std::this_thread::sleep_for(std::chrono::milliseconds{20});
         {
@@ -1053,22 +1067,18 @@ BOOST_AUTO_TEST_CASE(t_contract_dns_stop_with_inflight)
         }
         gate->cv.notify_all();
     });
-    auto begin = std::chrono::steady_clock::now();
-    g_scheduler->Stop();
+
+    const auto begin = std::chrono::steady_clock::now();
+    /* 工作完成后等待协程必须被唤醒：DNS worker 未随任何停机被销毁 */
+    BOOST_REQUIRE_EQUAL(await_done.WaitTimeout(3000), 0);
     const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - begin).count();
-    {
-        std::lock_guard<std::mutex> lock(gate->mutex);
-        BOOST_CHECK(gate->release); // Stop 不得在 worker 完成前返回
-    }
     releaser.join();
     BOOST_TEST(elapsed_ms < 3000);
-    g_scheduler->Start();
 }
 
 BOOST_AUTO_TEST_CASE(test_env_unload)
 {
-    g_scheduler->Stop();
 }
 
 BOOST_AUTO_TEST_SUITE_END()

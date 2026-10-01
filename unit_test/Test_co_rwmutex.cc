@@ -1,11 +1,25 @@
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MAIN
 #include <boost/test/included/unit_test.hpp>
+#include <mutex>
 
 #include <atomic>
 #include <bbt/coroutine/coroutine.hpp>
 #include <memory>
 #include <thread>
+
+/* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
+ * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。 */
+namespace
+{
+void EnsureRuntime()
+{
+    static std::once_flag once;
+    std::call_once(once, [](){
+        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
+    });
+}
+}
 
 namespace bbt::coroutine::sync
 {
@@ -31,7 +45,7 @@ BOOST_AUTO_TEST_CASE(t_start_scheduler)
     // 使用安全的协程栈大小，避免 ASAN 检测到的 stack-buffer-overflow
     // （默认 12KB 在某些协程操作中不足，导致间歇性 crash）
     g_bbt_coroutine_config->m_cfg_stack_size = 64 * 1024;  // 64KB
-    g_scheduler->Start();
+    EnsureRuntime();
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
 }
 
@@ -488,7 +502,6 @@ BOOST_AUTO_TEST_CASE(t_rwlock_multi_co_stress)
 
 BOOST_AUTO_TEST_CASE(t_stop_scheduler)
 {
-    g_scheduler->Stop();
     // 等待所有 processer 线程完全退出，避免 Boost.Test 全局析构竞态
     // （未加等待时 Test_co_rwmutex 间歇性 segfault @0x2b8, ~20% 失败率）
     std::this_thread::sleep_for(std::chrono::milliseconds(500));

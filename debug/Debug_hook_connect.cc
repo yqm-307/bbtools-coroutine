@@ -196,5 +196,4 @@ int main()
     }
 
     // recurrent();
-    g_scheduler->Stop();
 }

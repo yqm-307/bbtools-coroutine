@@ -29,7 +29,6 @@ void LimitCoroutineCount()
         }
     }
 
-    g_scheduler->Stop();
 }
 
 int main()

@@ -5,8 +5,9 @@
 ## 生命周期
 
 - `bbtco` detached。`[&]` 捕获的栈对象必须活到该协程结束，否则改堆或 `shared_ptr`。
-- `Stop()` 取消式停机：不再接新任务；等待中的协程被唤醒并销毁；队列里未执行的回收。**不保证**正在跑或尚未跑的业务完成。要「全部跑完」：自己用 latch/Chan 收齐，再 `Stop`。
-- `Stop` 之后 `bbtco` 抛 `std::runtime_error("scheduler stopped: coroutine task rejected")`。`bbtco_noexcept(&succ)` 置 `succ=false`，不抛。
+- 无业务停机入口（`Stop` 已删除）：运行时随进程寿命存活。要「全部跑完」：自己用 latch/Chan 收齐后再返回 main；等待中的协程随进程结束，不做栈展开。
+- 未初始化（未 `Start`）时 `bbtco` 抛 `std::runtime_error("scheduler has no processer: coroutine task rejected")`。`bbtco_noexcept(&succ)` 置 `succ=false`，不抛。
+- 重复 / 并发 `Start()` 抛 `std::logic_error`；不再重置配置或队列。
 
 ## 调度
 

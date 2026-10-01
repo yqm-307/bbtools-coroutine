@@ -8,11 +8,11 @@ namespace bbt::coroutine::detail
 
 std::unique_ptr<DebugMgr>& DebugMgr::GetInstance()
 {
-    static std::unique_ptr<DebugMgr> _inst = nullptr;
-    if (_inst == nullptr)
-        _inst = std::unique_ptr<DebugMgr>(new DebugMgr());
+    /* 进程寿命：运行期对象，不在静态退出期析构 */
+    static std::unique_ptr<DebugMgr>* _holder =
+        new std::unique_ptr<DebugMgr>(new DebugMgr());
     
-    return _inst;
+    return *_holder;
 }
 
 void DebugMgr::OnEvent_ResumeCo(Coroutine* co)

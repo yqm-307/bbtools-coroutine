@@ -88,7 +88,6 @@ void Processer::AddCoroutineTask(CoroutinePriority priority, Coroutine::Ptr coro
 void Processer::_Init()
 {
     m_run_status.store(ProcesserStatus::PROC_DEFAULT, std::memory_order_release);
-    m_is_shutdown.store(false, std::memory_order_release);
     m_is_running.store(true, std::memory_order_release);
     m_run_cond_notify.store(true, std::memory_order_release);
     m_running_coroutine = nullptr;
@@ -120,7 +119,7 @@ void Processer::_Run()
      *      - 如果窃取不到就挂起当前线程。
      *      - 如果窃取到，就执行窃取到的协程
      * 
-     * 3. 重复1、2步骤，直到Processer被Stop()方法调用
+     * 3. 重复1、2步骤，进程寿命内不设退出条件（无业务停机入口）
      * 
      * XXX 这里也许可以优化的点：
      *      - 是否在空闲的时候降低调度频率？
@@ -165,16 +164,6 @@ void Processer::_Run()
         bool any_dequeued = false;
         for (auto&& p : {CO_PRIORITY_CRITICAL, CO_PRIORITY_HIGH, CO_PRIORITY_NORMAL, CO_PRIORITY_LOW})
         {
-            if (m_is_shutdown.load(std::memory_order_acquire))
-            {
-                while (m_coroutine_queue[p].try_dequeue(m_running_coroutine))
-                {
-                    delete m_running_coroutine;
-                    m_running_coroutine = nullptr;
-                }
-                continue;
-            }
-
             while (priority_runtime_budget_us[p] > 0)
             {
                 /* 如果取不到或者取到空的，就退出循环 */
@@ -190,13 +179,6 @@ void Processer::_Run()
                     continue;
                 }
                 any_dequeued = true;
-
-                /* 强制关闭模式：跳过协程执行，直接回收（不扣预算） */
-                if (m_is_shutdown.load(std::memory_order_acquire)) {
-                    delete m_running_coroutine;
-                    m_running_coroutine = nullptr;
-                    continue;
-                }
 
                 AssertWithInfo(m_running_coroutine->GetStatus() != CO_RUNNING && m_running_coroutine->GetStatus() != CO_FINAL, "bad coroutine status!");
 
@@ -295,39 +277,6 @@ void Processer::_Run()
     m_run_status = ProcesserStatus::PROC_EXIT;
 }
 
-void Processer::Stop()
-{
-    Coroutine::Ptr item = nullptr;
-
-    m_is_running.store(false, std::memory_order_release);
-    m_run_cond.notify_all();
-
-    /* 等待 _Run 循环退出（最多 5 秒） */
-    constexpr int kMaxRetries = 100;
-    for (int retry = 0; retry < kMaxRetries; ++retry) {
-        if (m_run_status == ProcesserStatus::PROC_EXIT)
-            break;
-        m_run_cond.notify_one();
-        std::this_thread::sleep_for(bbt::core::clock::milliseconds(50));
-    }
-
-    /* 超时强杀：直接回收协程 */
-    if (m_run_status != ProcesserStatus::PROC_EXIT) {
-        // 设置 shutdown 标志，_Run 循环检测到此标志时跳过协程执行
-        m_is_shutdown.store(true, std::memory_order_release);
-        m_run_cond.notify_all();
-        std::this_thread::sleep_for(bbt::core::clock::milliseconds(100));
-    }
-
-    /* 释放所有协程（#280）：m_is_running=false 后 _Run 已退出或 shutdown 跳过
-     * 执行，此处独占出队，逐个 delete 回收对象与栈（旧代码只置空，泄漏）。 */
-    for (auto && it : m_coroutine_queue)
-        while (it.try_dequeue(item)) {
-            delete item;
-            item = nullptr;
-        }
-
-}
 
 size_t Processer::_TryGetCoroutineFromGlobal()
 {

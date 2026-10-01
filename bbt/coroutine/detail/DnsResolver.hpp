@@ -21,14 +21,16 @@ namespace bbt::coroutine::detail
  *
  * 时序约束：
  * - Await 只允许在协程上下文调用；work() 里禁止碰协程原语（跑在 worker 线程）。
- * - work 引用的结果变量在调用方协程栈上，挂起期间保持有效；因此
- *   Scheduler::Stop 必须先 Stop 本池（join worker、唤醒全部排队 Job），
- *   再销毁 Processer——否则 work 写回/Notify 时调用方栈可能已析构。
- * - 懒启动：第一次 Enqueue 才创建线程；Scheduler::Start 在下一代重置停止标记。
+ * - work 引用的结果变量在调用方协程栈上，挂起期间保持有效；调用方必须自行
+ *   保证 work 与结果的寿命覆盖整个等待（超时后晚到的结果由调用方清理，
+ *   禁止引用已退栈的协程栈）。
+ * - 懒启动：第一次 Enqueue 才创建线程。
+ * - 进程寿命：本池属于进程寿命对象，没有 Stop/停机路径；worker 线程与其
+ *   std::thread 句柄都不会在静态退出期析构（GetInstance 持有者泄漏），
+ *   因此不存在「析构 joinable thread」问题，也不以 detach 代替寿命论证。
  * - 排队数有上限；容量耗尽时拒绝入队而不丢弃已接纳任务。
  *
- * ponytail: 单 worker，QPS 不够再加池。无解析缓存；有期限的调用须
- * 捕获堆上结果并在超时/取消后负责清理晚到结果，禁止引用协程栈。
+ * ponytail: 单 worker，QPS 不够再加池。无解析缓存。
  */
 class DnsResolver
 {
@@ -43,28 +45,20 @@ public:
      *
      * @param work 真正的阻塞调用；结果由 work 写回调用方捕获的变量
      * @return int 0 表示 work 已执行（成败看调用方自己的错误码变量），
-     *             -1 表示未能入队（池已停止或队列已满），work 不会执行
+     *             -1 表示未能入队（队列已满），work 不会执行
      */
     int Await(const std::function<void()>& work);
     /**
-     * @brief 同一 DNS worker 执行 work，按单调绝对期限/取消返回首胜原因。
-     * @note 超时/取消只终止调用方等待；已开始的 libc 工作无法强杀，
-     *       Stop 会 join。work 必须自行拥有跨等待的参数与结果寿命。
-     *       Completed 仅表示已唤醒：Stop 可能丢弃队列中的 work，调用方须预置失败结果。
-     *       队列满/池停止时返回 RuntimeUnavailable，work 不执行。
+     * @brief 同一 DNS worker 执行 work，按单调绝对期限返回首胜原因。
+     * @note 超时只终止调用方等待；已开始的 libc 工作无法强杀，work 必须
+     *       自行拥有跨等待的参数与结果寿命。
+     *       Completed 仅表示已唤醒：调用方须预置失败结果，超时/取消后
+     *       晚到的 work 结果由调用方负责丢弃。
+     *       队列满时返回 RuntimeUnavailable，work 不执行。
      */
     sync::CombinedWaitStatus AwaitBounded(
         const std::function<void()>& work,
         const sync::CombinedWaitOptions& options);
-
-    /** @brief 新一代 Scheduler 启动时重开入队；须与 Stop 串行。 */
-    void Start();
-    /**
-     * @brief 置停、唤醒 worker、join 线程；队列剩余 Job 不执行 work、只 Notify 唤醒
-     *
-     * 可重复调用（幂等）。join 会等当前 in-flight 的 libc 调用返回。
-     */
-    void Stop();
 
 private:
     static constexpr std::size_t kMaxPendingJobs = 256;
@@ -84,7 +78,6 @@ private:
     std::condition_variable   m_cv;
     std::queue<Job>           m_queue;
     std::unique_ptr<std::thread> m_thread;
-    bool                      m_stopping{false}; // 置停后拒绝新任务
 };
 
 } // namespace bbt/coroutine/detail

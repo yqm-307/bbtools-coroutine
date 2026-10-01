@@ -1,6 +1,7 @@
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MAIN
 #include <boost/test/included/unit_test.hpp>
+#include <mutex>
 
 #include <atomic>
 #include <fcntl.h>
@@ -11,6 +12,18 @@
 #include <bbt/coroutine/coroutine.hpp>
 #include <bbt/coroutine/detail/GlobalConfig.hpp>
 #include <bbt/coroutine/detail/Scheduler.hpp>
+
+/* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。 */
+namespace
+{
+void EnsureRuntime()
+{
+    static std::once_flag once;
+    std::call_once(once, [](){
+        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
+    });
+}
+}
 
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::detail;
@@ -32,7 +45,7 @@ BOOST_AUTO_TEST_CASE(t_external_blocking_read_yields_and_restores_flags)
     cfg->m_cfg_static_thread_num = 1;
     cfg->m_cfg_stack_protect = false;
 
-    g_scheduler->Start(SCHE_START_OPT_SCHE_THREAD);
+    EnsureRuntime();
     bbt::core::thread::CountDownLatch done{1};
     std::atomic_int ticker{0};
     std::atomic_int n{0};
@@ -62,7 +75,6 @@ BOOST_AUTO_TEST_CASE(t_external_blocking_read_yields_and_restores_flags)
     const int fl1 = ::fcntl(fds[0], F_GETFL, 0);
     BOOST_CHECK_EQUAL(fl1 & O_NONBLOCK, 0);
 
-    g_scheduler->Stop();
     cfg->m_cfg_static_thread_num = threads;
     cfg->m_cfg_stack_size = stack;
     cfg->m_cfg_stack_protect = protect;
@@ -78,7 +90,7 @@ BOOST_AUTO_TEST_CASE(t_repeated_wait_on_same_fd)
     auto* cfg = g_bbt_coroutine_config.get();
     const auto threads = cfg->m_cfg_static_thread_num;
     cfg->m_cfg_static_thread_num = 1;
-    g_scheduler->Start(SCHE_START_OPT_SCHE_THREAD);
+    EnsureRuntime();
 
     constexpr int kRounds = 100;
     bbt::core::thread::CountDownLatch done{1};
@@ -107,7 +119,6 @@ BOOST_AUTO_TEST_CASE(t_repeated_wait_on_same_fd)
     done.Wait();
     BOOST_CHECK(!failed.load());
 
-    g_scheduler->Stop();
     cfg->m_cfg_static_thread_num = threads;
     ::close(fds[0]);
     ::close(fds[1]);

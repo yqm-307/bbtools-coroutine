@@ -20,11 +20,10 @@ private:
 
 CoPoller::UPtr& CoPoller::GetInstance()
 {
-    static UPtr _inst = nullptr;
-    if (_inst == nullptr)
-        _inst = UPtr{new CoPoller()};
+    /* 进程寿命：持 epoll fd 且被 worker 线程使用，不在静态退出期析构 */
+    static UPtr* _holder = new UPtr{new CoPoller()};
     
-    return _inst;
+    return *_holder;
 }
 
 
