@@ -146,8 +146,13 @@ jobs:
       - name: "打包构建产物"
         if: needs.changes.outputs.code == 'true'
         run: |
-          # 用 tar 保留可执行权限、符号链接和 build 目录结构，供性能 job 复用。
-          tar -C "$GITHUB_WORKSPACE" -czf "$RUNNER_TEMP/coroutine-build.tar.gz" build
+          # 性能 job 只需要 unified_stress、运行库和 CMakeCache；不上传对象文件，
+          # 以减少 ARC/VPN 链路上的 artifact 体积与下载失败概率。
+          # tar 同时保留可执行权限、符号链接和 build 目录结构。
+          tar -C "$GITHUB_WORKSPACE" -czf "$RUNNER_TEMP/coroutine-build.tar.gz" \
+            build/CMakeCache.txt \
+            build/bin/benchmark_test/unified_stress \
+            build/lib
 
       - name: "上传构建产物"
         if: needs.changes.outputs.code == 'true'
@@ -181,8 +186,27 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: "下载构建产物"
+      - name: "下载构建产物（第 1 次）"
+        id: download-build-1
+        continue-on-error: true
         if: needs.changes.outputs.code == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: coroutine-build-${{ github.run_id }}
+          path: ${{ runner.temp }}/coroutine-build-artifact
+
+      - name: "下载构建产物（第 2 次）"
+        id: download-build-2
+        if: needs.changes.outputs.code == 'true' && steps.download-build-1.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: coroutine-build-${{ github.run_id }}
+          path: ${{ runner.temp }}/coroutine-build-artifact
+
+      - name: "下载构建产物（第 3 次）"
+        id: download-build-3
+        if: needs.changes.outputs.code == 'true' && steps.download-build-2.outcome == 'failure'
         uses: actions/download-artifact@v4
         with:
           name: coroutine-build-${{ github.run_id }}
