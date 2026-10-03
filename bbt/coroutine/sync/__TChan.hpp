@@ -55,13 +55,24 @@ int Chan<TItem, Max>::Write(const ItemType& item)
         return -1;
 
     while (m_item_queue.size() >= (size_t)m_max_size) {
-        auto enable_write_cond = _CreateAndPushEnableWriteCond();
+        auto enable_write_cond = _CreateEnableWriteCond();
 
         lock.unlock();
-        if (_WaitUntilEnableWrite(enable_write_cond, [](){ return true; }) != 0)
+        /* 注册后入队协议：waiter 只在其等待事件登记成功后的回调里才进入
+         * m_enable_write_conds——否则 reader 可在 unlock→Wait 登记之间 pop
+         * 它并 Notify（此时 m_co_event==nullptr，Notify 返回 -1），waiter 已
+         * 离队，writer 随后永久 park。回调内持 chan 锁复查容量/关闭：条件
+         * 已满足则自 Notify 走 PENDING 早到路径，不得只入队而不复查。 */
+        int ret = _WaitUntilEnableWrite(enable_write_cond, [this, enable_write_cond]() {
+            _RegisterEnableWriteCond(enable_write_cond, [this]() {
+                return !IsClosed() && m_item_queue.size() >= (size_t)m_max_size;
+            });
+            return true;
+        });
+        if (ret != 0)
         {
-            // 等待失败：该 waiter 已在队列中且不会再被消费，Cancel 使其
-            // 永久 Notify==-1，由 _OnEnableWrite 跳过，避免吞掉后续 writer 的唤醒
+            // 等待失败：若 waiter 已入队，Cancel 使其永久 Notify==-1，
+            // 由 _OnEnableWrite 跳过，避免吞掉后续 writer 的唤醒
             enable_write_cond->Cancel();
             return -2;
         }
@@ -99,7 +110,13 @@ int Chan<TItem, Max>::Read(ItemType& item)
 
     while (m_item_queue.empty() && !IsClosed()) {
         lock.unlock();
-        int ret = _WaitUntilEnableReadOrTimeout(500, [](){ return true; });
+        /* 注册后复查：unlock 与事件登记之间若有 push/Close 到达，其
+         * _OnEnableRead 会因 waiter 尚未可 Notify 而落空；回调内持锁复查
+         * 谓词，已可读/已关闭则自唤醒，避免丢唤醒退化为 500ms 假超时。 */
+        int ret = _WaitUntilEnableReadOrTimeout(500, [this]() {
+            _RecheckEnableRead([this]() { return !m_item_queue.empty() || IsClosed(); });
+            return true;
+        });
         lock.lock();
         if (ret != 0 && ret != 1)
             return -2;
@@ -130,7 +147,13 @@ int Chan<TItem, Max>::ReadAll(std::vector<ItemType>& items)
 
     while (m_item_queue.empty() && !IsClosed()) {
         lock.unlock();
-        int ret = _WaitUntilEnableReadOrTimeout(500, [](){ return true; });
+        /* 注册后复查：unlock 与事件登记之间若有 push/Close 到达，其
+         * _OnEnableRead 会因 waiter 尚未可 Notify 而落空；回调内持锁复查
+         * 谓词，已可读/已关闭则自唤醒，避免丢唤醒退化为 500ms 假超时。 */
+        int ret = _WaitUntilEnableReadOrTimeout(500, [this]() {
+            _RecheckEnableRead([this]() { return !m_item_queue.empty() || IsClosed(); });
+            return true;
+        });
         lock.lock();
         if (ret != 0 && ret != 1)
             return -2;
@@ -188,11 +211,18 @@ int Chan<TItem, Max>::TryWrite(const ItemType& item, int timeout)
         if (remaining <= 0)
             return 1;  // 超时
 
-        auto enable_write_cond = _CreateAndPushEnableWriteCond();
+        auto enable_write_cond = _CreateEnableWriteCond();
         lock.unlock();
+        /* 同 Write 的注册后入队协议：waiter 只在事件登记成功后的回调里入队，
+         * 并持锁复查容量/关闭，条件已满足则自唤醒（否则会假超时）。 */
         int ret = _WaitUntilEnableWriteOrTimeout(
             enable_write_cond, remaining,
-            [](){ return true; });
+            [this, enable_write_cond]() {
+                _RegisterEnableWriteCond(enable_write_cond, [this]() {
+                    return !IsClosed() && m_item_queue.size() >= (size_t)m_max_size;
+                });
+                return true;
+            });
 
         if (ret != 0)
         {
@@ -262,8 +292,12 @@ int Chan<TItem, Max>::TryRead(ItemType& item, int timeout)
             return 1;  // 超时
 
         lock.unlock();
+        /* 同 Read 的注册后复查：避免 push 落在检查/登记窗口造成假超时 */
         int ret = _WaitUntilEnableReadOrTimeout(remaining,
-                [](){ return true; });
+                [this]() {
+                    _RecheckEnableRead([this]() { return !m_item_queue.empty() || IsClosed(); });
+                    return true;
+                });
         lock.lock();
         if (ret != 0 && ret != 1)
             return -2;
@@ -418,12 +452,39 @@ int Chan<TItem, Max>::_OnEnableWrite()
 }
 
 template<class TItem, int Max>
-CoWaiter::SPtr Chan<TItem, Max>::_CreateAndPushEnableWriteCond()
+CoWaiter::SPtr Chan<TItem, Max>::_CreateEnableWriteCond()
 {
     auto enable_write_cond = CoWaiter::Create();
     Assert(enable_write_cond != nullptr);
-    m_enable_write_conds.push(enable_write_cond);
     return enable_write_cond;
+}
+
+template<class TItem, int Max>
+void Chan<TItem, Max>::_RegisterEnableWriteCond(
+    const CoWaiter::SPtr& waiter, const std::function<bool()>& need_wait)
+{
+    std::lock_guard<std::mutex> lock(m_item_queue_mutex);
+
+    /* 谓词在锁内求值：与 reader 的 pop+_OnEnableWrite、Close 的置位+全量
+     * 唤醒串行化，二者不会与本入队交错。 */
+    if (need_wait())
+        m_enable_write_conds.push(waiter);
+    else
+        /* 条件已满足（可写/已关闭）：自 Notify 走 PENDING 早到路径。
+         * 此时等待事件已登记（on_registered 只在登记成功后执行），
+         * Notify 必然命中，不会返回 -1。 */
+        waiter->Notify();
+}
+
+template<class TItem, int Max>
+void Chan<TItem, Max>::_RecheckEnableRead(const std::function<bool()>& ready)
+{
+    std::lock_guard<std::mutex> lock(m_item_queue_mutex);
+
+    /* 与写端 push+_OnEnableRead 串行化：若写端先拿到锁，其 Notify 会命中
+     * 已登记的本 waiter；若本复查先拿到锁，谓词为真则自唤醒。二者必居其一。 */
+    if (ready())
+        m_enable_read_cond->Notify();
 }
 
 template<class TItem, int Max>
@@ -483,11 +544,18 @@ int Chan<TItem, 0>::Write(const ItemType& item)
         return 0;
     }
 
-    auto enable_write_cond = BaseType::_CreateAndPushEnableWriteCond();
+    auto enable_write_cond = BaseType::_CreateEnableWriteCond();
 
     lock.unlock();
+    /* 同 buffered Write 的注册后入队协议；谓词为「本条数据尚未被 reader
+     * 消费」（is_writing_idx 已被读取时 m_read_idx > is_writing_idx）。reader
+     * 的 _OnEnableWrite 与入队持同一把锁串行化，条件已满足则自唤醒。 */
     if (BaseType::_WaitUntilEnableWrite(enable_write_cond,
-            [](){ return true; }) != 0)
+            [this, is_writing_idx, enable_write_cond](){
+                BaseType::_RegisterEnableWriteCond(enable_write_cond,
+                    [this, is_writing_idx](){ return !IsClosed() && m_read_idx <= is_writing_idx; });
+                return true;
+            }) != 0)
     {
         enable_write_cond->Cancel();
         return -2;
@@ -515,8 +583,13 @@ int Chan<TItem, 0>::Read(ItemType& item)
 
     while (m_write_idx <= m_read_idx && !IsClosed()) {
         lock.unlock();
+        /* 同 buffered Read 的注册后复查：push 落在检查/登记窗口时不丢唤醒 */
         int ret = BaseType::_WaitUntilEnableReadOrTimeout(500,
-                [](){ return true; });
+                [this]() {
+                    BaseType::_RecheckEnableRead(
+                        [this]() { return m_write_idx > m_read_idx || IsClosed(); });
+                    return true;
+                });
         lock.lock();
         if (ret != 0 && ret != 1)
             return -2;

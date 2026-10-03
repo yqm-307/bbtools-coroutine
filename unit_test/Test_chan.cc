@@ -1528,6 +1528,64 @@ BOOST_AUTO_TEST_CASE(t_chan_trywrite_timeout_does_not_steal_wakeup)
     WaitLatch(l, 10000);
 }
 
+// 容量远小于写入量、多 writer、单 reader 的「注册竞态丢唤醒」回归。
+//
+// 旧实现（__TChan.hpp Write 族）：写 waiter 在解锁前就 push 进
+// m_enable_write_conds，随后才 _WaitUntilEnableWrite 登记事件。reader 可在
+// unlock→登记窗口内 pop 该 waiter 并 Notify，而此时 m_co_event==nullptr，
+// Notify 返回 -1：waiter 已离队且不再被唤醒，writer 永久 park（memcheck
+// 阶段三现场：容量 100 << 单 channel 50000，writer 在 ~5000 附近停滞）。
+// 修复后 waiter 只在等待事件登记成功后的 on_registered 回调里入队，并持
+// chan 锁复查容量/关闭，条件已满足则自 Notify 走 PENDING 早到路径。
+//
+// 本用例多轮独立 Chan 反复压容量-满阻塞/消费唤醒路径，并要求每轮全部消息
+// 读完 + 全部 writer 完成；有界等待超时即 FAIL，不用无限等待掩盖丢唤醒。
+BOOST_AUTO_TEST_CASE(t_chan_capacity_pressure_no_lost_wakeup)
+{
+    BOOST_TEST_MESSAGE("enter t_chan_capacity_pressure_no_lost_wakeup");
+    /* 挂到本文件既有启动协议：EnsureRuntime() 内部 call_once + Start()，
+     * 与 t_begin 完全同一路径，重复调用为空操作；单独 --run_test 过滤运行
+     * 时也保证 runtime 已初始化，不改变 process-lifetime 语义。 */
+    EnsureRuntime();
+    constexpr int kCap       = 16;
+    constexpr int kWriters   = 5;
+    constexpr int kPerWriter = 2000;
+    constexpr int kTotal     = kWriters * kPerWriter;   // 10000 >> 16
+
+    for (int round = 0; round < 8; ++round) {
+        auto c = Chan<int, kCap>();
+        bbt::core::thread::CountDownLatch writers{kWriters};
+        bbt::core::thread::CountDownLatch reader{1};
+        std::atomic_int writer_ok{0};
+
+        for (int w = 0; w < kWriters; ++w) {
+            bbtco [c, &writers, &writer_ok, w]() {
+                for (int i = 0; i < kPerWriter; ++i) {
+                    if (c->Write(w * kPerWriter + i) != 0)
+                        return;  // 非 0 = 关闭/等待失败：不 Down，本轮判 FAIL
+                }
+                writer_ok.fetch_add(1);
+                writers.Down();
+            };
+        }
+
+        bbtco [c, &reader]() {
+            int v = 0;
+            for (int i = 0; i < kTotal; ++i) {
+                if (c->Read(v) != 0)
+                    return;  // 不应发生：正常路径下队列会在写满前被消费
+            }
+            reader.Down();
+        };
+
+        // writer 全部退出时 reader 必定已读满 kTotal（消息总量守恒）。
+        // 任一侧停滞都会在下面有界等待上超时。
+        WaitLatch(writers, 8000);
+        WaitLatch(reader, 8000);
+        BOOST_CHECK_EQUAL(writer_ok.load(), kWriters);
+    }
+}
+
 BOOST_AUTO_TEST_CASE(t_end)
 {
 }
