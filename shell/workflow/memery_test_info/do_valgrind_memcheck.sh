@@ -1,16 +1,23 @@
 #!/bin/bash
+# 遗留入口转发（#379）：保留旧调用签名，内部转到 fail-closed 的 memcheck 值守入口。
+#   旧：do_valgrind_memcheck.sh <checkexec> <outputfile>
+#   新：scripts/ci/run_memcheck.py --binary <checkexec>
+#        --report-dir <outputfile 所在目录> --log-name <outputfile 基名>
+#
+# 旧实现只跑 valgrind、不判读结果也不设退出码：任何泄漏/崩溃/空日志都会“绿”。
+# 新入口对缺工具、空/缺日志、Fatal、崩溃、超时、无 ERROR SUMMARY、
+# definite/indirect 泄漏、未完成标记一律 FAIL 并返回非 0；不使用抑制文件。
+set -euo pipefail
 
-checkexec=$1    # 检测文件路径
-outputfile=$2   # 结果输出文件
+checkexec=${1:?usage: do_valgrind_memcheck.sh <checkexec> <outputfile>}
+outputfile=${2:?usage: do_valgrind_memcheck.sh <checkexec> <outputfile>}
 
-############
-# 
-# 使用valgrind生成内存分析的profiler
-# 
-############
-valgrind \
-    --tool=memcheck                         `# 使用valgrind中memcheck工具` \
-    --leak-check=yes                        `# 泄露检测开启` \
-    --read-inline-info=no                   `# 内联函数检测，开启后会有更完善的堆栈信息，以及多到爆的无所谓的警告（警告大多是由第三方库带来的）` \
-    --log-file=${outputfile}                `# 检测报告输出文件` \
-    ./${checkexec}                          `# 可执行文件` \
+repo_root=$(cd "$(dirname "$0")/../../.." && pwd)
+report_dir=$(dirname "${outputfile}")
+log_name=$(basename "${outputfile}")
+log_name=${log_name%.log}
+
+exec python3 "${repo_root}/scripts/ci/run_memcheck.py" \
+    --binary "${checkexec}" \
+    --report-dir "${report_dir}" \
+    --log-name "${log_name}"

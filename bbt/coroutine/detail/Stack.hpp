@@ -86,6 +86,19 @@ private:
     size_t  m_useable_size{0};              // 可用栈大小，不包含 protect 内存块
     char*   m_mem_chunk{nullptr};           // 内存块，包含 protect 内存块
     size_t  m_mem_chunk_size{0};            // 内存块大小，包含 protect 内存块
+
+#ifdef BBT_COROUTINE_VALGRIND
+    /* 内存检测专用（NEED_VALGRIND=ON 才存在，默认构建不含此成员）。bbt 协程使用
+     * memalign 的自定义栈，Valgrind 默认不把它当作“栈”：boost.context 每次切换
+     * SP 都被 memcheck 记为 "client switching stacks?" 并放大成百万级假阳性。
+     * 构造时把可用栈区间登记给 Valgrind，Clear/析构/移动时同步注销或转移，
+     * 是按栈内存跟踪的根因修复；未在 Valgrind 下运行时注册返回 0，无副作用。
+     * 注意：register 只消除 stack-switch 警告，不代表 definitely/indirectly lost
+     * 全为假阳性——真实泄漏判定仍需独立核实，不得据此隐藏。 */
+    unsigned m_vg_stack_id{0};
+    void     _RegisterValgrindStack();
+    void     _DeregisterValgrindStack();
+#endif
 };
 
 

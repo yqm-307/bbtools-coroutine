@@ -104,6 +104,14 @@ Context::Context(size_t stack_size, const CoroutineCallback& co_func, bool stack
 
 Context::~Context()
 {
+    /* 先让两个 std::function 释放 target，再归还栈。callable 的捕获对象（含本
+     * 上下文最后持有的业务资源）在 ~Context 函数体内同步析构，必须先于
+     * Release(m_stack)：若先归还栈，栈即回到栈池可被复用、进程也可能在该窗口
+     * 退出，此时仍挂在本对象上的捕获对象才析构，生命周期就越过了“栈已归还”
+     * 这条观测界线。置空顺序与成员逆序析构一致（m_onyield_callback 声明在后、
+     * 先析构），不改变对象布局。 */
+    m_onyield_callback = nullptr;
+    m_user_main = nullptr;
     g_bbt_stackpoll->Release(m_stack);
 }
 
