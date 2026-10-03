@@ -38,6 +38,9 @@ jobs:
             # 不在此临时 apt 安装修绿（镜像能力问题见 docs/ci-guide.md §4 跨仓依赖）。
             -   name: "环境前置校验"
                 run: |
+                    # Valgrind 3.22 不能在超大的 Docker 默认 RLIMIT_NOFILE 上启动；
+                    # 只降低本 job 子进程的 soft limit，不修改 runner/宿主机配置。
+                    ulimit -n 65536
                     # 默认 shell 是 `bash -e {0}`，没有 pipefail：不加这行，`| tee` 会吞掉
                     # python 的失败退出码，门禁形同虚设（仓内 docs-check.yml 同做法）。
                     set -o pipefail
@@ -56,6 +59,8 @@ jobs:
             # definite+indirect 泄漏/未完成标记一律 FAIL 并返回非 0，不使用抑制文件。
             -   name: "运行 memcheck 并判定"
                 run: |
+                    # 与环境探活保持同一运行期 ulimit；镜像无法声明 Docker 的 RLIMIT_NOFILE。
+                    ulimit -n 65536
                     python3 scripts/ci/run_memcheck.py \
                         --binary "${MEMCHECK_EXEC_PATH}" \
                         --report-dir "${MEMCHECK_REPORT_DIR}" \

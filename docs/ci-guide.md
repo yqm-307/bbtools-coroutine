@@ -259,7 +259,9 @@ job 跑在专用 ARC runner **`arc-s4-memcheck`**，其镜像必须是带 `valgr
 
 前置校验步骤与构建步骤的 `run` 首行都显式 `set -o pipefail`：GitHub 默认 shell 是
 `bash -e {0}`（**没有** `pipefail`），不加这行 `| tee` 会把失败退出码吞掉、门禁形同虚设。
-判定入口只在**前置校验全绿**时才启动 workload，并在进入判定路径时先清理 `report-dir` 下
+Valgrind 3.22 在 Docker 默认超大 `RLIMIT_NOFILE`（实测约 1e9）下会在启动期报
+`Private file creation failed`；环境前置校验和判定步骤各自先执行 `ulimit -n 65536`，只影响该
+step 的子进程，不改 runner 或宿主机配置。判定入口只在**前置校验全绿**时才启动 workload，并在进入判定路径时先清理 `report-dir` 下
 本轮的固定产物（`<log-name>.log/.stdout.log/.stderr.log`、`summary.json/md`）、**必写**
 summary（前置失败也落 FAIL）——上一轮的 PASS 报告不会残留下来随 artifact 归档；
 `--check-env` 不写报告。
@@ -326,6 +328,7 @@ Boost 1.90（runner 上位于 `/opt/boost/include`）和 runner 前置条件 fai
 
 ```bash
 # 前置 + 构建 + 判定（需本机有 valgrind 与 valgrind/valgrind.h）
+ulimit -n 65536
 python3 scripts/ci/run_memcheck.py --check-env
 BBT_VALGRIND_INCLUDE=/path/to/valgrind-include \
   bash scripts/ci/build_memcheck_target.sh "$PWD"
