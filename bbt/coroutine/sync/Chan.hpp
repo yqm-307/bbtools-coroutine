@@ -160,8 +160,31 @@ protected:
      */
     int                                     _OnEnableWrite();
 
-    /* 创建一个可写事件 */
-    CoWaiter::SPtr                            _CreateAndPushEnableWriteCond();
+    /* 创建一个可写等待者（未入队）；入队时机由 _RegisterEnableWriteCond 决定 */
+    CoWaiter::SPtr                          _CreateEnableWriteCond();
+
+    /**
+     * @brief 可写等待者的「注册后入队」协议（对齐 CoCond::Wait 的 callback 入队）。
+     *
+     * 只允许在 CoWaiter::WaitWithCallback 的 on_registered 回调中调用——此时
+     * 本 waiter 的等待事件已登记、m_co_event 可被 Notify 命中。函数持
+     * m_item_queue_mutex 求值 need_wait()：仍阻塞才入队，由 _OnEnableWrite
+     * 唤醒；谓词已满足（可写/已关闭）则自 Notify，走 PENDING 早到路径。
+     * 这样 waiter 绝不会在「已入队但尚未可 Notify」的窗口被 pop，
+     * 消除 Notify 返回 -1 造成的永久丢唤醒。
+     */
+    void                                    _RegisterEnableWriteCond(
+                                                const CoWaiter::SPtr& waiter,
+                                                const std::function<bool()>& need_wait);
+
+    /**
+     * @brief 读侧注册后复查：ready() 为真（已可读/已关闭）则自唤醒当前读等待者。
+     *
+     * 只允许在 Wait 族 on_registered 回调中调用；持 m_item_queue_mutex 求值
+     * ready，与写端 push+_OnEnableRead 串行化，封闭「检查→登记」窗口的数据
+     * 到达丢唤醒（否则退化为 500ms 假超时）。
+     */
+    void                                    _RecheckEnableRead(const std::function<bool()>& ready);
 protected:
     const int                               m_max_size{-1};
     std::queue<ItemType>                    m_item_queue;
