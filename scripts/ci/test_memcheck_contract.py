@@ -80,7 +80,8 @@ CLEAN_LOG = """==1== LEAK SUMMARY:
 """
 
 DONE_OK = ("BBT_MEMCHECK_DONE inner=10000/10000 lock=4000/4000 chan_read=500000/500000 "
-           "writer_done=50/50 failures=0/0 runtime_drained=1/1 (alloc=3 cur=0)\n")
+           "writer_done=50/50 failures=0/0 runtime_drained=1/1 "
+           "stack_pool_drained=1/1 (released=3 alloc=0 cur=0)\n")
 
 
 class MemcheckContractTest(unittest.TestCase):
@@ -177,7 +178,8 @@ class MemcheckContractTest(unittest.TestCase):
     # ---- 完成协议：缺键/重复键/缩水/多标记都必须 FAIL ----
     def test_missing_required_counters_fail(self):
         # 只凑出一个自洽计数（缺其余必需键）也不许 PASS（真实反例：截断输出）
-        for key in ("lock=4000/4000 ", "runtime_drained=1/1 ", "failures=0/0 "):
+        for key in ("lock=4000/4000 ", "runtime_drained=1/1 ",
+                    "stack_pool_drained=1/1 ", "failures=0/0 "):
             with self.subTest(key=key):
                 bad = DONE_OK.replace(key, "")
                 out = self._expect_fail(f"missing {key}",
@@ -194,6 +196,7 @@ class MemcheckContractTest(unittest.TestCase):
         for old, new in (("inner=10000/10000", "inner=1/1"),
                          ("chan_read=500000/500000", "chan_read=0/0"),
                          ("runtime_drained=1/1", "runtime_drained=0/0"),
+                         ("stack_pool_drained=1/1", "stack_pool_drained=0/0"),
                          ("failures=0/0", "failures=1/1")):
             with self.subTest(new=new):
                 bad = DONE_OK.replace(old, new)
@@ -208,7 +211,8 @@ class MemcheckContractTest(unittest.TestCase):
     def test_conflicting_done_markers_fail(self):
         # 两条互相冲突的完成标记 → 无法判定即 FAIL
         out = DONE_OK + "BBT_MEMCHECK_DONE inner=1/1 lock=4000/4000 chan_read=500000/500000 " \
-                        "writer_done=50/50 failures=0/0 runtime_drained=1/1\n"
+                        "writer_done=50/50 failures=0/0 runtime_drained=1/1 " \
+                        "stack_pool_drained=1/1\n"
         self._expect_fail("two markers", {"FAKE_VG_LOG": CLEAN_LOG, "FAKE_VG_STDOUT": out})
 
     # ---- 报告：前置失败也要落 FAIL summary，且不得残留上一轮 PASS ----

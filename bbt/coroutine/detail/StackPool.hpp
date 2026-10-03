@@ -1,6 +1,8 @@
 #pragma once
-#include <queue>
+#ifdef BBT_COROUTINE_VALGRIND
+#include <deque>
 #include <mutex>
+#endif
 #include <bbt/core/thread/sync/Queue.hpp>
 #include <bbt/core/clock/Clock.hpp>
 #include <bbt/core/thread/Lock.hpp>
@@ -46,6 +48,8 @@ public:
 
     /* 归还Stack */
     void                                Release(ItemType* item);
+    /* 前置条件：所有借出Stack已归还且不再提交新协程；不停止运行时 */
+    size_t                              ReleaseUnused();
     /* 申请Stack */
     ItemType*                           Apply();
     /* 已经创建的Stack总数，非线程安全的参考值 */
@@ -59,7 +63,29 @@ protected:
     ItemType*                           _AllocItem();
     void                                _FreeItem(ItemType* item);
 private:
-    bbt::core::thread::Queue<ItemType*> m_pool{1024};
+#ifdef BBT_COROUTINE_VALGRIND
+    /* boost::lockfree::queue 的 freelist 使用 tagged pointer，Valgrind 无法从进程级
+     * 单例追踪其节点；诊断构建改用同语义的可追踪容器。生产构建仍保留 lock-free 队列。 */
+    class ValgrindPool
+    {
+    public:
+        /* 参数仅用于与生产 Queue 的构造签名对齐；诊断容器按需增长。 */
+        explicit ValgrindPool(size_t) {}
+
+        bool Push(ItemType* item) noexcept;
+        bool Pop(ItemType*& item) noexcept;
+        size_t Size() const noexcept;
+
+    private:
+        mutable std::mutex  m_mutex;
+        std::deque<ItemType*> m_items;
+    };
+    using PoolType = ValgrindPool;
+#else
+    using PoolType = bbt::core::thread::Queue<ItemType*>;
+#endif
+
+    PoolType                            m_pool{1024};
     std::atomic_uint32_t                m_alloc_obj_count{0};   // 总数
 
     std::atomic_uint32_t                m_co_avg{0};              // 一段时间内，程序中平均值协程数量

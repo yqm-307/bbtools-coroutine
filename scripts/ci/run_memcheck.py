@@ -14,7 +14,7 @@
   definite/indirect 泄漏计入退出码）；崩溃（信号）、超时、缺日志、空日志一律 FAIL。
 - Valgrind 日志：含 ERROR SUMMARY 且 errors == 0；definitely lost == 0；
   indirectly lost == 0；出现 "Fatal error" / "Cannot continue" 一律 FAIL。
-- 工作负载：stdout 必须出现**唯一一条** BBT_MEMCHECK_DONE，且六个必需计数键齐全、取值与
+- 工作负载：stdout 必须出现**唯一一条** BBT_MEMCHECK_DONE，且七个必需计数键齐全、取值与
   EXPECTED_COUNTERS 固定期望逐项相等（缺键、重复键、多条互相冲突标记、键自洽但工作量缩水
   一律 FAIL）；出现 BBT_MEMCHECK_FAILED 一律 FAIL。
 
@@ -78,6 +78,7 @@ EXPECTED_COUNTERS = {
     "writer_done": (50, 50),
     "failures": (0, 0),
     "runtime_drained": (1, 1),
+    "stack_pool_drained": (1, 1),
 }
 
 
@@ -219,7 +220,7 @@ def parse_valgrind(log_text: str) -> dict:
 
 
 def check_workload_marker(verdict: Verdict, stdout_text: str, stderr_text: str = "") -> None:
-    """完成标记必须唯一出现，且六个必需计数键与 EXPECTED_COUNTERS 固定期望完全一致。"""
+    """完成标记必须唯一出现，且七个必需计数键与 EXPECTED_COUNTERS 固定期望完全一致。"""
     if FAILED_MARKER in stdout_text or FAILED_MARKER in stderr_text:
         verdict.add("workload-completed", False, f"程序自报未完成：{FAILED_MARKER}")
         return

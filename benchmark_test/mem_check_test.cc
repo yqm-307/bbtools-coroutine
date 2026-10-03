@@ -20,10 +20,12 @@
  *    清理完成、delete Coroutine 已返回或对象本体 deallocation——delete 发生在
  *    worker 线程，main 线程看到 cur==0 即返回，与其没有 happens-before。
  *    故 runtime_drained=1 不得表述为“Coroutine/Context 与业务资源已完整释放”。
- *    该计数无条件维护（StackPool::_AllocItem/_FreeItem 与 PROFILE 无关），
+ * 3. 检测前：主线程确认 runtime_drained 后调用 StackPool::ReleaseUnused，释放池中
+ *    为复用保留的闲置栈；stack_pool_drained=1 才允许进入 memcheck 判定。
+ * 4. 该计数无条件维护（StackPool::_AllocItem/_FreeItem 与 PROFILE 无关），
  *    不依赖 PROFILE=OFF 时会失效的 Profiler 计数，不会出现“恒 0 假完成”。
  *    有界等待，超时 = 未完成 = FAIL，绝不靠延长等待或缩短负载变绿。
- * 3. 低于此规模不允许：10000 个嵌套协程、CoMutex 竞争、10 个 channel
+ * 5. 低于此规模不允许：10000 个嵌套协程、CoMutex 竞争、10 个 channel
  *    各 1 个合法 reader + 5 writers × 10000（合计 500000 次读取）。
  *
  * 并发约束（现场教训，不得回退）：协程内绝不调用阻塞式 Wait/WaitTimeout
@@ -258,6 +260,11 @@ int main()
     int alloc = 0;
     int cur   = 0;
     const bool runtime_drained = WaitForRuntimeDrain(/*timeout_ms=*/30000, alloc, cur);
+    const size_t released_stacks = runtime_drained
+        ? g_bbt_stackpoll->ReleaseUnused() : 0;
+    alloc = g_bbt_stackpoll->AllocSize();
+    cur   = g_bbt_stackpoll->GetCurCoNum();
+    const bool stack_pool_drained = runtime_drained && alloc == 0 && cur == 0;
 
     const bool business_done =
         (inner_done  == kInnerTotal) &&
@@ -266,25 +273,28 @@ int main()
         (writer_done == kChanNum * kWriterPerChan) &&
         (failures    == 0);
 
-    const bool ok = business_done && runtime_drained;
+    const bool ok = business_done && runtime_drained && stack_pool_drained;
 
     /* 可核完成标记：run_memcheck.py 据此判定程序真的跑完。缺必需键、键重复、
      * 出现多条互相冲突的标记、或任一取值与固定期望不符，全部 FAIL。
      * 期望值与 scripts/ci/run_memcheck.py 的 EXPECTED_COUNTERS 必须一致。 */
     std::printf("BBT_MEMCHECK_DONE inner=%d/%d lock=%lld/%lld chan_read=%lld/%d "
                 "writer_done=%d/%d failures=%d/%d runtime_drained=%d/%d "
-                "(alloc=%d cur=%d)\n",
+                "stack_pool_drained=%d/%d (released=%zu alloc=%d cur=%d)\n",
                 inner_done, kInnerTotal,
                 lock_total, kLockTotal,
                 chan_read, kTotalMessages,
                 writer_done, kChanNum * kWriterPerChan,
                 failures, 0,
                 static_cast<int>(runtime_drained), 1,
-                alloc, cur);
+                static_cast<int>(stack_pool_drained), 1,
+                released_stacks, alloc, cur);
 
     if (!ok) {
-        std::fprintf(stderr, "BBT_MEMCHECK_FAILED 完成协议不达标（business=%d drain=%d）\n",
-                     static_cast<int>(business_done), static_cast<int>(runtime_drained));
+        std::fprintf(stderr,
+                     "BBT_MEMCHECK_FAILED 完成协议不达标（business=%d runtime=%d pool=%d）\n",
+                     static_cast<int>(business_done), static_cast<int>(runtime_drained),
+                     static_cast<int>(stack_pool_drained));
         return 1;
     }
 

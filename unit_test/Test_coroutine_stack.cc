@@ -150,4 +150,21 @@ BOOST_AUTO_TEST_CASE(t_context_releases_callables_before_stack_return)
     BOOST_CHECK_EQUAL(g_bbt_stackpoll->GetCurCoNum(), baseline);
 }
 
+// #379：memcheck 前必须释放栈池中为复用保留的闲置栈；这不是 Scheduler 停机，
+// 只在所有借出栈已归还后清理池内缓存。
+BOOST_AUTO_TEST_CASE(t_stack_pool_releases_unused_stacks)
+{
+    bbt::coroutine::detail::StackPool pool;
+    auto* stack = pool.Apply();
+    BOOST_REQUIRE(stack != nullptr);
+    pool.Release(stack);
+    BOOST_REQUIRE(pool.AllocSize() > 0);
+
+    const size_t released = pool.ReleaseUnused();
+
+    BOOST_CHECK(released > 0);
+    BOOST_CHECK_EQUAL(pool.AllocSize(), 0);
+    BOOST_CHECK_EQUAL(pool.GetCurCoNum(), 0);
+}
+
 BOOST_AUTO_TEST_SUITE_END()

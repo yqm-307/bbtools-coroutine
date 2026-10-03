@@ -286,12 +286,13 @@ summary（前置失败也落 FAIL）——上一轮的 PASS 报告不会残留�
 **判定口径（fail-closed，不用抑制文件）：** 缺工具、缺/空日志、`Fatal`、崩溃（信号）、超时、
 无 `ERROR SUMMARY`、`definitely lost != 0`、`indirectly lost != 0`、缺完成标记、
 完成标记重复键、出现多条互相冲突的完成标记、必需计数缺失、或任一计数与固定期望不符，
-一律 FAIL 且退出码非 0。完成标记必须是**唯一一条** `BBT_MEMCHECK_DONE`，六个必需计数的
+一律 FAIL 且退出码非 0。完成标记必须是**唯一一条** `BBT_MEMCHECK_DONE`，七个必需计数的
 固定期望（与 `mem_check_test.cc` 打印一致，任何缩水都 FAIL）：
 
 ```
 inner=10000/10000  lock=4000/4000  chan_read=500000/500000
 writer_done=50/50  failures=0/0    runtime_drained=1/1
+stack_pool_drained=1/1
 ```
 
 `possibly lost` / `still reachable` 原样记录但不作门禁（分别来自存活 worker TLS 与
@@ -303,6 +304,11 @@ process-lifetime 单例）。**不得**用 suppression 把 `definitely/indirectl
 而 `~Context` 由 `Processer` FINAL delete `Coroutine` 触发），即**所有借出的栈已归还
 （`~Context` 已进入 FINAL 释放路径）**。该计数与 `PROFILE` 无关，**不依赖 `PROFILE=OFF`
 时会恒 0 的 Profiler 计数**。超时即视为未完成并 FAIL，不靠延长等待或缩减负载变绿。
+
+确认 `runtime_drained=1` 后，主线程调用 `StackPool::ReleaseUnused()` 释放栈池中为复用保留的
+闲置栈，再要求 `AllocSize()==0 && GetCurCoNum()==0`，并输出 `stack_pool_drained=1/1`。
+这是检测前的缓存排空，不是 `Scheduler::Stop()`，不 join worker，也不改变生产运行时的
+process-lifetime 语义；若池未能排空，工作负载直接 FAIL。
 
 **#379 已采用 A：回调释放先于栈归还。** `Context::~Context` 函数体先清空
 `m_onyield_callback`、`m_user_main`（两个 `std::function` 先释放 target），令它们最后持有的
@@ -318,11 +324,11 @@ callable 及其最后持有的业务对象已析构”，这是本计数能证�
 join/drain API（运行时是进程寿命对象，见
 [核心运行时契约 §6](../agent-docs/2026-09-07-core-runtime-contract.md)）。
 
-**跨仓镜像依赖（尚未部署验证）：** 本仓脚本对 valgrind（含 `libc6-dbg`/loader 符号）、
+**跨仓镜像依赖（已完成一次受控运行态验证）：** 本仓脚本对 valgrind（含 `libc6-dbg`/loader 符号）、
 Boost 1.90（runner 上位于 `/opt/boost/include`）和 runner 前置条件 fail-closed，禁止在 job 内
-临时 `apt` 安装修绿。当前 workflow 依赖 `bbt-framework` 的 `bbtools-runner:v2` 与
-`arc-s4-memcheck` scale set；镜像构建、导入和 scale set 注册仍需按已授权的跨仓变更执行，
-与 #378 隔离；这些依赖验证完成前不得宣称端到端完成。
+临时 `apt` 安装修绿。已在 `bbtools-runner:v2` + `arc-s4-memcheck` 等价运行环境完成一次
+受控构建、单测和真实 Valgrind 验证；后续 runner 变更仍需保持与 `bbtools-runner:v1`、
+普通 `arc-s4` 及 #378 隔离。正式 workflow 结果以对应 Actions run 和 artifact 为准。
 
 **本地复现：**
 
