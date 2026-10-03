@@ -104,8 +104,8 @@ python3 scripts/acceptance_real_clients.py \
 
 ```
 每个 PR/push main（分钟级）:
-  build-and-test:  编译 → ctest（37 suites）→ Test_smoke    ~90s
-  perf-regression: 45s/模块快速性能回归门禁                  ~5min
+  build-and-test:  编译 → ctest（37 suites）→ Test_smoke → 上传 build artifact
+  perf-regression: 下载同一 build artifact → 45s/模块快速性能回归门禁
 
 发布 Gate（workflow_dispatch + Environment 审核）:
   Release 构建 → 全量 CTest → 真实客户端验收 → 严格性能 Gate
@@ -117,7 +117,11 @@ python3 scripts/acceptance_real_clients.py \
 
 **步骤（见 `.github/workflows/unit_test.yml`；CI 当前使用 workflow 内联命令）：**
 
-1. **编译：** workflow 清空并重建 `build/` 目录，执行 CMake 和 Ninja；
+1. **编译：** workflow 清空并重建 `build/` 目录，执行 CMake 和 Ninja，成功后将
+   性能 job 所需的 `unified_stress`、运行库和 `CMakeCache.txt` 打包为短期 GitHub
+   Actions artifact；性能 job 下载并复用这份产物，不再重复 checkout 后重新
+   configure/build。artifact 使用 tar 保留可执行权限、符号链接和目录结构，并通过
+   下载重试降低 VPN 链路瞬断影响；
    `shell/workflow/unit_test/compile_code.sh` 是遗留的本地辅助脚本，不是当前 CI 入口。
 2. **ctest：** `cd build && ctest --output-on-failure` — 运行全部 37 个核心测试套件
 3. **冒烟测试：** `build/bin/unit_test/Test_smoke --log_level=test_suite` — 覆盖 8 个核心模块 happy-path

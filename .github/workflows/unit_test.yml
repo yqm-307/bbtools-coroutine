@@ -24,6 +24,8 @@ on:
 env:
   BUILD_DIR: ${{ github.workspace }}/build
   BASELINE_DIR: ${{ github.workspace }}/tests/baselines
+  # ARC runner 与其他 CI job 共享宿主资源，固定构建并发避免裸 nproc 抢占。
+  JOBS: 3
 
 # 同一 ref 的 run 排队而不是互相取消：PR 的新 push 取消旧 run 以省 runner，
 # main 保留排队，避免集成验证结果被后续 push 吞掉。
@@ -69,6 +71,7 @@ jobs:
     name: "编译 & 单元测试"
     needs: [changes]
     runs-on: arc-s4
+    timeout-minutes: 20
     steps:
       - name: "docs-only 变更直接通过"
         if: needs.changes.outputs.code == 'false'
@@ -86,7 +89,7 @@ jobs:
         run: |
           rm -rf build && mkdir build && cd build
           cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DNEED_TEST=ON -DNEED_BENCHMARK=ON
-          ninja -j$(nproc)
+          cmake --build . --parallel "$JOBS"
 
       - name: "CI 与发布工具自测"
         if: needs.changes.outputs.code == 'true'
@@ -140,6 +143,26 @@ jobs:
           exit 1
         timeout-minutes: 8
 
+      - name: "打包构建产物"
+        if: needs.changes.outputs.code == 'true'
+        run: |
+          # 性能 job 只需要 unified_stress、运行库和 CMakeCache；不上传对象文件，
+          # 以减少 ARC/VPN 链路上的 artifact 体积与下载失败概率。
+          # tar 同时保留可执行权限、符号链接和 build 目录结构。
+          tar -C "$GITHUB_WORKSPACE" -czf "$RUNNER_TEMP/coroutine-build.tar.gz" \
+            build/CMakeCache.txt \
+            build/bin/benchmark_test/unified_stress \
+            build/lib
+
+      - name: "上传构建产物"
+        if: needs.changes.outputs.code == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coroutine-build-${{ github.run_id }}
+          path: ${{ runner.temp }}/coroutine-build.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
   # ════════════════════════════════════════════════════════
   # Layer 2: 快速性能回归检查（PR + main）
   # 每模块 45s 串行，~5min；退化 ≥20%（CoCond ≥40%）判 FAIL
@@ -163,12 +186,41 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: "编译（复用 build 产物？不 — 独立 build 目录保证一致性）"
+      - name: "下载构建产物（第 1 次）"
+        id: download-build-1
+        continue-on-error: true
+        if: needs.changes.outputs.code == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: coroutine-build-${{ github.run_id }}
+          path: ${{ runner.temp }}/coroutine-build-artifact
+
+      - name: "下载构建产物（第 2 次）"
+        id: download-build-2
+        if: needs.changes.outputs.code == 'true' && steps.download-build-1.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: coroutine-build-${{ github.run_id }}
+          path: ${{ runner.temp }}/coroutine-build-artifact
+
+      - name: "下载构建产物（第 3 次）"
+        id: download-build-3
+        if: needs.changes.outputs.code == 'true' && steps.download-build-2.outcome == 'failure'
+        uses: actions/download-artifact@v4
+        with:
+          name: coroutine-build-${{ github.run_id }}
+          path: ${{ runner.temp }}/coroutine-build-artifact
+
+      - name: "解压并校验构建产物"
         if: needs.changes.outputs.code == 'true'
         run: |
-          rm -rf build && mkdir build && cd build
-          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DNEED_TEST=ON -DNEED_BENCHMARK=ON
-          ninja -j$(nproc)
+          tar -xzf "$RUNNER_TEMP/coroutine-build-artifact/coroutine-build.tar.gz" \
+            -C "$GITHUB_WORKSPACE"
+          test -x "$GITHUB_WORKSPACE/build/bin/benchmark_test/unified_stress"
+          test -f "$GITHUB_WORKSPACE/build/lib/libbbt_coroutine.so"
+          # 不依赖跨 runner 的绝对 RUNPATH，优先从本次下载的 build/lib 加载库。
+          echo "LD_LIBRARY_PATH=$GITHUB_WORKSPACE/build/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
 
       - name: "拉取历史性能基线（perf-baseline 分支）"
         if: needs.changes.outputs.code == 'true'
