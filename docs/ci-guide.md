@@ -245,10 +245,13 @@ python3 scripts/record_baseline.py trend
 
 独立于 unit_test.yml 的工作流，**每周五 17:30（UTC+8）自动运行**，也支持手动触发。
 单 job（build + memcheck）共享同一工作区，产物关系显式，不再隐式依赖跨 job 工作区。
-job 跑在本仓 ARC runner **`arc-s4`**（与 `unit_test.yml`/`release.yml` 同标签，`runs-on`
-不再用无法被调度的 `[self-hosted, linux]`），并设 `timeout-minutes: 120` 有界。
+job 跑在专用 ARC runner **`arc-s4-memcheck`**，其镜像必须是带 `valgrind`、`libc6-dbg`
+以及 `/etc/bbttools-runner/profile=bbtools-runner:v2-memcheck` 的 `bbtools-runner:v2`。
+该 scale set 与普通 `arc-s4` 隔离；在镜像和 scale set 部署完成前不要合并本工作流变更，
+并设 `timeout-minutes: 120` 有界。
 
 **步骤：**
+0. `test "$(cat /etc/bbttools-runner/profile)" = "bbtools-runner:v2-memcheck"` — 校验专用 runner 镜像来源；不匹配即 FAIL
 1. `python3 scripts/ci/run_memcheck.py --check-env` — 环境前置校验（fail-closed）
 2. `scripts/ci/build_memcheck_target.sh` — 只构建 `mem_check_test`（`NEED_VALGRIND=ON`，RelWithDebInfo）
 3. `python3 scripts/ci/run_memcheck.py --binary … --report-dir tests/ci-reports/memcheck` — 运行并判定
@@ -313,11 +316,11 @@ callable 及其最后持有的业务对象已析构”，这是本计数能证�
 join/drain API（运行时是进程寿命对象，见
 [核心运行时契约 §6](../agent-docs/2026-09-07-core-runtime-contract.md)）。
 
-**跨仓镜像依赖（未验证，需另行授权）：** 本仓脚本对 valgrind（含 `libc6-dbg`/loader 符号）、
+**跨仓镜像依赖（尚未部署验证）：** 本仓脚本对 valgrind（含 `libc6-dbg`/loader 符号）、
 Boost 1.90（runner 上位于 `/opt/boost/include`）和 runner 前置条件 fail-closed，禁止在 job 内
-临时 `apt` 安装修绿。若真实 ARC/self-hosted runner 镜像缺这些能力，属于
-`bbt-framework` 的 `bbtools-runner` 镜像变更，单列依赖、另行授权，与 #378 隔离；
-该依赖验证前不得宣称端到端完成。
+临时 `apt` 安装修绿。当前 workflow 依赖 `bbt-framework` 的 `bbtools-runner:v2` 与
+`arc-s4-memcheck` scale set；镜像构建、导入和 scale set 注册仍需按已授权的跨仓变更执行，
+与 #378 隔离；这些依赖验证完成前不得宣称端到端完成。
 
 **本地复现：**
 
