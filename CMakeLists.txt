@@ -33,6 +33,9 @@ option(DEBUG_INFO
 option(STRINGENT_DEBUG
     "启动严格dbg模式，带来性能开销极大" OFF)
 
+option(NEED_VALGRIND
+    "内存检测专用：把自定义协程栈区间接入 Valgrind（默认OFF，生产构建不依赖Valgrind）" OFF)
+
 message(
     "RELEASE: "         ${BUILD_TYPE_UPPER}
     "\nNEED_BENCHMARK: "  ${NEED_BENCHMARK}
@@ -41,6 +44,7 @@ message(
     "\nNEED_DEBUG: "      ${NEED_DEBUG}
     "\nPROFILE: "         ${PROFILE}
     "\nDEBUG_INFO: "      ${DEBUG_INFO}
+    "\nNEED_VALGRIND: "   ${NEED_VALGRIND}
 )
 ################################################################
 
@@ -72,6 +76,35 @@ endif()
 
 if (STRINGENT_DEBUG)
     add_definitions(-DBBT_COROUTINE_STRINGENT_DEBUG)
+endif()
+
+if (NEED_VALGRIND)
+    # 内存检测专用开关：只把协程可用栈区间登记给 Valgrind，消除 boost.context
+    # 每次切换 SP 被记为 "client switching stacks?" 的假阳性。默认关闭，生产
+    # 构建不引入 Valgrind 依赖。头文件缺失时 fail-closed，不静默降级。
+    add_definitions(-DBBT_COROUTINE_VALGRIND)
+    # 显式指定的 include 根目录优先（-DBBT_VALGRIND_INCLUDE 或环境变量转发），否则自动搜索。
+    # 注意：不能先 set(... "" CACHE PATH ...) 再 find_path —— 空串也算“变量已在 cache 中”，
+    # find_path 会因此跳过搜索（CMake 3.16 语义：cache 中非 <VAR>-NOTFOUND 即不搜），
+    # 标准路径与 CMAKE_INCLUDE_PATH 就全部失效、必然 FATAL。空值必须先 unset cache 再搜。
+    set(BBT_VALGRIND_INCLUDE "" CACHE PATH "valgrind/valgrind.h 所在 include 目录（私有解包场景）")
+    if (BBT_VALGRIND_INCLUDE)
+        if (NOT EXISTS "${BBT_VALGRIND_INCLUDE}/valgrind/valgrind.h")
+            message(FATAL_ERROR
+                "BBT_VALGRIND_INCLUDE=${BBT_VALGRIND_INCLUDE} 下没有 valgrind/valgrind.h")
+        endif()
+    else()
+        unset(BBT_VALGRIND_INCLUDE CACHE)
+        find_path(BBT_VALGRIND_INCLUDE NAMES valgrind/valgrind.h
+            DOC "valgrind/valgrind.h 所在 include 目录（私有解包场景，通常无需指定）")
+    endif()
+    if (NOT BBT_VALGRIND_INCLUDE)
+        message(FATAL_ERROR
+            "NEED_VALGRIND=ON 但未找到 valgrind/valgrind.h；"
+            "请安装 valgrind 开发头，或用 -DBBT_VALGRIND_INCLUDE=<include目录> 指定")
+    endif()
+    include_directories(${BBT_VALGRIND_INCLUDE})
+    message(STATUS "NEED_VALGRIND: ON (${BBT_VALGRIND_INCLUDE})")
 endif()
 
 set(LIBRARY_OUTPUT_PATH ${PROJECT_BINARY_DIR}/lib) 

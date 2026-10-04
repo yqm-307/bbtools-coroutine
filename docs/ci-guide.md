@@ -241,16 +241,111 @@ python3 scripts/record_baseline.py trend
 
 ---
 
-## 4. 内存检测（memery_test_info.yml）
+## 4. 内存检测（memery_test_info.yml / #379）
 
 独立于 unit_test.yml 的工作流，**每周五 17:30（UTC+8）自动运行**，也支持手动触发。
+单 job（build + memcheck）共享同一工作区，产物关系显式，不再隐式依赖跨 job 工作区。
+job 跑在专用 ARC runner **`arc-s4-memcheck`**，其镜像必须是带 `valgrind`、`libc6-dbg`
+以及 `/etc/bbttools-runner/profile=bbtools-runner:v2-memcheck` 的 `bbtools-runner:v2`。
+该 scale set 与普通 `arc-s4` 隔离；在镜像和 scale set 部署完成前不要合并本工作流变更，
+并设 `timeout-minutes: 120` 有界。
 
 **步骤：**
-1. `compile_testfile.sh` — 编译 `benchmark_test/mem_check_test.cc`
-2. `do_valgrind_memcheck.sh` — Valgrind memcheck 检测内存泄漏
-3. 打包结果 `memcheck_result.tar.gz`
+0. `test "$(cat /etc/bbttools-runner/profile)" = "bbtools-runner:v2-memcheck"` — 校验专用 runner 镜像来源；不匹配即 FAIL
+1. `python3 scripts/ci/run_memcheck.py --check-env` — 环境前置校验（fail-closed）
+2. `scripts/ci/build_memcheck_target.sh` — 只构建 `mem_check_test`（`NEED_VALGRIND=ON`，RelWithDebInfo）
+3. `python3 scripts/ci/run_memcheck.py --binary … --report-dir tests/ci-reports/memcheck` — 运行并判定
+4. 上传 `memcheck-report`（日志 + summary.json/md，`if: always()`）
 
-**⚠️ Valgrind 在协程场景的限制：** 自定义栈切换、context switch 会产生大量假阳性（实测 2.3M+ errors）。Valgrind 报告需人工甄别，或改用 RSS 时序监控（见 §7 FAQ）。
+前置校验步骤与构建步骤的 `run` 首行都显式 `set -o pipefail`：GitHub 默认 shell 是
+`bash -e {0}`（**没有** `pipefail`），不加这行 `| tee` 会把失败退出码吞掉、门禁形同虚设。
+Valgrind 3.22 在 Docker 默认超大 `RLIMIT_NOFILE`（实测约 1e9）下会在启动期报
+`Private file creation failed`；环境前置校验和判定步骤各自先执行 `ulimit -n 65536`，只影响该
+step 的子进程，不改 runner 或宿主机配置。判定入口只在**前置校验全绿**时才启动 workload，并在进入判定路径时先清理 `report-dir` 下
+本轮的固定产物（`<log-name>.log/.stdout.log/.stderr.log`、`summary.json/md`）、**必写**
+summary（前置失败也落 FAIL）——上一轮的 PASS 报告不会残留下来随 artifact 归档；
+`--check-env` 不写报告。
+
+旧入口 `shell/workflow/memery_test_info/{compile_testfile,do_valgrind_memcheck}.sh` 保留为转发
+（旧版 `rm -rf build` + 不判读结果、不设退出码，任何泄漏都会“绿”，已废弃）。
+
+**NEED_VALGRIND（协程栈登记）：** bbt 协程用 `memalign` 的自定义栈，Valgrind 默认不把它当成栈，
+`boost.context` 每次切换 SP 都被记为 `client switching stacks?`。`NEED_VALGRIND=ON` 时
+`Stack` 构造把**可用栈区间**（不含 `PROT_NONE` 保护页）登记给 Valgrind，`Clear`/析构注销、
+`move` 转移登记 ID。**默认生产构建（OFF）不依赖 Valgrind**；`NEED_VALGRIND=ON` 但找不到
+`valgrind/valgrind.h` 时 CMake 直接 `FATAL_ERROR`。头文件默认在标准 include 路径与
+`CMAKE_INCLUDE_PATH` 里自动搜索；私有解包场景用 `-DBBT_VALGRIND_INCLUDE=<dir>` 指定
+（该目录下必须真的存在 `valgrind/valgrind.h`，否则同样 `FATAL_ERROR`）。
+
+**⚠️ 登记只消除 stack-switch 警告，不等同“泄漏判定已修复”。** 历史观测到的 164MB / 1.7MB
+（`definitely/indirectly lost`，分别疑似来自：栈底保护页使 memcheck 把栈块判 lost、以及
+`StackPool` 的 boost::lockfree 队列 tagged_ptr 不可追踪）**未经同负载对照前不得认定为全误报**；
+必须用“同程序、同工作量、同 worker，仅切换 `NEED_VALGRIND`”的对照来区分工具识别误差、
+合法 process-lifetime 存活与真实泄漏。
+
+**判定口径（fail-closed，不用抑制文件）：** 缺工具、缺/空日志、`Fatal`、崩溃（信号）、超时、
+无 `ERROR SUMMARY`、`definitely lost != 0`、`indirectly lost != 0`、缺完成标记、
+完成标记重复键、出现多条互相冲突的完成标记、必需计数缺失、或任一计数与固定期望不符，
+一律 FAIL 且退出码非 0。完成标记必须是**唯一一条** `BBT_MEMCHECK_DONE`，七个必需计数的
+固定期望（与 `mem_check_test.cc` 打印一致，任何缩水都 FAIL）：
+
+```
+inner=10000/10000  lock=4000/4000  chan_read=500000/500000
+writer_done=50/50  failures=0/0    runtime_drained=1/1
+stack_pool_drained=1/1
+```
+
+`possibly lost` / `still reachable` 原样记录但不作门禁（分别来自存活 worker TLS 与
+process-lifetime 单例）。**不得**用 suppression 把 `definitely/indirectly lost` 静默过滤来“修绿”。
+
+**完成协议（业务完成 ≠ 运行时已释放）：** 所有 `CountDownLatch::Wait()` 只在主线程调用；
+协程内只 `Down()` 且不得阻塞 `Wait`。业务计数达标后，再有界等待栈池账目
+`g_bbt_stackpoll->GetCurCoNum() == 0`（`Context` 是唯一栈借出方，`~Context` 归还，
+而 `~Context` 由 `Processer` FINAL delete `Coroutine` 触发），即**所有借出的栈已归还
+（`~Context` 已进入 FINAL 释放路径）**。该计数与 `PROFILE` 无关，**不依赖 `PROFILE=OFF`
+时会恒 0 的 Profiler 计数**。超时即视为未完成并 FAIL，不靠延长等待或缩减负载变绿。
+
+确认 `runtime_drained=1` 后，主线程调用 `StackPool::ReleaseUnused()` 释放栈池中为复用保留的
+闲置栈，再要求 `AllocSize()==0 && GetCurCoNum()==0`，并输出 `stack_pool_drained=1/1`。
+这是检测前的缓存排空，不是 `Scheduler::Stop()`，不 join worker，也不改变生产运行时的
+process-lifetime 语义；若池未能排空，工作负载直接 FAIL。
+
+**#379 已采用 A：回调释放先于栈归还。** `Context::~Context` 函数体先清空
+`m_onyield_callback`、`m_user_main`（两个 `std::function` 先释放 target），令它们最后持有的
+捕获对象同步析构，**之后**才 `g_bbt_stackpoll->Release(m_stack)`；置空顺序与成员逆序析构
+一致，不改变对象布局、不新增通知/join/keepalive。因此 `cur == 0`（`runtime_drained == 1`）蕴含“这两个
+callable 及其最后持有的业务对象已析构”，这是本计数能证明的**精确上界**。回归入口：
+`unit_test/Test_coroutine_stack.cc` 的 `t_context_releases_callables_before_stack_return`
+直接构造 `Context`，用析构探针断言捕获对象在栈归还前析构（只覆盖 `m_user_main` 路径）。
+
+它**仍不**证明外部其它 owner 持有的资源已释放、worker 侧异步物理清理完成、
+`delete Coroutine` 已返回或对象本体 deallocation——`delete` 发生在 worker 线程，main 线程
+看到 `cur == 0` 即返回，两者没有 happens-before。该计数**不是**、也不得升级为通用
+join/drain API（运行时是进程寿命对象，见
+[核心运行时契约 §6](../agent-docs/2026-09-07-core-runtime-contract.md)）。
+
+**跨仓镜像依赖（已完成一次受控运行态验证）：** 本仓脚本对 valgrind（含 `libc6-dbg`/loader 符号）、
+Boost 1.90（runner 上位于 `/opt/boost/include`）和 runner 前置条件 fail-closed，禁止在 job 内
+临时 `apt` 安装修绿。已在 `bbtools-runner:v2` + `arc-s4-memcheck` 等价运行环境完成一次
+受控构建、单测和真实 Valgrind 验证；后续 runner 变更仍需保持与 `bbtools-runner:v1`、
+普通 `arc-s4` 及 #378 隔离。正式 workflow 结果以对应 Actions run 和 artifact 为准。
+
+**本地复现：**
+
+```bash
+# 前置 + 构建 + 判定（需本机有 valgrind 与 valgrind/valgrind.h）
+ulimit -n 65536
+python3 scripts/ci/run_memcheck.py --check-env
+BBT_VALGRIND_INCLUDE=/path/to/valgrind-include \
+  bash scripts/ci/build_memcheck_target.sh "$PWD"
+python3 scripts/ci/run_memcheck.py \
+  --binary build-memcheck/bin/benchmark_test/mem_check_test \
+  --report-dir tests/ci-reports/memcheck --timeout 1800
+
+# 判定逻辑契约测试（用真实退出码驱动反例，不依赖本机 valgrind）
+python3 scripts/ci/test_memcheck_contract.py
+```
+
 
 ---
 

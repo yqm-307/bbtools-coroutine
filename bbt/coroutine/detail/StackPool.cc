@@ -7,6 +7,38 @@
 namespace bbt::coroutine::detail
 {
 
+#ifdef BBT_COROUTINE_VALGRIND
+
+bool StackPool::ValgrindPool::Push(ItemType* item) noexcept
+{
+    try {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_items.push_back(item);
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+bool StackPool::ValgrindPool::Pop(ItemType*& item) noexcept
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (m_items.empty())
+        return false;
+
+    item = m_items.front();
+    m_items.pop_front();
+    return true;
+}
+
+size_t StackPool::ValgrindPool::Size() const noexcept
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_items.size();
+}
+
+#endif
+
 StackPool::UPtr& StackPool::GetInstance()
 {
     /* 进程寿命：运行期对象，不在静态退出期析构 */
@@ -35,6 +67,17 @@ StackPool::~StackPool()
 void StackPool::Release(ItemType* item)
 {
     AssertWithInfo(m_pool.Push(item), "oom!");
+}
+
+size_t StackPool::ReleaseUnused()
+{
+    size_t released = 0;
+    ItemType* item = nullptr;
+    while (m_pool.Pop(item)) {
+        _FreeItem(item);
+        ++released;
+    }
+    return released;
 }
 
 StackPool::ItemType* StackPool::Apply()

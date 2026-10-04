@@ -8,64 +8,71 @@ on:
         -   cron: "30 9 * * 5"
 
 env:
-    MEMCHECK_EXEC_PATH: build/bin/benchmark_test/mem_check_test
+    # 专用构建目录：与普通 build/ 隔离，不覆盖其他 job 的产物
+    MEMCHECK_BUILD_DIR: build-memcheck
+    MEMCHECK_EXEC_PATH: build-memcheck/bin/benchmark_test/mem_check_test
+    MEMCHECK_REPORT_DIR: tests/ci-reports/memcheck
 
 jobs:
-    job_1:
-        name: "初始化测试环境"
-        runs-on: ["self-hosted", "linux"]
+    memcheck:
+        # 单 job：构建与检测共享同一工作区，产物关系显式，不再隐式依赖跨 job 工作区
+        name: "内存检测（build + memcheck）"
+        # 专用 scale set：镜像预装 Valgrind/libc6-dbg，不与普通 arc-s4 或 #378 共用缓存/镜像。
+        runs-on: arc-s4-memcheck
+        # 有界：构建（含 ccache 冷启动）+ 判定步骤自身 --timeout 1800s 都必须在界内结束
+        timeout-minutes: 120
         steps:
             -   name: "拉取代码库"
                 uses: actions/checkout@v4
                 with:
                     fetch-depth: 1
                     persist-credentials: false
-            -   name: "编译测试文件"
+
+            -   name: "验证专用 runner 镜像"
                 run: |
-                    pwd | xargs ./shell/workflow/memery_test_info/compile_testfile.sh
-                    if [ ! -f ${MEMCHECK_EXEC_PATH} ];then
-                        echo file ${MEMCHECK_EXEC_PATH} not exists
-                        exit -1
+                    set -eu
+                    test -r /etc/bbttools-runner/profile
+                    test "$(cat /etc/bbttools-runner/profile)" = "bbtools-runner:v2-memcheck"
+
+            # 前置校验 fail-closed：缺 valgrind / loader 符号 / Boost 1.90 直接失败，
+            # 不在此临时 apt 安装修绿（镜像能力问题见 docs/ci-guide.md §4 跨仓依赖）。
+            -   name: "环境前置校验"
+                run: |
+                    # Valgrind 3.22 不能在超大的 Docker 默认 RLIMIT_NOFILE 上启动；
+                    # 只降低本 job 子进程的 soft limit，不修改 runner/宿主机配置。
+                    ulimit -n 65536
+                    # 默认 shell 是 `bash -e {0}`，没有 pipefail：不加这行，`| tee` 会吞掉
+                    # python 的失败退出码，门禁形同虚设（仓内 docs-check.yml 同做法）。
+                    set -o pipefail
+                    python3 scripts/ci/run_memcheck.py --check-env | tee memcheck-env.log
+
+            -   name: "构建 mem_check_test（NEED_VALGRIND=ON）"
+                run: |
+                    set -o pipefail   # 构建失败同样不能被 `| tee` 吞掉
+                    bash scripts/ci/build_memcheck_target.sh "${GITHUB_WORKSPACE}" | tee memcheck-build.log
+                    if [ ! -x "${MEMCHECK_EXEC_PATH}" ]; then
+                        echo "::error::构建后目标不存在：${MEMCHECK_EXEC_PATH}"
+                        exit 1
                     fi
 
-    job_2:
-        name: "生成测试程序内存数据"
-        needs: ["job_1"]
-        env:
-            result_dir: "/benchmark_test/Default"
-        runs-on: ["self-hosted", "linux"]
-        steps:
-            -   name: "创建测试结果收集文件夹"
+            # 唯一判定入口：缺工具/空或缺日志/Fatal/崩溃/超时/无 ERROR SUMMARY/
+            # definite+indirect 泄漏/未完成标记一律 FAIL 并返回非 0，不使用抑制文件。
+            -   name: "运行 memcheck 并判定"
                 run: |
-                    dir_name=`date +%Y%m%d_%H_%M_%S`
+                    # 与环境探活保持同一运行期 ulimit；镜像无法声明 Docker 的 RLIMIT_NOFILE。
+                    ulimit -n 65536
+                    python3 scripts/ci/run_memcheck.py \
+                        --binary "${MEMCHECK_EXEC_PATH}" \
+                        --report-dir "${MEMCHECK_REPORT_DIR}" \
+                        --timeout 1800
 
-                    if [ -d ${dir_name} ];then
-                        rm -rf ${dir_name}
-                    fi
-
-                    mkdir -p ${dir_name}
-
-                    echo "RESULT_DIR=${dir_name}" >> "$GITHUB_ENV"
-
-            -   name: "运行测试程序"
-                run: |
-                    output_log=${RESULT_DIR}/memcheck_result.log
-
-                    ./shell/workflow/memery_test_info/do_valgrind_memcheck.sh ${MEMCHECK_EXEC_PATH} ${output_log}
-
-                    if [ ! -f ${output_log} ];then
-                        echo file ${output_log} not exists
-                        exit -1
-                    fi
-
-            -   name: "打包测试结果"
-                run: |
-                    tar -zcvf memcheck_result.tar.gz ${MEMCHECK_EXEC_PATH}/
-
-    job_3:
-        name: "发送通知邮件"
-        needs: ["job_2"]
-        runs-on: ["self-hosted", "linux"]
-        steps:
-            -   name: ""
-                run: echo "请编写发送邮件的脚本"
+            -   name: "上传检测报告"
+                if: always()
+                uses: actions/upload-artifact@v4
+                with:
+                    name: memcheck-report
+                    path: |
+                        ${{ env.MEMCHECK_REPORT_DIR }}/
+                        memcheck-env.log
+                        memcheck-build.log
+                    if-no-files-found: warn
