@@ -1,9 +1,10 @@
 # formal-ci —— bbtools-coroutine hosted 普通 CI 正式候选（Issue #50）
 
 **状态：** 本地候选（未 commit / 未 push / 未建 PR / 未触发 CI）。远端写入与 PR 由父级执行。
-**阶段限定：** 本候选只把**普通 CI 的 Layer 1** 与 **docs-check** 迁到 hosted，并把影子入口退役；
-**旧普通入口中的性能 job 已移除，新可信性能入口尚未接通**；required 集合、Release 执行逻辑、memcheck、runner 规则均未改。在获准合并与远端核对
-完成前，本文不构成「迁移已完成」的结论。
+**阶段限定：** 本候选把**普通 CI 的 Layer 1** 与 **docs-check** 迁到 hosted，并把影子入口退役；
+**旧普通入口的性能 job 已移除，`性能回归检查` 已接线为受控报告消费者（fail-closed）**——但可信控制端
+报告尚未产出，故该 context 为 failure；required 集合、Release 执行逻辑、memcheck、runner 规则均未改。
+性能接线细节见 `agent-docs/perf-check-wiring.md`。在获准合并与远端核对完成前，本文不构成「迁移已完成」的结论。
 
 ## 1. 做了什么
 
@@ -76,9 +77,12 @@ cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 ## 6. 明确未完成 / 规则阻断（本轮授权的性能冻结）
 
-- **`性能回归检查` 未迁移、未执行**：旧 `unit_test.yml` 的 perf-regression job（unified_stress
-  45s/模块）**不在**本候选内——既不在 hosted 重放，也**不**回退启动旧 `arc-s4` 性能执行；本候选
-  **不承载任何 perf 判定，也不构造 PASS**。
+- **`性能回归检查` 已接线为受控报告消费者（fail-closed）**：hosted job **不**重放 unified_stress、
+  **不**回退旧 `arc-s4`、**不**写性能 PASS；只经 GitHub REST 读取绑定 source SHA 的 commit comment
+  （固定标记 `bbtools-server3-perf/v1`），核 author.id（拥有者 API id 78525443，exact）、measurement
+  摘要、已批准 baseline 文件字节，并以真实 baseline JSON 独立复算（不只信 verdict）。缺匹配/身份不符/
+  环境不可比即 failure。**可信控制端报告尚未产出**，故该 context 为 failure。详见
+  `agent-docs/perf-check-wiring.md`。
 - 仓库 ruleset（id 1095939 `ban push`）required 仍为 `编译 & 单元测试` **与** `性能回归检查`
   （app 15368）。本轮**不修改 required**。因此：
   - 普通 PR 的 `性能回归检查` context 会 **pending** → **PR 不满足合并资格**；
@@ -134,7 +138,8 @@ synthetic token（片段拼接，本测试源码不含真实凭据）→ 命中�
   真实执行、`编译 & 单元测试` / `结果汇聚` 的真实 check 状态。
 - 任何 **C++ 全量构建 / ctest 真实执行**（本地只做 bash -n / 静态契约 / 配方守卫 / 真实 cli 路由 /
   有界 bash 行为负例）。
-- **性能路径**（perf job、基线读写、`性能回归检查` context）与其迁移。
+- **性能路径**：控制端部署/报告发布（server3 采样、真实评论 POST）、真实 baseline commit 固定与
+  hosted 真实读取执行——见 `agent-docs/perf-check-wiring.md`（接线已本地验证，真实链路由父级连通）。
 - required 集合调整、Release 侧放行、memcheck、runner 采购/准入、生产发布链路。
 - 合并后远端对账（PR checks、ruleset 生效状态）。
 

@@ -10,15 +10,23 @@
 #   变更类型检测（真实 diff）→ 复用已发布 fixed-SHA framework 分类 callee → 编译 & 单元测试
 #   → 结果汇聚（always，fail-closed）。
 #
-# 本文件**不承载**（性能路径本轮冻结，未迁移）：
-#   - `性能回归检查`（unified_stress 45s/模块）：原 unit_test.yml 的 perf-regression job 不在本
-#     候选内——既不在 hosted 重放，也**不**回退启动旧 arc-s4 性能执行。仓库 ruleset required
-#     仍含 `性能回归检查`（app 15368），本轮不修改 required；因此普通 PR 的该 context 会 pending、
-#     **不满足合并资格**，Release 侧 `validate_main_ci` 也因缺该 success job 而 fail-closed 拒绝。
+# 性能路径（本候选**新接线**，非冻结）：`性能回归检查` 已接线为**受控报告消费者**（见下），
+#   在 hosted 不重放基准、不回退旧 arc-s4。报告尚不存在时该 context 为 failure；仓库 ruleset
+#   required 仍含 `性能回归检查`（app 15368），本轮**不修改 required**，故普通 PR 该 context
+#   不满足合并资格，Release 侧 `validate_main_ci` 因缺该 success job 继续 fail-closed 拒绝。
+# 本文件**不承载**（本轮冻结，未迁移）：
 #   - Sanitizer（ASAN+UBSAN）长测：旧 unit_test.yml 的 sanitizer-check 需要 `workflow_dispatch`
 #     事件才可达，而旧 `on:` 从未声明 workflow_dispatch，故该 job 实际不可达、不属于普通适用测试。
 #     本轮不开启新的长期执行（不新增 sanitizer 触发）；该 job 从本文件移除，配置保留在 git 历史
 #     （HEAD c704458 的旧 unit_test.yml）中，需单独迁移为独立 workflow 后再启用。
+#
+#   - `性能回归检查`（app 15368，required context 名）本轮**接线为受控报告消费者**，但**不**在
+#     hosted 重放 unified_stress、**不**回退旧 arc-s4 性能执行、**不**写任何性能 PASS。它只经
+#     GitHub REST 读取绑定 source SHA 的 commit comment（模板标记 `bbtools-server3-perf/v1`），
+#     核 comment author.id、report 摘要与已批准 baseline 文件，缺匹配即 fail-closed。报告尚不存在
+#     时该 context 为 failure → required 仍 pending、PR 不满足合并资格；`scripts/release_gate.py`
+#     的 `validate_main_ci` 因缺该 success job 继续 fail-closed 拒绝。required 集合本轮不改。
+#     信任边界与判定链见 `agent-docs/perf-check-wiring.md`。
 #
 # 说明性文档：`agent-docs/formal-ci.md`（本候选由 agent-docs/ci-shadow-v1.md 改名并改写为正式说明）。
 # `docs/ci-guide.md` / `agent-docs/development-and-release-process.md` 仍是旧流程真源，其 unit_test.yml
@@ -188,6 +196,56 @@ jobs:
           done
           exit 1
         timeout-minutes: 8
+
+  # ── 性能回归检查：消费 server3 可信控制端发布的受控性能报告评论（fail-closed）──────────
+  # 信任边界：hosted job **不跑** unified_stress、不读 perf-baseline 工作树、**无** repo 写权限；
+  # 只经 GitHub REST 读取绑定本 source SHA 的 **commit comment**，用 API 核 author.id（含 owner
+  # 的精确 API user id，exact 整数比较、不比 login；伪装/同名评论忽略，不阻断合法评论），
+  # 校验固定模板 `bbtools-server3-perf/v1`、measurement 摘要、baseline 文件（perf-baseline
+  # 分支、commit 绑定）字节 sha256，再取该文件真实 JSON 用既有 perf_contract 语义**独立复算**
+  # （不只信 report.verdict）。缺匹配（无报告/身份不符/摘要不符/环境不可比/模块退化/冲突报告）
+  # → 有界等待后 **failure**，绝不以 skipped/空成功置绿。报告尚未存在时该 context 为 failure。
+  # source SHA：PR 用 `github.event.pull_request.head.sha`（真实 head，不冒充 merge commit）；
+  # push main 用 `github.sha`。更换 head 即更换 subject，新 head 未经批准不会产出报告。
+  perf-regression:
+    name: "性能回归检查"
+    # 事件面显式限定为本 workflow 的普通触发；不响应 workflow_dispatch/其他事件。
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      # 受控报告的唯一可信作者 API user id（仓 owner，2026-10-10 GET 核对）；非秘密。
+      PERF_CONTROLLER_AUTHOR_ID: "78525443"
+      PERF_BASELINE_REF: "refs/heads/perf-baseline"
+      # 已批准 baseline 的 commit（父级固定后写入仓库变量 vars.PERF_BASELINE_COMMIT）；
+      # 留空则不锁定 commit，仍强制核文件摘要、环境可比与模块复算。
+      PERF_BASELINE_COMMIT: ${{ vars.PERF_BASELINE_COMMIT }}
+      # subject source SHA：PR=head.sha，push=github.sha（不冒充 merge commit）。
+      PERF_SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: "拉取代码库（仅取消费脚本）"
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: "读取受控性能报告（有界等待，fail-closed）"
+        env:
+          # 只读 token（job permissions: contents: read），仅用于 API 读取与限流。
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 scripts/ci/perf_report_ingest.py \
+            --repo "$GITHUB_REPOSITORY" \
+            --source-sha "$PERF_SOURCE_SHA" \
+            --expected-author-id "$PERF_CONTROLLER_AUTHOR_ID" \
+            --expected-baseline-ref "$PERF_BASELINE_REF" \
+            --expected-baseline-commit "$PERF_BASELINE_COMMIT" \
+            --gate-enabled \
+            --attempts 4 --retry-delay 180 \
+            --report-out tests/ci-reports/perf-ingest.json
 
   # 结果汇聚：**always** 运行，把三个真实 job 结果交给已发布 callee 的 result 契约。
   # 必跑（required）失败/cancelled/空/意外 skipped → verdict=failure → 调用非零失败。

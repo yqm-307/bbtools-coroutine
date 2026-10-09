@@ -16,7 +16,7 @@ workflow 静态契约 / docs-check 行为」，**不跑 C++ 全量构建**（真
 - changed_files 路由：push/PR 真实 diff 归一、未知保守回退、超预算整集回退；
 - 正式 workflow 文本契约（stdlib，恒跑，直接读真实文件）：触发面 / 权限 / SHA pin / hosted
   runs-on / concurrency / 复用 callee / required-optional / docs-only 门控 / always 汇聚 /
-  无 artifact / 无 cache / 无 perf / 无 sanitizer 长测 / 影子已退役；
+  无 artifact / 无 cache / 性能 job 仅为受限报告消费（不跑 unified_stress）/ 无 sanitizer 长测 / 影子已退役；
 - 正式 workflow 结构契约（需 PyYAML，缺省显式 SKIP，不等于通过）；
 - 正式 Recipe 不可少守卫（含 release_gate 消费者契约）；
 - format 模板严格 JSON 回归：`event_json`/`results_json` 从**实际模板**渲染后必须通过 strict
@@ -411,8 +411,9 @@ class FormalWorkflowTextContractTests(unittest.TestCase):
         # 旧 required context `编译 & 单元测试` 必须恰有一个真实 producer，且不靠空成功 alias 伪造。
         self.assertEqual(self.stripped.count(f'name: "{BUILD_CHECK_NAME}"'), 1)
         self.assertNotIn("continue-on-error", self.stripped)
-        self.assertNotIn(f'name: "{PERF_CHECK_NAME}"', self.stripped,
-                         "性能路径本轮冻结：不得伪造 `性能回归检查` 结果")
+        # `性能回归检查` 恰有一个 producer：受控报告消费者（不伪造 PASS）。
+        self.assertEqual(self.stripped.count(f'name: "{PERF_CHECK_NAME}"'), 1)
+        self.assertIn("perf_report_ingest.py", self.stripped)
         self.assertIn('name: "编译 & 单元测试"', self.text)
 
     def test_required_and_optional_are_disjoint_and_build_is_optional(self):
@@ -440,9 +441,10 @@ class FormalWorkflowTextContractTests(unittest.TestCase):
         self.assertIn('format(\'{{"name":"{0}"}}\', github.event_name)', self.stripped)
 
     def test_no_perf_release_memcheck_artifact_or_cache(self):
-        # 性能 / 基线 / 发布 / memcheck / artifact / cache 都不在本正式候选内。
+        # 发布 / memcheck / artifact / cache 都不在本正式候选内；性能 job 只做受控报告消费，
+        # 因此仍禁用「hosted 重跑基准 / 拉基线工作树」的重型写法。
         for forbidden in (
-            "ci_perf_check.py", "perf-baseline", "tests/baselines",
+            "ci_perf_check.py", "tests/baselines",
             "run_memcheck", "record_baseline", "release_gate.py publish",
             "unified_stress", "upload-artifact", "download-artifact",
             "actions/cache", "ccache",
@@ -537,7 +539,8 @@ class FormalWorkflowStructureTests(unittest.TestCase):
         self.assertEqual(
             set(self.wf), {"name", "on", "permissions", "concurrency", "env", "jobs"}
         )
-        self.assertEqual(set(self.wf["jobs"]), {"changes", "plan", "build", "result"})
+        self.assertEqual(set(self.wf["jobs"]),
+                         {"changes", "plan", "build", "perf-regression", "result"})
 
     def test_triggers(self):
         on = self.wf["on"]
@@ -579,8 +582,10 @@ class FormalWorkflowStructureTests(unittest.TestCase):
                     self.assertIn(dep, jobs)
         self.assertEqual(jobs["plan"]["needs"], ["changes"])
         self.assertEqual(jobs["build"]["needs"], ["changes", "plan"])
-        self.assertEqual(set(jobs["result"]["needs"]), set(jobs) - {"result"},
-                         "result 必须 needs 全部真实 job，不能漏键")
+        # perf-regression 独立于 build（消费外部受控报告，不依赖 hosted 构建产物），不进 callee 汇聚。
+        self.assertNotIn("needs", jobs.get("perf-regression", {}))
+        self.assertEqual(set(jobs["result"]["needs"]), {"changes", "plan", "build"},
+                         "result 必须 needs 全部真实构建 job，不能漏键")
 
     def test_required_optional_disjoint_and_actual(self):
         for name in ("plan", "result"):
@@ -651,16 +656,32 @@ class FormalRecipeGuardTests(unittest.TestCase):
             with self.subTest(needle=needle):
                 self.assertIn(needle, self.stripped)
 
-    def test_release_consumer_contract_is_preserved_and_perf_is_frozen(self):
+    def test_release_consumer_contract_preserved_and_perf_wiring_is_fail_closed(self):
         # release_gate.validate_main_ci 按 unit_test.yml 的 main push run 读取两个 context 成功。
         gate = raw(RELEASE_GATE)
         self.assertIn("unit_test.yml", gate)
         self.assertIn(BUILD_CHECK_NAME, gate)
         self.assertIn(PERF_CHECK_NAME, gate)
-        # 本候选保留 `编译 & 单元测试` 唯一 producer，但**不**承载 `性能回归检查`
-        # → required pending，Release fail-closed（本轮授权的性能冻结状态）。
+        # `编译 & 单元测试` 唯一 producer 不变；`性能回归检查` 现为受控报告消费者：
+        # 不跑基准、只在可信报告匹配时成功，缺报告/不匹配即 failure。
         self.assertEqual(self.stripped.count(f'name: "{BUILD_CHECK_NAME}"'), 1)
-        self.assertNotIn(PERF_CHECK_NAME, self.stripped)
+        self.assertEqual(self.stripped.count(f'name: "{PERF_CHECK_NAME}"'), 1)
+
+    def test_perf_job_is_trusted_report_consumer_fail_closed(self):
+        # 性能 job 的信任边界与 fail-closed 不变量（stdlib 文本守卫）。
+        self.assertIn("perf_report_ingest.py", self.stripped)
+        # source SHA：PR=head.sha，不冒充 merge；push 用 github.sha。
+        self.assertIn("github.event.pull_request.head.sha", self.stripped)
+        # 固定拥有者 API id，exact 身份比较（非 login）。
+        self.assertIn('PERF_CONTROLLER_AUTHOR_ID: "78525443"', self.stripped)
+        # 有界等待超时；不设 repo 写权限；不透传 secrets；不跑基准/不拉基线工作树。
+        self.assertIn("timeout-minutes: 15", self.stripped)
+        self.assertNotIn("contents: write", self.stripped)
+        self.assertNotIn("secrets:", self.stripped)
+        for forbidden in ("unified_stress", "ci_perf_check.py", "record_baseline",
+                          "perf-baseline` 工作树"):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, self.stripped)
 
     def test_format_templates_render_to_strict_json(self):
         # 回归：result job 的 event_json/results_json 是 plain YAML scalar，format 模板内双引号前

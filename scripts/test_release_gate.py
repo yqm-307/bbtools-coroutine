@@ -192,9 +192,17 @@ sys.exit(1 if mode == 'crash' else 0)
         text = (ROOT / '.github/workflows/unit_test.yml').read_text()
         for gone in ('real-client-acceptance', 'stress-test', 'run_parallel_stress.sh'):
             self.assertNotIn(gone, text, '发布级检查不得留在普通 CI')
-        # 性能冻结期间不能在普通入口伪造成功或恢复旧 ARC 执行。
-        self.assertNotRegex(text, r'(?m)^  perf-regression:')
-        self.assertNotIn('name: "性能回归检查"', text)
+        # 性能 job 现在是**便宜的**受控报告消费者：不构建、不跑基准，普通 merge 路径仍分钟级；
+        # 发布级重型 Gate 仍只留在 release.yml。（按去注释正文判定，注释允许提及被禁写法。）
+        body = "\n".join(line for line in text.splitlines()
+                         if not line.lstrip().startswith('#'))
+        self.assertIn('name: "性能回归检查"', body)
+        perf_block = body.split('  perf-regression:', 1)[1].split('\n  result:', 1)[0]
+        self.assertIn('perf_report_ingest.py', perf_block)
+        for heavy in ('unified_stress', 'ci_perf_check.py', 'cmake', 'prepare_boost',
+                      'record_baseline', 'upload-artifact', 'download-artifact'):
+            with self.subTest(heavy=heavy):
+                self.assertNotIn(heavy, perf_block)
         run = {'id': 1, 'head_sha': SHA, 'head_branch': 'main', 'event': 'push', 'conclusion': 'success'}
         for conclusion in (None, 'skipped', 'cancelled', 'failure'):
             jobs = [{'name': '编译 & 单元测试', 'conclusion': 'success'}]
