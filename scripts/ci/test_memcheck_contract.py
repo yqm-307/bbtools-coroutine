@@ -95,13 +95,19 @@ class MemcheckContractTest(unittest.TestCase):
         self.binary = self.tmp / "target"
         self.binary.write_text("#!/bin/sh\n")
         self.binary.chmod(0o755)
+        # 判定逻辑夹具自给 Boost 版本头，不依赖 ARC 的 /opt/boost 或宿主安装；
+        # 仍走真实 preflight，不能把此夹具当作真实 Boost/Valgrind 检测证据。
+        self.boost_include = self.tmp / "boost-include"
+        (self.boost_include / "boost").mkdir(parents=True)
+        (self.boost_include / "boost" / "version.hpp").write_text(
+            '#define BOOST_LIB_VERSION "1_90"\n')
 
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
     def _run(self, env_extra: dict, extra_args: list[str] | None = None):
         env = dict(os.environ)
-        env.pop("BBT_BOOST_INCLUDE_ROOT", None)
+        env["BBT_BOOST_INCLUDE_ROOT"] = str(self.boost_include)
         env.update({k: str(v) for k, v in env_extra.items()})
         args = [sys.executable, str(RUNNER),
                 "--valgrind", str(self.fake),
