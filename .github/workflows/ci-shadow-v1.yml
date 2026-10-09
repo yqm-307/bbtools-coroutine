@@ -1,0 +1,205 @@
+# ci-shadow-v1 —— bbtools-coroutine hosted-only 普通 CI 影子门禁（Issue #50）
+#
+# 定位与边界（本文件只**新增**；不改现役 .github/workflows/unit_test.yml、release.yml、
+# 产品 C++、CMakeLists.txt、依赖锁、docker、required 规则或 runner）：
+#   - 判据与现役 unit_test.yml 的 Layer 1「编译 & 单元测试」job 等价（CMake Release +
+#     NEED_TEST/NEED_BENCHMARK=ON、工具自测、全量 ctest -j1 timeout 60、Test_smoke 90s、
+#     Test_reliability 120s，均为 3 次有界重试），但使用**完全独立身份**：独立 workflow
+#     名 / check 名 / concurrency group；不共享任何 artifact 或 cache 命名空间（本影子
+#     不产出、不消费任何 artifact，也不使用 ccache/GitHub cache）。
+#   - 不新增 required check，不带性能比较 / 基线读取写入 / 发布 / memcheck；影子失败不改
+#     变现役权威结果。性能与发布级检查仍由现役 unit_test.yml / release.yml 承担。
+#   - 全部 job 固定 hosted `ubuntu-24.04`；顶层 `permissions: {}`，仅需要 checkout 的
+#     job 授予 `contents: read`；无 secret、无 OIDC、不向 callee 透传 secret、无写权限。
+#   - 远程 `uses` 全部完整 40-hex SHA pin（actions/checkout v4 已只读核验）。
+#   - 分类与结果判定**真实复用已发布、fixed-SHA 的 framework reusable callee**
+#     `yqm-307/bbt-framework/.github/workflows/bbtools-classify-v1.yml@1c0b0fb0…`：本仓不
+#     复制第二套分类/结果公共契约；changed_files 由本仓真实 diff 计算后作为**受限数据**
+#     传入，source（github.sha）与 callee automation 身份由 callee 自身 `job.workflow_*`
+#     分离解析。callee 只做分类/结果，不承担 C++ 构建（构建在本仓 build job 内完成）。
+#   - 触发面有意最小：仅 push 到分支 `ci/issue-50-hosted-shadow`，以及指向 `main` 的 PR。
+#   - concurrency：push 逐提交各一 run（group 含 run_id，互不取消）；PR 只取消**同一 PR**
+#     的旧 run。group 前缀 `ci-shadow-v1-` 与现役 `CI-${{ github.ref }}` 不冲突。
+#   - 工具链复现：hosted runner 无 /opt/boost（Boost 1.90），由脚本按锁定 sha256 源码构建
+#     `context` 到工作区私有前缀，不改镜像、不装系统包、不写 /usr/local（见 scripts/ci/）。
+name: ci-shadow-v1
+
+on:
+  push:
+    branches: [ci/issue-50-hosted-shadow]
+  pull_request:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  # 独立 group（现役 unit_test.yml 为 `CI-${{ github.ref }}`）。
+  # push：group 含 run_id → 每次提交独立、互不取消（保逐提交结果）；
+  # PR：group 用 github.ref（refs/pull/<N>/merge）→ 只取消同一 PR 的旧 run。
+  group: ci-shadow-v1-${{ github.event_name == 'pull_request' && github.ref || format('run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  BUILD_DIR: ${{ github.workspace }}/build
+  BOOST_PREFIX: ${{ github.workspace }}/boost-prefix
+  # hosted 4 vCPU：固定 3，与三仓统一并发口径一致，不按 nproc 抢占。
+  JOBS: 3
+
+jobs:
+  # 变更集：从真实 diff 归一为受限路径列表，交给 framework classify callee 分类。
+  # 任何无法确定的情形保守回退为 unknown（callee 判定执行全部），绝不擅自判绿。
+  changes:
+    name: "shadow 变更集（真实 diff）"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      changed_files_json: ${{ steps.diff.outputs.changed_files_json }}
+      classifier_status: ${{ steps.diff.outputs.classifier_status }}
+      event_json: ${{ steps.diff.outputs.event_json }}
+    steps:
+      - name: "拉取代码库（含历史，供三点 diff）"
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: "从真实 diff 计算受限变更集（未知保守全部）"
+        id: diff
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          SHA: ${{ github.sha }}
+          BEFORE: ${{ github.event.before }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/changed_files.py
+
+  # 分类/计划（classification-only）：只调用已发布 callee，不传 results。
+  plan:
+    name: "shadow 分类/计划（framework classify callee）"
+    needs: [changes]
+    uses: yqm-307/bbt-framework/.github/workflows/bbtools-classify-v1.yml@1c0b0fb0ebc8e7ca3888aa4f6a74d1baecf08cc7
+    permissions:
+      contents: read
+    with:
+      repo: ${{ github.repository }}
+      source_sha: ${{ github.sha }}
+      profile: hosted
+      concurrency: "2"
+      timeout_minutes: "60"
+      event_json: ${{ needs.changes.outputs.event_json }}
+      changed_files_json: ${{ needs.changes.outputs.changed_files_json }}
+      # required = 恒跑且决定"不得全跳过变绿"的轻量 job；optional = 重型构建 job
+      # （仅 docs-only 允许显式跳过）。集合互斥、非空，由 callee 校验。
+      required_checks_json: '["changes","plan"]'
+      optional_checks_json: '["build"]'
+      classifier_status: ${{ needs.changes.outputs.classifier_status }}
+
+  # 重型构建 + 全量 ctest + smoke + reliability：仅当分类为 code/unknown 时运行；
+  # docs-only 显式跳过。判据与现役 unit_test.yml 的「编译 & 单元测试」job 等价，
+  # 具体命令逐项对齐（见 scripts/ci/test_shadow_ci.py 的耦合测试）。
+  build:
+    name: "shadow 构建 & 测试（hosted，无缓存）"
+    needs: [changes, plan]
+    if: ${{ needs.plan.result == 'success' && needs.plan.outputs.classification != 'docs-only' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    permissions:
+      contents: read
+    steps:
+      - name: "拉取代码库"
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: "复现工具链（Boost 1.90 context 源码前缀）"
+        run: bash scripts/ci/prepare_boost.sh "$BOOST_PREFIX"
+
+      - name: "导出工具链前缀到后续步骤"
+        run: |
+          echo "BOOST_ROOT=$BOOST_PREFIX" >> "$GITHUB_ENV"
+          echo "CMAKE_PREFIX_PATH=$BOOST_PREFIX" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$BOOST_PREFIX/lib:$BUILD_DIR/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+
+      - name: "采集 runner 工具链版本（证据）"
+        run: |
+          printf 'runner=%s\n' "$RUNNER_NAME"
+          nproc
+          cmake --version | head -1
+          g++ --version | head -1
+          ninja --version || true
+          python3 --version
+
+      - name: "编译"
+        run: |
+          rm -rf build && mkdir build && cd build
+          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DNEED_TEST=ON -DNEED_BENCHMARK=ON
+          cmake --build . --parallel "$JOBS"
+
+      - name: "CI 与发布工具自测"
+        run: |
+          python3 scripts/test_release_gate.py
+          python3 -m unittest discover -s scripts/ci -p 'test_*.py'
+
+      - name: "ctest（全部单元测试）"
+        run: |
+          cd build
+          # 有界重试最多 3 次，应对间歇性 flaky 测试；每次 attempt 独立进程、独立日志，
+          # 失败证据保留在 job 日志中。总时长由 step 级 timeout-minutes 界定。
+          for i in 1 2 3; do
+            ctest --timeout 60 --output-on-failure && exit 0
+            echo "ctest attempt $i failed, retrying..."
+          done
+          exit 1
+        timeout-minutes: 10
+
+      - name: "冒烟测试（Test_smoke）"
+        run: |
+          cd build
+          # flaky 卡死：最多重试 3 次（每次全新进程）。
+          for i in 1 2 3; do
+            timeout --signal=TERM --kill-after=10s 90s bin/unit_test/Test_smoke --log_level=test_suite && exit 0
+            echo "Test_smoke attempt $i failed, retrying..."
+          done
+          exit 1
+        timeout-minutes: 8
+
+      - name: "可靠性测试（Test_reliability）"
+        run: |
+          cd build
+          # flaky 卡死/段错误：最多重试 3 次（每次全新进程）。
+          for i in 1 2 3; do
+            timeout --signal=TERM --kill-after=10s 120s bin/unit_test/Test_reliability --log_level=test_suite && exit 0
+            echo "Test_reliability attempt $i failed, retrying..."
+          done
+          exit 1
+        timeout-minutes: 8
+
+  # 结果汇聚：**always** 运行，把三个真实 job 结果交给已发布 callee 的 result 契约。
+  # 必跑（required）失败/cancelled/空/意外 skipped → verdict=failure → 调用非零失败。
+  result:
+    name: "shadow 结果汇聚（framework result callee）"
+    needs: [changes, plan, build]
+    if: ${{ always() }}
+    uses: yqm-307/bbt-framework/.github/workflows/bbtools-classify-v1.yml@1c0b0fb0ebc8e7ca3888aa4f6a74d1baecf08cc7
+    permissions:
+      contents: read
+    with:
+      repo: ${{ github.repository }}
+      source_sha: ${{ github.sha }}
+      profile: hosted
+      concurrency: "2"
+      timeout_minutes: "60"
+      # 复用与 plan 相同的受限输入；changes 失败时其 outputs 为空，显式回退为保守值
+      # （空变更 + unknown → callee 判 unknown→执行全部），使 result 仍能汇聚真实 job 结果。
+      event_json: ${{ needs.changes.outputs.event_json || format('{{"name":"{0}"}}', github.event_name) }}
+      changed_files_json: ${{ needs.changes.outputs.changed_files_json || '[]' }}
+      required_checks_json: '["changes","plan"]'
+      optional_checks_json: '["build"]'
+      classifier_status: ${{ needs.changes.outputs.classifier_status || 'unknown' }}
+      # 汇聚三个真实 job 的 needs.*.result（含 skipped），不构造假状态、不省略键。
+      results_json: ${{ format('{{"changes":"{0}","plan":"{1}","build":"{2}"}}', needs.changes.result, needs.plan.result, needs.build.result) }}
