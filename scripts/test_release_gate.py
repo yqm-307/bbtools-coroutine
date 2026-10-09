@@ -153,8 +153,8 @@ sys.exit(1 if mode == 'crash' else 0)
         import re
         import sys
         import textwrap
+        # 普通 hosted 入口不再执行性能；真实发布 guard 仍必须严格拒绝不可比结果。
         for workflow, report_path, strict in (
-            ('unit_test.yml', 'tests/ci-reports/main-performance.json', False),
             ('release.yml', 'source/tests/ci-reports/release-performance.json', True),
         ):
             text = (ROOT / '.github/workflows' / workflow).read_text()
@@ -192,9 +192,18 @@ sys.exit(1 if mode == 'crash' else 0)
         text = (ROOT / '.github/workflows/unit_test.yml').read_text()
         for gone in ('real-client-acceptance', 'stress-test', 'run_parallel_stress.sh'):
             self.assertNotIn(gone, text, '发布级检查不得留在普通 CI')
-        perf = re.search(r'(?ms)^  perf-regression:\n(.*?)(?=^  [a-z][a-z-]*:|\Z)', text)
-        assert perf is not None
-        self.assertNotIn("github.event_name == 'push'", perf.group(1), '快速性能回归必须在 PR 上执行')
+        # 性能冻结期间不能在普通入口伪造成功或恢复旧 ARC 执行。
+        self.assertNotRegex(text, r'(?m)^  perf-regression:')
+        self.assertNotIn('name: "性能回归检查"', text)
+        run = {'id': 1, 'head_sha': SHA, 'head_branch': 'main', 'event': 'push', 'conclusion': 'success'}
+        for conclusion in (None, 'skipped', 'cancelled', 'failure'):
+            jobs = [{'name': '编译 & 单元测试', 'conclusion': 'success'}]
+            if conclusion is not None:
+                jobs.append({'name': '性能回归检查', 'conclusion': conclusion})
+            with self.subTest(performance=conclusion), mock.patch.object(gate, 'api', side_effect=[
+                {'workflow_runs': [run]}, {'jobs': jobs, 'total_count': len(jobs)}
+            ]), self.assertRaises(SystemExit):
+                gate.validate_main_ci(SHA)
         release = (ROOT / '.github/workflows/release.yml').read_text()
         self.assertIn('soak_seconds', release)
         self.assertIn('run_parallel_stress.sh "$SOAK_SECONDS"', release)

@@ -1,19 +1,36 @@
-# CI：bbtools-coroutine 分层门禁流水线
+# CI：bbtools-coroutine 正式普通门禁流水线（hosted-only，普通 check 唯一 producer）
 #
-# Layer 1 (每次 PR / push main): 编译 → ctest → Test_smoke → Test_reliability   ~90s
-# Layer 2 (每次 PR / push main): 快速性能回归检查（unified_stress 45s/模块）    ~5min
-# 发布级检查（完整 CTest、真实客户端验收、可配置长时疲劳压测、严格性能 Gate、
-# 性能基线写入）在 release.yml 的发布 Gate 执行，不在普通合并路径上。
+# 来源与边界：本文件由已合并并在线跑通的 hosted Layer1 影子（`.github/workflows/ci-shadow-v1.yml`，
+# 线上 run 37885875199 / 37885869769：CTest/smoke/reliability 与结果汇聚 success）升级而来。
+# 影子入口已在本候选删除，普通 check 只有本文件一个 producer（非双跑）。workflow 名 `CI` 与
+# workflow path `.github/workflows/unit_test.yml` 保持不变——`scripts/release_gate.py`
+# 的 `validate_main_ci` 按这个 path 精确读取 main push run。
 #
-# 契约参考: docs/ci-guide.md
-# 公开仓库 + 常驻 self-hosted：fork PR 会执行 PR head 里的 workflow，
-# YAML 内 if 挡不住被替换的文件。硬闸门是仓库 Actions
-# approval_policy=all_external_contributors；不得批准未审查的 fork workflow。
+# 覆盖（普通 PR / push main，分钟级，全 hosted ubuntu-24.04）：
+#   变更类型检测（真实 diff）→ 复用已发布 fixed-SHA framework 分类 callee → 编译 & 单元测试
+#   → 结果汇聚（always，fail-closed）。
+#
+# 本文件**不承载**（性能路径本轮冻结，未迁移）：
+#   - `性能回归检查`（unified_stress 45s/模块）：原 unit_test.yml 的 perf-regression job 不在本
+#     候选内——既不在 hosted 重放，也**不**回退启动旧 arc-s4 性能执行。仓库 ruleset required
+#     仍含 `性能回归检查`（app 15368），本轮不修改 required；因此普通 PR 的该 context 会 pending、
+#     **不满足合并资格**，Release 侧 `validate_main_ci` 也因缺该 success job 而 fail-closed 拒绝。
+#   - Sanitizer（ASAN+UBSAN）长测：旧 unit_test.yml 的 sanitizer-check 需要 `workflow_dispatch`
+#     事件才可达，而旧 `on:` 从未声明 workflow_dispatch，故该 job 实际不可达、不属于普通适用测试。
+#     本轮不开启新的长期执行（不新增 sanitizer 触发）；该 job 从本文件移除，配置保留在 git 历史
+#     （HEAD c704458 的旧 unit_test.yml）中，需单独迁移为独立 workflow 后再启用。
+#
+# 说明性文档：`agent-docs/formal-ci.md`（本候选由 agent-docs/ci-shadow-v1.md 改名并改写为正式说明）。
+# `docs/ci-guide.md` / `agent-docs/development-and-release-process.md` 仍是旧流程真源，其 unit_test.yml
+# 描述与本候选不一致处按 formal-ci.md 的「阶段限定维护窗」处理，**不视为迁移已完成**。
+#
+# 安全：全部本地 job 固定 hosted `ubuntu-24.04`；顶层 `permissions: {}`，仅需要 checkout 的 job
+# 授予 `contents: read`；无 secret / OIDC / 写权限 / secrets 透传；远程 `uses` 全部完整 40-hex SHA pin。
+# 公开仓库：fork PR 执行的是 PR head 里的 workflow 文件，YAML 内 `if` 挡不住被替换的文件。仓库
+# Actions `approval_policy` 只读回读为 all_external_contributors（2026-10-09），不得批准未审查的
+# fork workflow；该策略不构成准入或隔离保证（有写权限者批准后仍会执行未审查的 workflow）。
 
 name: CI
-
-permissions:
-  contents: read
 
 on:
   pull_request:
@@ -21,97 +38,128 @@ on:
   push:
     branches: [main]
 
-env:
-  BUILD_DIR: ${{ github.workspace }}/build
-  BASELINE_DIR: ${{ github.workspace }}/tests/baselines
-  # ARC runner 与其他 CI job 共享宿主资源，固定构建并发避免裸 nproc 抢占。
-  JOBS: 3
+permissions: {}
 
-# 同一 ref 的 run 排队而不是互相取消：PR 的新 push 取消旧 run 以省 runner，
-# main 保留排队，避免集成验证结果被后续 push 吞掉。
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # push/main：group 含 run_id → 逐提交独立、互不取消（保住每个 SHA 的 main 结果，Release 消费者
+  # 按 head_sha 精确读取）；PR：group 用 github.ref（refs/pull/<N>/merge）→ 只取消同一 PR 的旧 run。
+  group: CI-${{ github.event_name == 'pull_request' && github.ref || format('run-{0}', github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+env:
+  BUILD_DIR: ${{ github.workspace }}/build
+  BOOST_PREFIX: ${{ github.workspace }}/boost-prefix
+  # hosted 4 vCPU：固定 3，与三仓统一并发口径一致，不按 nproc 抢占。
+  JOBS: 3
+
 jobs:
-  # docs-only 变更检测：纯文档/图片/LICENSE PR 时 required check 直接上报 success，
-  # 避免 paths-ignore 与 ruleset required check 冲突导致无法 merge。
+  # 变更集：从真实 diff 归一为受限路径列表，交给 framework classify callee 分类。
+  # 任何无法确定的情形保守回退为 unknown（callee 判定执行全部），绝不擅自判绿。
+  # job 名沿用现役 `变更类型检测`，required context 不悬空。
   changes:
     name: "变更类型检测"
-    runs-on: arc-s4
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
     outputs:
-      code: ${{ steps.filter.outputs.code }}
+      changed_files_json: ${{ steps.diff.outputs.changed_files_json }}
+      classifier_status: ${{ steps.diff.outputs.classifier_status }}
+      event_json: ${{ steps.diff.outputs.event_json }}
     steps:
-      - name: "拉取代码库"
-        uses: actions/checkout@v4
+      - name: "拉取代码库（含历史，供三点 diff）"
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: "判断是否含代码变更"
-        id: filter
+
+      - name: "从真实 diff 计算受限变更集（未知保守全部）"
+        id: diff
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          SHA: ${{ github.sha }}
+          BEFORE: ${{ github.event.before }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            git fetch origin ${{ github.base_ref }} --depth=1
-            RANGE="origin/${{ github.base_ref }}...HEAD"
-          else
-            RANGE="${{ github.event.before }}..${{ github.sha }}"
-          fi
-          # 非文档路径模式：命中任一即视为代码变更
-          if git diff --name-only $RANGE | grep -vE '\.md$|^docs/|^agent-docs/|^LICENSE$|\.png$|\.jpg$|\.svg$' | grep -q .; then
-            echo "code=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "code=false" >> "$GITHUB_OUTPUT"
-          fi
+          set -euo pipefail
+          python3 scripts/ci/changed_files.py
 
-  # ════════════════════════════════════════════════════════
-  # Layer 1: 编译 + 单元测试 + 冒烟测试 + 可靠性测试
-  # 每次 PR/commit 必跑，~90s；docs-only 直接 success
-  # ════════════════════════════════════════════════════════
-  build-and-test:
-    name: "编译 & 单元测试"
+  # 分类/计划（classification-only）：只调用已发布 callee，不传 results。
+  plan:
+    name: "分类/计划（framework classify callee）"
     needs: [changes]
-    runs-on: arc-s4
-    timeout-minutes: 20
-    steps:
-      - name: "docs-only 变更直接通过"
-        if: needs.changes.outputs.code == 'false'
-        run: echo "docs-only change, skipping build/test; check reports success."
+    uses: yqm-307/bbt-framework/.github/workflows/bbtools-classify-v1.yml@1c0b0fb0ebc8e7ca3888aa4f6a74d1baecf08cc7
+    permissions:
+      contents: read
+    with:
+      repo: ${{ github.repository }}
+      source_sha: ${{ github.sha }}
+      profile: hosted
+      concurrency: "2"
+      timeout_minutes: "60"
+      event_json: ${{ needs.changes.outputs.event_json }}
+      changed_files_json: ${{ needs.changes.outputs.changed_files_json }}
+      # required = 恒跑且决定「不得全跳过变绿」的轻量 job；optional = 重型构建 job
+      # （仅 docs-only 允许显式跳过）。集合互斥、非空，由 callee 校验。
+      required_checks_json: '["changes","plan"]'
+      optional_checks_json: '["build"]'
+      classifier_status: ${{ needs.changes.outputs.classifier_status }}
 
+  # 重型构建 + 全量 ctest + smoke + reliability：仅当分类为 code/unknown 时运行；docs-only 显式跳过
+  # （跳过由 callee 的 optional 语义显式允许，不靠空成功 alias 把 job 结果伪造为 success）。
+  # job 名沿用现役 required check 名 `编译 & 单元测试`。
+  build:
+    name: "编译 & 单元测试"
+    needs: [changes, plan]
+    if: ${{ needs.plan.result == 'success' && needs.plan.outputs.classification != 'docs-only' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    permissions:
+      contents: read
+    steps:
       - name: "拉取代码库"
-        if: needs.changes.outputs.code == 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 1
           persist-credentials: false
 
+      - name: "复现工具链（Boost 1.90 context 源码前缀）"
+        run: bash scripts/ci/prepare_boost.sh "$BOOST_PREFIX" --jobs "$JOBS"
+
+      - name: "导出工具链前缀到后续步骤"
+        run: |
+          echo "BOOST_ROOT=$BOOST_PREFIX" >> "$GITHUB_ENV"
+          echo "CMAKE_PREFIX_PATH=$BOOST_PREFIX" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$BOOST_PREFIX/lib:$BUILD_DIR/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+
+      - name: "采集 runner 调度与工具链日志（证据）"
+        run: |
+          printf 'runner=%s\n' "$RUNNER_NAME"
+          nproc
+          ulimit -r || true
+          grep -E 'Cap(Prm|Eff|Bnd)' /proc/self/status || true
+          cmake --version | head -1
+          g++ --version | head -1
+          ninja --version || true
+          python3 --version
+
       - name: "编译"
-        if: needs.changes.outputs.code == 'true'
         run: |
           rm -rf build && mkdir build && cd build
           cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DNEED_TEST=ON -DNEED_BENCHMARK=ON
           cmake --build . --parallel "$JOBS"
 
       - name: "CI 与发布工具自测"
-        if: needs.changes.outputs.code == 'true'
         run: |
           python3 scripts/test_release_gate.py
           python3 -m unittest discover -s scripts/ci -p 'test_*.py'
 
-      - name: "采集 runner 调度能力"
-        if: needs.changes.outputs.code == 'true'
-        run: |
-          printf 'runner=%s\n' "$RUNNER_NAME"
-          nproc
-          ulimit -r || true
-          grep -E 'Cap(Prm|Eff|Bnd)' /proc/self/status || true
-
       - name: "ctest（全部单元测试）"
-        if: needs.changes.outputs.code == 'true'
         run: |
           cd build
-          # 重试最多 3 次，应对间歇性 flaky 测试
-          # 注意：CI 环境性能较差，ctest 耗时显著高于本地（~180s vs ~60s）
-          # 用 step 级 timeout-minutes 控制总时长，不过度限制单次 ctest
+          # 有界重试最多 3 次，应对间歇性 flaky 测试；每次 attempt 独立进程，失败证据留在 job 日志中。
+          # 总时长由 step 级 timeout-minutes 界定，不过度限制单次 ctest。
           for i in 1 2 3; do
             ctest --timeout 60 --output-on-failure && exit 0
             echo "ctest attempt $i failed, retrying..."
@@ -120,10 +168,9 @@ jobs:
         timeout-minutes: 10
 
       - name: "冒烟测试（Test_smoke）"
-        if: needs.changes.outputs.code == 'true'
         run: |
           cd build
-          # flaky 卡死：最多重试 3 次（每次全新进程），保证 CI 稳定
+          # flaky 卡死：最多重试 3 次（每次全新进程）。
           for i in 1 2 3; do
             timeout --signal=TERM --kill-after=10s 90s bin/unit_test/Test_smoke --log_level=test_suite && exit 0
             echo "Test_smoke attempt $i failed, retrying..."
@@ -132,10 +179,9 @@ jobs:
         timeout-minutes: 8
 
       - name: "可靠性测试（Test_reliability）"
-        if: needs.changes.outputs.code == 'true'
         run: |
           cd build
-          # flaky 卡死/段错误：最多重试 3 次（每次全新进程），保证 CI 稳定
+          # flaky 卡死/段错误：最多重试 3 次（每次全新进程）。
           for i in 1 2 3; do
             timeout --signal=TERM --kill-after=10s 120s bin/unit_test/Test_reliability --log_level=test_suite && exit 0
             echo "Test_reliability attempt $i failed, retrying..."
@@ -143,159 +189,27 @@ jobs:
           exit 1
         timeout-minutes: 8
 
-      - name: "打包构建产物"
-        if: needs.changes.outputs.code == 'true'
-        run: |
-          # 性能 job 只需要 unified_stress、运行库和 CMakeCache；不上传对象文件，
-          # 以减少 ARC/VPN 链路上的 artifact 体积与下载失败概率。
-          # tar 同时保留可执行权限、符号链接和 build 目录结构。
-          tar -C "$GITHUB_WORKSPACE" -czf "$RUNNER_TEMP/coroutine-build.tar.gz" \
-            build/CMakeCache.txt \
-            build/bin/benchmark_test/unified_stress \
-            build/lib
-
-      - name: "上传构建产物"
-        if: needs.changes.outputs.code == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: coroutine-build-${{ github.run_id }}
-          path: ${{ runner.temp }}/coroutine-build.tar.gz
-          if-no-files-found: error
-          retention-days: 1
-
-  # ════════════════════════════════════════════════════════
-  # Layer 2: 快速性能回归检查（PR + main）
-  # 每模块 45s 串行，~5min；退化 ≥20%（CoCond ≥40%）判 FAIL
-  # ════════════════════════════════════════════════════════
-  perf-regression:
-    name: "性能回归检查"
-    needs: [changes, build-and-test]
-    runs-on: arc-s4
-    timeout-minutes: 15
+  # 结果汇聚：**always** 运行，把三个真实 job 结果交给已发布 callee 的 result 契约。
+  # 必跑（required）失败/cancelled/空/意外 skipped → verdict=failure → 调用非零失败。
+  result:
+    name: "结果汇聚（framework result callee）"
+    needs: [changes, plan, build]
+    if: ${{ always() }}
+    uses: yqm-307/bbt-framework/.github/workflows/bbtools-classify-v1.yml@1c0b0fb0ebc8e7ca3888aa4f6a74d1baecf08cc7
     permissions:
       contents: read
-    steps:
-      - name: "docs-only 变更直接通过"
-        if: needs.changes.outputs.code == 'false'
-        run: echo "docs-only change, skipping perf regression; check reports success."
-
-      - name: "拉取代码库"
-        if: needs.changes.outputs.code == 'true'
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-          persist-credentials: false
-
-      - name: "下载构建产物（第 1 次）"
-        id: download-build-1
-        continue-on-error: true
-        if: needs.changes.outputs.code == 'true'
-        uses: actions/download-artifact@v4
-        with:
-          name: coroutine-build-${{ github.run_id }}
-          path: ${{ runner.temp }}/coroutine-build-artifact
-
-      - name: "下载构建产物（第 2 次）"
-        id: download-build-2
-        if: needs.changes.outputs.code == 'true' && steps.download-build-1.outcome == 'failure'
-        continue-on-error: true
-        uses: actions/download-artifact@v4
-        with:
-          name: coroutine-build-${{ github.run_id }}
-          path: ${{ runner.temp }}/coroutine-build-artifact
-
-      - name: "下载构建产物（第 3 次）"
-        id: download-build-3
-        if: needs.changes.outputs.code == 'true' && steps.download-build-2.outcome == 'failure'
-        uses: actions/download-artifact@v4
-        with:
-          name: coroutine-build-${{ github.run_id }}
-          path: ${{ runner.temp }}/coroutine-build-artifact
-
-      - name: "解压并校验构建产物"
-        if: needs.changes.outputs.code == 'true'
-        run: |
-          tar -xzf "$RUNNER_TEMP/coroutine-build-artifact/coroutine-build.tar.gz" \
-            -C "$GITHUB_WORKSPACE"
-          test -x "$GITHUB_WORKSPACE/build/bin/benchmark_test/unified_stress"
-          test -f "$GITHUB_WORKSPACE/build/lib/libbbt_coroutine.so"
-          # 不依赖跨 runner 的绝对 RUNPATH，优先从本次下载的 build/lib 加载库。
-          echo "LD_LIBRARY_PATH=$GITHUB_WORKSPACE/build/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
-
-      - name: "拉取历史性能基线（perf-baseline 分支）"
-        if: needs.changes.outputs.code == 'true'
-        # 临时 checkout 里没有历史基线；长期记录在 orphan 分支 perf-baseline，
-        # artifact 仅作传输。分支缺失时 ci_perf_check 显式输出 NO_COMPARABLE_BASELINE。
-        env:
-          GIT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          export GIT_CONFIG_COUNT=1
-          export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
-          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GIT_TOKEN" | base64 -w0)"
-          if git ls-remote --exit-code origin refs/heads/perf-baseline >/dev/null 2>&1; then
-            git fetch --depth=1 origin refs/heads/perf-baseline
-            mkdir -p tests
-            # checkout 失败（路径缺失/损坏）不得红叉：继续走 NO_COMPARABLE_BASELINE
-            git checkout FETCH_HEAD -- tests/baselines || echo "⚠️ baseline checkout failed"
-            echo "Baselines available:"; ls -la tests/baselines/*/ | head -20
-          else
-            echo "⚠️ no perf-baseline branch — check will report NO_COMPARABLE_BASELINE"
-          fi
-
-      - name: "快速性能回归检查"
-        if: needs.changes.outputs.code == 'true'
-        # --gate-enabled：退化 ≥20%（CoCond ≥40%）判 FAIL 并阻断 main 验证
-        run: |
-          python3 scripts/ci_perf_check.py --threads=2 --dur=45 --gate-enabled --output tests/ci-reports/main-performance.json
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-          report = json.loads(Path('tests/ci-reports/main-performance.json').read_text())
-          modules = report.get('modules', {})
-          assert set(modules) == {'comutex', 'corwmutex', 'cocond', 'chan', 'copool', 'coroutine'}
-          allowed = {'PASS', 'WARN', 'NO_COMPARABLE_BASELINE'}
-          assert report.get('verdict') in allowed, report.get('verdict')
-          assert all(m.get('status') in allowed and m.get('errors') == 0 for m in modules.values())
-          if any(m.get('status') == 'NO_COMPARABLE_BASELINE' for m in modules.values()):
-              print('::warning::NO_COMPARABLE_BASELINE：main 缺少性能可比性证据；允许建立首份基线，发布仍阻断')
-          PY
-
-      - name: "上传压测日志"
-        if: needs.changes.outputs.code == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: perf-regression-logs
-          path: tests/ci-reports/
-          if-no-files-found: ignore
-          retention-days: 3
-
-  # ════════════════════════════════════════════════════════
-  # Layer 2b: Sanitizer 检查（仅 workflow_dispatch 手动触发）
-  # ASAN+UBSAN 构建，每模块 10min，~1h
-  # ════════════════════════════════════════════════════════
-  sanitizer-check:
-    name: "Sanitizer 检查（ASAN+UBSAN）"
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: arc-s4
-    timeout-minutes: 90
-    steps:
-      - name: "拉取代码库"
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-          persist-credentials: false
-
-      - name: "构建 Sanitizer 版"
-        run: bash scripts/build_sanitizer.sh build
-
-      - name: "运行 Sanitizer 测试（6 模块 × 10min）"
-        run: bash scripts/build_sanitizer.sh run 600
-
-      - name: "上传 ASAN 报告"
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: sanitizer-reports
-          path: /tmp/asan_report.*
-          if-no-files-found: warn
-          retention-days: 7
+    with:
+      repo: ${{ github.repository }}
+      source_sha: ${{ github.sha }}
+      profile: hosted
+      concurrency: "2"
+      timeout_minutes: "60"
+      # 复用与 plan 相同的受限输入；changes 失败时其 outputs 为空，显式回退为保守值
+      # （空变更 + unknown → callee 判 unknown→执行全部），使 result 仍能汇聚真实 job 结果。
+      event_json: ${{ needs.changes.outputs.event_json || format('{{"name":"{0}"}}', github.event_name) }}
+      changed_files_json: ${{ needs.changes.outputs.changed_files_json || '[]' }}
+      required_checks_json: '["changes","plan"]'
+      optional_checks_json: '["build"]'
+      classifier_status: ${{ needs.changes.outputs.classifier_status || 'unknown' }}
+      # 汇聚三个真实 job 的 needs.*.result（含 skipped），不构造假状态、不省略键。
+      results_json: ${{ format('{{"changes":"{0}","plan":"{1}","build":"{2}"}}', needs.changes.result, needs.plan.result, needs.build.result) }}
