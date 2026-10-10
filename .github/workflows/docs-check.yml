@@ -1,13 +1,19 @@
-# docs-check：纯文档类变更的轻量门禁（<2min）
+# docs-check：文档类变更的轻量门禁（<2min）
 #
-# 与 unit_test.yml 的 paths-ignore 互补：只有当变更全部落在文档类路径时，
-# 本 workflow 触发，unit_test.yml（含编译/单测/快速性能回归）跳过；
-# 一旦混入代码变更，unit_test.yml 正常触发（本 workflow 同时也会触发，
-# 但轻量检查先给快速反馈，不阻塞重任务）。
-# 契约参考: docs/ci-guide.md §2
+# 定位：本 workflow 是**文档级快速反馈**，不是 unit_test.yml 的互斥 paths-ignore 互补。
+# 正式普通门禁 `.github/workflows/unit_test.yml` 按真实 diff 分类：纯文档变更时重型 build job
+# **显式跳过**（由已发布 framework callee 的 optional 语义允许），代码或分类未知时构建全跑。
+# 本 workflow 只做空格/密钥扫描，给出更快反馈，不承载编译、单测或性能。
+# 契约参考：`agent-docs/formal-ci.md`（旧 `docs/ci-guide.md` 的 unit_test.yml 描述为旧流程，
+# 其与本候选不一致处按阶段限定维护窗处理，不视为迁移已完成）。
 #
-# fork 安全：与 unit_test.yml 一致，硬闸门是仓库 Actions
-# approval_policy=all_external_contributors；不得批准未审查的 fork workflow。
+# 运行环境：hosted `ubuntu-24.04`（已不再使用 self-hosted runner），顶层 `permissions: contents: read`，
+# 只读 checkout，远程 `uses` 完整 40-hex SHA pin。
+#
+# fork 说明：仓库公开，fork PR 执行的是 PR head 里的 workflow 文件，本文件内的 `if`/paths 挡不住
+# 被替换的 workflow。仓库 Actions `approval_policy` 只读回读为 all_external_contributors（2026-10-09）；
+# 不批准未审查的 fork workflow，但该策略**不构成**准入或隔离保证（有写权限者批准后仍会执行未审查
+# 的 workflow），也不保证将来换回 self-hosted 时仍隔离。
 
 name: Docs Check
 
@@ -43,30 +49,58 @@ concurrency:
 jobs:
   docs-check:
     name: "文档检查（空格/链接/密钥）"
-    runs-on: ["self-hosted", "linux"]
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: "拉取代码库"
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: "空白错误检查（PR）"
-        if: github.event_name == 'pull_request'
+      # diff 范围通过 env 传入（不把 SHA 直接插进 shell 字符串）：格式非法 / 范围缺失一律
+      # fail-closed 拒绝，不用空范围把检查吞成成功。
+      - name: "空白错误检查（真实范围，SHA 格式校验 fail-closed）"
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
         run: |
-          git diff --check "${{ github.event.pull_request.base.sha }}...HEAD"
+          set -euo pipefail
+          is_sha40() { printf '%s' "$1" | grep -Eq '^[0-9a-f]{40}$'; }
+          case "${EVENT_NAME:-}" in
+            pull_request)
+              is_sha40 "${BASE_SHA:-}" || { echo "FATAL: PR base sha 缺失或非法" >&2; exit 2; }
+              range="${BASE_SHA}...HEAD" ;;
+            push)
+              is_sha40 "${BEFORE:-}" || { echo "FATAL: push before sha 缺失或非法" >&2; exit 2; }
+              is_sha40 "${SHA:-}" || { echo "FATAL: push head sha 缺失或非法" >&2; exit 2; }
+              range="${BEFORE}..${SHA}" ;;
+            *) echo "FATAL: 不支持的事件: ${EVENT_NAME:-<empty>}" >&2; exit 2 ;;
+          esac
+          # 范围解析失败（rev 不可达等）由 set -e 直接失败，不回退成空 diff。
+          git diff --check "$range"
 
-      - name: "空白错误检查（push）"
-        if: github.event_name == 'push'
-        run: |
-          git diff --check "${{ github.event.before }}..${{ github.sha }}"
-
+      # 密钥扫描：fail-closed。`git grep` 退出码 0=命中、1=无命中、>1=工具/仓库错误；
+      # 只有 1 才是"干净"，>1 以前会被 if 当成 false 吞成成功，这里显式拒绝。
       - name: "密钥扫描（已跟踪源码）"
         shell: bash
         run: |
           set -euo pipefail
-          if git grep -nEI 'BEGIN (RSA|OPENSSH|EC|DSA) PRIVATE KEY|gh[pousr]_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{20,}|xox[baprs]-[A-Za-z0-9-]{20,}' -- ':!build*' ':!tests/reports/archive'; then
-            echo 'secret-like material found' >&2
-            exit 1
-          fi
+          pattern='BEGIN (RSA|OPENSSH|EC|DSA) PRIVATE KEY|gh[pousr]_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{20,}|xox[baprs]-[A-Za-z0-9-]{20,}'
+          set +e
+          git grep -qEI "$pattern" -- ':!build*' ':!tests/reports/archive'
+          rc=$?
+          set -e
+          case "$rc" in
+            0)
+              # 只报固定错误，不把命中的敏感源码写入公开 Actions 日志。
+              echo 'secret-like material found' >&2
+              exit 1 ;;
+            1)
+              echo 'secret scan clean' ;;
+            *)
+              echo "FATAL: 密钥扫描未完成（git grep rc=$rc），fail-closed" >&2
+              exit 2 ;;
+          esac

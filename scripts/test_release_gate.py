@@ -153,8 +153,8 @@ sys.exit(1 if mode == 'crash' else 0)
         import re
         import sys
         import textwrap
+        # 普通 hosted 入口不再执行性能；真实发布 guard 仍必须严格拒绝不可比结果。
         for workflow, report_path, strict in (
-            ('unit_test.yml', 'tests/ci-reports/main-performance.json', False),
             ('release.yml', 'source/tests/ci-reports/release-performance.json', True),
         ):
             text = (ROOT / '.github/workflows' / workflow).read_text()
@@ -192,9 +192,26 @@ sys.exit(1 if mode == 'crash' else 0)
         text = (ROOT / '.github/workflows/unit_test.yml').read_text()
         for gone in ('real-client-acceptance', 'stress-test', 'run_parallel_stress.sh'):
             self.assertNotIn(gone, text, '发布级检查不得留在普通 CI')
-        perf = re.search(r'(?ms)^  perf-regression:\n(.*?)(?=^  [a-z][a-z-]*:|\Z)', text)
-        assert perf is not None
-        self.assertNotIn("github.event_name == 'push'", perf.group(1), '快速性能回归必须在 PR 上执行')
+        # 性能 job 现在是**便宜的**受控报告消费者：不构建、不跑基准，普通 merge 路径仍分钟级；
+        # 发布级重型 Gate 仍只留在 release.yml。（按去注释正文判定，注释允许提及被禁写法。）
+        body = "\n".join(line for line in text.splitlines()
+                         if not line.lstrip().startswith('#'))
+        self.assertIn('name: "性能回归检查"', body)
+        perf_block = body.split('  perf-regression:', 1)[1].split('\n  result:', 1)[0]
+        self.assertIn('perf_report_ingest.py', perf_block)
+        for heavy in ('unified_stress', 'ci_perf_check.py', 'cmake', 'prepare_boost',
+                      'record_baseline', 'upload-artifact', 'download-artifact'):
+            with self.subTest(heavy=heavy):
+                self.assertNotIn(heavy, perf_block)
+        run = {'id': 1, 'head_sha': SHA, 'head_branch': 'main', 'event': 'push', 'conclusion': 'success'}
+        for conclusion in (None, 'skipped', 'cancelled', 'failure'):
+            jobs = [{'name': '编译 & 单元测试', 'conclusion': 'success'}]
+            if conclusion is not None:
+                jobs.append({'name': '性能回归检查', 'conclusion': conclusion})
+            with self.subTest(performance=conclusion), mock.patch.object(gate, 'api', side_effect=[
+                {'workflow_runs': [run]}, {'jobs': jobs, 'total_count': len(jobs)}
+            ]), self.assertRaises(SystemExit):
+                gate.validate_main_ci(SHA)
         release = (ROOT / '.github/workflows/release.yml').read_text()
         self.assertIn('soak_seconds', release)
         self.assertIn('run_parallel_stress.sh "$SOAK_SECONDS"', release)
