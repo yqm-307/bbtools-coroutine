@@ -57,6 +57,8 @@ public:
 
     void                                        RegistCoroutineTask(const CoroutineCallback& handle, const char* desc = nullptr);
     void                                        RegistCoroutineTask(const CoroutineCallback& handle, bool& succ) noexcept;
+    void                                        RegistCoroutineTask(size_t stack_size, const CoroutineCallback& handle, const char* desc = nullptr);
+    void                                        RegistCoroutineTask(size_t stack_size, const CoroutineCallback& handle, bool& succ) noexcept;
     /* 协程被激活，重新加入全局队列 */
     void                                        OnActiveCoroutine(CoroutinePriority priority, Coroutine::Ptr coroutine);
 

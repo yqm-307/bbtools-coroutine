@@ -1,8 +1,11 @@
 #pragma once
-#ifdef BBT_COROUTINE_VALGRIND
+#include <atomic>
+#include <cstddef>
 #include <deque>
+#include <map>
+#include <memory>
 #include <mutex>
-#endif
+#include <utility>
 #include <bbt/core/thread/sync/Queue.hpp>
 #include <bbt/core/clock/Clock.hpp>
 #include <bbt/core/thread/Lock.hpp>
@@ -13,55 +16,67 @@ namespace bbt::coroutine::detail
 {
 
 /**
- * @brief 栈池
- * 
- * 使用固定栈，为了减少频繁的内存分配和系统调用产生的开销，使用栈池来做栈的复用。
- * 
- * 使用了较为稳定的最大协程数算法，可以获取一个平稳值
- * 同时兼顾到内存和cpu占用。
- * 
- * todo：
- *  1、支持不同大小的栈
- *  2、使用更好的分配算法来减少内存碎片
- *  3、这里其实优化空间比较大，因为系统调用还是比较频繁。而且每个栈单
- *     独申请释放内存对碎片化也有影响。同时系统调用次数会很高。但是
- *     目前还没需求来优化，已经很快了。
- *     
- *     同时还可以使用一种方式来减少protected内存的占用。将内存栈首尾相
- *     连，然后在栈底部和顶部各申请一页内存作为保护页。那么1000个连续的
- *     栈就只需要申请1002页内存，而不是2000页内存。目前使用的方式是只在
- *     栈生长方向申请一页内存作为保护页，还是有可能出现越界的问题。
- * 
+ * @brief 栈池：按「页对齐可用字节数 U + 保护属性」精确复用固定栈。
+ *
+ * 使用固定栈 + 栈池复用是为了减少频繁内存分配和系统调用；多尺寸共存时
+ * 分桶键就是 (U, protect)，不从更大桶借、不向二次幂归档。
+ *
+ * 计数口径（全部由一把池级 mutex 保护，避免多个 atomic 字段假装事务）：
+ *   live     = 池管理的已分配栈对象数（= idle + borrowed，稳定时成立）
+ *   idle     = 缓存中可复用的空闲对象数
+ *   borrowed = 已借出给调用方的对象数
+ *   pending  = 已预留容量但分配尚未完成的对象数
+ * 容量上限约束的是「跨桶的同时借出 + 已预留」，不是每桶上限、也不是内存字节预算。
+ *
+ * ponytail: 当前用一把池级 mutex 串行化桶元数据，吞吐上限是并发申请/归还
+ * 共享同一临界区；只有聚焦回归证明它成为阻断瓶颈时，才升级为分桶同步并
+ * 保留独立的全池容量协议。不提前做该升级。
  */
 class StackPool
 {
 public:
-    typedef std::unique_ptr<StackPool>  UPtr;
-    typedef Stack                       ItemType;
+    typedef std::unique_ptr<StackPool> UPtr;
+    typedef Stack ItemType;
 
-    static UPtr&                        GetInstance();
+    static UPtr& GetInstance();
 
     StackPool();
     ~StackPool();
-    /* 定时更新，采样、动态调整池大小 */
-    void                                OnUpdate();
+    /* 定时更新：采样 + 按全池目标回收空闲栈 */
+    void OnUpdate();
 
-    /* 归还Stack */
-    void                                Release(ItemType* item);
-    /* 前置条件：所有借出Stack已归还且不再提交新协程；不停止运行时 */
-    size_t                              ReleaseUnused();
-    /* 申请Stack */
-    ItemType*                           Apply();
-    /* 已经创建的Stack总数，非线程安全的参考值 */
-    int                                 AllocSize();
-    /* 最近使用Co的平均值，非线程安全的参考值 */
-    int                                 GetCoAvgCount();
-    /* 当前内存中Co数量，非线程安全的参考值 */
-    int                                 GetCurCoNum();
+    /* 归还Stack；按 Stack 自身 U/保护属性回桶，不读全局默认值 */
+    void Release(ItemType* item);
+    /**
+     * @brief 回收所有桶中的空闲栈，返回实际释放数。
+     *
+     * 借出和申请中的栈不受影响，可与申请/归还并发调用；不停止运行时。
+     * 要据此检查完全清空，调用方须先停止提交并确认所有借出栈已归还。
+     */
+    size_t ReleaseUnused();
+    /* 申请Stack：默认配置兼容入口（转调显式重载） */
+    ItemType* Apply();
+    /* 申请Stack：显式字节数 + 保护属性；容量不足返回 nullptr */
+    ItemType* Apply(size_t stack_size, bool stack_protect);
+
+    /* 已经创建的Stack总数（池管理对象数），锁内精确计数 */
+    size_t AllocSize();
+    /* 最近使用Co的平均值 */
+    size_t GetCoAvgCount();
+    /* 当前借出 + 申请中的Co数量；不用队列近似 Size 推导 */
+    size_t GetCurCoNum();
+
+#ifdef BBT_COROUTINE_STACK_TESTING
+    /* 窄测试 seam：让下一次缓存入队（Push）穿过真实结果检查分支失败，
+     * 一次性消费。仅 BBT_COROUTINE_STACK_TESTING 构建存在。 */
+    static void _TestFailNextPoolPush() noexcept;
+#endif
 protected:
-    size_t                              _Preload(size_t preload_size) noexcept;
-    ItemType*                           _AllocItem();
-    void                                _FreeItem(ItemType* item);
+    /* 真正创建 min(预热数, 全池上限) 个独立默认栈；构造失败会清理已建对象后抛出，
+     * 故不标 noexcept。 */
+    size_t _Preload(size_t preload_size);
+    ItemType* _AllocItem(size_t stack_size, bool stack_protect);
+    static void _FreeItem(ItemType* item);
 private:
 #ifdef BBT_COROUTINE_VALGRIND
     /* boost::lockfree::queue 的 freelist 使用 tagged pointer，Valgrind 无法从进程级
@@ -85,13 +100,47 @@ private:
     using PoolType = bbt::core::thread::Queue<ItemType*>;
 #endif
 
-    PoolType                            m_pool{1024};
-    std::atomic_uint32_t                m_alloc_obj_count{0};   // 总数
+    /* 单个尺寸/属性桶；pool 生命周期由 Bucket 自己兜底排空（含构造中途抛出） */
+    struct Bucket
+    {
+        explicit Bucket(size_t capacity): pool(capacity) {}
+        ~Bucket()
+        {
+            ItemType* item = nullptr;
+            while (pool.Pop(item))
+                StackPool::_FreeItem(item);
+        }
+        Bucket(const Bucket&) = delete;
+        Bucket& operator=(const Bucket&) = delete;
 
-    std::atomic_uint32_t                m_co_avg{0};              // 一段时间内，程序中平均值协程数量
-    const float                         m_rate{0};
-    bbt::core::clock::Timestamp<>       m_prev_adjust_pool_ts;
-    bbt::core::clock::Timestamp<>       m_prev_rtts_sample_ts;
+        PoolType pool;
+        size_t live{0};
+        size_t idle{0};
+        size_t borrowed{0};
+        size_t pending{0};
+    };
+    using BucketKey = std::pair<size_t, bool>;
+
+    /* 以下 *_Locked 必须在 m_mutex 持有期调用 */
+    Bucket* _GetBucketLocked(const BucketKey& key);
+    void _EraseBucketIfEmptyLocked(const BucketKey& key, Bucket* bucket);
+    /* 摘一个空闲对象并更新计数；调用方须持锁，成功返回对象（锁外销毁） */
+    ItemType* _TakeIdleLocked();
+
+    static constexpr size_t kBucketQueueCapacity{1024};
+
+    std::map<BucketKey, std::unique_ptr<Bucket>> m_buckets;
+    mutable std::mutex m_mutex;
+    size_t m_live_count{0};
+    size_t m_borrowed_count{0};
+    size_t m_pending_count{0};
+    size_t m_co_avg{0};
+    const float m_rate{0};
+    bbt::core::clock::Timestamp<> m_prev_adjust_pool_ts;
+    bbt::core::clock::Timestamp<> m_prev_rtts_sample_ts;
+#ifdef BBT_COROUTINE_STACK_TESTING
+    static std::atomic_bool s_test_fail_push;
+#endif
 };
 
 }

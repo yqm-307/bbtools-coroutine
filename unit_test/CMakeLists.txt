@@ -11,9 +11,34 @@ set(MY_LIBS
     bbt_coroutine
 )
 
+# 测试构建专用窄故障注入（design §变更面）：唯有本文件（由根 CMakeLists.txt 的
+# if(NEED_TEST) 加入，自身没有 NEED_TEST 分支）打开这个诊断宏，PUBLIC 让库自身
+# 的 TU 与全部消费 TU 同编同一口径 —— 只定义测试 TU 会让库路径没有注入。
+# NEED_TEST=OFF 的生产构建不含该定义：源码 seam/分支与符号全部缺失（6-2 用
+# nm 对未 strip 的实际库做正反对照）。
+target_compile_definitions(bbt_coroutine PUBLIC BBT_COROUTINE_STACK_TESTING)
+
 add_executable(Test_coroutine_stack Test_coroutine_stack.cc)
 target_link_libraries(Test_coroutine_stack ${MY_LIBS})
 add_test(NAME Test_coroutine_stack COMMAND Test_coroutine_stack)
+# 含真实定时回收等待（m_cfg_stackpool_adjust_interval=5000ms 量级）与隔离子进程
+set_tests_properties(Test_coroutine_stack PROPERTIES TIMEOUT 180)
+
+# 多尺寸固定栈 runtime：薄 main 三种模式，各自独立进程（单进程只 Start 一次）
+add_executable(Test_multi_size_stack_runtime Test_multi_size_stack_runtime.cc)
+target_link_libraries(Test_multi_size_stack_runtime ${MY_LIBS})
+add_test(NAME Test_multi_size_stack_runtime_protected
+         COMMAND Test_multi_size_stack_runtime run-protected)
+add_test(NAME Test_multi_size_stack_runtime_unprotected
+         COMMAND Test_multi_size_stack_runtime run-unprotected)
+add_test(NAME Test_multi_size_stack_runtime_reject_before_start
+         COMMAND Test_multi_size_stack_runtime reject-before-start)
+set_tests_properties(
+    Test_multi_size_stack_runtime_protected
+    Test_multi_size_stack_runtime_unprotected
+    Test_multi_size_stack_runtime_reject_before_start
+    PROPERTIES TIMEOUT 60
+)
 
 add_executable(Test_coroutine Test_coroutine.cc)
 target_link_libraries(Test_coroutine ${MY_LIBS})

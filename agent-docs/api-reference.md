@@ -66,8 +66,20 @@
 - 签名：
   - `void RegistCoroutineTask(const CoroutineCallback& handle, const char* desc = nullptr);`
   - `void RegistCoroutineTask(const CoroutineCallback& handle, bool& succ) noexcept;`
+  - `void RegistCoroutineTask(size_t stack_size, const CoroutineCallback& handle, const char* desc = nullptr);`
+  - `void RegistCoroutineTask(size_t stack_size, const CoroutineCallback& handle, bool& succ) noexcept;`
 - 前置：运行时已初始化。超过 `m_cfg_max_coroutine` 会抛异常。
 - `desc`：写入协程，诊断可读回。空表示未命名。
+- 栈大小：带 `stack_size` 的两个重载表示「本协程可用的字节数」，按实测系统页向上对齐后生效（`GetLocalCoroutineStackSize()` 读回的就是对齐后的 U）。不带大小的重载继续取 `m_cfg_stack_size`（出厂 12 KiB）；显式调用**不改写**全局默认，也不改保护开关——保护属性始终取自 `m_cfg_stack_protect`。
+- 非法值/失败（在入队前兑现，不发布半成品）：
+  - `stack_size == 0` → `std::invalid_argument`
+  - 页取整/追加保护页/指针差范围越界（含把旧的 `-1` 之类的负 `int` 转成 `size_t`）→ `std::length_error`
+  - 内存不足 → `std::bad_alloc`；建立保护页失败 → 带 `errno` 的 `std::system_error`
+  - 无 worker（未 `Start`）等的发布前拒绝 → `std::runtime_error`
+  - `bool& succ` 重载不抛：上述任一失败置 `succ = false`，成功置 `true`
+- 尺寸在创建后固定：不支持扩栈/换栈，也不按当前默认配置重新计算。
+- 兼容边界：过去 `detail::Coroutine::Create(4096, ...)` 的大小被忽略，现在会实际分配 4 KiB（按页对齐）；栈上运行日志、断言或第三方代码时必须给足栈。detail 尺寸/计数类型改为 `size_t`，调用方升级时须重新编译，不混用旧二进制。
+- `CoPool` 的固定栈属于其 worker 协程，不能按队列中的任务换栈；需要单独大小的任务使用显式注册入口创建独立协程。
 
 ---
 
@@ -125,7 +137,7 @@
 ### `GetLocalCoroutineStackSize`
 
 - 签名：`size_t GetLocalCoroutineStackSize();`
-- 返回：当前协程栈大小；非协程为 `0`。
+- 返回：当前协程可用的栈字节数（页对齐后的 U，不含保护页）；非协程为 `0`。同一 runtime 内不同协程可返回不同值。
 
 ### 取消
 
@@ -322,9 +334,11 @@ int idx = sync::CoSelect()
 | 字段 | 默认 | 说明 |
 |------|------|------|
 | `m_cfg_max_coroutine` | `65535` | 超过再注册抛异常 |
-| `m_cfg_static_coroutine` | `0` | 启动时预创建数量 |
-| `m_cfg_stack_size` | `1024 * 12` | 12 KiB |
-| `m_cfg_stack_protect` | `true` | 保护页，溢出 `SIGSEGV` |
+| `m_cfg_stack_size` | `1024 * 12` | 省略大小时的默认栈字节数（12 KiB）；显式入口不读它 |
+| `m_cfg_stack_protect` | `true` | 保护页（栈自身属性），溢出 `SIGSEGV` |
+| `m_cfg_static_coroutine` | `0` | 启动时预创建数量（只对默认 U/保护桶预热，裁剪到 `m_cfg_stackpool_max_alloc_size`） |
+| `m_cfg_stackpool_min_alloc_size` | `128` | 定时回收的全池最低保留数（不是每桶下限）；显式清缓存不受它限制 |
+| `m_cfg_stackpool_max_alloc_size` | 同 `m_cfg_max_coroutine` | 跨桶「同时借出 + 申请中」的总上限，不是每桶上限或内存字节预算 |
 | `m_cfg_static_thread_num` | `0` → `hardware_concurrency()` | worker 数 |
 | `m_cfg_scan_interval_ms` | `1` | 调度扫描间隔 |
 | `m_ext_coevent_exception_callback` | `nullptr` | detached 异常回调；回调不得再抛给运行时 |

@@ -65,11 +65,11 @@ public:
     friend class bbt::coroutine::sync::CoMutex;
     friend class Scheduler;
 
-    Coroutine(int stack_size, const CoroutineCallback& co_func, bool need_protect);
+    Coroutine(size_t stack_size, const CoroutineCallback& co_func, bool need_protect);
     virtual ~Coroutine();
     
     /* 注册时携带描述（#276）：bbtco_desc 落库真源；空 desc 与不带参数等价 */
-    static Ptr                      Create(int stack_size, const CoroutineCallback& co_func, bool need_protect = true,
+    static Ptr Create(size_t stack_size, const CoroutineCallback& co_func, bool need_protect = true,
                                            const char* desc = nullptr);
     /**
      * @brief 唤醒协程。切换到协程的上下文中执行。

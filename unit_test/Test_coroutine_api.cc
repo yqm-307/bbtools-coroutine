@@ -8,11 +8,15 @@
 
 using namespace bbt::coroutine::detail;
 
+/* 显式栈大小现在是真值（原先被忽略、实际借全局默认 12 KiB）。恢复/Yield 用例
+ * 在协程栈上执行 Boost.Test 断言，须给失败格式化路径留足空间，统一用 64 KiB。 */
+static constexpr size_t kHeavyCoStackSize = 64 * 1024;
+
 BOOST_AUTO_TEST_SUITE(CoroutineApiTest)
 
 BOOST_AUTO_TEST_CASE(t_create_id_status_via_interface)
 {
-    Coroutine::Ptr co = Coroutine::Create(4096, [](){});
+    Coroutine::Ptr co = Coroutine::Create(kHeavyCoStackSize, [](){});
     ICoroutine* api = co;
 
     BOOST_CHECK_NE(api->GetId(), 0u);
@@ -24,7 +28,7 @@ BOOST_AUTO_TEST_CASE(t_create_id_status_via_interface)
 BOOST_AUTO_TEST_CASE(t_resume_yield_final_via_interface)
 {
     Coroutine::Ptr co = nullptr;
-    co = Coroutine::Create(4096, [&](){
+    co = Coroutine::Create(kHeavyCoStackSize, [&](){
         BOOST_CHECK_EQUAL(co->GetStatus(), CoroutineStatus::CO_RUNNING);
         co->Yield();
         BOOST_CHECK_EQUAL(co->GetStatus(), CoroutineStatus::CO_RUNNING);
