@@ -1,6 +1,7 @@
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MAIN
 #include <boost/test/included/unit_test.hpp>
+#include <chrono>
 #include <mutex>
 
 #include <bbt/coroutine/coroutine.hpp>
@@ -15,6 +16,28 @@ void EnsureRuntime()
     std::call_once(once, [](){
         bbt::coroutine::detail::Scheduler::GetInstance()->Start();
     });
+}
+
+/* 有界完成观察：在预算内轮询谓词，返回是否成立。
+ *
+ * 为什么需要：CoPool 任务体里的 done.Down() 只表示任务执行到了该点，
+ * 而异常计数/回调发生在 _WorkCo 捕获异常、调用 _HandleWorkException 之后
+ * （见 CoPool::_WorkCo）。因此 done.Wait() 返回后立即读
+ * GetUnhandledExceptionCount 可能少算最后一个任务——这是测试观测竞态，
+ * 不是实现缺陷。用有界轮询等待真实后处理完成，而不是固定 sleep 刷绿，
+ * 超时即失败，断言强度不降低。 */
+template <typename Pred>
+bool WaitUntil(Pred pred, int budget_ms = 2000)
+{
+    const auto deadline = std::chrono::steady_clock::now()
+        + std::chrono::milliseconds(budget_ms);
+    do {
+        if (pred())
+            return true;
+        if (std::chrono::steady_clock::now() >= deadline)
+            return false;
+        bbtco_sleep(1);
+    } while (true);
 }
 }
 
@@ -209,7 +232,6 @@ BOOST_AUTO_TEST_CASE(t_throwing_tasks_pool_alive)
 
         done.Wait();
         BOOST_TEST(ok_count == n_mix / 2);
-        BOOST_TEST(throw_count == n_mix / 2);
 
         // 异常被隔离后池仍可继续接收新任务
         std::atomic_int extra{0};
@@ -219,7 +241,17 @@ BOOST_AUTO_TEST_CASE(t_throwing_tasks_pool_alive)
         extra_done.Wait();
         BOOST_TEST(extra == 10);
 
-        // 未设置回调：异常被计数
+        // done 只等到正常任务 Down；分别观察任务执行与异常后处理，
+        // 不把库内 relaxed 异常计数当作 throw_count 的发布屏障。
+        const bool all_thrown = WaitUntil([&](){
+            return throw_count.load() == n_mix / 2;
+        });
+        BOOST_TEST(all_thrown);
+        BOOST_TEST(throw_count == n_mix / 2);
+        const bool all_handled = WaitUntil([&](){
+            return pool->GetUnhandledExceptionCount() == (uint64_t)(n_mix / 2);
+        });
+        BOOST_TEST(all_handled);
         BOOST_TEST(pool->GetUnhandledExceptionCount() == (uint64_t)(n_mix / 2));
 
         pool->Release();
@@ -247,6 +279,12 @@ BOOST_AUTO_TEST_CASE(t_exception_ignore_count)
         }
 
         done.Wait();
+        // 计数在 worker 捕获异常后才递增（_WorkCo -> _HandleWorkException），
+        // 有界等待最后一次后处理，避免把"排队未执行"误判为完成。
+        const bool all_handled = WaitUntil([&](){
+            return pool->GetUnhandledExceptionCount() == (uint64_t)n;
+        });
+        BOOST_TEST(all_handled);
         BOOST_TEST(pool->GetUnhandledExceptionCount() == (uint64_t)n);
 
         pool->Release();
@@ -268,13 +306,14 @@ BOOST_AUTO_TEST_CASE(t_exception_callback)
         bbt::core::thread::CountDownLatch done{1};
 
         pool->SetExceptionCallback([&](std::exception_ptr eptr) {
-            cb_calls++;
             try {
                 std::rethrow_exception(eptr);
             } catch (const std::runtime_error&) {
                 got_runtime_error = true;
             } catch (...) {
             }
+            // 先完成结果写入，再发布完成计数，观察者不可读到半份回调结果。
+            cb_calls++;
         });
 
         pool->Submit([&]() {
@@ -283,8 +322,10 @@ BOOST_AUTO_TEST_CASE(t_exception_callback)
         });
 
         done.Wait();
-        bbtco_sleep(50);
-        BOOST_TEST(cb_calls.load() == 1);
+        // 回调在 worker 捕获异常后触发，晚于任务体 Down；等待回调真实发生，
+        // 不用固定 sleep 掩盖"回调未执行"。
+        const bool cb_done = WaitUntil([&](){ return cb_calls.load() == 1; });
+        BOOST_TEST(cb_done);
         BOOST_TEST(got_runtime_error.load() == true);
         // 走回调路径的不计入 ignore 计数
         BOOST_TEST(pool->GetUnhandledExceptionCount() == 0);
@@ -299,7 +340,11 @@ BOOST_AUTO_TEST_CASE(t_exception_callback)
             throw std::runtime_error("x");
         });
         done2.Wait();
-        bbtco_sleep(50);
+        // 回调自身抛出后由 _HandleWorkException 计数，同样晚于 Down
+        const bool isolated = WaitUntil([&](){
+            return pool->GetUnhandledExceptionCount() == 1;
+        });
+        BOOST_TEST(isolated);
         BOOST_TEST(pool->GetUnhandledExceptionCount() == 1);
 
         pool->Release();

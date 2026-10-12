@@ -1,4 +1,5 @@
 #include <exception>
+#include <memory>
 #include <string>
 
 #include <bbt/coroutine/detail/Context.hpp>
@@ -91,15 +92,29 @@ void Context::_CoroutineMain(boost::context::detail::transfer_t transfer)
 
 
 Context::Context(size_t stack_size, const CoroutineCallback& co_func, bool stack_protect):
-    m_user_main(co_func),
-    m_stack(g_bbt_stackpoll->Apply())
+    m_user_main(co_func)
 {
     Assert(m_user_main != nullptr);
-    if (m_stack == nullptr) {
+
+    /* callable 先构造（初始化列表）再借栈；显式大小与保护属性真正传给栈池，
+     * 不再被全局默认覆盖。
+     * 借栈到 make_fcontext 成功期间用窄作用域 RAII（复用 std::unique_ptr 加
+     * 自定义归还 deleter）暂持归还责任：容量不足或 make_fcontext 失败都必须
+     * 先归还再抛出；成功后才把裸指针交给本对象作为唯一借用责任。 */
+    auto stack_returner = [](Stack* stack) {
+        if (stack != nullptr)
+            g_bbt_stackpoll->Release(stack);
+    };
+    std::unique_ptr<Stack, decltype(stack_returner)> stack_guard(
+        g_bbt_stackpoll->Apply(stack_size, stack_protect), stack_returner);
+
+    if (stack_guard == nullptr) {
         throw std::runtime_error("Coroutine stack not enough! Please try adjust the globalconfig 'm_cfg_stackpool_max_alloc_size'");
     }
-    void* stack = m_stack->StackTop();
-    m_context = boost::context::detail::make_fcontext(stack, m_stack->UseableSize(), &Context::_CoroutineMain);
+
+    void* stack = stack_guard->StackTop();
+    m_context = boost::context::detail::make_fcontext(stack, stack_guard->UseableSize(), &Context::_CoroutineMain);
+    m_stack = stack_guard.release();
 }
 
 Context::~Context()
@@ -112,7 +127,10 @@ Context::~Context()
      * 先析构），不改变对象布局。 */
     m_onyield_callback = nullptr;
     m_user_main = nullptr;
-    g_bbt_stackpoll->Release(m_stack);
+    if (m_stack != nullptr) {
+        g_bbt_stackpoll->Release(m_stack);
+        m_stack = nullptr;
+    }
 }
 
 void Context::Yield()

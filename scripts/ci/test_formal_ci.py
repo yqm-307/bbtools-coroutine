@@ -16,7 +16,8 @@ workflow 静态契约 / docs-check 行为」，**不跑 C++ 全量构建**（真
 - changed_files 路由：push/PR 真实 diff 归一、未知保守回退、超预算整集回退；
 - 正式 workflow 文本契约（stdlib，恒跑，直接读真实文件）：触发面 / 权限 / SHA pin / hosted
   runs-on / concurrency / 复用 callee / required-optional / docs-only 门控 / always 汇聚 /
-  无 artifact / 无 cache / 性能 job 仅为受限报告消费（不跑 unified_stress）/ 无 sanitizer 长测 / 影子已退役；
+  无 artifact / 无 cache / 性能 job 为同 runner base/head 短测（只构建 unified_stress，不跑全量
+  CTest）/ 无 sanitizer 长测 / 影子已退役；
 - 正式 workflow 结构契约（需 PyYAML，缺省显式 SKIP，不等于通过）；
 - 正式 Recipe 不可少守卫（含 release_gate 消费者契约）；
 - format 模板严格 JSON 回归：`event_json`/`results_json` 从**实际模板**渲染后必须通过 strict
@@ -411,9 +412,9 @@ class FormalWorkflowTextContractTests(unittest.TestCase):
         # 旧 required context `编译 & 单元测试` 必须恰有一个真实 producer，且不靠空成功 alias 伪造。
         self.assertEqual(self.stripped.count(f'name: "{BUILD_CHECK_NAME}"'), 1)
         self.assertNotIn("continue-on-error", self.stripped)
-        # `性能回归检查` 恰有一个 producer：受控报告消费者（不伪造 PASS）。
+        # `性能回归检查` 恰有一个 producer：同 runner base/head 真实测量（不伪造 PASS）。
         self.assertEqual(self.stripped.count(f'name: "{PERF_CHECK_NAME}"'), 1)
-        self.assertIn("perf_report_ingest.py", self.stripped)
+        self.assertIn("ci_perf_check.py", self.stripped)
         self.assertIn('name: "编译 & 单元测试"', self.text)
 
     def test_required_and_optional_are_disjoint_and_build_is_optional(self):
@@ -441,16 +442,21 @@ class FormalWorkflowTextContractTests(unittest.TestCase):
         self.assertIn('format(\'{{"name":"{0}"}}\', github.event_name)', self.stripped)
 
     def test_no_perf_release_memcheck_artifact_or_cache(self):
-        # 发布 / memcheck / artifact / cache 都不在本正式候选内；性能 job 只做受控报告消费，
-        # 因此仍禁用「hosted 重跑基准 / 拉基线工作树」的重型写法。
+        # 发布 / memcheck / artifact / cache 都不在本正式候选内。性能 job 现在**允许**在 hosted
+        # 真实构建 unified_stress 并跑 ci_perf_check（同 runner base/head 短测），但**仍**禁止：
+        # 正式基线工作树（tests/baselines）、基线记录（record_baseline）、发布（release_gate.py
+        # publish）、memcheck、artifact、cache——这些会改变正式基线/产物/缓存语义。
         for forbidden in (
-            "ci_perf_check.py", "tests/baselines",
-            "run_memcheck", "record_baseline", "release_gate.py publish",
-            "unified_stress", "upload-artifact", "download-artifact",
+            "tests/baselines", "run_memcheck", "record_baseline",
+            "release_gate.py publish", "upload-artifact", "download-artifact",
             "actions/cache", "ccache",
         ):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, self.stripped)
+        # 同 runner 短测必须真的接线（不是被悄悄删回空成功）。
+        self.assertIn("unified_stress", self.stripped)
+        self.assertIn("ci_perf_check.py", self.stripped)
+        self.assertIn("prepare_boost.sh", self.stripped)
 
     def test_no_sanitizer_long_run_trigger(self):
         # sanitizer 旧 job 实际不可达（旧 on 无 workflow_dispatch）；本轮不开启新长期执行。
@@ -662,26 +668,50 @@ class FormalRecipeGuardTests(unittest.TestCase):
         self.assertIn("unit_test.yml", gate)
         self.assertIn(BUILD_CHECK_NAME, gate)
         self.assertIn(PERF_CHECK_NAME, gate)
-        # `编译 & 单元测试` 唯一 producer 不变；`性能回归检查` 现为受控报告消费者：
-        # 不跑基准、只在可信报告匹配时成功，缺报告/不匹配即 failure。
+        # `编译 & 单元测试` 唯一 producer 不变；`性能回归检查` 现为同 runner base/head 真实测量：
+        # 只在完整 SHA 绑定、base/head 都测得干净、head 严格比较通过时成功，缺证据即 failure。
         self.assertEqual(self.stripped.count(f'name: "{BUILD_CHECK_NAME}"'), 1)
         self.assertEqual(self.stripped.count(f'name: "{PERF_CHECK_NAME}"'), 1)
 
-    def test_perf_job_is_trusted_report_consumer_fail_closed(self):
-        # 性能 job 的信任边界与 fail-closed 不变量（stdlib 文本守卫）。
-        self.assertIn("perf_report_ingest.py", self.stripped)
-        # source SHA：PR=head.sha，不冒充 merge；push 用 github.sha。
-        self.assertIn("github.event.pull_request.head.sha", self.stripped)
-        # 固定拥有者 API id，exact 身份比较（非 login）。
-        self.assertIn('PERF_CONTROLLER_AUTHOR_ID: "78525443"', self.stripped)
-        # 有界等待超时；不设 repo 写权限；不透传 secrets；不跑基准/不拉基线工作树。
-        self.assertIn("timeout-minutes: 15", self.stripped)
+    def test_perf_job_is_same_runner_fail_closed(self):
+        # 性能 job 的信任边界、SHA 范围与 fail-closed 不变量（stdlib 文本守卫）。
+        # 只看 perf-regression job 块，避免把 build job 的构建命令误判为本 job 行为。
+        perf = self.stripped.split("  perf-regression:", 1)[1].split("\n  result:", 1)[0]
+        # 同 runner 真实测量：head driver + 两棵隔离构建树 + 只构建 unified_stress。
+        self.assertIn("ci_perf_check.py", perf)
+        self.assertIn("unified_stress", perf)
+        self.assertIn("prepare_boost.sh", perf)
+        self.assertIn("--strict-comparable", perf)
+        self.assertIn("--build-dir", perf)
+        self.assertIn("--commit-sha", perf)
+        # 只构建目标、不跑全量 CTest。
+        self.assertNotIn("ctest --timeout", perf)
+        # subject/base：PR=head.sha/base.sha，push=github.sha/event.before；不冒充 merge commit。
+        self.assertIn("github.event.pull_request.head.sha", perf)
+        self.assertIn("github.event.pull_request.base.sha", perf)
+        self.assertIn("github.sha", perf)
+        self.assertIn("github.event.before", perf)
+        # 完整 SHA 校验：零 SHA（首推）显式拒绝，不用 HEAD^ 猜测。
+        self.assertIn("0000000000000000000000000000000000000000", perf)
+        self.assertNotIn("HEAD^", perf)
+        # base 无基线测量（NO_COMPARABLE_BASELINE 不是 PASS）；head 严格门禁。
+        self.assertIn("--no-baseline-compare", perf)
+        self.assertIn("--gate-enabled", perf)
+        # 只读、无 secret/写权限/pull_request_target/self-hosted；checkout 不持久化凭据。
         self.assertNotIn("contents: write", self.stripped)
         self.assertNotIn("secrets:", self.stripped)
-        for forbidden in ("unified_stress", "ci_perf_check.py", "record_baseline",
-                          "perf-baseline` 工作树"):
+        self.assertNotIn("pull_request_target", self.stripped)
+        self.assertNotIn("self-hosted", self.stripped)
+        self.assertIn("persist-credentials: false", perf)
+        # job timeout 有界（60min），六模块 45s × 2 threads。
+        self.assertIn("timeout-minutes: 60", perf)
+        self.assertIn("--dur 45", perf)
+        self.assertIn("--threads 2", perf)
+        # 不新增 artifact/cache/正式基线/变量。
+        for forbidden in ("upload-artifact", "download-artifact", "actions/cache",
+                          "record_baseline", "tests/baselines", "vars."):
             with self.subTest(forbidden=forbidden):
-                self.assertNotIn(forbidden, self.stripped)
+                self.assertNotIn(forbidden, perf)
 
     def test_format_templates_render_to_strict_json(self):
         # 回归：result job 的 event_json/results_json 是 plain YAML scalar，format 模板内双引号前

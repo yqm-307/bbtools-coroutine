@@ -56,18 +56,31 @@ void Scheduler::_PublishInitialized()
 
 void Scheduler::RegistCoroutineTask(const CoroutineCallback& handle, const char* desc)
 {
+    /* 默认入口转调显式重载：只在入口解析默认大小与保护配置，显式重载不改写配置 */
+    RegistCoroutineTask(g_bbt_coroutine_config->m_cfg_stack_size, handle, desc);
+}
+
+void Scheduler::RegistCoroutineTask(size_t stack_size, const CoroutineCallback& handle, const char* desc)
+{
+    /* 参数校验与栈申请（invalid_argument/length_error/bad_alloc/system_error）都发生在
+     * 入队之前：创建失败不会留下已入队对象，也不改全局默认与池计数。
+     * 本重载只读保护默认，不解析默认大小。 */
     Coroutine::Ptr coroutine = nullptr;
     {
         std::lock_guard<std::mutex> lock(m_global_queue_mutex);
         coroutine = Coroutine::Create(
-            g_bbt_coroutine_config->m_cfg_stack_size,
+            stack_size,
             handle,
             g_bbt_coroutine_config->m_cfg_stack_protect,
             desc);
-        if (!_LoadBlance2Proc(CO_PRIORITY_NORMAL, coroutine)) {
-            delete coroutine;
-            throw std::runtime_error("scheduler has no processer: coroutine task rejected");
-        }
+        if (_LoadBlance2Proc(CO_PRIORITY_NORMAL, coroutine))
+            coroutine = nullptr;    // 已交接给 worker：发布后不再读取可能被销毁的对象
+    }
+
+    if (coroutine != nullptr) {
+        /* 无 worker 等发布前拒绝：在锁外清理，不落在可抛的清理路径里 */
+        delete coroutine;
+        throw std::runtime_error("scheduler has no processer: coroutine task rejected");
     }
 #ifdef BBT_COROUTINE_PROFILE
     g_bbt_profiler->OnEvent_RegistCoroutine();
@@ -81,11 +94,19 @@ void Scheduler::RegistCoroutineTask(const CoroutineCallback& handle, bool& succ)
         RegistCoroutineTask(handle);
         succ = true;
     }
-    catch(std::runtime_error& e)
+    catch(...)
     {
-        // std::cerr << "[bbtco] " << e.what() << std::endl;
         succ = false;
         return;
+    }
+}
+
+void Scheduler::RegistCoroutineTask(size_t stack_size, const CoroutineCallback& handle, bool& succ) noexcept
+{
+    try
+    {
+        RegistCoroutineTask(stack_size, handle);
+        succ = true;
     }
     catch(...)
     {

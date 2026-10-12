@@ -23,15 +23,17 @@ CoroutineId Coroutine::_GenCoroutineId()
     return (++_generate_id);
 }
 
-Coroutine::Ptr Coroutine::Create(int stack_size, const CoroutineCallback& co_func, bool need_protect, const char* desc)
+Coroutine::Ptr Coroutine::Create(size_t stack_size, const CoroutineCallback& co_func, bool need_protect, const char* desc)
 {
-    auto* co = new Coroutine(stack_size, co_func, need_protect);
+    /* 发布前暂持 unique_ptr：描述赋值若抛出（bad_alloc）也必须销毁半成品，
+     * 不能让已借出的栈随裸指针泄漏。 */
+    std::unique_ptr<Coroutine> co(new Coroutine(stack_size, co_func, need_protect));
     if (desc != nullptr && desc[0] != '\0')
         co->m_desc = desc;    // #276：bbtco_desc 落库
-    return co;
+    return co.release();
 }
 
-Coroutine::Coroutine(int stack_size, const CoroutineCallback& co_func, bool need_protect):
+Coroutine::Coroutine(size_t stack_size, const CoroutineCallback& co_func, bool need_protect):
     m_context(stack_size, [=](){
         try {
             co_func();

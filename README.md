@@ -593,6 +593,9 @@ int main()
 | 诊断现场 | `bbtco_desc` 的描述现在真正落库，协程内 `GetDescription()`/`GetWaitInfo()` 可读回（#276） | 给关键协程起名字 |
 | worker 停顿告警 | 死循环/外部阻塞占住 worker 超 `m_cfg_worker_stall_warn_ms`（默认 0=关闭）时，调度线程上报 `WorkerStallInfo`（#277） | 生产建议设 500–1000ms 并接回调 |
 | 栈溢出边界 | 默认开栈底保护页，溢出 = SIGSEGV fail-fast（#278） | 关保护页（`m_cfg_stack_protect=false`）前确认接受未定义行为 |
+| 显式栈大小 | 注册/创建入口的显式字节数**真正生效**（原先被忽略、实际总是借全局默认）；向上按实测系统页对齐得到可用大小 U，保护页不计入 U 且额外分配；栈池按 `(U, 保护属性)` 精确分桶，不同尺寸在同一 runtime 共存，不取更大桶、不向二次幂归档；省略大小仍取 `m_cfg_stack_size`（出厂 12 KiB） | 显式写 `RegistCoroutineTask(64 * 1024, cb, "desc")` 表示 64 KiB；在极小栈上跑日志/断言/第三方库的协程要显式给足栈，否则会栈溢出（原来"4096 被忽略"的代码行为已修复） |
+| `detail` 尺寸类型 | `Coroutine` 构造/`Create`、`StackPool` 计数与 `AllocSize/GetCurCoNum/GetCoAvgCount` 由 `int` 改为 `size_t`（内部 ABI 变化） | 升级后**必须重新编译**依赖本库的调用方，不要混用旧二进制 |
+| 固定栈语义 | 栈大小在创建后固定：不支持运行中扩栈/换栈，也没有按任务换栈的接口；`CoPool` 的栈仍属于 worker 协程自身，多尺寸是"不同协程各用各的固定栈" | 需要大栈的任务用显式注册入口创建独立协程；不要指望 CoPool 任务换栈 |
 | 协作式取消 | `Coroutine::RequestCancel()` 置标志，协程在检查点/唤醒处自行退出（#266），不强杀 | 长循环协程定期检查 `IsCancelRequested()` |
 
 ## 三之三、测试、冒烟与压测
@@ -628,8 +631,10 @@ python3 scripts/ci/run_soak.py --build-dir build-soak
 - 避免协程函数中使用栈上的引用，除非能确保生命周期
 
 ### 2. 内存管理
-- 协程栈大小可配置，默认2MB
-- 避免在协程中分配大量栈空间
+- 协程栈大小可按协程指定：省略时取 `m_cfg_stack_size`（出厂 **12 KiB**，不是 2 MB），显式值向上按系统页对齐后生效
+- 不同大小的固定栈可同时共存（分桶键 = 对齐后可用字节数 + 保护属性）；栈大小创建后固定，不支持扩栈/换栈
+- 显式申请 0 或超出可表示范围会被拒绝（`invalid_argument` / `length_error`），内存不足是 `bad_alloc`，建立保护页失败是带 `errno` 的 `system_error`；用 `bbtco_noexcept(succ)` / `bool& succ` 入口可拿到不抛的失败返回
+- 避免在协程中分配大量栈空间；在极小栈上跑日志/断言/第三方库这类重活要先给足栈
 - 使用智能指针管理堆内存
 
 ### 3. 异常处理

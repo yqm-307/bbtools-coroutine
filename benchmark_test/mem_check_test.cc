@@ -8,8 +8,9 @@
  * 1. 业务层：所有 CountDownLatch->Wait() 只在主线程调用；协程内只做 Down()，
  *    且 Down() 是用户函数体的最后一条语句。Wait() 返回只代表“业务完成信号已收齐”，
  *    不代表用户函数已返回、Coroutine 对象已析构或栈已归还。
- * 2. 运行时层：唯一读取栈池账目 g_bbt_stackpoll->GetCurCoNum()（= 已创建栈数 -
- *    池内闲置数）。Context 是唯一的栈借出方（Context.cc: m_stack(Apply())），
+ * 2. 运行时层：唯一读取栈池账目 g_bbt_stackpoll->GetCurCoNum()（= 已借出 + 申请中；
+ *    不再用「已创建栈数 - 池内闲置数」的近似队列长度推导）。Context 是唯一的栈借出方
+ *    （Context.cc: Apply(stack_size, stack_protect)），
  *    ~Context 才 Release 归还，而 ~Context 由 Processer FINAL delete
  *    Coroutine 触发。故 GetCurCoNum()==0 只证明“所有借出的栈都已归还”
  *    （即 ~Context 已进入 FINAL 释放路径）。
@@ -94,7 +95,7 @@ int StackWork(uint64_t seed)
 }
 
 /* 运行时层完成信号：栈池无借出（全部已归还） */
-bool IsRuntimeDrained(int& alloc_out, int& cur_out)
+bool IsRuntimeDrained(size_t& alloc_out, size_t& cur_out)
 {
     alloc_out = g_bbt_stackpoll->AllocSize();
     cur_out   = g_bbt_stackpoll->GetCurCoNum();
@@ -102,14 +103,14 @@ bool IsRuntimeDrained(int& alloc_out, int& cur_out)
 }
 
 /* 有界等待运行时收口；超时是“未完成”，返回 false 让主流程 FAIL（fail-closed） */
-bool WaitForRuntimeDrain(int timeout_ms, int& alloc_out, int& cur_out)
+bool WaitForRuntimeDrain(int timeout_ms, size_t& alloc_out, size_t& cur_out)
 {
     const auto deadline = std::chrono::steady_clock::now()
                         + std::chrono::milliseconds(timeout_ms);
     while (!IsRuntimeDrained(alloc_out, cur_out)) {
         if (std::chrono::steady_clock::now() >= deadline) {
             std::fprintf(stderr,
-                "BBT_MEMCHECK_FAILED runtime drain 超时：alloc=%d cur=%d"
+                "BBT_MEMCHECK_FAILED runtime drain 超时：alloc=%zu cur=%zu"
                 "（仍有借出未归还的栈，检测时点不可信）\n",
                 alloc_out, cur_out);
             return false;
@@ -257,8 +258,8 @@ int main()
     const int       writer_done = g_chan_writer_done.load();
     const int       failures    = g_failures.load();
 
-    int alloc = 0;
-    int cur   = 0;
+    size_t alloc = 0;
+    size_t cur   = 0;
     const bool runtime_drained = WaitForRuntimeDrain(/*timeout_ms=*/30000, alloc, cur);
     const size_t released_stacks = runtime_drained
         ? g_bbt_stackpoll->ReleaseUnused() : 0;
@@ -280,7 +281,7 @@ int main()
      * 期望值与 scripts/ci/run_memcheck.py 的 EXPECTED_COUNTERS 必须一致。 */
     std::printf("BBT_MEMCHECK_DONE inner=%d/%d lock=%lld/%lld chan_read=%lld/%d "
                 "writer_done=%d/%d failures=%d/%d runtime_drained=%d/%d "
-                "stack_pool_drained=%d/%d (released=%zu alloc=%d cur=%d)\n",
+                "stack_pool_drained=%d/%d (released=%zu alloc=%zu cur=%zu)\n",
                 inner_done, kInnerTotal,
                 lock_total, kLockTotal,
                 chan_read, kTotalMessages,

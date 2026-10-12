@@ -2,9 +2,10 @@
 
 **状态：** 本地候选（未 commit / 未 push / 未建 PR / 未触发 CI）。远端写入与 PR 由父级执行。
 **阶段限定：** 本候选把**普通 CI 的 Layer 1** 与 **docs-check** 迁到 hosted，并把影子入口退役；
-**旧普通入口的性能 job 已移除，`性能回归检查` 已接线为受控报告消费者（fail-closed）**——但可信控制端
-报告尚未产出，故该 context 为 failure；required 集合、Release 执行逻辑、memcheck、runner 规则均未改。
-性能接线细节见 `agent-docs/perf-check-wiring.md`。在获准合并与远端核对完成前，本文不构成「迁移已完成」的结论。
+**`性能回归检查` 由受控报告消费者改为同 runner base/head 自动构建+测量比较（fail-closed）**——每次
+PR/push 自给自足产出真实同机相对退化结论；required 集合、Release 执行逻辑、memcheck、runner 规则、
+正式 baseline 均未改。性能接线细节见 `agent-docs/perf-check-wiring.md`。在获准合并与远端核对完成前，
+本文不构成「迁移已完成」的结论。
 
 ## 1. 做了什么
 
@@ -77,20 +78,24 @@ cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 ## 6. 明确未完成 / 规则阻断（本轮授权的性能冻结）
 
-- **`性能回归检查` 已接线为受控报告消费者（fail-closed）**：hosted job **不**重放 unified_stress、
-  **不**回退旧 `arc-s4`、**不**写性能 PASS；只经 GitHub REST 读取绑定 source SHA 的 commit comment
-  （固定标记 `bbtools-server3-perf/v1`），核 author.id（拥有者 API id 78525443，exact）、measurement
-  摘要、已批准 baseline 文件字节，并以真实 baseline JSON 独立复算（不只信 verdict）。缺匹配/身份不符/
-  环境不可比即 failure。**可信控制端报告尚未产出**，故该 context 为 failure。详见
-  `agent-docs/perf-check-wiring.md`。
+- **`性能回归检查` 由受控报告消费者改为同 runner base/head 自动构建+测量比较（fail-closed）**：
+  同一 hosted job 内顺序 checkout/构建 base 与 head 两棵隔离源码/构建树（**只**构建 `unified_stress`
+  目标，**不**跑全量 CTest），用 **head 的** `scripts/ci_perf_check.py` 分别测量六模块 45s×2threads；
+  base 无基线测量（`NO_COMPARABLE_BASELINE`，只作 runner 临时基线，**不是** PASS 声明），head 以该
+  报告为基线 + `--strict-comparable --gate-enabled` 严格比较。缺证据（无基线/缺模块/环境不可比）、
+  `errors>0`、zero ops、缺损指标、NaN/inf 一律 exit 2，**不**以 skipped/空成功置绿。基线仅 runner
+  临时，**不**写正式 `perf-baseline`、**不**改仓库变量、**不**触碰 `release_gate.py`。详见
+  `agent-docs/perf-check-wiring.md`。**设计边界**：同 runner 短测只覆盖 base↔head 同机相对退化，
+  **不是** server3 长期基线。
 - 仓库 ruleset（id 1095939 `ban push`）required 仍为 `编译 & 单元测试` **与** `性能回归检查`
   （app 15368）。本轮**不修改 required**。因此：
-  - 普通 PR 的 `性能回归检查` context 会 **pending** → **PR 不满足合并资格**；
+  - 普通 PR 的 `性能回归检查` context 由本 job 真实产出（base/head 都测得干净且 head 严格比较通过才
+    success；缺证据/退化即 failure）；
   - `scripts/release_gate.py` 的 `validate_main_ci` 要求同一 main push run 同时出现两个 success job，
-    缺 `性能回归检查` → **Release fail-closed 拒绝**。
-- 上述状态由 `scripts/ci/test_formal_ci.py::FormalRecipeGuardTests
-  .test_release_consumer_contract_is_preserved_and_perf_is_frozen` 断言（直接读真实
-  `scripts/release_gate.py` 与本 workflow 文本），防止后人误把本候选当作「整体已就绪」。
+    缺 `性能回归检查` success → **Release fail-closed 拒绝**（行为未改）。
+- 上述状态由 `scripts/ci/test_formal_ci.py::FormalRecipeGuardTests` 的同 runner fail-closed 守卫
+  （`test_perf_job_is_same_runner_fail_closed` 等，直接读本 workflow 文本）与 `scripts/test_release_gate.py`
+  的 `test_gate_layering_perf_is_bounded_hosted_measurement` 断言，防止后人误把本候选当作「整体已就绪」。
 - **Sanitizer（ASAN+UBSAN）长测**：旧 `unit_test.yml` 的 `sanitizer-check` 需要 `workflow_dispatch`
   才可达，而旧 `on:` 从未声明 workflow_dispatch，故该 job **实际不可达**、不属于普通适用测试。
   本轮不开启新的长期执行，该 job 从本文件移除；配置保留在 git 历史（HEAD c704458 的旧
@@ -138,8 +143,10 @@ synthetic token（片段拼接，本测试源码不含真实凭据）→ 命中�
   真实执行、`编译 & 单元测试` / `结果汇聚` 的真实 check 状态。
 - 任何 **C++ 全量构建 / ctest 真实执行**（本地只做 bash -n / 静态契约 / 配方守卫 / 真实 cli 路由 /
   有界 bash 行为负例）。
-- **性能路径**：控制端部署/报告发布（server3 采样、真实评论 POST）、真实 baseline commit 固定与
-  hosted 真实读取执行——见 `agent-docs/perf-check-wiring.md`（接线已本地验证，真实链路由父级连通）。
+- **性能路径**：真实 hosted 上 Boost 下载校验、两棵源码/构建树的真实 cmake/ninja 构建与六模块
+  45s×2 真实测量、真实 check 状态——本地只做静态契约 + 假二进制端到端（见
+  `agent-docs/perf-check-wiring.md`，真实链路由父级 PR CI 连通）。**server3 长期基线/控制端报告发布
+  本轮不接线**；同 runner 短测不是长期基线。
 - required 集合调整、Release 侧放行、memcheck、runner 采购/准入、生产发布链路。
 - 合并后远端对账（PR checks、ruleset 生效状态）。
 
