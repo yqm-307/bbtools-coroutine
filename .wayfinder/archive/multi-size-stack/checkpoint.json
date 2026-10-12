@@ -1,0 +1,56 @@
+{
+  "schema": "wfer-checkpoint/v2",
+  "map_id": "wfer-c85e2a949d06/multi-size-stack",
+  "scope": {
+    "plan": "multi-size-stack-runtime"
+  },
+  "goal": {
+    "text": "已归档的多尺寸固定栈交付快照，保留未完成诊断要求及远端验收证据。",
+    "action": "deliver",
+    "autonomy": "autonomous",
+    "strategy": "once",
+    "selection": "single",
+    "targets": [
+      "multi-size-stack-runtime"
+    ],
+    "done_when": "代码与CI已交付；完整诊断未完成，用户确认incomplete归档。",
+    "constraints": [
+      "保持原默认/显式、页对齐、保护及运行时生命周期约定。",
+      "保留6-2与完整7-3未完成，归档不等于诊断通过。"
+    ],
+    "allowed_actions": [
+      "归档快照不授予执行权限，补验须取得新的明确恢复和动作授权。"
+    ],
+    "budget": "本单点必要回修/定向验证/独立增量审查，首执行包10分钟40调用；不扩其他课题/长压力，权限、环境或关键契约卡点停受影响步骤。"
+  },
+  "confirmed": [
+    "PR385已按用户授权合并，main b36f5c4cd4406162c093f4e886ee5cab3915e9c8 CI38225087248/Docs38225086317 success；真实全量57/57首轮、六模块同runner性能PASS；用户明确接受保留6-2/完整7-3缺口归档。"
+  ],
+  "unknown": [
+    "STRINGENT_DEBUG基线编译失败、Valgrind未测；ASAN/弱序平台未覆盖。",
+    "Test_hook_fd_epoch在PR首轮失败后重试通过、main首轮通过，根因未定位；历史Poller首发abort未定位。"
+  ],
+  "blockers": [
+    {
+      "reason": "6-2诊断不完整导致完整7-3未满足；用户接受incomplete归档，不标为通过。",
+      "resume_when": "用户明确恢复本图，且诊断环境/既有STRINGENT_DEBUG缺陷输入就绪后有界补验。"
+    }
+  ],
+  "next_actions": [
+    "本图已按用户明确确认留缺口归档。需要补诊断时必须明确恢复；当前不执行任务。"
+  ],
+  "runs": [],
+  "candidate_refs": [
+    "waypoint/multi-size-stack-runtime/proposal.md",
+    "waypoint/multi-size-stack-runtime/specs.md",
+    "waypoint/multi-size-stack-runtime/design.md",
+    "waypoint/multi-size-stack-runtime/tasks.md"
+  ],
+  "evidence_refs": [
+    "https://github.com/yqm-307/bbtools-coroutine/pull/385",
+    "https://github.com/yqm-307/bbtools-coroutine/actions/runs/38225087248",
+    "https://github.com/yqm-307/bbtools-coroutine/actions/runs/38225086317",
+    "https://github.com/yqm-307/bbtools-coroutine/pull/385#issuecomment-6120962390"
+  ],
+  "publication_note": "已归档的只读公开快照；省略本地过程材料与私有路径，不是第二套活跃任务状态。"
+}
