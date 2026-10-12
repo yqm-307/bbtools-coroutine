@@ -713,5 +713,148 @@ class ThresholdBoundaryTest(unittest.TestCase):
             "FAIL")
 
 
+def _fake_build_tree(root):
+    """建最小假构建树（只放空 unified_stress），使 main 的存在性检查通过。
+
+    不 mock os.path.exists —— 在 3.12+ 里 pathlib.Path.exists() 也会走
+    os.path.exists，mock 它会让"报告是否写出"的断言失真。
+    """
+    binary = Path(root) / "bin" / "benchmark_test" / "unified_stress"
+    binary.parent.mkdir(parents=True, exist_ok=True)
+    binary.write_text("")
+    return str(root)
+
+
+class RunBenchmarkErrorsTest(unittest.TestCase):
+    """共同根因回归：测量层必须拒绝 errors>0。
+
+    errors>0 表示压测操作失败，不是有效吞吐样本；若被当作有效测量，会写进
+    runner 临时基线并让门禁假绿。旧实现只在 errors>0 时补跑冻结检测，冻结
+    检测返回 ok 就保留原判定（可能 PASS），故根因修在 run_benchmark。
+    """
+
+    @staticmethod
+    def _result(stdout):
+        return CommandResult(returncode=0, stdout=stdout, stderr="",
+                             category="pass", timed_out=False, duration=45.0)
+
+    def test_nonzero_errors_rejected(self):
+        stdout = ('FATIGUE_METRIC:{"ts":1.0,"name":"comutex","elapsed_s":45.0,'
+                  '"ops_total":1000,"errors":3}\n')
+        with mock.patch.object(ci_perf_check, "run_command",
+                               return_value=self._result(stdout)):
+            out = ci_perf_check.run_benchmark("comutex", 2, 45)
+        self.assertEqual(out.get("error"), "nonzero_errors")
+
+    def test_zero_errors_accepted(self):
+        # 反例：errors==0 的干净测量不得被误拒。
+        stdout = ('FATIGUE_METRIC:{"ts":1.0,"name":"comutex","elapsed_s":45.0,'
+                  '"ops_total":1000,"errors":0}\n')
+        with mock.patch.object(ci_perf_check, "run_command",
+                               return_value=self._result(stdout)):
+            out = ci_perf_check.run_benchmark("comutex", 2, 45)
+        self.assertNotIn("error", out)
+        self.assertEqual(out["ops_total"], 1000)
+        self.assertEqual(out["errors"], 0)
+
+
+class SameRunnerStrictGateTest(unittest.TestCase):
+    """--strict-comparable：缺证据（无基线/不可比环境/缺模块）不得置绿，exit 2。
+
+    旧契约（无该 flag）保持：NO_COMPARABLE_BASELINE → exit 0，供 base 无基线
+    测量使用（那不是 PASS 声明，只是不阻塞）。
+    """
+
+    def _run_main(self, extra_argv, baseline):
+        import ci_perf_check as perf
+        with tempfile.TemporaryDirectory() as tmp, contextlib.ExitStack() as stack:
+            output = str(Path(tmp) / "report.json")
+            build = _fake_build_tree(Path(tmp) / "build")
+            stack.enter_context(mock.patch.object(
+                perf.sys, "argv",
+                ["perf", "--module=comutex", "--dur=1", "--build-dir", build,
+                 "--output", output, *extra_argv]))
+            stack.enter_context(mock.patch.object(perf, "load_environment", return_value={}))
+            stack.enter_context(mock.patch.object(perf, "load_baseline", return_value=baseline))
+            stack.enter_context(mock.patch.object(
+                perf, "run_benchmark",
+                return_value={"ops_total": 1000, "ops_per_sec": 1000.0,
+                              "errors": 0, "elapsed_s": 45.0}))
+            stack.enter_context(mock.patch.object(perf, "get_git_commit",
+                                                  return_value="deadbeef"))
+            stack.enter_context(mock.patch.object(perf, "write_github_summary"))
+            with contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaises(SystemExit) as caught:
+                    perf.main()
+            # 报告必须真的写出（证明 main 跑完，而不是被参数解析提前拒绝）。
+            self.assertTrue(Path(output).exists(), "main 未写报告")
+            return caught.exception.code, json.loads(Path(output).read_text())["verdict"]
+
+    def test_strict_missing_baseline_exits_2(self):
+        code, verdict = self._run_main(["--strict-comparable"], (None, "none"))
+        self.assertEqual(code, 2)
+        self.assertEqual(verdict, "NO_COMPARABLE_BASELINE")
+
+    def test_strict_missing_module_exits_2(self):
+        code, _ = self._run_main(["--strict-comparable"],
+                                 ({"environment": {}, "modules": {}}, "fixture"))
+        self.assertEqual(code, 2)
+
+    def test_default_missing_baseline_stays_exit_0(self):
+        code, verdict = self._run_main([], (None, "none"))
+        self.assertEqual(code, 0)
+        self.assertEqual(verdict, "NO_COMPARABLE_BASELINE")
+
+
+class CommitShaBindingTest(unittest.TestCase):
+    """--commit-sha 把报告绑定到被测源码的完整 SHA（base/head 各自绑定）。"""
+
+    SHA40 = "a" * 40
+
+    def test_commit_sha_binds_report(self):
+        import ci_perf_check as perf
+        with tempfile.TemporaryDirectory() as tmp, contextlib.ExitStack() as stack:
+            output = str(Path(tmp) / "report.json")
+            build = _fake_build_tree(Path(tmp) / "build")
+            stack.enter_context(mock.patch.object(
+                perf.sys, "argv",
+                ["perf", "--module=comutex", "--dur=1", "--build-dir", build,
+                 "--output", output, "--commit-sha", self.SHA40,
+                 "--no-baseline-compare"]))
+            stack.enter_context(mock.patch.object(perf, "load_environment", return_value={}))
+            stack.enter_context(mock.patch.object(
+                perf, "run_benchmark",
+                return_value={"ops_total": 1000, "ops_per_sec": 1000.0,
+                              "errors": 0, "elapsed_s": 45.0}))
+            stack.enter_context(mock.patch.object(perf, "write_github_summary"))
+            with contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    perf.main()
+            self.assertEqual(json.loads(Path(output).read_text())["commit"], self.SHA40)
+
+    def test_malformed_commit_sha_rejected(self):
+        # 39-hex（合法字符但长度不足）必须被本脚本校验拒绝，且不得写报告。
+        import ci_perf_check as perf
+        with tempfile.TemporaryDirectory() as tmp, contextlib.ExitStack() as stack:
+            output = str(Path(tmp) / "report.json")
+            build = _fake_build_tree(Path(tmp) / "build")
+            stack.enter_context(mock.patch.object(
+                perf.sys, "argv",
+                ["perf", "--module=comutex", "--dur=1", "--build-dir", build,
+                 "--output", output, "--commit-sha", "a" * 39,
+                 "--no-baseline-compare"]))
+            stack.enter_context(mock.patch.object(perf, "load_environment", return_value={}))
+            stack.enter_context(mock.patch.object(
+                perf, "run_benchmark",
+                return_value={"ops_total": 1000, "ops_per_sec": 1000.0,
+                              "errors": 0, "elapsed_s": 45.0}))
+            stack.enter_context(mock.patch.object(perf, "write_github_summary"))
+            with contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaises(SystemExit) as caught:
+                    perf.main()
+            self.assertEqual(caught.exception.code, 2)
+            self.assertFalse(Path(output).exists(), "非法 SHA 不得产出报告")
+
+
 if __name__ == "__main__":
     unittest.main()

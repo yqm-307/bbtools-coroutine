@@ -10,23 +10,26 @@
 #   变更类型检测（真实 diff）→ 复用已发布 fixed-SHA framework 分类 callee → 编译 & 单元测试
 #   → 结果汇聚（always，fail-closed）。
 #
-# 性能路径（本候选**新接线**，非冻结）：`性能回归检查` 已接线为**受控报告消费者**（见下），
-#   在 hosted 不重放基准、不回退旧 arc-s4。报告尚不存在时该 context 为 failure；仓库 ruleset
-#   required 仍含 `性能回归检查`（app 15368），本轮**不修改 required**，故普通 PR 该 context
-#   不满足合并资格，Release 侧 `validate_main_ci` 因缺该 success job 继续 fail-closed 拒绝。
+# 性能路径（本候选**新接线**，非冻结）：`性能回归检查` 由「等待外部 commit comment 的受控报告
+#   消费者」改为**同 runner 自动 base/head 真实构建+测量比较**（见下）：同一 job 顺序构建两棵隔离
+#   源码/构建树、用 head driver 分别测量六模块 45s×2threads，head 以 base 报告为临时基线严格比较。
+#   hosted 仍**不**回退旧 arc-s4；required 仍含 `性能回归检查`（app 15368），本轮**不修改 required**，
+#   也不改 `release_gate.py`（它按名字读 success job）。详细边界见 `agent-docs/perf-check-wiring.md`。
+#   设计边界：同 runner 短测只覆盖 base↔head 同机相对退化，**不是** server3 长期基线。
 # 本文件**不承载**（本轮冻结，未迁移）：
 #   - Sanitizer（ASAN+UBSAN）长测：旧 unit_test.yml 的 sanitizer-check 需要 `workflow_dispatch`
 #     事件才可达，而旧 `on:` 从未声明 workflow_dispatch，故该 job 实际不可达、不属于普通适用测试。
 #     本轮不开启新的长期执行（不新增 sanitizer 触发）；该 job 从本文件移除，配置保留在 git 历史
 #     （HEAD c704458 的旧 unit_test.yml）中，需单独迁移为独立 workflow 后再启用。
 #
-#   - `性能回归检查`（app 15368，required context 名）本轮**接线为受控报告消费者**，但**不**在
-#     hosted 重放 unified_stress、**不**回退旧 arc-s4 性能执行、**不**写任何性能 PASS。它只经
-#     GitHub REST 读取绑定 source SHA 的 commit comment（模板标记 `bbtools-server3-perf/v1`），
-#     核 comment author.id、report 摘要与已批准 baseline 文件，缺匹配即 fail-closed。报告尚不存在
-#     时该 context 为 failure → required 仍 pending、PR 不满足合并资格；`scripts/release_gate.py`
-#     的 `validate_main_ci` 因缺该 success job 继续 fail-closed 拒绝。required 集合本轮不改。
-#     信任边界与判定链见 `agent-docs/perf-check-wiring.md`。
+#   - `性能回归检查`（app 15368，required context 名）本轮由**受控报告消费者**改为**同 runner
+#     base/head 真实测量比较**：同一 hosted job 内顺序构建 base 与 head 的 `unified_stress`，用
+#     **head 的** `ci_perf_check.py` 分别测量（base 无基线 → NO_COMPARABLE_BASELINE，只作 runner
+#     临时基线，**不是** PASS 声明；head 以该报告为基线 + `--strict-comparable --gate-enabled`
+#     严格比较）。缺证据（无基线/缺模块/环境不可比）、errors>0、zero ops、缺损指标、NaN/inf 一律
+#     exit 2，**不**以 skipped/空成功置绿。基线仅 runner 临时，**不**写正式 perf-baseline、**不**改
+#     仓库变量、**不**触碰 `release_gate.py`；required 集合本轮不改。信任边界与判定链见
+#     `agent-docs/perf-check-wiring.md`。
 #
 # 说明性文档：`agent-docs/formal-ci.md`（本候选由 agent-docs/ci-shadow-v1.md 改名并改写为正式说明）。
 # `docs/ci-guide.md` / `agent-docs/development-and-release-process.md` 仍是旧流程真源，其 unit_test.yml
@@ -197,55 +200,121 @@ jobs:
           exit 1
         timeout-minutes: 8
 
-  # ── 性能回归检查：消费 server3 可信控制端发布的受控性能报告评论（fail-closed）──────────
-  # 信任边界：hosted job **不跑** unified_stress、不读 perf-baseline 工作树、**无** repo 写权限；
-  # 只经 GitHub REST 读取绑定本 source SHA 的 **commit comment**，用 API 核 author.id（含 owner
-  # 的精确 API user id，exact 整数比较、不比 login；伪装/同名评论忽略，不阻断合法评论），
-  # 校验固定模板 `bbtools-server3-perf/v1`、measurement 摘要、baseline 文件（perf-baseline
-  # 分支、commit 绑定）字节 sha256，再取该文件真实 JSON 用既有 perf_contract 语义**独立复算**
-  # （不只信 report.verdict）。缺匹配（无报告/身份不符/摘要不符/环境不可比/模块退化/冲突报告）
-  # → 有界等待后 **failure**，绝不以 skipped/空成功置绿。报告尚未存在时该 context 为 failure。
-  # source SHA：PR 用 `github.event.pull_request.head.sha`（真实 head，不冒充 merge commit）；
-  # push main 用 `github.sha`。更换 head 即更换 subject，新 head 未经批准不会产出报告。
+  # ── 性能回归检查：同 runner 顺序构建/测量 base+head 真实对比（fail-closed）────────────────
+  # 信任边界：只读 hosted job（permissions: contents: read）；**无** secret / 写权限 /
+  # pull_request_target / self-hosted；远程 uses 全部完整 40-hex SHA pin；persist-credentials: false。
+  # subject/base：PR = head.sha / base.sha；push main = github.sha / event.before。三项硬校验
+  # （完整 40-hex、非零、可达），任一失败即 fail-closed；**不用** HEAD^ 猜测，零 SHA（首推）直接拒绝。
+  # 同一 job、同一 runner **顺序**构建两棵隔离源码/构建树（base 先、head 后），用 **head 的** driver
+  # （ci_perf_check.py）分别测量：base 无基线测量（NO_COMPARABLE_BASELINE，只作 runner 临时基线，
+  # **不是** PASS 声明）；head 以该报告为基线 + --strict-comparable --gate-enabled 严格比较，拒绝
+  # 缺损指标 / errors>0 / zero ops / 缺 base 模块 / 环境不可比 / NaN·inf——缺证据一律 exit 2。
+  # 只构建 unified_stress 目标（**不**跑全量 CTest）；六模块 45s × 2 threads。基线仅 runner 临时，
+  # **不**触碰正式 perf-baseline / 仓库变量 / release_gate。
+  # 设计边界（ponytail ceiling）：同 runner 短测只覆盖 base↔head **同机**相对退化，不是 server3
+  # 长期基线；跨机/长期趋势仍由 record_baseline.py + perf-baseline 分支承担，本轮不接。
   perf-regression:
     name: "性能回归检查"
     # 事件面显式限定为本 workflow 的普通触发；不响应 workflow_dispatch/其他事件。
     if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 60
     permissions:
       contents: read
     env:
-      # 受控报告的唯一可信作者 API user id（仓 owner，2026-10-10 GET 核对）；非秘密。
-      PERF_CONTROLLER_AUTHOR_ID: "78525443"
-      PERF_BASELINE_REF: "refs/heads/perf-baseline"
-      # 已批准 baseline 的 commit（父级固定后写入仓库变量 vars.PERF_BASELINE_COMMIT）；
-      # 留空则不锁定 commit，仍强制核文件摘要、环境可比与模块复算。
-      PERF_BASELINE_COMMIT: ${{ vars.PERF_BASELINE_COMMIT }}
-      # subject source SHA：PR=head.sha，push=github.sha（不冒充 merge commit）。
-      PERF_SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      # hosted 4 vCPU：构建并行度固定 3，与普通门禁口径一致。
+      PERF_JOBS: 3
+      # subject：PR=head.sha（真实 head，不冒充 merge commit），push=github.sha。
+      PERF_SUBJECT_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      # base：PR=base.sha，push=event.before（上一 main 头；零 SHA 在上一步被拒）。
+      PERF_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
     steps:
-      - name: "拉取代码库（仅取消费脚本）"
+      - name: "校验 subject/base SHA（完整 40-hex、非零）"
+        run: |
+          set -euo pipefail
+          require_sha() {
+            name="$1"; value="$2"
+            case "$value" in
+              ''|*[!0-9a-f]*) echo "FATAL: $name 不是完整小写 40-hex SHA: '$value'" >&2; exit 2 ;;
+            esac
+            [ "${#value}" -eq 40 ] || { echo "FATAL: $name 长度非 40: '$value'" >&2; exit 2; }
+            [ "$value" != "0000000000000000000000000000000000000000" ] \
+              || { echo "FATAL: $name 为零 SHA（无对应提交，如首次推送）" >&2; exit 2; }
+          }
+          require_sha subject "$PERF_SUBJECT_SHA"
+          require_sha base "$PERF_BASE_SHA"
+          echo "subject=$PERF_SUBJECT_SHA"
+          echo "base=$PERF_BASE_SHA"
+
+      - name: "拉取 subject(head) 源码树（完整历史，显式 SHA）"
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          fetch-depth: 1
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
           persist-credentials: false
+          path: perf-src-head
 
-      - name: "读取受控性能报告（有界等待，fail-closed）"
-        env:
-          # 只读 token（job permissions: contents: read），仅用于 API 读取与限流。
-          GITHUB_TOKEN: ${{ github.token }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
+      - name: "拉取 base 源码树（完整历史，显式 SHA）"
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: perf-src-base
+
+      - name: "核验两棵源码树绑定各自完整 SHA（不可达/不符即失败）"
         run: |
-          python3 scripts/ci/perf_report_ingest.py \
-            --repo "$GITHUB_REPOSITORY" \
-            --source-sha "$PERF_SOURCE_SHA" \
-            --expected-author-id "$PERF_CONTROLLER_AUTHOR_ID" \
-            --expected-baseline-ref "$PERF_BASELINE_REF" \
-            --expected-baseline-commit "$PERF_BASELINE_COMMIT" \
-            --gate-enabled \
-            --attempts 4 --retry-delay 180 \
-            --report-out tests/ci-reports/perf-ingest.json
+          set -euo pipefail
+          for pair in "perf-src-head:$PERF_SUBJECT_SHA" "perf-src-base:$PERF_BASE_SHA"; do
+            dir="${pair%%:*}"; want="${pair##*:}"
+            git -C "$dir" cat-file -e "$want^{commit}" \
+              || { echo "FATAL: $want 在 $dir 中不可达" >&2; exit 2; }
+            got="$(git -C "$dir" rev-parse HEAD)"
+            [ "$got" = "$want" ] \
+              || { echo "FATAL: $dir HEAD=$got 与期望 $want 不符" >&2; exit 2; }
+          done
+
+      - name: "复现工具链（Boost 1.90 context 源码前缀）"
+        run: bash perf-src-head/scripts/ci/prepare_boost.sh "$BOOST_PREFIX" --jobs "$PERF_JOBS"
+
+      - name: "导出工具链前缀到后续步骤"
+        run: |
+          echo "BOOST_ROOT=$BOOST_PREFIX" >> "$GITHUB_ENV"
+          echo "CMAKE_PREFIX_PATH=$BOOST_PREFIX" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$BOOST_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+
+      - name: "顺序构建 base 的 unified_stress（仅该目标，不跑全量 CTest）"
+        run: |
+          set -euo pipefail
+          cmake -S perf-src-base -B perf-build-base -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DNEED_BENCHMARK=ON -DNEED_TEST=OFF
+          cmake --build perf-build-base --target unified_stress --parallel "$PERF_JOBS"
+
+      - name: "顺序构建 head 的 unified_stress（仅该目标，不跑全量 CTest）"
+        run: |
+          set -euo pipefail
+          cmake -S perf-src-head -B perf-build-head -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DNEED_BENCHMARK=ON -DNEED_TEST=OFF
+          cmake --build perf-build-head --target unified_stress --parallel "$PERF_JOBS"
+
+      - name: "base 无基线测量（runner 临时基线；NO_COMPARABLE_BASELINE 不是 PASS）"
+        run: |
+          set -euo pipefail
+          python3 perf-src-head/scripts/ci_perf_check.py \
+            --build-dir perf-build-base \
+            --commit-sha "$PERF_BASE_SHA" \
+            --no-baseline-compare --dur 45 --threads 2 \
+            --output perf-base-report.json
+
+      - name: "head 严格同 runner 对比（缺证据/errors>0/环境不可比 → exit 2）"
+        run: |
+          set -euo pipefail
+          python3 perf-src-head/scripts/ci_perf_check.py \
+            --build-dir perf-build-head \
+            --commit-sha "$PERF_SUBJECT_SHA" \
+            --baseline perf-base-report.json \
+            --strict-comparable --gate-enabled --dur 45 --threads 2 \
+            --output perf-head-report.json
 
   # 结果汇聚：**always** 运行，把三个真实 job 结果交给已发布 callee 的 result 契约。
   # 必跑（required）失败/cancelled/空/意外 skipped → verdict=failure → 调用非零失败。

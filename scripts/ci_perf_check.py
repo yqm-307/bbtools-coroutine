@@ -7,20 +7,36 @@ ci_perf_check.py — CI 门禁：快速性能回归检查（任务 4 统一 Sche
   python3 scripts/ci_perf_check.py --module=comutex --threads=1 --dur=10 --no-baseline-compare
   python3 scripts/ci_perf_check.py --baseline <path> --gate-enabled
 
+同 runner base/head 严格对比（性能回归检查 job 使用；见 agent-docs/perf-check-wiring.md）:
+  # base：无基线测量，只产出 runner 临时基线报告（NO_COMPARABLE_BASELINE，不是 PASS 声明）
+  python3 ci_perf_check.py --build-dir <base-build> --commit-sha <base-sha> \
+      --no-baseline-compare --output base-report.json
+  # head：以 base 报告为基线，严格比较；缺证据/errors>0/不可比环境一律 exit 2
+  python3 ci_perf_check.py --build-dir <head-build> --commit-sha <head-sha> \
+      --baseline base-report.json --strict-comparable --gate-enabled --output head-report.json
+
 行为:
   - 运行 unified_stress，解析每个模块最后一个有效 FATIGUE_METRIC；
-  - 拒绝 timeout / crash / zero ops / 缺字段（METRIC_INVALID）；
+  - 拒绝 timeout / crash / zero ops / errors>0 / 缺字段（METRIC_INVALID）；
+    errors>0 是操作失败而非有效吞吐样本，在测量层（run_benchmark）直接拒绝，
+    不得写进基线或让门禁假绿；
   - 输出统一 JSON 报告（perf_contract schema）与 Markdown 摘要；
-  - 无基线或环境指纹不一致 → NO_COMPARABLE_BASELINE（exit 0）；
+  - 无基线或环境指纹不一致 → NO_COMPARABLE_BASELINE（默认 exit 0）；
   - 门禁阈值 (ADR D6)：<10% PASS / 10%~20% WARN / >20% FAIL；
     --gate-enabled 关闭（默认）时 >20% 降级为 WARN：exit 0 不阻塞 PR，
     但在 GitHub summary 与 ::warning:: 注解中显式显示，不伪装 PASS；
     --gate-enabled 开启时 FAIL 保留并以 exit 2 阻断合并。
+  - --strict-comparable（同 runner 严格模式）：任一模块为 NO_COMPARABLE_BASELINE
+    （无基线/基线损坏/环境不可比/缺模块/基线零吞吐）即 exit 2，缺证据不得置绿；
+    默认关闭以保留旧「无基线不阻塞」契约。
+  - --build-dir 指定被测构建树（默认 <repo>/build）；--commit-sha 用完整 40-hex SHA
+    把报告绑定到被测源码（base/head 各自绑定），缺失时回退 git HEAD 短 SHA。
   - 不在 PR Job 中隐式写基线（基线由 record_baseline.py 显式记录）。
 
 退出码: PASS/WARN/NO_COMPARABLE_BASELINE → 0（WARN 走注解可见），
-FAIL/METRIC_INVALID → 2。WARN 用 1 会让 Actions 步骤红叉，与
-"初期不阻塞 PR" 的门禁契约矛盾，故收敛到 0 + 显式警告。
+FAIL/METRIC_INVALID → 2；--strict-comparable 下 NO_COMPARABLE_BASELINE → 2。
+WARN 用 1 会让 Actions 步骤红叉，与"初期不阻塞 PR" 的门禁契约矛盾，
+故收敛到 0 + 显式警告。
 """
 import argparse
 import json
@@ -152,6 +168,11 @@ def run_benchmark(module, threads, duration):
         return {"error": f"too_short: {normalized['elapsed_s']}s"}
     if normalized["ops_total"] == 0:
         return {"error": "zero_ops"}
+    if normalized["errors"] > 0:
+        # 共同根因：errors>0 表示压测操作失败，不是有效吞吐样本。旧实现把它当有效
+        # 测量放行（仅补跑冻结检测，检测为 ok 就保留原判定），会让坏指标写进基线或
+        # 让门禁假绿。此处（测量层）直接拒绝，base/head 与所有消费者一致 fail-closed。
+        return {"error": "nonzero_errors", "errors": normalized["errors"]}
     return normalized
 
 
@@ -303,6 +324,7 @@ def load_baseline(args):
 
 
 def main():
+    global BUILD_DIR, UNIFIED_STRESS
     parser = argparse.ArgumentParser(description="CI performance regression check")
     parser.add_argument("--module", help="Single module to check (default: all 6)")
     parser.add_argument("--dur", type=int, default=45, help="Duration per module (seconds)")
@@ -316,7 +338,24 @@ def main():
                         help="Skip baseline comparison (smoke check only)")
     parser.add_argument("--quick-smoke", action="store_true",
                         help="Quick smoke: 10s per module, no baseline")
+    parser.add_argument("--build-dir",
+                        help="Build tree to measure (default: <repo>/build)")
+    parser.add_argument("--commit-sha",
+                        help="Full 40-hex SHA binding the report to the measured source")
+    parser.add_argument("--strict-comparable", action="store_true",
+                        help="Same-runner strict mode: any NO_COMPARABLE_BASELINE "
+                             "module → exit 2 (missing evidence must not go green)")
     args = parser.parse_args()
+
+    # --commit-sha 在任何构建/测量之前校验：非法 SHA 立即 fail-closed，不产出报告。
+    if args.commit_sha is not None and not re.fullmatch(r"[0-9a-f]{40}", args.commit_sha):
+        print(f"ERROR: --commit-sha 必须为完整小写 40-hex SHA: {args.commit_sha!r}")
+        sys.exit(2)
+
+    if args.build_dir:
+        BUILD_DIR = os.path.abspath(args.build_dir)
+        UNIFIED_STRESS = os.path.join(BUILD_DIR, "bin", "benchmark_test",
+                                      "unified_stress")
 
     if not os.path.exists(UNIFIED_STRESS):
         print(f"ERROR: unified_stress not found at {UNIFIED_STRESS}")
@@ -351,6 +390,16 @@ def main():
             entry.update({"status": status, "error": new_mod["error"]})
             if "missing" in new_mod:
                 entry["missing"] = new_mod["missing"]
+            # errors>0 已在测量层（run_benchmark）拒绝；此处仅补充冻结/进程失败诊断
+            # 原因，不改变 FAIL 判定（诊断不得把失败降级为通过）。
+            if new_mod["error"] == "nonzero_errors" and dur >= 30:
+                print(f"  [stall check] errors={new_mod.get('errors')}, checking stall...")
+                stall_reason = detect_stall(module, min(dur, 30))
+                if stall_reason in ("stall", "process_failure"):
+                    entry["reason"] = stall_reason
+                    label = ("STALL detected" if stall_reason == "stall"
+                             else "stall check process failed")
+                    print(f"  ❌ {label}")
             print(f"❌ {new_mod['error']} ({elapsed:.1f}s)")
             results.append(entry)
             continue
@@ -395,22 +444,6 @@ def main():
                         status = "WARN"
                         entry["status"] = "WARN"
 
-        # 冻结检测（仅长时间测试且出现错误计数）
-        if dur >= 30 and new_mod.get("errors", 0) > 0:
-            print(f"  [stall check] errors={new_mod['errors']}, checking stall...")
-            stall_reason = detect_stall(module, min(dur, 30))
-            if stall_reason in ("stall", "process_failure"):
-                # 冻结与进程失败都是 FAIL，但 reason 区分，避免崩溃误报为冻结
-                entry["reason"] = stall_reason
-                if status != "FAIL":
-                    status = "FAIL"
-                    entry["status"] = "FAIL"
-                    label = ("STALL detected" if stall_reason == "stall"
-                             else "stall check process failed")
-                    print(f"  ❌ {label}")
-            elif stall_reason == "no_data":
-                print("  ⚠️ stall check insufficient samples, keeping status")
-
         results.append(entry)
 
     verdict = max(results, key=lambda r: SEVERITY[r["status"]])["status"]
@@ -423,14 +456,15 @@ def main():
         json_path = Path(PROJECT_DIR) / "tests" / "ci-reports" / f"perf_{ts}.json"
     report = perf_contract.make_report(
         repository=REPOSITORY,
-        commit=get_git_commit(),
+        commit=args.commit_sha or get_git_commit(),
         base_commit=baseline.get("commit") if baseline else None,
         environment=env_fp,
         build={"type": env_fp.get("build_type"), "args": env_fp.get("cmake_args"),
                "compiler": env_fp.get("compiler")},
         parameters={"threads": args.threads, "dur": dur,
                     "module": args.module, "gate_enabled": args.gate_enabled,
-                    "baseline": baseline_desc},
+                    "strict_comparable": args.strict_comparable,
+                    "build_dir": BUILD_DIR, "baseline": baseline_desc},
         modules={r["module"]: {k: v for k, v in r.items() if k != "module"}
                  for r in results},
         verdict=verdict,
@@ -458,7 +492,16 @@ def main():
               f"{str(r.get('new_ops') or 'N/A'):>10} {delta_str:>8} {emoji} {r['status']}")
 
     print(f"\nOverall: {verdict}")
-    sys.exit(EXIT_MAP.get(verdict, 2))
+    exit_code = EXIT_MAP.get(verdict, 2)
+    if args.strict_comparable and any(
+            r["status"] == "NO_COMPARABLE_BASELINE" for r in results):
+        # 同 runner 严格模式：缺证据（无基线/基线损坏/环境不可比/缺模块/基线零吞吐）
+        # 不得置绿。任一模块不可比即 fail-closed（exit 2），不写 PASS。
+        print("ERROR: --strict-comparable: 存在 NO_COMPARABLE_BASELINE 模块，"
+              "缺证据不得置绿 → exit 2")
+        print("::error::perf same-runner gate: missing/non-comparable baseline evidence")
+        exit_code = 2
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":

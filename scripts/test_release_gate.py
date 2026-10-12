@@ -186,23 +186,27 @@ sys.exit(1 if mode == 'crash' else 0)
             with self.subTest(value=value), self.assertRaises(SystemExit):
                 gate.validate_soak_seconds(value)
 
-    def test_gate_layering_keeps_merge_path_cheap(self):
-        # 开发路径只做分钟级检查；发布级重型 Gate 只能留在 release.yml。
+    def test_gate_layering_perf_is_bounded_hosted_measurement(self):
+        # 开发路径的性能检查被**有界**到同一 runner 的 base/head 短测：只构建 `unified_stress`
+        # 目标（不跑全量 ctest）、六模块 45s×2threads、job timeout 60min；发布级重型 Gate
+        # （soak / real-client / run_parallel_stress）仍只留在 release.yml。
         import re
         text = (ROOT / '.github/workflows/unit_test.yml').read_text()
         for gone in ('real-client-acceptance', 'stress-test', 'run_parallel_stress.sh'):
             self.assertNotIn(gone, text, '发布级检查不得留在普通 CI')
-        # 性能 job 现在是**便宜的**受控报告消费者：不构建、不跑基准，普通 merge 路径仍分钟级；
-        # 发布级重型 Gate 仍只留在 release.yml。（按去注释正文判定，注释允许提及被禁写法。）
+        # 按去注释正文判定（注释允许提及被禁写法）。
         body = "\n".join(line for line in text.splitlines()
                          if not line.lstrip().startswith('#'))
         self.assertIn('name: "性能回归检查"', body)
         perf_block = body.split('  perf-regression:', 1)[1].split('\n  result:', 1)[0]
-        self.assertIn('perf_report_ingest.py', perf_block)
-        for heavy in ('unified_stress', 'ci_perf_check.py', 'cmake', 'prepare_boost',
-                      'record_baseline', 'upload-artifact', 'download-artifact'):
-            with self.subTest(heavy=heavy):
-                self.assertNotIn(heavy, perf_block)
+        self.assertIn('ci_perf_check.py', perf_block)
+        self.assertIn('--target unified_stress', perf_block)
+        self.assertIn('--strict-comparable', perf_block)
+        self.assertIn('timeout-minutes: 60', perf_block)
+        for banned in ('record_baseline', 'upload-artifact', 'download-artifact',
+                       'actions/cache', 'ctest --timeout', 'tests/baselines'):
+            with self.subTest(banned=banned):
+                self.assertNotIn(banned, perf_block)
         run = {'id': 1, 'head_sha': SHA, 'head_branch': 'main', 'event': 'push', 'conclusion': 'success'}
         for conclusion in (None, 'skipped', 'cancelled', 'failure'):
             jobs = [{'name': '编译 & 单元测试', 'conclusion': 'success'}]
