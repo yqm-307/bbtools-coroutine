@@ -9,11 +9,14 @@ namespace bbt::coroutine
 
 detail::CoroutineId GetLocalCoroutineId()
 {
-    auto tls_processer = g_bbt_tls_processer;
+    if (!detail::LocalThread::GetTLSInst()->EnableUseCo())
+        return 0;
+
+    auto tls_processer = detail::Processer::TryGetLocalProcesser();
     if (tls_processer == nullptr)
         return 0;
 
-    auto coroutine = g_bbt_tls_coroutine_co;
+    auto coroutine = tls_processer->GetCurrentCoroutine();
     if (coroutine == nullptr)
         return 0;
 
@@ -22,11 +25,14 @@ detail::CoroutineId GetLocalCoroutineId()
 
 size_t GetLocalCoroutineStackSize()
 {
-    auto tls_processer = g_bbt_tls_processer;
+    if (!detail::LocalThread::GetTLSInst()->EnableUseCo())
+        return 0;
+
+    auto tls_processer = detail::Processer::TryGetLocalProcesser();
     if (tls_processer == nullptr)
         return 0;
 
-    auto coroutine = g_bbt_tls_coroutine_co;
+    auto coroutine = tls_processer->GetCurrentCoroutine();
     if (coroutine == nullptr)
         return 0;
 

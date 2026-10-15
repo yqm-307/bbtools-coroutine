@@ -16,12 +16,21 @@ Processer::SPtr Processer::Create()
     return std::make_shared<Processer>();
 }
 
+Processer::SPtr& Processer::_GetLocalProcesserStorage()
+{
+    // 创建型入口与只读查询必须共享唯一的 TLS 实例。
+    static thread_local Processer::SPtr tl_processer = nullptr;
+    return tl_processer;
+}
+
+Processer::SPtr Processer::TryGetLocalProcesser()
+{
+    return _GetLocalProcesserStorage();
+}
+
 Processer::SPtr Processer::GetLocalProcesser()
 {
-    /**
-     * Processer绑定一个线程，且每个线程只能有一个Processer。
-     */
-    static thread_local Processer::SPtr tl_processer = nullptr;
+    auto& tl_processer = _GetLocalProcesserStorage();
     if (tl_processer == nullptr) {
         tl_processer = Create();
 #ifdef BBT_COROUTINE_PROFILE

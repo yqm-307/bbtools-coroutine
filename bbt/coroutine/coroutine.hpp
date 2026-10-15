@@ -21,8 +21,9 @@ namespace bbt
 namespace coroutine
 {
 
-/* 获取当前运行的协程id，0为main线程中获取的id */
+/* 只读查询当前执行协程；非协程上下文返回 0，不创建 Processer 或启动 runtime。 */
 detail::CoroutineId GetLocalCoroutineId();
+/* 返回当前协程可用栈字节数；非协程上下文返回 0，同样不创建 Processer 或启动 runtime。 */
 size_t GetLocalCoroutineStackSize();
 
 template<class TItem, int ItemMax>
