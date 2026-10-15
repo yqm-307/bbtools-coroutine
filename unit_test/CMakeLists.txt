@@ -44,6 +44,16 @@ add_executable(Test_coroutine Test_coroutine.cc)
 target_link_libraries(Test_coroutine ${MY_LIBS})
 add_test(NAME Test_coroutine COMMAND Test_coroutine)
 
+# 无创建探针与 runtime 分属独立进程，避免 worker 创建污染单调 ID 判据。
+add_executable(Test_coroutine_query Test_coroutine_query.cc)
+target_link_libraries(Test_coroutine_query ${MY_LIBS})
+add_test(NAME Test_coroutine_query_no_create
+         COMMAND Test_coroutine_query --run_test=query_no_create)
+add_test(NAME Test_coroutine_query_runtime
+         COMMAND Test_coroutine_query --run_test=query_runtime)
+set_tests_properties(Test_coroutine_query_no_create Test_coroutine_query_runtime
+                     PROPERTIES TIMEOUT 20)
+
 add_executable(Test_coroutine_api Test_coroutine_api.cc)
 target_link_libraries(Test_coroutine_api ${MY_LIBS})
 add_test(NAME Test_coroutine_api COMMAND Test_coroutine_api)

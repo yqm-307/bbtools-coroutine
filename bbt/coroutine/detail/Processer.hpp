@@ -30,6 +30,8 @@ public:
     static SPtr Create();
     /* 获取当前线程Processer */
     static SPtr GetLocalProcesser();
+    /* 只读取同一份线程局部存储；不存在时返回空，不创建 Processer。 */
+    static SPtr TryGetLocalProcesser();
 
     explicit
     Processer();
@@ -66,6 +68,7 @@ protected:
     size_t                          _TryGetCoroutineFromGlobal();
     void                            _Run();
 private:
+    static SPtr&                    _GetLocalProcesserStorage();
     /* 控制信息 */
     const ProcesserId               m_id{BBT_COROUTINE_INVALID_PROCESSER_ID};
     std::atomic<ProcesserStatus>    m_run_status{ProcesserStatus::PROC_DEFAULT};

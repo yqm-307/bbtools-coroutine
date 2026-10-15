@@ -134,11 +134,13 @@
 - 头文件：`bbt/coroutine/coroutine.hpp`
 - 签名：`detail::CoroutineId GetLocalCoroutineId();`
 - 返回：当前协程 id；非协程上下文为 `0`。
+- 只读查询：不创建 Processer、不启动 runtime；TLS 已许可但尚无当前协程时仍为 `0`。每次读取当前执行环境，不缓存 worker 归属。
 
 ### `GetLocalCoroutineStackSize`
 
 - 签名：`size_t GetLocalCoroutineStackSize();`
 - 返回：当前协程可用的栈字节数（页对齐后的 U，不含保护页）；非协程为 `0`。同一 runtime 内不同协程可返回不同值。
+- 与 ID 查询相同，不创建 Processer、不启动 runtime；TLS 未许可时返回 `0`，yield 后重新读取当前协程。
 
 ### 取消
 
