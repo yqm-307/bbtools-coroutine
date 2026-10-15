@@ -598,6 +598,11 @@ int main()
 | 固定栈语义 | 栈大小在创建后固定：不支持运行中扩栈/换栈，也没有按任务换栈的接口；`CoPool` 的栈仍属于 worker 协程自身，多尺寸是"不同协程各用各的固定栈" | 需要大栈的任务用显式注册入口创建独立协程；不要指望 CoPool 任务换栈 |
 | 协作式取消 | `Coroutine::RequestCancel()` 置标志，协程在检查点/唤醒处自行退出（#266），不强杀 | 长循环协程定期检查 `IsCancelRequested()` |
 
+### 线程模型与网络 I/O 域边界
+
+- 默认 `SCHE_START_OPT_SCHE_THREAD`：Scheduler 专属调度线程驱动内部 CoPoller/EventLoop（FD/Timer/Wakeup、共享 executor 上投递的 handler）与运行时维护；每个 Processer 绑定各自 worker 线程，只 Resume 受管协程。`SCHE_LOOP` 在调用者当前线程跑调度循环（`Start` 不返回）；`NO_LOOP` 由调用方 `LoopOnce` 手动 tick——并非所有启动模式都有独立调度线程。
+- `io::GetExecutor()` 只是共享 io_context 的投递句柄，handler 仅在调度驱动线程兑现，不得为它另启线程。runtime 线程与 bbtools-infra 网络 Engine 的独立 main/sub I/O 线程（自有 io_context）彼此分离，业务协程只在 Processer 执行——该网络域是目标架构，当前未实现。边界与架构图见契约 §11：`agent-docs/2026-09-07-core-runtime-contract.md`。
+
 ## 三之三、测试、冒烟与压测
 
 ```shell
