@@ -18,6 +18,7 @@
 - Defer：`bbtco_defer`
 - Hook 拦截列表与 IO 约束
 - 配置：`g_bbt_coroutine_config` 用户字段
+- io：`io::GetExecutor`（共享 context 投递句柄，见 §13）
 
 ## 本文不覆盖
 
@@ -92,7 +93,7 @@
 - 映射：`_CoHelper()-` → `RegistCoroutineTask(func, desc=nullptr)`
 - 用法：`bbtco [](){ ... };` 或 `bbtco [&](){ ... };`
 - 执行：detached，任意时刻任意 worker。不保证顺序。
-- 必须在 `Start` 之后。停机后抛 `runtime_error`。
+- 必须在 `Start` 之后。注册仅存在发布前失败（无可用 `Processer` 时抛出），没有停机后拒绝分支；runtime 随进程存在，不做停机。
 
 ### `bbtco_desc(desc)`
 
@@ -349,3 +350,15 @@ int idx = sync::CoSelect()
 | `m_ext_worker_stall_callback` | 默认 stderr | 调度线程调用，勿阻塞 |
 
 `m_cfg_processer_*` 与栈池参数是内部调优，见头文件。
+
+---
+
+## 13. io 共享 executor
+
+### `io::GetExecutor`
+
+- 头文件：`bbt/coroutine/io/IoExecutor.hpp`
+- 签名：`boost::asio::any_io_executor GetExecutor();`
+- 说明：返回 CoPoller 全局 EventLoop 所持同一 io_context 的 executor（`any_io_executor` 投递句柄），供上层适配层把 Asio 异步操作接入既有协程事件循环。投递的 handler 只由 Scheduler 现有 `PollOnce` 在驱动线程兑现：默认后台模式即 Scheduler 调度线程（S）；`NO_LOOP` 模式即调用 `LoopOnce` 的驱动线程（首个调用 `PollOnce` 的线程）；`SCHE_LOOP` 模式即执行调度循环的当前线程。
+- 约束（仅限定共享 executor 的使用方式）：不得为它创建新线程或独立 io_context 驱动；句柄不暴露原始 io_context，无法 stop/restart/run。生命周期由 CoPoller 单例保证，随 runtime 进程寿命存在。
+- 边界：本条不禁止上层拥有独立线程与 io_context 的网络 I/O 域（契约 §11 目标架构，尚未实现），独立域不经本句柄投递。头文件注释中「不创建新线程」的措辞按本条限定范围理解，与契约 §11.3 一致。

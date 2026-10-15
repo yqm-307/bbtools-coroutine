@@ -2,7 +2,7 @@
 
 **状态：** M1 已确定的目标契约（2026-09-07）
 **权威级别：** 核心框架设计与实现的唯一契约真源
-**适用范围：** 核心运行时层；工具层规则见下文边界
+**适用范围：** 核心运行时层；工具层规则见下文边界；与上层独立网络 I/O 域的执行域边界见 §11（目标架构）
 
 > 本文记录已经确定的目标语义，不等同于当前代码已经全部实现。实现、测试、README、Agent 文档与本契约冲突时，先标记差异；未经用户确认不得用当前行为反向修改契约。
 
@@ -75,6 +75,7 @@
 - `CoroutineEvent` 负责一次等待的生命周期、状态、超时、取消、关闭和协程唤醒。
 - 第一阶段只沿现有 Poller/协程事件边界做必要解耦，不提前建设多后端插件体系。
 - 首个 backend 可以继续使用现有 epoll 实现，但 epoll 不属于用户契约。
+- 本 EventLoop 属于 runtime 内部基础设施，只由调度驱动线程经 `PollOnce` 推进；与上层独立网络 I/O 域的关系见 §11。
 
 ## 5. Hook 契约
 
@@ -117,7 +118,7 @@ Hook 属于核心适配层，目标是参考 libco 的方式，尽可能将其�
 
 核心运行时必须满足“允许故障，但不能静默失败”：
 
-- 异常、Hook 失败、取消、关闭和调度器停止都必须有可观察结果。
+- 异常、Hook 失败、取消和关闭都必须有可观察结果。
 - 最小协程现场包括：协程 ID、业务描述、状态、等待类型、等待对象和等待时长。
 - 应能识别 worker 长时间无进展、用户死循环和外部 blocking FD 导致的调度停顿。
 - 普通运行路径保持低开销；严格调试和详细 Profile 可作为增强模式。
@@ -142,8 +143,61 @@ M1 按以下顺序推进：
 - 工具层可以独立迭代，但不得把工具层临时行为提升为核心契约。
 - Agent 在设计、实现、审查和验证前必须读取本文；若本文与任务描述冲突，以用户最新明确决策为准，显式记录冲突与用户决策后再更新本文。
 
+## 11. 执行域与网络 I/O 域边界（目标架构，用户已确认）
+
+> 本节区分两类陈述：「当前事实」= 当前代码行为；「目标」= 用户已敲定、由 bbtools-infra 建设的架构。独立网络域落地并验证前两者不得互称。本章不新增任何 runtime API，不改变 §6 的进程寿命契约。
+
+### 11.1 runtime 组成与线程模型（当前事实）
+
+- 执行 runtime = `Scheduler` + 多 `Processer` + 有栈 `Coroutine`，以及支撑自身通用等待/唤醒/定时/取消竞争/Hook 的内部 `EventLoop`/`CoPoller`、同步工具（含 `sync::CoWaiter`）与对象寿命管理。runtime 是进程寿命单例，无 `Stop`/restart、单次初始化（见 §6）；既有 FD/Timer/Hook 能力保留在 runtime 内。
+- 默认后台模式 `SCHE_START_OPT_SCHE_THREAD`：Scheduler 专属调度线程（S）经 `PollOnce` 驱动内部 `CoPoller`/`EventLoop`（FD/Timer/Wakeup，及共享 io_context 上投递 handler 的兑现），并做调度扫描与栈池维护；每个 `Processer` 绑定各自 worker 物理线程（P），只负责 Resume 受管协程。
+- 非默认模式不得误述：`SCHE_START_OPT_SCHE_LOOP` 在调用者当前线程执行调度循环（`Start` 不返回，无独立 S 线程）；`SCHE_START_OPT_SCHE_NO_LOOP` 只创建 worker，由调用方 `LoopOnce` 手动 tick 驱动（含 CoPoller）。不能把所有启动模式说成恒有独立 S 线程。
+- 协程挂起后可迁移 Processer，不承诺返回原物理线程或 Asio strand；线程亲和只是调度绑定，不等于 CPU affinity、内存隔离、故障隔离或实时延迟保证。strand 仅串行化执行，不保证线程隔离，也不自动约束 fcontext 恢复线程。
+
+### 11.2 与 infra 独立网络 I/O 域的边界（目标，未实现）
+
+- infra 网络 Engine 拥有独立 main/sub I/O 域：非 ReusePort 的 stream 模式下，main 自有线程 + 自有 io_context 只负责 listener/accept/LB/交接；每个 sub 自有线程 + 自有 io_context，独立驱动本 owner 连接。ReusePort 为可选布局（各 loop 自接纳，无独立 main）；UDP 按数据报 owner 布局，不硬套 stream accept。不是每连接一线程，也不是每 readiness 新建协程。
+- runtime 线程与网络 reactor 线程分离；网络 owner 数与 Processer 数独立配置，不一一绑定。每连接一个稳定 I/O owner：native I/O、事件注册/撤销、可变缓冲、fd close/终态都在它自己的串行域推进。
+- I/O 线程不运行要求受管协程环境的 Co 业务入口、不 Resume 用户协程、不接管 Scheduler；业务 Handler 只在 runtime Processer 的受管协程执行。同一连接事件至多一个活跃：可挂起，Action 返回后再回投 owner，晚到事件不能重开 Closing/Closed 连接。
+- 跨域 bridge 只做有界命令投递、不可变数据/操作状态所有权交接，以及现有 `sync::CoWaiter` 等待/Notify 或任务注册：业务向 owner 发命令，必要时挂起协程；owner 只完成短非阻塞 pump/写结果/通知，由 runtime 使协程 runnable。先登记后投递，覆盖完成早于 park、超时/取消/Close 首胜、迟到 completion。不新增 `Task`/第二 runtime/`CompletionSignal`/`CancellationToken` 等不存在或已删除的 API；mutable ring 不跨域裸借，挂起不持 OS mutex。
+- Engine/网络域负责自有线程及 fd 的启动、部分失败回滚、取消/排空/物理释放/join，不调用 Scheduler Stop（不存在，见 §6）。网络连接 Close(Block/Unblock) 沿 infra 新 net 契约：Block 仅受管协程可挂起等待物理完成、不等自身 OnClose；Unblock 是封口可靠投递而非释放完成。runtime 继续活到进程结束。
+- 读取/写入策略（ET/LT）是上层选用的策略而非阻塞项：Asio 负责 readiness；连接层负责 drain/EAGAIN、预算续投、公平、部分写、缓冲高水位背压/恢复。Asio 公共 `async_wait` 没有 native per-fd EPOLLET 开关，经该后端兑现的策略不得宣称等价 native LT/ET 事件计数/flags。
+
+下图为默认后台 Scheduler、非 ReusePort stream 布局示例；其他启动/网络布局见前文。
+
+```mermaid
+graph TB
+    subgraph RT["bbtools-coroutine runtime（进程寿命，无 Stop/restart）"]
+        S["Scheduler 调度线程 S<br/>PollOnce 驱动 CoPoller / EventLoop<br/>调度扫描 / 栈池维护"]
+        P["Processer × N（各自 worker 线程 P）<br/>仅 Resume 受管协程<br/>业务 Handler 只在这里执行"]
+        POLL["CoPoller / EventLoop<br/>共享 io_context：FD / Timer / Wakeup"]
+        S -->|"PollOnce"| POLL
+    end
+    subgraph NET["bbtools-infra 网络 Engine（目标架构，未实现）"]
+        MAIN["main I/O 线程 + 自有 io_context<br/>listener / accept / LB / 交接"]
+        SUB["sub I/O 线程 R_i + 自有 io_context<br/>每连接稳定 I/O owner<br/>native I/O / 可变缓冲 / close"]
+    end
+    BR["bridge：有界命令投递 / 所有权交接<br/>sync::CoWaiter 等待与 Notify / 任务注册"]
+    SUB -->|"短非阻塞 pump / 通知"| BR
+    BR -->|"唤醒使协程 runnable"| P
+    P -->|"业务向 owner 发命令，可挂起"| SUB
+    MAIN -.->|"accept 后交接连接"| SUB
+```
+
+### 11.3 共享 executor 与独立 context 的区别
+
+- `bbt::coroutine::io::GetExecutor()`（`bbt/coroutine/io/IoExecutor.hpp`）是既有共享 context 的只读投递句柄：返回 CoPoller 全局 EventLoop 所持同一 io_context 的 executor，投递的 handler 只由 Scheduler 现有 `PollOnce` 在驱动线程上兑现。对它不得再启线程 run/poll，不得 stop/restart——头文件注释中「不创建新线程/独立 io_context」的限制**仅限定共享 executor 的使用方式**。
+- 该限制不是禁止上层独立网络域存在的全局规则：独立网络域使用自己拥有的线程与 io_context（§11.2），不经 `io::GetExecutor()` 投递。该目标域当前尚未实现；落地并验证前，任何文档不得声称独立网络线程/bridge/Close 已交付。
+- 既有 HTTP/Redis/Mongo/config 等上层适配不在本轮网络域范围，不得宣称已切换或已验证。
+
+### 11.4 gnet 参考事实与有意差异
+
+- gnet（固定 v2.10.0，参考 SHA `58b59a1`）Unix 普通布局：main/sub 各 goroutine/poller；`OnTraffic` 在 sub eventloop 调用栈直接执行，不每事件派生 goroutine；goroutine 不是 OS 固定线程（`LockOSThread` 才固定 OS 线程）；ReusePort 无独立 main。
+- 本项目「额外 native reactor 线程 + 受管业务协程分离」是刻意差异：固定 native I/O 线程推进连接 I/O，业务协程一律回 runtime Processer 执行。参考 gnet 结构与 API 思路，不逐字节移植，不冒充 gnet 原实现。
+
 ## 相关文档
 
 - M1 计划：`agent-docs/2026-09-07-m1-core-contract-plan.md`
 - 使用期评估：`agent-docs/2026-09-07-usage-readiness-assessment.md`
 - 仓库通用 Agent 规范：`AGENTS.md`
+- 网络域目标架构的 infra 侧落地（同轮更新）：bbtools-infra 仓 `docs/architecture/gnet-network-execution.md`、`docs/decisions/0010-gnet-network-foundation.md`
