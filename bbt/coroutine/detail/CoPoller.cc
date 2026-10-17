@@ -1,5 +1,6 @@
 #include <atomic>
 #include <thread>
+#include <new>
 
 #include <bbt/core/util/Assert.hpp>
 #include <bbt/coroutine/detail/CoPoller.hpp>
@@ -90,7 +91,15 @@ void CoPoller::DeferDestroyEvent(std::shared_ptr<bbt::pollevent::Event> event)
 {
     if (event == nullptr) return;
     std::lock_guard<std::mutex> lock(m_deferred_mutex);
-    m_deferred_destroy.push_back(std::move(event));
+    try {
+        m_deferred_destroy.push_back(std::move(event));
+    } catch (const std::bad_alloc&) {
+        /* ponytail: 仅覆盖单次 OOM，不回退 Trigger 首胜状态。shared_ptr 的 move
+         * 不抛，vector 扩容失败无副作用，event 仍由本调用持有且未被取消/析构；
+         * 原赢家在同一锁内再提交一次，不让其它通知重复唤醒。持续 OOM 要求
+         * 另行设计预分配协议，不在此无限重试或异线程销毁 Event。 */
+        m_deferred_destroy.push_back(std::move(event));
+    }
 }
 
 void CoPoller::FlushDeferredEvents()

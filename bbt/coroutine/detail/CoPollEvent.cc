@@ -262,12 +262,13 @@ bool CoPollEvent::BeginFdClose(int fd)
         auto& slot = _Slots()[fd];
         if (slot.closing)
             return false;   // 已被其它线程 claim；本 close 走 EBADF/原语义
-        ++slot.epoch;
-        slot.closing = true;
+        // 所有可能分配必须先完成；准备失败不发布 closing/新 epoch，旧 waiter 仍在表内。
         snapshot.reserve(slot.waiters.size());
         for (auto& w : slot.waiters)
             if (auto p = w.lock())
                 snapshot.push_back(p);
+        ++slot.epoch;
+        slot.closing = true;
         slot.waiters.clear();
     }
     // 锁外 Trigger：避免与完成路径的加锁顺序纠缠
