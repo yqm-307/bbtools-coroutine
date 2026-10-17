@@ -20,6 +20,8 @@
 - 配置：`g_bbt_coroutine_config` 用户字段
 - io：`io::GetExecutor`（共享 context 投递句柄，见 §13）
 
+单次内存故障边界：Hook `close` 准备失败不发布 closing/新代际，且不向 C 调用者抛准备异常；一次分配失败后在 syscall 前再准备一次，再次失败返回 `ENOMEM`。PARKED 等待完成时延迟销毁列表的一次扩容失败由原赢家有界重提交，保持唯一唤醒和驱动线程析构所有权。此处不是任意分配点或持续 OOM 的恢复保证。
+
 ## 本文不覆盖
 
 `CoWaiter`、`StdLockWapper`、`DnsResolver`、`Profiler`、`DebugMgr`、`CoPoller`、`Processer`、`IChan` / `ICoLock`、`bbtco_ev_*_with_copool` 逐项说明、Hook 每个 syscall 的 errno 矩阵（见 `unit_test/hook_contract.hpp`）。

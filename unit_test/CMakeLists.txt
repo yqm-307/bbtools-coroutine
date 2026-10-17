@@ -4,6 +4,14 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti ${Wall_Flag}")
 
 set(EXECUTABLE_OUTPUT_PATH ${PROJECT_BINARY_DIR}/bin/unit_test)
 
+add_executable(Test_runtime_oom Test_runtime_oom.cc)
+target_link_libraries(Test_runtime_oom bbt_coroutine)
+target_link_options(Test_runtime_oom PRIVATE -Wl,--export-dynamic)
+foreach(mode fresh prepare tracked trigger defer)
+    add_test(NAME Test_runtime_oom_${mode} COMMAND Test_runtime_oom ${mode})
+    set_tests_properties(Test_runtime_oom_${mode} PROPERTIES TIMEOUT 15)
+endforeach()
+
 set(MY_LIBS
     # 测试文件通过 BOOST_TEST_MAIN + boost/test/included/unit_test.hpp 静态内嵌 Boost.Test，
     # 不得再链接 libboost_unit_test_framework.so：共享库与二进制各持一份框架全局状态，

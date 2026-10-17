@@ -93,6 +93,8 @@ public:
      * 第二次 close 会误关新对象），调用方应经 WaitFdCloseReady 等待
      * claim 方收尾后返回 EBADF。
      *
+     * 准备分配失败可抛 std::bad_alloc，但尚未推进 epoch、发布 closing 或摘除
+     * waiter。Hook_Close 仅在此无副作用的准备失败后有界再准备一次；不重试 syscall。
      * 期间到达的同号 fd waiter 会观察到 closing/新 epoch，不被本批误摘。
      */
     static bool                     BeginFdClose(int fd);

@@ -4,6 +4,7 @@
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <chrono>
+#include <new>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -314,7 +315,24 @@ int Hook_Close(int fd)
      * 再执行底层 close——保证代际更新先于 fd 数字可被复用。期间到达的同号
      * waiter 观察到 closing/新 epoch，不会被本批误摘。close 失败时
      * BeginFdClose 已推进代际（保守视为换代），EndFdClose 解除 closing。 */
-    if (!CoPollEvent::BeginFdClose(fd)) {
+    bool claimed = false;
+    try {
+        try {
+            claimed = CoPollEvent::BeginFdClose(fd);
+        } catch (const std::bad_alloc&) {
+            /* ponytail: 仅覆盖准备阶段的一次分配失败；尚未 claim/换代/摘 waiter，
+             * 因而可再准备一次，绝不重试已执行的底层 close。持续 OOM 返回 ENOMEM；
+             * 若需持续 OOM 保证，须另行设计预分配协议。 */
+            claimed = CoPollEvent::BeginFdClose(fd);
+        }
+    } catch (const std::bad_alloc&) {
+        errno = ENOMEM;
+        return -1;
+    } catch (...) {
+        errno = EIO;
+        return -1;
+    }
+    if (!claimed) {
         /* #370 round-3：BeginFdClose=false 表示同号 fd 正被其它线程 claim
          * closing。此时严禁再对 fd 数字发起底层 close——claim 方的 close
          * 返回后该数字随时可被复用，第二次 close 会误关新对象。协议定义：
