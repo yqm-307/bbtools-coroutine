@@ -9,14 +9,14 @@
 //  1) 正常事件后恢复窗口：协程因 READABLE 唤醒但尚未恢复执行时，
 //     另一线程 close+dup2 复用同号——恢复路径不得以旧 fd 数字重试
 //     syscall（必须返回 -1/EBADF，不得读到新对象数据）。
-//  2) close 与新 waiter 并发：BeginFdClose 摘表后到 EndFdClose 解 closing
-//     之间的窗口内，同号 fd 上的新 waiter 不得被误摘/误醒；底层 close
-//     完成后新 waiter 采样新一代际，应被真实事件正常唤醒。
+//  2) close 返回后的新代 waiter 与旧操作恢复重叠：旧操作必须报 EBADF，
+//     新 waiter 应被真实事件正常唤醒；不强制内部 closing 窗口。
 //  （多 worker close+reuse 移到独立可执行 Test_hook_fd_epoch_multi，见该文件。）
 //
 // 同步约定：本文件全部用单 worker（m_cfg_static_thread_num=1）；
-// 协程内禁止 CountDownLatch::Wait（阻塞 worker 会饿死同 worker 其它协程），
-// 一律用 atomic flag + bbtco_sleep 让出轮询；主线程侧用 WaitLatch 有界等待。
+// 协程内禁止阻塞等待（会饿死同 worker 其它协程），通常用 atomic flag +
+// bbtco_sleep 让出轮询；唯有用例 1 的恢复窗口
+// 必须占住 worker、只让驱动线程前进。主线程侧等全部参与者退出。
 // 复用源一律取独立 socketpair（dup2 同 socket 会因对端已关闭而 EPIPE）。
 
 #include <atomic>
@@ -27,14 +27,15 @@
 #include <cstring>
 #include <dirent.h>
 #include <fcntl.h>
+#include <spawn.h>
 #include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/syscall.h>
+#include <sys/wait.h>
 #include <thread>
 #include <unistd.h>
 #include <vector>
 
-#include <bbt/core/thread/Lock.hpp>
 #include <bbt/coroutine/coroutine.hpp>
 #include <bbt/coroutine/detail/GlobalConfig.hpp>
 #include <bbt/coroutine/detail/Hook.hpp>
@@ -90,15 +91,27 @@ struct CoFixture
 };
 
 // 主线程侧有界等待（主线程不是 worker，可阻塞）
-bool WaitLatch(bbt::core::thread::CountDownLatch& latch, int ms)
+bool WaitParticipants(const std::atomic<int>& remaining, int ms)
 {
     const auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
     while (std::chrono::steady_clock::now() < end) {
-        if (latch.WaitTimeout(1) == 0)
+        if (remaining.load(std::memory_order_acquire) == 0)
             return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
-    return latch.WaitTimeout(0) == 0;
+    if (remaining.load(std::memory_order_acquire) == 0)
+        return true;
+    // detached 协程借用测试栈：超时后不能展开该栈并继续下一个用例。
+    BOOST_ERROR("fd epoch participants did not finish before the lifetime barrier");
+    std::abort();
 }
+
+struct DoneOnExit
+{
+    std::atomic<int>& done;
+    // 完成谓词只由参与者退出发布；条件变量被唤醒不代表借用已经结束。
+    ~DoneOnExit() { done.fetch_sub(1, std::memory_order_acq_rel); }
+};
 
 // 协程内非阻塞等待 flag（让出轮询，不占死 worker）；返回 false 表示超时
 bool CoWaitFlag(std::atomic<bool>& flag, int max_ms)
@@ -142,45 +155,53 @@ BOOST_AUTO_TEST_CASE(t_readable_resume_window_returns_ebadf)
     BOOST_REQUIRE_EQUAL(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
     BOOST_REQUIRE_EQUAL(::socketpair(AF_UNIX, SOCK_STREAM, 0, np), 0);
 
-    bbt::core::thread::CountDownLatch done{1};
+    std::atomic<int> done{2};
     std::atomic<ssize_t> result{12345};
     std::atomic_int errcode{0};
 
     // 协程 A：在 fds[0] 上挂起读（socketpair 无数据 → EAGAIN → park）
     bbtco [&]() {
+        DoneOnExit signal{done};
         char buf[1];
         errno = 0;
         const ssize_t r = ::read(fds[0], buf, 1);
         result.store(r);
         errcode.store(errno);
-        done.Down();
     };
 
     // 控制协程：等 A 真正进入等待表（FdWaiterCount 探针），再写就绪数据让
     // A 的 waiter 被正常 READABLE 触发；随后轮询到 FdWaiterCount==0（驱动
-    // 线程已 _Complete 摘表、协程已入就绪队列）但 A 尚未恢复前，完成
+    // 线程已 _Complete 摘表）但 A 尚未恢复前，完成
     // close+dup2+新对象就绪——确定性命中「触发后未恢复」窗口。
     bbtco [&]() {
+        DoneOnExit signal{done};
         BOOST_REQUIRE(CoWaitFdWaiter(fds[0], 3000));
         const char r = 'r';
         BOOST_REQUIRE_EQUAL(::write(fds[1], &r, 1), 1);  // A 的 fd 就绪 → 唤醒入队
-        /* 等驱动把 waiter 摘掉（_Complete 已执行、FdWaiterCount 归 0），
-         * 单 worker 下 A 必然要等本协程让出才恢复——close 落在窗口内。 */
-        for (int i = 0; i < 3000 && CoPollEvent::FdWaiterCount(fds[0]) != 0; ++i)
-            bbtco_sleep(1);
+        /* 只让 OS 线程调度，不让出当前协程。驱动线程可完成 READABLE，
+         * 但单 worker 上的 A 不能恢复；bbtco_sleep 会破坏这个窗口。 */
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(3000);
+        while (CoPollEvent::FdWaiterCount(fds[0]) != 0 &&
+               std::chrono::steady_clock::now() < deadline)
+            std::this_thread::yield();
         BOOST_REQUIRE_EQUAL(CoPollEvent::FdWaiterCount(fds[0]), 0);
+        BOOST_REQUIRE_EQUAL(result.load(), 12345); // A 确实尚未返回，不能拿先读到 'r' 冒充窗口
         BOOST_REQUIRE_EQUAL(::close(fds[0]), 0);
         BOOST_REQUIRE_EQUAL(::dup2(np[0], fds[0]), fds[0]);
         const char z = 'z';
         BOOST_REQUIRE_EQUAL(::write(np[1], &z, 1), 1);
     };
 
-    const bool ok = WaitLatch(done, 5000);
+    const bool ok = WaitParticipants(done, 5000);
     BOOST_REQUIRE_MESSAGE(ok, "coroutine did not finish after resume-window close+dup2");
     BOOST_CHECK_EQUAL(result.load(), -1);
     BOOST_CHECK_EQUAL(errcode.load(), EBADF);
+    char remaining = 0;
+    BOOST_REQUIRE_EQUAL(::recv(fds[0], &remaining, 1, MSG_DONTWAIT), 1);
+    BOOST_CHECK_EQUAL(remaining, 'z'); // 旧读没有偷走新对象的数据
     if (::fcntl(fds[0], F_GETFD) >= 0) ::close(fds[0]);
     ::close(fds[1]);
+    ::close(np[0]);
     ::close(np[1]);
 }
 
@@ -192,10 +213,11 @@ BOOST_AUTO_TEST_CASE(t_readable_resume_window_returns_ebadf)
  * 时序：A 在 fds[0] park → B close(fds[0])+dup2(np[0]→fds[0]) → C 在
  *       复用后的 fds[0]（新对象）上 park 读 → B 用 np[1] 写 'q' 唤醒 C。
  *       A 得 -1/EBADF；C 得正常读 'q'（返回 1），证明未被误伤。
+ * 本用例验证 close 返回后的新代登记与旧协程恢复重叠；不强制命中
+ * BeginFdClose/EndFdClose 内部窗口，不能把此用例通过宣称为该窗口的覆盖。
  *
- * 判别力：若 BeginFdClose 与底层 close 不在同一线性化区间，或代际推进
- *         发生在 close 返回之后，C 可能在摘表后、代际更新前登记成功并采样
- *         旧 epoch——随后被错误地当作旧 waiter 摘走或收到 POLL_EVENT_CLOSED。
+ * 判别力：旧操作与新 waiter 共用 fd 数字但属于不同代际，close 不得让
+ *         旧操作读走新数据，也不得误伤 close 返回后登记的新 waiter。
  * ------------------------------------------------------------------ */
 BOOST_AUTO_TEST_CASE(t_concurrent_close_and_new_waiter_not_miswoken)
 {
@@ -205,23 +227,27 @@ BOOST_AUTO_TEST_CASE(t_concurrent_close_and_new_waiter_not_miswoken)
     BOOST_REQUIRE_EQUAL(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
     BOOST_REQUIRE_EQUAL(::socketpair(AF_UNIX, SOCK_STREAM, 0, np), 0);
 
-    bbt::core::thread::CountDownLatch done{2};
+    std::atomic<int> done{3};
     std::atomic<bool> fd_reused{false};
     std::atomic<ssize_t> result_a{12345};
     std::atomic<ssize_t> result_b{12345};
+    std::atomic_int errno_a{0};
+    std::atomic<char> byte_b{0};
 
     // A：等旧 fds[0]，将被 close+dup2 唤醒（应得 EBADF）
     bbtco [&]() {
+        DoneOnExit signal{done};
         char buf[1];
         errno = 0;
         const ssize_t r = ::read(fds[0], buf, 1);
+        errno_a.store(errno);
         result_a.store(r);
-        done.Down();
     };
 
     // 控制协程：等 A 真正进入等待表后 close+dup2 复用；等 C 在新 fd 上
     // park 后由 np[1] 写数据唤醒
     bbtco [&]() {
+        DoneOnExit signal{done};
         BOOST_REQUIRE(CoWaitFdWaiter(fds[0], 3000));          // A 已登记
         BOOST_REQUIRE_EQUAL(::close(fds[0]), 0);
         BOOST_REQUIRE_EQUAL(::dup2(np[0], fds[0]), fds[0]);
@@ -234,20 +260,24 @@ BOOST_AUTO_TEST_CASE(t_concurrent_close_and_new_waiter_not_miswoken)
 
     // C：在复用后的新 fds[0] 上挂起读，应由真实事件唤醒读到 'q'
     bbtco [&]() {
+        DoneOnExit signal{done};
         BOOST_REQUIRE(CoWaitFlag(fd_reused, 3000));
         char buf[1] = {0};
         errno = 0;
         const ssize_t r = ::read(fds[0], buf, 1);
         result_b.store(r);
-        done.Down();
+        byte_b.store(buf[0]);
     };
 
-    const bool fin = WaitLatch(done, 5000);
+    const bool fin = WaitParticipants(done, 5000);
     BOOST_REQUIRE_MESSAGE(fin, "coroutines did not finish: A or C still parked after close+dup2");
     BOOST_CHECK_EQUAL(result_a.load(), -1);                // 旧 waiter EBADF
+    BOOST_CHECK_EQUAL(errno_a.load(), EBADF);
+    BOOST_CHECK_EQUAL(byte_b.load(), 'q');
     BOOST_CHECK_EQUAL(result_b.load(), 1);                 // 新 waiter 正常读 'q'
     if (::fcntl(fds[0], F_GETFD) >= 0) ::close(fds[0]);
     ::close(fds[1]);
+    ::close(np[0]);
     ::close(np[1]);
 }
 
@@ -275,15 +305,15 @@ BOOST_AUTO_TEST_CASE(t_concurrent_double_close_does_not_close_reused_fd)
     BOOST_REQUIRE_EQUAL(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
     BOOST_REQUIRE_EQUAL(::socketpair(AF_UNIX, SOCK_STREAM, 0, np), 0);
 
-    bbt::core::thread::CountDownLatch done{1};
+    std::atomic<int> done{1};
     std::atomic<ssize_t> result_a{12345};
 
     // A：park 在旧 fds[0] 上，被 close 摘表唤醒（EBADF 语义由既有路径覆盖）
     bbtco [&]() {
+        DoneOnExit signal{done};
         char buf[1];
         const ssize_t r = ::read(fds[0], buf, 1);
         result_a.store(r);
-        done.Down();
     };
 
     // 主线程：等 A 登记后，T1 claim close；T2 在确定性 stall 窗口内并发 close
@@ -329,11 +359,12 @@ BOOST_AUTO_TEST_CASE(t_concurrent_double_close_does_not_close_reused_fd)
     BOOST_REQUIRE_MESSAGE(fl >= 0,
         "reused fd was closed by the losing concurrent close (EBADF on fcntl)");
 
-    const bool ok = WaitLatch(done, 5000);
+    const bool ok = WaitParticipants(done, 5000);
     BOOST_REQUIRE_MESSAGE(ok, "waiter coroutine did not finish after concurrent double close");
     BOOST_CHECK_EQUAL(result_a.load(), -1);
     if (::fcntl(fds[0], F_GETFD) >= 0) ::close(fds[0]);
     ::close(fds[1]);
+    ::close(np[0]);
     ::close(np[1]);
 }
 
@@ -399,7 +430,25 @@ std::vector<int> OpenFdSnapshot()
 
 BOOST_AUTO_TEST_CASE(t_event_construct_dup_failure_rolls_back)
 {
-    CoFixture fx{1};
+    /* 进程 fd 集合/上限属于全进程状态。前面用例的 runtime 会在驱动线程
+     * 延迟销毁 Event 的 dup fd，参与者退出不等于底层 fd 已物理释放。
+     * 在无 runtime 的新进程执行原断言，不靠 sleep 猜析构完成时间。 */
+    if (g_scheduler->IsInitialized()) {
+        pid_t child = -1;
+        char executable[] = "/proc/self/exe";
+        char selection[] = "--run_test=HookFdEpochTest/t_event_construct_dup_failure_rolls_back";
+        char* args[] = {executable, selection, nullptr};
+        BOOST_REQUIRE_EQUAL(::posix_spawn(&child, executable, nullptr, nullptr, args, environ), 0);
+        int status = 0;
+        pid_t waited;
+        do {
+            waited = ::waitpid(child, &status, 0);
+        } while (waited < 0 && errno == EINTR);
+        BOOST_REQUIRE_EQUAL(waited, child);
+        BOOST_REQUIRE(WIFEXITED(status));
+        BOOST_CHECK_EQUAL(WEXITSTATUS(status), 0);
+        return;
+    }
 
     int sp[2] = {-1, -1};
     BOOST_REQUIRE_EQUAL(::socketpair(AF_UNIX, SOCK_STREAM, 0, sp), 0);

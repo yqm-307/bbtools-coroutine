@@ -75,6 +75,14 @@ target_link_libraries(Test_scheduler_exec ${MY_LIBS})
 add_test(NAME Test_scheduler_exec COMMAND Test_scheduler_exec)
 set_tests_properties(Test_scheduler_exec PROPERTIES TIMEOUT 15)
 
+add_executable(Test_ready_wakeup Test_ready_wakeup.cc)
+target_link_libraries(Test_ready_wakeup ${MY_LIBS})
+foreach(mode notification_latched_before_wait external_ready_before_sleep_and_parked concurrent_external_notifications external_parked_progress)
+    add_test(NAME Test_ready_wakeup_${mode}
+             COMMAND Test_ready_wakeup --run_test=${mode})
+    set_tests_properties(Test_ready_wakeup_${mode} PROPERTIES TIMEOUT 15)
+endforeach()
+
 # 跨 worker 恢复与用户 TLS 边界回归（#339）：含事件唤醒迁移，耐心等待但必须有界。
 add_executable(Test_worker_tls_boundary Test_worker_tls_boundary.cc)
 target_link_libraries(Test_worker_tls_boundary ${MY_LIBS})
