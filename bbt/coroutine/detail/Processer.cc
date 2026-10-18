@@ -89,9 +89,33 @@ void Processer::AddCoroutineTask(CoroutinePriority priority, Coroutine::Ptr coro
     AssertWithInfo(coroutine != nullptr, "coroutine is nullptr!");
     AssertWithInfo(m_coroutine_queue[priority].enqueue(coroutine), "oom!");
 
-    bool need_notify = true;
-    if (m_run_status == ProcesserStatus::PROC_SUSPEND && m_run_cond_notify.compare_exchange_strong(need_notify, false))        
-        m_run_cond.notify_one();
+    _NotifyRunnable();
+}
+
+void Processer::_NotifyRunnable()
+{
+    /* 与 wait 的谓词检查/解锁入睡共用锁。不能只改 atomic 后 notify：
+     * 通知可能落在谓词检查与真正入睡之间；也不能按旧状态跳过运行中的 P。 */
+    {
+        std::lock_guard<std::mutex> lock(m_run_cond_mutex);
+        m_run_cond_notify.store(false, std::memory_order_release);
+    }
+    m_run_cond.notify_one();
+}
+
+void Processer::_WaitForWork()
+{
+    std::unique_lock<std::mutex> lock(m_run_cond_mutex);
+    /* 发布在加锁前：在此取得实际全局任务；发布在复查后：通知者必须
+     * 等 wait 原子解锁后才能置位/通知。避免把全局任务留给定时轮询。 */
+    if (_TryGetCoroutineFromGlobal() == 0)
+        m_run_cond.wait_for(lock,
+                           bbt::core::clock::us(g_bbt_coroutine_config->m_cfg_processer_proc_interval_us),
+                           [this] {
+                               return !m_is_running.load(std::memory_order_acquire) ||
+                                   !m_run_cond_notify.load(std::memory_order_acquire);
+                           });
+    m_run_cond_notify.store(true, std::memory_order_release);
 }
 
 void Processer::_Init()
@@ -258,6 +282,12 @@ void Processer::_Run()
             _TryGetCoroutineFromGlobal();
         }
 
+        /* 本轮确实出队且仍有本地任务：预算已重置，继续公平轮次，不把
+         * 已搬入本地的 runnable 留给轮询。any_dequeued 门控保证
+         * size_approx 假阳性至多多转一轮，不形成无任务忙等。 */
+        if (any_dequeued && GetExecutableNum() > 0)
+            continue;
+
         m_run_status = ProcesserStatus::PROC_SUSPEND;
         auto steal_num = g_scheduler->TryWorkSteal(shared_from_this());
 #ifdef BBT_COROUTINE_PROFILE
@@ -269,14 +299,7 @@ void Processer::_Run()
 #ifdef BBT_COROUTINE_PROFILE
             auto begin = bbt::core::clock::now<bbt::core::clock::microseconds>();
 #endif
-            std::unique_lock<std::mutex> lock_uptr(m_run_cond_mutex);
-            m_run_cond.wait_for(lock_uptr,
-                                bbt::core::clock::us(g_bbt_coroutine_config->m_cfg_processer_proc_interval_us),
-                                [this] {
-                                    return !m_is_running.load(std::memory_order_acquire) ||
-                                        !m_run_cond_notify.load(std::memory_order_acquire);
-                                });
-            m_run_cond_notify.store(true, std::memory_order_release);
+            _WaitForWork();
 #ifdef BBT_COROUTINE_PROFILE
             m_suspend_cost_times += std::chrono::duration_cast<decltype(m_suspend_cost_times)>(bbt::core::clock::now<bbt::core::clock::microseconds>() - begin);
 #endif

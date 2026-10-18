@@ -67,6 +67,8 @@ protected:
     static ProcesserId              _GenProcesserId();
     size_t                          _TryGetCoroutineFromGlobal();
     void                            _Run();
+    void                            _NotifyRunnable();
+    void                            _WaitForWork();
 private:
     static SPtr&                    _GetLocalProcesserStorage();
     /* 控制信息 */

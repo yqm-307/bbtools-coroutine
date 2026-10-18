@@ -129,6 +129,11 @@ void Scheduler::OnActiveCoroutine(CoroutinePriority priority, Coroutine::Ptr cor
         std::lock_guard<std::mutex> lock(m_global_queue_mutex);
         AssertWithInfo(m_global_coroutine_queue[priority].enqueue(coroutine), "oom!");
     }
+    /* Start 后 worker 表固定且为进程寿命。先发布，再逐个通知；此处不持
+     * global/map 锁，worker 的睡前复查也不取这些锁，不产生锁序反转。
+     * 不按 PROC_SUSPEND 过滤：运行→睡眠之间的通知必须由谓词记住。 */
+    for (const auto& processer : m_load_blance_vec)
+        processer->_NotifyRunnable();
 }
 
 void Scheduler::_FixTimingScan()
