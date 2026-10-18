@@ -3,6 +3,7 @@
 #include <boost/context/detail/fcontext.hpp>
 #include <bbt/core/util/Assert.hpp>
 #include <bbt/coroutine/detail/Stack.hpp>
+#include <bbt/coroutine/detail/debug/StackBudgetDiagnostics.hpp>
 
 namespace bbt::coroutine::detail
 {
@@ -55,6 +56,22 @@ public:
      */
     size_t                      GetStackSize() const noexcept;
 
+#ifdef BBT_COROUTINE_STACK_DIAGNOSTICS
+    /**
+     * @brief 导出栈采样快照。
+     *
+     * 前置条件（两种合法调用，满足其一）：
+     *  - 当前正在执行的唯一 owner 协程在自身同步安全点调用——hook 与调用
+     *    同线程同步发生，不存在并发写；
+     *  - 非 owner 调用方已同步确认该协程不在运行（Resume 已返回/协程
+     *    已让出或到终态）。
+     * 其它情形（无同步的并发读）禁止：会读到撕裂值且无意义。
+     * 本函数不加锁、不做快照校验。返回值是 PARTIAL 观测样本，不是栈用量
+     * 上下界。
+     */
+    StackBudgetSample           GetStackBudgetSample() const noexcept;
+#endif
+
 protected:
     /**
      * @brief 执行协程
@@ -71,6 +88,11 @@ private:
 
     CoroutineOnYieldCallback    m_onyield_callback{nullptr};
     YieldCheckStatus            m_onyield_callback_result{YieldCheckStatus::NO_CHECK};
+
+#ifdef BBT_COROUTINE_STACK_DIAGNOSTICS
+    /* 采样状态随 Context（= 栈借用期）存在；TLS 只存指向它的活动指针。 */
+    StackBudgetState            m_stackBudgetState{};
+#endif
 
 };
 

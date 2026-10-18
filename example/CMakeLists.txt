@@ -86,3 +86,9 @@ if (NEED_TEST)
             SKIP_RETURN_CODE 77)
     endif()
 endif()
+
+option(BBT_COROUTINE_STACK_BUDGET_EXAMPLE
+    "显式启用两阶段条件栈预算示例（默认OFF；也可独立配置 example/stack_budget）" OFF)
+if (BBT_COROUTINE_STACK_BUDGET_EXAMPLE)
+    add_subdirectory(stack_budget)
+endif()
