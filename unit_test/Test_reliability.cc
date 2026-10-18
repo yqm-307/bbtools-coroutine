@@ -808,66 +808,72 @@ BOOST_AUTO_TEST_CASE(t_EX_02_chan_close_raii_guard)
 
     const int n_writers = 5;
     const int n_readers = 5;
-    std::atomic_int write_results{0};
-    std::atomic_int read_results{0};
-    std::atomic_int close_errors{0};
-
-    bbt::core::thread::CountDownLatch writers_ready{n_writers};
-    bbt::core::thread::CountDownLatch readers_ready{n_readers};
-
-    sync::Chan<int, 10> ch;
+    // 超时断言也会退出测试作用域；未完成的 detached actor 仍须拥有全部状态。
+    struct ActorState
+    {
+        std::atomic_int write_results{0};
+        std::atomic_int read_results{0};
+        std::atomic_int close_errors{0};
+        bbt::core::thread::CountDownLatch writers_ready{5};
+        bbt::core::thread::CountDownLatch readers_ready{5};
+        bbt::core::thread::CountDownLatch done{10};
+        sync::Chan<int, 10> ch;
+    };
+    auto state = std::make_shared<ActorState>();
 
     for (int i = 0; i < n_writers; ++i) {
-        bbtco [&]() {
-            writers_ready.Down();
+        bbtco [state]() {
+            state->writers_ready.Down();
             int seq = 0;
             while (true) {
-                int ret = ch.Write(seq++);
-                if (ret == 0) write_results++;
-                else { if (ret == -1) close_errors++; break; }
+                int ret = state->ch.Write(seq++);
+                if (ret == 0) state->write_results++;
+                else { if (ret == -1) state->close_errors++; break; }
             }
+            state->done.Down();
         };
     }
 
     for (int i = 0; i < n_readers; ++i) {
-        bbtco [&]() {
-            readers_ready.Down();
+        bbtco [state]() {
+            state->readers_ready.Down();
             int val;
             while (true) {
-                int ret = ch.Read(val);
-                if (ret == 0) read_results++;
-                else { if (ret == -1) close_errors++; break; }
+                int ret = state->ch.Read(val);
+                if (ret == 0) state->read_results++;
+                else { if (ret == -1) state->close_errors++; break; }
             }
+            state->done.Down();
         };
     }
 
-    // 等待全部读写协程就位（带超时，避免 CI 慢环境永久挂起）
-    WaitLatchWithDeadline(writers_ready, 5000);
-    WaitLatchWithDeadline(readers_ready, 5000);
+    // 保留活跃读写与 Close 的竞争；ready 不是完成屏障。
+    WaitLatchWithDeadline(state->writers_ready, 5000);
+    WaitLatchWithDeadline(state->readers_ready, 5000);
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-    ch.Close();
-    BOOST_TEST(ch.IsClosed());
-
-    auto deadline = bbt::core::clock::nowAfter(bbt::core::clock::milliseconds(3000));
-    while (!bbt::core::clock::is_expired<bbt::core::clock::milliseconds>(deadline)) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        if (close_errors.load() > 0) break;
-    }
+    state->ch.Close();
+    BOOST_TEST(state->ch.IsClosed());
+    BOOST_REQUIRE_EQUAL(state->done.WaitTimeout(5000), 0);
+    BOOST_TEST(state->close_errors.load() > 0);
 
     int val = 0;
-    BOOST_TEST(ch.Write(999) == -1);
-    // Read 可能在 CAS m_is_reading 竞争时返回 -2（另一个 reader 仍在执行）
-    // Close 后重试直到返回 -1（channel 已关闭+队列空）
-    int ret, attempts = 0;
-    while ((ret = ch.Read(val)) == -2 && attempts++ < 20) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    BOOST_TEST(state->ch.Write(999) == -1);
+    // 所有 actor 已完成，串行排空不应有 -2；关闭不丢弃已写入的缓冲。
+    // 容量为 10，最多读 10 项并再读一次确认 closed+empty 的 -1。
+    int ret = 0;
+    int drained = 0;
+    for (; drained <= 10; ++drained) {
+        ret = state->ch.Read(val);
+        if (ret != 0) break;
     }
     BOOST_TEST(ret == -1);
+    BOOST_TEST(state->write_results.load() == state->read_results.load() + drained);
 
-    BOOST_TEST_MESSAGE("[EX-02] writes=" << write_results.load()
-        << " reads=" << read_results.load()
-        << " close_errors=" << close_errors.load());
+    BOOST_TEST_MESSAGE("[EX-02] writes=" << state->write_results.load()
+        << " reads=" << state->read_results.load()
+        << " drained=" << drained
+        << " close_errors=" << state->close_errors.load());
 }
 
 // ============================================================================

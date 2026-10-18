@@ -50,15 +50,6 @@ using namespace bbt::coroutine::detail;
 namespace
 {
 
-struct ConfigSnapshot
-{
-    size_t threads{0};
-    bool stack_protect{false};
-    bool saved{false};
-} g_cfg;
-
-std::atomic_bool g_started{false};
-
 bool WaitUntil(const std::function<bool()>& pred, int budget_ms = 10000)
 {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(budget_ms);
@@ -69,6 +60,45 @@ bool WaitUntil(const std::function<bool()>& pred, int budget_ms = 10000)
     }
     return true;
 }
+
+}
+
+namespace
+{
+
+/* 公共注册入口固定 NORMAL 优先级：改动的 wake/预算路径下，
+ * 公共 NORMAL 注册的任务必须全部被调度（无饥饿/卡死）。
+ * 本用例不覆盖全优先级注册或四档预算配置。 */
+BOOST_AUTO_TEST_CASE(t_normal_tasks_complete_without_starvation)
+{
+    g_bbt_coroutine_config->m_cfg_stack_size = 65536;
+    EnsureRuntime();
+    BOOST_REQUIRE(g_scheduler->IsInitialized());
+
+    constexpr int kTotal = 128;
+    std::atomic_int completed{0};
+
+    for (int i = 0; i < kTotal; ++i) {
+        g_scheduler->RegistCoroutineTask(
+            [&completed]() { completed.fetch_add(1); });
+    }
+
+    BOOST_REQUIRE(WaitUntil([&]() { return completed.load() == kTotal; }));
+}
+
+}
+
+namespace
+{
+
+struct ConfigSnapshot
+{
+    size_t threads{0};
+    bool stack_protect{false};
+    bool saved{false};
+} g_cfg;
+
+std::atomic_bool g_started{false};
 
 bool CoroutineSuspended(const std::atomic<Coroutine*>& co)
 {
@@ -436,25 +466,36 @@ BOOST_AUTO_TEST_CASE(t_repeated_wait_slot_reuse)
  * 进程寿命，IsInitialized 恒真；本用例随测试进程结束验收 */
 BOOST_AUTO_TEST_CASE(t_parked_combined_wait_does_not_block_process_lifetime)
 {
-    auto waiter = sync::CoWaiter::Create();
-    PipeFds pipe = MakePipe();
-    std::atomic_bool entered{false};
+    // 无 deadline 的任务会活过测试作用域；waiter 和 fd 必须由任务持有，
+    // 不能在 entered（尚未登记）后销毁，也不能靠 Close 唤醒冒充 parked。
+    struct ParkedState
+    {
+        sync::CoWaiter::SPtr waiter{sync::CoWaiter::Create()};
+        PipeFds pipe{MakePipe()};
+        std::atomic_bool registered{false};
+        std::atomic_bool returned{false};
+        ~ParkedState() { ClosePipe(pipe); }
+    };
+    auto state = std::make_shared<ParkedState>();
 
-    bbtco [&]() {
+    bbtco [state]() {
         sync::CombinedWaitOptions opt;
         opt.want_readable = true;
-        opt.fd = pipe.read;
-        entered.store(true);
-        waiter->Wait(opt);      /* 无 deadline：只能被 Stop 回收 */
+        opt.fd = state->pipe.read;
+        state->waiter->Wait(opt, [state]() {
+            state->registered.store(true);
+            return true;
+        });
+        state->returned.store(true);
     };
-    BOOST_CHECK(WaitUntil([&]() { return entered.load(); }));
+    BOOST_REQUIRE(WaitUntil([&]() { return state->registered.load(); }));
 
     g_started.store(false);
-    ClosePipe(pipe);
     /* 无停机入口：Start 一次性，EnsureRuntime 只是 no-op 幂等壳 */
     EnsureRuntime();
     g_started.store(true);
     BOOST_CHECK(g_scheduler->IsInitialized());
+    BOOST_CHECK(!state->returned.load());
 }
 
 BOOST_AUTO_TEST_CASE(t_end)
