@@ -6,6 +6,7 @@
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
 #include <bbt/coroutine/detail/Processer.hpp>
 #include <bbt/coroutine/detail/LocalThread.hpp>
+#include <bbt/coroutine/detail/DriverWakeDeferral.hpp>
 
 
 namespace bbt::coroutine::sync
@@ -83,10 +84,17 @@ int Chan<TItem, Max>::Write(const ItemType& item)
         lock.lock();
     }
 
-    m_item_queue.push(item);
-    // 读 watcher 不受 m_is_reading 门控：CoSelect 等待者不置该标志（#314）
-    if (m_is_reading || !m_read_watchers.empty())
-        _OnEnableRead();
+    /* 通知段仍持 m_item_queue_mutex：driver Wake 须锁外。先建 deferral，
+     * 再把等待循环用的 unique_lock 移入内层局部——任何退出（含异常）
+     * 都先解锁、后 flush pending，guard 不覆盖此前可能 Yield 的循环。 */
+    detail::DriverWakeDeferral _defer;
+    {
+        std::unique_lock<std::mutex> tail_lock(std::move(lock));
+        m_item_queue.push(item);
+        // 读 watcher 不受 m_is_reading 门控：CoSelect 等待者不置该标志（#314）
+        if (m_is_reading || !m_read_watchers.empty())
+            _OnEnableRead();
+    }
 
     return 0;
 }
@@ -122,14 +130,18 @@ int Chan<TItem, Max>::Read(ItemType& item)
             return -2;
     }
 
-    if (m_item_queue.empty())
-        return -1;
+    detail::DriverWakeDeferral _defer;   // 通知尾部：先解锁、后 flush
+    {
+        std::unique_lock<std::mutex> tail_lock(std::move(lock));
+        if (m_item_queue.empty())
+            return -1;
 
-    item = m_item_queue.front();
-    m_item_queue.pop();
+        item = m_item_queue.front();
+        m_item_queue.pop();
 
-    // 唤醒一个等待写入的协程（忽略 -1，可能已被 Cancel）
-    _OnEnableWrite();
+        // 唤醒一个等待写入的协程（忽略 -1，可能已被 Cancel）
+        _OnEnableWrite();
+    }
 
     return 0;
 }
@@ -159,13 +171,17 @@ int Chan<TItem, Max>::ReadAll(std::vector<ItemType>& items)
             return -2;
     }
 
-    if (m_item_queue.empty())
-        return -1;  // 关闭+空
+    detail::DriverWakeDeferral _defer;   // 同 Read：通知尾部先解锁
+    {
+        std::unique_lock<std::mutex> tail_lock(std::move(lock));
+        if (m_item_queue.empty())
+            return -1;  // 关闭+空
 
-    while (!m_item_queue.empty()) {
-        items.push_back(m_item_queue.front());
-        m_item_queue.pop();
-        _OnEnableWrite();
+        while (!m_item_queue.empty()) {
+            items.push_back(m_item_queue.front());
+            m_item_queue.pop();
+            _OnEnableWrite();
+        }
     }
 
     return 0;
@@ -177,6 +193,7 @@ int Chan<TItem, Max>::TryWrite(const ItemType& item)
     if (IsClosed())
         return -1;
 
+    detail::DriverWakeDeferral _defer;   // 纯非挂起：在 lock_guard 前声明
     std::lock_guard<std::mutex> lock(m_item_queue_mutex);
     if (IsClosed())
         return -1;
@@ -238,10 +255,14 @@ int Chan<TItem, Max>::TryWrite(const ItemType& item, int timeout)
         lock.lock();
     }
 
-    m_item_queue.push(item);
-    // 读 watcher 不受 m_is_reading 门控（#314）
-    if (m_is_reading || !m_read_watchers.empty())
-        _OnEnableRead();
+    detail::DriverWakeDeferral _defer;   // 通知尾部：先解锁、后 flush
+    {
+        std::unique_lock<std::mutex> tail_lock(std::move(lock));
+        m_item_queue.push(item);
+        // 读 watcher 不受 m_is_reading 门控（#314）
+        if (m_is_reading || !m_read_watchers.empty())
+            _OnEnableRead();
+    }
 
     return 0;
 }
@@ -258,6 +279,7 @@ int Chan<TItem, Max>::TryRead(ItemType& item)
 
     ChanReadGuard guard{m_is_reading};
 
+    detail::DriverWakeDeferral _defer;   // 纯非挂起 Try
     std::lock_guard<std::mutex> lock(m_item_queue_mutex);
 
     if (m_item_queue.empty())
@@ -303,12 +325,16 @@ int Chan<TItem, Max>::TryRead(ItemType& item, int timeout)
             return -2;
     }
 
-    if (m_item_queue.empty())
-        return -1;  // 关闭+空
+    detail::DriverWakeDeferral _defer;   // 通知尾部：先解锁、后 flush
+    {
+        std::unique_lock<std::mutex> tail_lock(std::move(lock));
+        if (m_item_queue.empty())
+            return -1;  // 关闭+空
 
-    item = m_item_queue.front();
-    m_item_queue.pop();
-    _OnEnableWrite();
+        item = m_item_queue.front();
+        m_item_queue.pop();
+        _OnEnableWrite();
+    }
 
     return 0;
 }
@@ -319,6 +345,7 @@ void Chan<TItem, Max>::Close()
     if (IsClosed())
         return;
 
+    detail::DriverWakeDeferral _defer;   // Close 全量唤醒推迟到锁外 flush
     std::lock_guard<std::mutex> lock(m_item_queue_mutex);
 
     // 置位在锁内：与 Write 系列"锁内复查"配对，保证关闭与入队串行化——
@@ -463,6 +490,7 @@ template<class TItem, int Max>
 void Chan<TItem, Max>::_RegisterEnableWriteCond(
     const CoWaiter::SPtr& waiter, const std::function<bool()>& need_wait)
 {
+    detail::DriverWakeDeferral _defer;   // 自 Notify 路径 Wake 推迟到锁外
     std::lock_guard<std::mutex> lock(m_item_queue_mutex);
 
     /* 谓词在锁内求值：与 reader 的 pop+_OnEnableWrite、Close 的置位+全量
@@ -479,6 +507,7 @@ void Chan<TItem, Max>::_RegisterEnableWriteCond(
 template<class TItem, int Max>
 void Chan<TItem, Max>::_RecheckEnableRead(const std::function<bool()>& ready)
 {
+    detail::DriverWakeDeferral _defer;   // 同上
     std::lock_guard<std::mutex> lock(m_item_queue_mutex);
 
     /* 与写端 push+_OnEnableRead 串行化：若写端先拿到锁，其 Notify 会命中
@@ -532,21 +561,26 @@ int Chan<TItem, 0>::Write(const ItemType& item)
     if (IsClosed())
         return -1;
 
-    std::unique_lock<std::mutex> lock(BaseType::m_item_queue_mutex);
+    uint64_t is_writing_idx = 0;
+    /* 锁内通知段用 deferral + 内层作用域：guard 不延伸到下方
+     * _WaitUntilEnableWrite 的挂起路径。 */
+    {
+        detail::DriverWakeDeferral _defer;
+        std::unique_lock<std::mutex> lock(BaseType::m_item_queue_mutex);
 
-    /* 加入引用队列，并尝试唤醒挂起的读端 */
-    m_item_cache_ref.push(item);
-    m_write_idx++;
-    auto is_writing_idx = m_write_idx - 1;
+        /* 加入引用队列，并尝试唤醒挂起的读端 */
+        m_item_cache_ref.push(item);
+        m_write_idx++;
+        is_writing_idx = m_write_idx - 1;
 
-    if (BaseType::m_is_reading && (is_writing_idx == m_read_idx)) {
-        BaseType::_OnEnableRead();
-        return 0;
+        if (BaseType::m_is_reading && (is_writing_idx == m_read_idx)) {
+            BaseType::_OnEnableRead();
+            return 0;
+        }
     }
 
     auto enable_write_cond = BaseType::_CreateEnableWriteCond();
 
-    lock.unlock();
     /* 同 buffered Write 的注册后入队协议；谓词为「本条数据尚未被 reader
      * 消费」（is_writing_idx 已被读取时 m_read_idx > is_writing_idx）。reader
      * 的 _OnEnableWrite 与入队持同一把锁串行化，条件已满足则自唤醒。 */
@@ -595,14 +629,18 @@ int Chan<TItem, 0>::Read(ItemType& item)
             return -2;
     }
 
-    if (m_write_idx <= m_read_idx)
-        return -1;  // 关闭+空
+    detail::DriverWakeDeferral _defer;   // 通知尾部：先解锁、后 flush
+    {
+        std::unique_lock<std::mutex> tail_lock(std::move(lock));
+        if (m_write_idx <= m_read_idx)
+            return -1;  // 关闭+空
 
-    item = m_item_cache_ref.front();
-    m_item_cache_ref.pop();
-    m_read_idx++;
+        item = m_item_cache_ref.front();
+        m_item_cache_ref.pop();
+        m_read_idx++;
 
-    BaseType::_OnEnableWrite();
+        BaseType::_OnEnableWrite();
+    }
 
     return 0;
 }
@@ -613,6 +651,7 @@ void Chan<TItem, 0>::Close()
     if (IsClosed())
         return;
 
+    detail::DriverWakeDeferral _defer;   // 同 buffered Close
     std::lock_guard<std::mutex> lock(BaseType::m_item_queue_mutex);
 
     // 与 Chan<TItem, Max>::Close 相同：锁内置位，与 Write 锁内复查配对

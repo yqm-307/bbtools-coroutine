@@ -1,4 +1,5 @@
 #include <bbt/coroutine/sync/CoCond.hpp>
+#include <bbt/coroutine/detail/DriverWakeDeferral.hpp>
 #include <bbt/coroutine/utils/DebugPrint.hpp>
 
 namespace bbt::coroutine::sync
@@ -68,6 +69,9 @@ int CoCond::NotifyOne()
 int CoCond::_NotifyOne()
 {
     int ret = -1;
+    /* waiter->Notify() 的触发链在 m_mutex 内执行；driver Wake 推迟到
+     * 本函数退出（_SysUnLock 已完成）之后。 */
+    detail::DriverWakeDeferral _defer;
     _SysLock();
     while (!m_waiter_queue.empty()) {
         auto waiter = m_waiter_queue.front();

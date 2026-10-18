@@ -5,6 +5,7 @@
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
 #include <bbt/coroutine/detail/Processer.hpp>
 #include <bbt/coroutine/detail/Profiler.hpp>
+#include <bbt/coroutine/detail/DriverWakeDeferral.hpp>
 
 namespace bbt::coroutine::sync
 {
@@ -46,6 +47,9 @@ void CoMutex::Lock()
 
 void CoMutex::UnLock()
 {
+    /* _OnUnLocked→_NotifyOne→Trigger 的唤醒链在 m_mutex 内执行；
+     * driver Wake 推迟到 _SysUnLock 之后（本函数退出时 flush）。 */
+    detail::DriverWakeDeferral _defer;
     _SysLock();
 
     _OnUnLocked();

@@ -84,6 +84,32 @@
 - 兼容边界：过去 `detail::Coroutine::Create(4096, ...)` 的大小被忽略，现在会实际分配 4 KiB（按页对齐）；栈上运行日志、断言或第三方代码时必须给足栈。detail 尺寸/计数类型改为 `size_t`，调用方升级时须重新编译，不混用旧二进制。
 - `CoPool` 的固定栈属于其 worker 协程，不能按队列中的任务换栈；需要单独大小的任务使用显式注册入口创建独立协程。
 
+### Processer driver adapter（B1，契约 §11）
+
+头文件：`bbt/coroutine/detail/interface/IProcesserDriver.hpp`（`bbt::coroutine::detail`）。runtime 内部支撑接口，不暴露第三方类型；语义细节以契约 §11 为准。
+
+#### `IProcesserDriver`
+
+- `virtual ProcesserDriverResult OnTick(ProcesserDriverPhase phase) = 0;` — 每调度轮次 `BeforeSchedule`/`AfterSchedule` 各至多一次；只在绑定 P 的 worker 线程、非业务协程上下文调用；须短且不阻塞。返回 `Failed` 或抛异常 → runtime 转 `Failed` 态并记录。
+- `virtual ProcesserDriverResult Wait(std::chrono::microseconds timeout) = 0;` — 仅在本地/global/steal 均无 runnable 后调用；`timeout` 上限沿用 `m_cfg_processer_proc_interval_us`（3000us）。driver 必须持久记忆早到 Wake。
+- `virtual void Wake() noexcept = 0;` — 线程安全、有界、不等待 worker；允许外线程/并发/嵌套。
+
+#### 枚举与 token
+
+- `ProcesserDriverResult{Ok, Failed}`；`ProcesserDriverState{Unbound, Bound, Failed, Detaching}`；`ProcesserDriverFailure{None, Tick, Wait}`。
+- `ProcesserDriverStatus`：`Ok` / `NotInitialized` / `InvalidTarget` / `InvalidDriver` / `Occupied` / `StaleToken` / `SelfDetach`。
+- `ProcesserDriverToken{m_processer_id, m_generation}`：解绑凭据，代次单调非零、绑定间不重用。
+- `ProcesserDriverSnapshot{m_state, m_token, m_failure, m_exception}`：`Failed` 时可读回失败来源与异常（返回 `Failed` 的异常指针为空）。
+
+#### `Scheduler` adapter 入口
+
+- `std::vector<ProcesserId> GetWorkerProcesserIds()` — 未初始化返回空，不惰性创建 P。
+- `ProcesserDriverStatus RegisterProcesserDriver(ProcesserId, std::shared_ptr<IProcesserDriver>, ProcesserDriverToken&)` — 目标必须是已登记 worker（`GetLocalProcesser()` 惰性 P 与未知 id 一律 `InvalidTarget`）；空 driver `InvalidDriver`；已有归属 `Occupied`；失败不改 `out_token`。
+- `ProcesserDriverStatus QueryProcesserDriver(ProcesserId, ProcesserDriverSnapshot&)` — 合法空槽返回 `Ok` + `Unbound` 快照；目标非法 `InvalidTarget`；失败不改 `out_snapshot`。
+- `ProcesserDriverStatus UnregisterProcesserDriver(const ProcesserDriverToken&)` — 同代精确校验，旧/伪 token `StaleToken`；目标 worker 线程、受管业务协程、持该代 callback lease 的线程、以及仍处 runtime 通知临界区（`DriverWakeDeferral` 生效）的线程调用一律 `SelfDetach`——否则终止 Wake 会穿透 deferral 在 runtime 锁内执行。返回 `Ok` 前已执行终止 Wake 并等全部在途 Tick/Wait/Wake 退出——这是「runtime 不再调用该代」的确认，不是业务资源已物理关闭的收据。
+- `void RegistCoroutineTaskOn(ProcesserId, const CoroutineCallback&, const char* desc = nullptr)` 与带 `stack_size` 重载 — 定向首投：仅入目标 worker 初始队列的偏好，无硬亲和；stealing 与挂起恢复路径不变。未初始化抛 `std::logic_error`，非法目标抛 `std::invalid_argument`。
+- 上述可能分配/持锁的入口均非 `noexcept`；全部 driver 回调在整条调用链的 runtime 锁之外执行。
+
 ---
 
 ## 2. 协程注册宏
