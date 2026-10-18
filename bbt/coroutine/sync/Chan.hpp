@@ -188,7 +188,7 @@ protected:
 protected:
     const int                               m_max_size{-1};
     std::queue<ItemType>                    m_item_queue;
-    std::mutex                              m_item_queue_mutex;
+    mutable std::mutex                      m_item_queue_mutex;   // mutable：size() const 需持锁读
     std::atomic<ChanStatus>                 m_run_status{ChanStatus::CHAN_DEFAUTL};
     std::atomic_bool                        m_is_reading{false};
 

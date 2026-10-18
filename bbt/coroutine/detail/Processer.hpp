@@ -2,10 +2,37 @@
 #include <condition_variable>
 #include <bbt/core/clock/Clock.hpp>
 #include <bbt/coroutine/detail/Coroutine.hpp>
+#include <bbt/coroutine/detail/interface/IProcesserDriver.hpp>
 #include <bbt/coroutine/utils/lockfree/concurrentqueue.h>
 
 namespace bbt::coroutine::detail
 {
+
+/**
+ * @brief 一个 Processer 单槽 driver 绑定的「代」（generation）。
+ *
+ * 每代绑定持有 driver 强引用、可观察状态/故障来源/异常、在途 callback
+ * lease 计数（Tick/Wait/Wake/终止 Wake 各占一份）与完成确认 cv。
+ * 解绑协议：锁内 state→Detaching 并预留终止 lease → 锁外终止 Wake →
+ * 等全部 lease 归零 → 按 binding 身份清槽（槽引用锁外释放）→ 置
+ * detached 通知 joiner（detached 表示槽确已解除）；最终 driver 引用
+ * 由存活 binding/调用方在所有锁外释放，不在锁内析构。
+ */
+struct ProcesserDriverBinding
+{
+    ProcesserId                       m_processer_id{BBT_COROUTINE_INVALID_PROCESSER_ID};
+    uint64_t                          m_generation{0};
+    std::shared_ptr<IProcesserDriver> m_driver;
+
+    std::mutex                        m_mutex;
+    std::condition_variable           m_cv;
+    ProcesserDriverState              m_state{ProcesserDriverState::Bound};
+    ProcesserDriverFailure            m_failure{ProcesserDriverFailure::None};
+    std::exception_ptr                m_exception{};
+    size_t                            m_inflight{0};
+    bool                              m_terminal_wake_reserved{false}; // 终止 Wake 只预留一次
+    bool                              m_detached{false};               // 该代归属已解除
+};
 
 /**
  * @brief Processer类
@@ -67,9 +94,25 @@ protected:
     static ProcesserId              _GenProcesserId();
     size_t                          _TryGetCoroutineFromGlobal();
     void                            _Run();
+    /* enqueue 之后的锁内通知：只置 latch/cond，不调外部 driver */
+    void                            _PublishRunnable();
+    /* 组合入口：发布 + 锁外 driver Wake（deferral 生效时只记 pending） */
     void                            _NotifyRunnable();
+    /* 锁外调用 driver->Wake()；Defer 命中时仅登记 pending */
+    void                            _WakeDriver();
     void                            _WaitForWork();
+    /* driver 槽内部入口（仅 Scheduler 经 friend 调用） */
+    ProcesserDriverStatus           _BindDriver(const std::shared_ptr<IProcesserDriver>& driver,
+                                                ProcesserDriverToken& out_token);
+    ProcesserDriverStatus           _QueryDriver(ProcesserDriverSnapshot& out_snapshot);
+    ProcesserDriverStatus           _UnregisterDriver(uint64_t generation);
 private:
+    std::shared_ptr<ProcesserDriverBinding> _GetDriverBinding();
+    void                            _DriverOnTick(ProcesserDriverPhase phase);
+    void                            _DriverFail(const std::shared_ptr<ProcesserDriverBinding>& binding,
+                                                ProcesserDriverFailure source,
+                                                std::exception_ptr err);
+
     static SPtr&                    _GetLocalProcesserStorage();
     /* 控制信息 */
     const ProcesserId               m_id{BBT_COROUTINE_INVALID_PROCESSER_ID};
@@ -101,6 +144,13 @@ private:
     uint64_t                        m_last_stall_report_begin{0};   // 调度线程专用（去重）
     static constexpr int            kGlobalCheckInterval = 4;       // 每N轮无条件检查全局队列
     int                             m_global_check_counter{0};
+
+    /* driver 单槽：m_driver_slot_mutex 只保护槽位本身；binding 内部状态
+     * 由 binding->m_mutex 保护。锁序：slot → binding，均不反向依赖
+     * run_cond/global/map 锁。 */
+    std::mutex                                  m_driver_slot_mutex;
+    std::shared_ptr<ProcesserDriverBinding>     m_driver_binding;
+    uint64_t                                    m_driver_next_generation{0};
 
     // XXX 可以优化到profiler中
 #ifdef BBT_COROUTINE_PROFILE

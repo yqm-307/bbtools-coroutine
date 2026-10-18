@@ -43,6 +43,7 @@ public:
     friend class Coroutine;
     friend class Profiler;
     friend class Processer;
+    friend class DriverWakeDeferral;
     typedef std::unique_ptr<Scheduler> UPtr;
     ~Scheduler();
 
@@ -59,6 +60,26 @@ public:
     void                                        RegistCoroutineTask(const CoroutineCallback& handle, bool& succ) noexcept;
     void                                        RegistCoroutineTask(size_t stack_size, const CoroutineCallback& handle, const char* desc = nullptr);
     void                                        RegistCoroutineTask(size_t stack_size, const CoroutineCallback& handle, bool& succ) noexcept;
+
+    /**
+     * @brief 定向首投：只把协程放入目标已登记 worker 的初始队列，
+     *  不承诺首次 Resume 在目标执行（stealing 与挂起恢复路径不变）。
+     * @throw std::logic_error 未初始化；std::invalid_argument 非法目标；
+     *  分配失败沿用 RegistCoroutineTask 既有异常
+     */
+    void                                        RegistCoroutineTaskOn(ProcesserId target, const CoroutineCallback& handle, const char* desc = nullptr);
+    void                                        RegistCoroutineTaskOn(ProcesserId target, size_t stack_size, const CoroutineCallback& handle, const char* desc = nullptr);
+
+    /* ---- processer driver adapter（契约 §11，见 IProcesserDriver.hpp）----
+     * 注册失败不改 out_token；查询失败不改 out_snapshot。 */
+    std::vector<ProcesserId>                    GetWorkerProcesserIds();
+    ProcesserDriverStatus                       RegisterProcesserDriver(ProcesserId target,
+                                                    std::shared_ptr<IProcesserDriver> driver,
+                                                    ProcesserDriverToken& out_token);
+    ProcesserDriverStatus                       QueryProcesserDriver(ProcesserId target,
+                                                    ProcesserDriverSnapshot& out_snapshot);
+    ProcesserDriverStatus                       UnregisterProcesserDriver(const ProcesserDriverToken& token);
+
     /* 协程被激活，重新加入全局队列 */
     void                                        OnActiveCoroutine(CoroutinePriority priority, Coroutine::Ptr coroutine);
 
@@ -95,7 +116,12 @@ protected:
     void                                        _FixTimingScan();
     void                                        _CreateProcessers();
 
-    bool                                        _LoadBlance2Proc(CoroutinePriority priority, Coroutine::Ptr co);
+    /* 锁内完成挑选+入队+发布；返回已移交的稳定 worker（失败为 nullptr），
+     * 由调用方在退出全部锁后 _WakeDriver */
+    Processer::SPtr                             _LoadBlance2Proc(CoroutinePriority priority, Coroutine::Ptr co);
+    /* 延期广播入口：仅 DriverWakeDeferral 最外层析构调用，遍历 Start 后
+     * 固定的 worker 表补发 driver Wake；不重新发布任务/latch */
+    static void                                 _WakeProcesserDrivers();
     /* 初始化全局实例 */
     void                                        _InitGlobalUniqInstance();
     /* worker 就绪后、进入运行循环前发布初始化完成标志 */

@@ -66,6 +66,7 @@ void Scheduler::RegistCoroutineTask(size_t stack_size, const CoroutineCallback& 
      * 入队之前：创建失败不会留下已入队对象，也不改全局默认与池计数。
      * 本重载只读保护默认，不解析默认大小。 */
     Coroutine::Ptr coroutine = nullptr;
+    Processer::SPtr proc = nullptr;
     {
         std::lock_guard<std::mutex> lock(m_global_queue_mutex);
         coroutine = Coroutine::Create(
@@ -73,7 +74,8 @@ void Scheduler::RegistCoroutineTask(size_t stack_size, const CoroutineCallback& 
             handle,
             g_bbt_coroutine_config->m_cfg_stack_protect,
             desc);
-        if (_LoadBlance2Proc(CO_PRIORITY_NORMAL, coroutine))
+        proc = _LoadBlance2Proc(CO_PRIORITY_NORMAL, coroutine);
+        if (proc != nullptr)
             coroutine = nullptr;    // 已交接给 worker：发布后不再读取可能被销毁的对象
     }
 
@@ -82,9 +84,149 @@ void Scheduler::RegistCoroutineTask(size_t stack_size, const CoroutineCallback& 
         delete coroutine;
         throw std::runtime_error("scheduler has no processer: coroutine task rejected");
     }
+
+    /* 外部 driver Wake 必须在退出 global/map/run_cond 全部锁之后执行 */
+    proc->_WakeDriver();
 #ifdef BBT_COROUTINE_PROFILE
     g_bbt_profiler->OnEvent_RegistCoroutine();
 #endif
+}
+
+void Scheduler::RegistCoroutineTaskOn(ProcesserId target, const CoroutineCallback& handle, const char* desc)
+{
+    RegistCoroutineTaskOn(target, g_bbt_coroutine_config->m_cfg_stack_size, handle, desc);
+}
+
+void Scheduler::RegistCoroutineTaskOn(ProcesserId target, size_t stack_size, const CoroutineCallback& handle, const char* desc)
+{
+    if (!IsInitialized())
+        throw std::logic_error{"Scheduler::RegistCoroutineTaskOn: runtime not initialized"};
+
+    /* 目标必须来自已登记 worker 表；GetLocalProcesser 惰性创建的未登记
+     * P（如主线程）不在表内，直接拒绝，不做静默回退。 */
+    Processer::SPtr proc = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(m_processer_map_mutex);
+        auto it = m_processer_map.find(target);
+        if (it != m_processer_map.end())
+            proc = it->second;
+    }
+    if (proc == nullptr)
+        throw std::invalid_argument{"Scheduler::RegistCoroutineTaskOn: invalid target processer"};
+
+    Coroutine::Ptr coroutine = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(m_global_queue_mutex);
+        coroutine = Coroutine::Create(
+            stack_size,
+            handle,
+            g_bbt_coroutine_config->m_cfg_stack_protect,
+            desc);
+        /* 只是初次入目标队列的偏好；steal 与恢复全局路径不改 */
+        proc->AddCoroutineTask(CO_PRIORITY_NORMAL, coroutine);
+        coroutine = nullptr;
+    }
+
+    proc->_WakeDriver();
+#ifdef BBT_COROUTINE_PROFILE
+    g_bbt_profiler->OnEvent_RegistCoroutine();
+#endif
+}
+
+std::vector<ProcesserId> Scheduler::GetWorkerProcesserIds()
+{
+    if (!IsInitialized())
+        return {};
+
+    std::vector<ProcesserId> ids;
+    std::lock_guard<std::mutex> lock(m_processer_map_mutex);
+    ids.reserve(m_processer_map.size());
+    for (auto&& [pid, proc] : m_processer_map)
+        ids.push_back(pid);
+    return ids;
+}
+
+ProcesserDriverStatus Scheduler::RegisterProcesserDriver(
+    ProcesserId target,
+    std::shared_ptr<IProcesserDriver> driver,
+    ProcesserDriverToken& out_token)
+{
+    if (!IsInitialized())
+        return ProcesserDriverStatus::NotInitialized;
+    if (driver == nullptr)
+        return ProcesserDriverStatus::InvalidDriver;
+
+    Processer::SPtr proc = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(m_processer_map_mutex);
+        auto it = m_processer_map.find(target);
+        if (it != m_processer_map.end())
+            proc = it->second;
+    }
+    if (proc == nullptr)
+        return ProcesserDriverStatus::InvalidTarget;
+
+    /* 槽位占用、状态转移与通知都在 Processer 内部完成；此处不持任何
+     * scheduler 锁，避免把 binding 锁序接到 map/global 锁之后。 */
+    return proc->_BindDriver(driver, out_token);
+}
+
+ProcesserDriverStatus Scheduler::QueryProcesserDriver(
+    ProcesserId target,
+    ProcesserDriverSnapshot& out_snapshot)
+{
+    if (!IsInitialized())
+        return ProcesserDriverStatus::NotInitialized;
+
+    Processer::SPtr proc = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(m_processer_map_mutex);
+        auto it = m_processer_map.find(target);
+        if (it != m_processer_map.end())
+            proc = it->second;
+    }
+    if (proc == nullptr)
+        return ProcesserDriverStatus::InvalidTarget;
+
+    return proc->_QueryDriver(out_snapshot);
+}
+
+ProcesserDriverStatus Scheduler::UnregisterProcesserDriver(const ProcesserDriverToken& token)
+{
+    if (!IsInitialized())
+        return ProcesserDriverStatus::NotInitialized;
+
+    /* 在任何副作用前拒绝：目标 worker 线程自身、任何受管业务协程上下
+     * 文——同步解绑要等 callback lease 归零，在这些上下文等待等于等
+     * 自己。持该代 lease 的线程在 Processer 内部按同代身份再查一次。 */
+    if (g_bbt_tls_helper->EnableUseCo() && g_bbt_tls_coroutine_co != nullptr)
+        return ProcesserDriverStatus::SelfDetach;
+    auto local_proc = Processer::TryGetLocalProcesser();
+    if (local_proc != nullptr && local_proc->GetId() == token.m_processer_id)
+        return ProcesserDriverStatus::SelfDetach;
+
+    Processer::SPtr proc = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(m_processer_map_mutex);
+        auto it = m_processer_map.find(token.m_processer_id);
+        if (it != m_processer_map.end())
+            proc = it->second;
+    }
+    /* 未知/过期目标一律 StaleToken：解绑只认精确同代身份，不是收据 */
+    if (proc == nullptr)
+        return ProcesserDriverStatus::StaleToken;
+
+    return proc->_UnregisterDriver(token.m_generation);
+}
+
+void Scheduler::_WakeProcesserDrivers()
+{
+    /* Start 后 worker 表固定且为进程寿命，可不加锁遍历；
+     * 只补发 driver Wake，不重新发布任务/latch。 */
+    auto& self = *GetInstance();
+    for (const auto& proc : self.m_load_blance_vec)
+        if (proc != nullptr)
+            proc->_WakeDriver();
 }
 
 void Scheduler::RegistCoroutineTask(const CoroutineCallback& handle, bool& succ) noexcept
@@ -132,6 +274,8 @@ void Scheduler::OnActiveCoroutine(CoroutinePriority priority, Coroutine::Ptr cor
     /* Start 后 worker 表固定且为进程寿命。先发布，再逐个通知；此处不持
      * global/map 锁，worker 的睡前复查也不取这些锁，不产生锁序反转。
      * 不按 PROC_SUSPEND 过滤：运行→睡眠之间的通知必须由谓词记住。 */
+    /* 广播到每个 worker（不按 suspend 过滤）；driver Wake 若在
+     * deferral 作用域内只记 pending，最外层 runtime 锁释放后补发。 */
     for (const auto& processer : m_load_blance_vec)
         processer->_NotifyRunnable();
 }
@@ -355,11 +499,11 @@ void Scheduler::_CreateProcessers()
     m_down_latch.Wait();
 }
 
-bool Scheduler::_LoadBlance2Proc(CoroutinePriority priority, Coroutine::Ptr co)
+Processer::SPtr Scheduler::_LoadBlance2Proc(CoroutinePriority priority, Coroutine::Ptr co)
 {
     std::lock_guard<std::mutex> _(m_processer_map_mutex);
     if (m_load_blance_vec.empty())
-        return false;
+        return nullptr;
 
     uint32_t index = m_load_idx;
     m_load_idx++;
@@ -372,7 +516,9 @@ bool Scheduler::_LoadBlance2Proc(CoroutinePriority priority, Coroutine::Ptr co)
     auto proc = m_load_blance_vec[index];
     proc->AddCoroutineTask(priority, co);
 
-    return true;
+    /* 返回稳定 worker 供调用方锁外 _WakeDriver；AddCoroutineTask 内部
+     * 只发布 latch/cond，不在持锁期间外调 driver。 */
+    return proc;
 }
 
 int Scheduler::TryWorkSteal(Processer::SPtr thief)

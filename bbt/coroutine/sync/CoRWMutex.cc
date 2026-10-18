@@ -1,4 +1,5 @@
 #include <bbt/coroutine/sync/CoRWMutex.hpp>
+#include <bbt/coroutine/detail/DriverWakeDeferral.hpp>
 
 namespace bbt::coroutine::sync
 {
@@ -15,6 +16,9 @@ int CoRWMutex::RLock()
     // 如果获取不到锁则持续挂起，直到获取到锁
     while (m_status == CORWMUTEX_WLOCKED || m_has_wait_wlock) {
         _WaitRLock([this](){
+            /* 等待登记回调仍持 SysLock：若回调里触发 Wake，推迟到本
+             * lambda 退出（锁已释放）之后；guard 不跨 Yield。 */
+            detail::DriverWakeDeferral _defer;
             _OnReaderBlocked();
             _SysUnLock();
             return true;
@@ -24,14 +28,19 @@ int CoRWMutex::RLock()
     }
 
     /* 读锁获取成功 */
-    m_status = CORWMUTEX_RLOCKED;
-    m_rlock_hold_num++;
+    {
+        /* 最终非挂起段：Notify 链在 m_mutex 内执行，Wake 推迟到
+         * _SysUnLock 之后；guard 不覆盖上方可能 Yield 的等待循环。 */
+        detail::DriverWakeDeferral _defer;
+        m_status = CORWMUTEX_RLOCKED;
+        m_rlock_hold_num++;
 
-    /* 如果有等待中的写锁，那么就不在唤醒读锁了 */
-    if (!m_has_wait_wlock)
-        _NotifyAll(true);
+        /* 如果有等待中的写锁，那么就不在唤醒读锁了 */
+        if (!m_has_wait_wlock)
+            _NotifyAll(true);
 
-    _SysUnLock();
+        _SysUnLock();
+    }
     return 0;
 }
 
@@ -41,6 +50,7 @@ int CoRWMutex::WLock()
     while (m_status != CORWMUTEX_FREE) {
         m_has_wait_wlock = true;
         _WaitWLock([this](){
+            detail::DriverWakeDeferral _defer;   // 同 RLock：不跨 Yield
             _OnWriterQueued();
             _SysUnLock();
             return true;
@@ -57,6 +67,7 @@ int CoRWMutex::WLock()
 
 int CoRWMutex::RUnLock()
 {
+    detail::DriverWakeDeferral _defer;   // Notify 链 Wake 推迟到锁外
     _SysLock();
 
     m_rlock_hold_num--;
@@ -71,6 +82,7 @@ int CoRWMutex::RUnLock()
 
 int CoRWMutex::WUnLock()
 {
+    detail::DriverWakeDeferral _defer;   // 同 RUnLock
     _SysLock();
 
     m_status = CORWMUTEX_FREE;
@@ -86,6 +98,7 @@ int CoRWMutex::WUnLock()
 
 int CoRWMutex::TryRLock()
 {
+    detail::DriverWakeDeferral _defer;   // 非挂起路径，可整体覆盖
     _SysLock();
     if (m_status == CORWMUTEX_WLOCKED || m_has_wait_wlock) {
         _SysUnLock();
@@ -104,19 +117,25 @@ int CoRWMutex::TryRLock()
 
 int CoRWMutex::TryRLock(int ms)
 {
-    _SysLock();
-    if (m_status != CORWMUTEX_WLOCKED && !m_has_wait_wlock) {
-        m_status = CORWMUTEX_RLOCKED;
-        m_rlock_hold_num++;
+    {
+        detail::DriverWakeDeferral _defer;   // 首个非挂起段
+        _SysLock();
+        if (m_status != CORWMUTEX_WLOCKED && !m_has_wait_wlock) {
+            m_status = CORWMUTEX_RLOCKED;
+            m_rlock_hold_num++;
 
-        if (!m_has_wait_wlock)
-            _NotifyAll(true);
+            if (!m_has_wait_wlock)
+                _NotifyAll(true);
 
-        _SysUnLock();
-        return 0;
+            _SysUnLock();
+            return 0;
+        }
+        /* 未立即获锁：无 Notify 已发生，deferral 退出无 pending；
+         * m_mutex 保持持有进入等待登记（锁协议不变）。 */
     }
 
     int ret = _WaitRLockWithTimeout(ms, [this](){
+        detail::DriverWakeDeferral _defer;   // 不跨 Yield
         _OnReaderBlocked();
         _SysUnLock();
         return true;
@@ -133,13 +152,16 @@ int CoRWMutex::TryRLock(int ms)
         return -1;
     }
 
-    m_status = CORWMUTEX_RLOCKED;
-    m_rlock_hold_num++;
+    {
+        detail::DriverWakeDeferral _defer;   // 最终非挂起段
+        m_status = CORWMUTEX_RLOCKED;
+        m_rlock_hold_num++;
 
-    if (!m_has_wait_wlock)
-        _NotifyAll(true);
+        if (!m_has_wait_wlock)
+            _NotifyAll(true);
 
-    _SysUnLock();
+        _SysUnLock();
+    }
     return 0;
 }
 
@@ -167,6 +189,7 @@ int CoRWMutex::TryWLock(int ms)
 
     m_has_wait_wlock = true;
     int ret = _WaitWLockWithTimeout(ms, [this](){
+        detail::DriverWakeDeferral _defer;   // 不跨 Yield
         _OnWriterQueued();
         _SysUnLock();
         return true;

@@ -9,6 +9,7 @@
 #include <bbt/coroutine/detail/Scheduler.hpp>
 #include <bbt/coroutine/detail/Coroutine.hpp>
 #include <bbt/coroutine/detail/LocalThread.hpp>
+#include <bbt/coroutine/detail/DriverWakeDeferral.hpp>
 
 namespace bbt::coroutine::sync
 {
@@ -448,6 +449,9 @@ CombinedWaitStatus CoWaiter::Wait(
 int CoWaiter::Notify()
 {
     Assert(m_run_status != COND_DEFAULT);
+    /* Trigger→OnActiveCoroutine→广播的整条链都在 m_notify_mutex 内同步
+     * 执行；driver Wake 必须推迟到本函数退出（全部锁已释放）之后。 */
+    detail::DriverWakeDeferral _defer;
     std::lock_guard<std::mutex> lock(m_notify_mutex);
     
     if (m_co_event == nullptr || m_run_status != COND_WAIT) {
@@ -462,6 +466,7 @@ int CoWaiter::Notify(const CoEventValue& value)
 {
     /* 新入口不带无参 Notify 的 COND_DEFAULT 断言前置条件：fresh / 无有效
      * 等待 / 已决议时一律返回 -1，不保存载荷、不 assert。 */
+    detail::DriverWakeDeferral _defer;   // 同无参 Notify：外调推迟到锁外
     std::lock_guard<std::mutex> lock(m_notify_mutex);
 
     if (m_co_event == nullptr || m_run_status != COND_WAIT) {

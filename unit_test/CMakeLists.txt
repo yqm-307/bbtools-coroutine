@@ -438,6 +438,53 @@ if(NOT _bbt_neg_out_too_deep MATCHES "指针层级超过 kCoEventValueMaxPointer
     message(FATAL_ERROR "too_deep.cc 的失败原因不是层级容量断言：\n${_bbt_neg_out_too_deep}")
 endif()
 
+# B1 processer driver adapter：每模式独立进程（runtime 只 Start 一次），
+# 模式经环境变量传入；timeout 有界但不改任何既有测试预算。
+add_executable(Test_processer_driver Test_processer_driver.cc)
+target_link_libraries(Test_processer_driver ${MY_LIBS})
+
+# 测试专用副本：产品源码/库没有测试分支或 hook。两个精确观察点只用于
+# 固定旧 joiner 与新绑定交错、计数实际 continue；不替换任何条件或锁操作。
+set(_pd_source "${PROJECT_SOURCE_DIR}/bbt/coroutine/detail/Processer.cc")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_pd_source}")
+file(READ "${_pd_source}" _pd_original)
+set(_pd_probe "${_pd_original}")
+set(_pd_join "    if (!leader) {")
+set(_pd_continue "        if (any_dequeued && GetExecutableNum() > 0)\n            continue;")
+foreach(_point _pd_join _pd_continue)
+    string(REPLACE "${${_point}}" "" _removed "${_pd_original}")
+    string(LENGTH "${_pd_original}" _old_len)
+    string(LENGTH "${_removed}" _new_len)
+    string(LENGTH "${${_point}}" _point_len)
+    math(EXPR _diff_len "${_old_len} - ${_new_len}")
+    if(NOT _diff_len EQUAL _point_len)
+        message(FATAL_ERROR "Processer test probe anchor is not unique: ${_point}")
+    endif()
+endforeach()
+string(REPLACE "${_pd_join}" "${_pd_join}\n        ::PDTestJoinerProbe();" _pd_probe "${_pd_probe}")
+string(REPLACE "${_pd_continue}"
+    "        if (any_dequeued && GetExecutableNum() > 0) {\n            ::PDTestContinueProbe();\n            continue;\n        }" _pd_probe "${_pd_probe}")
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/Processer_driver_probe.cc"
+    "void PDTestJoinerProbe();\nvoid PDTestContinueProbe();\n${_pd_probe}")
+add_executable(Test_processer_driver_probe Test_processer_driver.cc
+    "${CMAKE_CURRENT_BINARY_DIR}/Processer_driver_probe.cc")
+target_compile_definitions(Test_processer_driver_probe PRIVATE BBT_PD_CONTROLLED_PROBE)
+target_link_libraries(Test_processer_driver_probe ${MY_LIBS})
+target_link_options(Test_processer_driver_probe PRIVATE -Wl,--export-dynamic)
+foreach(mode
+    api_boundaries tick_sequence wait_wakeup unregister_waits
+    self_detach
+    fail_tick_ret fail_tick_throw fail_wait_ret fail_wait_throw
+    reentrancy steal_migrate no_driver_directed query_destruct_release)
+    if(mode STREQUAL "self_detach" OR mode STREQUAL "tick_sequence")
+        add_test(NAME Test_processer_driver_${mode} COMMAND Test_processer_driver_probe)
+    else()
+        add_test(NAME Test_processer_driver_${mode} COMMAND Test_processer_driver)
+    endif()
+    set_tests_properties(Test_processer_driver_${mode}
+        PROPERTIES ENVIRONMENT "BBT_PD_MODE=${mode}" TIMEOUT 120)
+endforeach()
+
 ################################################################
 # B4 栈预算诊断（BBT_COROUTINE_STACK_DIAGNOSTICS，见根 CMakeLists option）
 # OFF 构建不注册本目标；诊断 TU 的 -fno-instrument-functions 由根 CMake 管理。
