@@ -110,6 +110,15 @@ public:
     int                             GetLastResumeEvent() const noexcept;
     size_t                          GetStackSize() const noexcept;
 
+#ifdef BBT_COROUTINE_STACK_DIAGNOSTICS
+    /* 同 Context::GetStackBudgetSample 的安全点前置条件：owner 协程在自身
+     * 同步安全点调用，或调用方已同步确认协程不在运行（Resume 已返回/协程
+     * 已让出或终态）；无同步的并发读禁止。PARTIAL 观测样本，不是栈用量
+     * 上下界。 */
+    StackBudgetSample               GetStackBudgetSample() const noexcept
+    { return m_context.GetStackBudgetSample(); }
+#endif
+
     /**
      * @brief #370：本次事件等待恢复后校验 fd 代际是否仍与登记时一致。
      *

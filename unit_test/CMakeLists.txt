@@ -484,3 +484,36 @@ foreach(mode
     set_tests_properties(Test_processer_driver_${mode}
         PROPERTIES ENVIRONMENT "BBT_PD_MODE=${mode}" TIMEOUT 120)
 endforeach()
+
+################################################################
+# B4 栈预算诊断（BBT_COROUTINE_STACK_DIAGNOSTICS，见根 CMakeLists option）
+# OFF 构建不注册本目标；诊断 TU 的 -fno-instrument-functions 由根 CMake 管理。
+################################################################
+if (BBT_COROUTINE_STACK_DIAGNOSTICS)
+    add_executable(Test_stack_budget_runtime
+        Test_stack_budget_runtime.cc
+        stack_budget_uninstrumented.cc)
+    target_link_libraries(Test_stack_budget_runtime ${MY_LIBS})
+    # 插桩只加在本测试 target（PRIVATE，不传播给用户 target 口径）。
+    target_compile_options(Test_stack_budget_runtime PRIVATE -finstrument-functions)
+    # 未插桩 helper TU：模拟第三方/历史对象，验证 PARTIAL 覆盖边界。
+    set_source_files_properties(stack_budget_uninstrumented.cc
+        PROPERTIES COMPILE_OPTIONS "-fno-instrument-functions")
+    add_test(NAME Test_stack_budget_runtime COMMAND Test_stack_budget_runtime)
+    set_tests_properties(Test_stack_budget_runtime PROPERTIES TIMEOUT 60)
+endif()
+
+# 静态模型使用真实 GCC 编译产物；所有临时输入/输出只在已忽略构建目录。
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux"
+        AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$"
+        AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
+        AND CMAKE_CXX_COMPILER_VERSION MATCHES "^15\\.2\\.")
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_test(NAME Test_stack_budget_static
+        COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/scripts/test_stack_budget.py")
+    set_tests_properties(Test_stack_budget_static PROPERTIES
+        TIMEOUT 180
+        ENVIRONMENT "STACK_BUDGET_TEST_ROOT=${PROJECT_BINARY_DIR}/stack_budget_python;STACK_BUDGET_TEST_COMPILER=${CMAKE_CXX_COMPILER}")
+else()
+    message(STATUS "Test_stack_budget_static: UNSUPPORTED compiler/platform (runtime tests unchanged)")
+endif()

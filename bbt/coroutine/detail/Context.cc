@@ -115,6 +115,16 @@ Context::Context(size_t stack_size, const CoroutineCallback& co_func, bool stack
     void* stack = stack_guard->StackTop();
     m_context = boost::context::detail::make_fcontext(stack, stack_guard->UseableSize(), &Context::_CoroutineMain);
     m_stack = stack_guard.release();
+
+#ifdef BBT_COROUTINE_STACK_DIAGNOSTICS
+    /* make_fcontext 成功后、任何 jump 之前初始化采样边界：bottom/top 取真实
+     * StackBottom/StackTop，min_sp 从 top 起计（尚无样本时 observed = 0）。
+     * 复用栈池中的旧栈不继承上一任协程的历史样本。 */
+    m_stackBudgetState.bottom       = reinterpret_cast<uintptr_t>(m_stack->StackBottom());
+    m_stackBudgetState.top          = reinterpret_cast<uintptr_t>(m_stack->StackTop());
+    m_stackBudgetState.min_sp       = m_stackBudgetState.top;
+    m_stackBudgetState.sample_count = 0;
+#endif
 }
 
 Context::~Context()
@@ -199,6 +209,16 @@ int Context::_Yield()
      * 当jump返回时，说明调度线程通过 Resume 返回了。trf中保存了调度协程的上下文
      */
     boost::context::detail::transfer_t transfer{fctx: nullptr, data: nullptr};
+
+#ifdef BBT_COROUTINE_STACK_DIAGNOSTICS
+    /* 让出前先清零归属：jump 之后本线程跑的是 worker/调度逻辑（含
+     * on-yield 回调），不属于本协程，不该计入它的样本。
+     * 不把旧指针保存下来在 jump 返回后恢复——本协程再次被 Resume 时
+     * （可能在另一个 worker 线程），是由那次 _Resume 负责重新挂接同一
+     * Context 状态；这里恢复反而会覆盖新协程已挂好的归属。 */
+    ExchangeActiveStackBudgetState(nullptr);
+#endif
+
     transfer = boost::context::detail::jump_fcontext(GetCurThreadContext(), &m_context);
 
     GetCurThreadContext() = transfer.fctx;
@@ -213,7 +233,25 @@ int Context::_Resume()
      */
     boost::context::detail::transfer_t transfer{fctx: nullptr, data: nullptr};
 
+#ifdef BBT_COROUTINE_STACK_DIAGNOSTICS
+    /* jump 前把本线程 TLS 挂到本协程状态：之后在协程栈上发生的插桩入口
+     * 都计入本 Context。previous 只保留在本函数局部，jump 返回后恢复调用
+     * 方此前的诊断归属（通常为 nullptr）——这只是不破坏调用者归属的归还，
+     * 不构成对任意嵌套 Context Resume 的支持承诺（既有
+     * GetCurThreadContext 线程 TLS 的嵌套语义不在本诊断范围内）。
+     * TLS 读写都经 noinline 交换函数，防止编译器跨 jump_fcontext 缓存
+     * 旧 TLS 地址。 */
+    StackBudgetState* prev_state = ExchangeActiveStackBudgetState(&m_stackBudgetState);
+#endif
+
     transfer = boost::context::detail::jump_fcontext(m_context, reinterpret_cast<void*>(this));
+
+#ifdef BBT_COROUTINE_STACK_DIAGNOSTICS
+    /* jump 返回 = 协程已让出（其 _Yield 已清零）或到终态；恢复外层归属，
+     * 本线程不留本协程残留。 */
+    ExchangeActiveStackBudgetState(prev_state);
+#endif
+
 
     // 保存来源协程，因为可能因为yield让出cpu，没有执行完
     auto context = transfer.data;
@@ -226,6 +264,24 @@ size_t Context::GetStackSize() const noexcept
 {
     return m_stack->UseableSize();
 }
+
+#ifdef BBT_COROUTINE_STACK_DIAGNOSTICS
+StackBudgetSample Context::GetStackBudgetSample() const noexcept
+{
+    /* 前置条件见 Context.hpp：owner 协程自身同步安全点，或调用方已同步
+     * 确认协程不在运行；无同步并发读禁止。
+     * observed_sample_bytes = top - min_sp，是插桩入口观测到的最深栈延伸，
+     * coverage 恒 PARTIAL；没有样本返回全 0（不伪造水位）。 */
+    StackBudgetSample sample{};
+    if (m_stackBudgetState.sample_count == 0)
+        return sample;
+
+    sample.observed_sample_bytes =
+        static_cast<size_t>(m_stackBudgetState.top - m_stackBudgetState.min_sp);
+    sample.sample_count = m_stackBudgetState.sample_count;
+    return sample;
+}
+#endif
 
 
 }
