@@ -70,6 +70,72 @@ add_executable(Test_coroutine_exception Test_coroutine_exception.cc)
 target_link_libraries(Test_coroutine_exception ${MY_LIBS})
 add_test(NAME Test_coroutine_exception COMMAND Test_coroutine_exception)
 
+# 扩缩容配置/驱动模式各独立进程，禁止一次进程重复 Start。
+add_executable(Test_scheduler_scaling Test_scheduler_scaling.cc)
+target_link_libraries(Test_scheduler_scaling ${MY_LIBS})
+# 只为 scaling 可执行生成源副本：四个观察点不替换产品条件/锁/原子序。
+# 锚点必须唯一；产品代码漂移立即 configure 失败，禁止静默漏掉交错。
+set(_sc_source "${PROJECT_SOURCE_DIR}/bbt/coroutine/detail/Processer.cc")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_sc_source}")
+file(READ "${_sc_source}" _sc_probe)
+function(scaling_probe_replace anchor replacement)
+    string(REPLACE "${anchor}" "" _removed "${_sc_probe}")
+    string(LENGTH "${_sc_probe}" _old_len)
+    string(LENGTH "${_removed}" _new_len)
+    string(LENGTH "${anchor}" _anchor_len)
+    math(EXPR _difference "${_old_len} - ${_new_len}")
+    if(NOT _difference EQUAL _anchor_len)
+        message(FATAL_ERROR "Scaling probe anchor missing/non-unique: ${anchor}")
+    endif()
+    string(REPLACE "${anchor}" "${replacement}" _result "${_sc_probe}")
+    set(_sc_probe "${_result}" PARENT_SCOPE)
+endfunction()
+scaling_probe_replace(
+    "    m_enqueue_inflight.fetch_add(1, std::memory_order_seq_cst);"
+    "    ::ScalingAdmissionProbe(this, 1);\n    m_enqueue_inflight.fetch_add(1, std::memory_order_seq_cst);")
+scaling_probe_replace(
+    "    const bool enqueued = m_coroutine_queue[priority].enqueue(coroutine);"
+    "    ::ScalingAdmissionProbe(this, 2);\n    const bool enqueued = m_coroutine_queue[priority].enqueue(coroutine);")
+scaling_probe_replace("    _WaitEnqueueQuiescent();"
+    "    ::ScalingAdmissionProbe(this, 3);\n    _WaitEnqueueQuiescent();")
+scaling_probe_replace("\n}\n\nbool Processer::_HasDriverOwnership()"
+    "\n    ::ScalingAdmissionProbe(this, 4);\n}\n\nbool Processer::_HasDriverOwnership()")
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/Processer_scaling_probe.cc"
+    "#include <bbt/coroutine/detail/Processer.hpp>\nvoid ScalingAdmissionProbe(bbt::coroutine::detail::Processer*, int);\n${_sc_probe}")
+target_sources(Test_scheduler_scaling PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/Processer_scaling_probe.cc")
+set(_sc_scheduler "${PROJECT_SOURCE_DIR}/bbt/coroutine/detail/Scheduler.cc")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_sc_scheduler}")
+file(READ "${_sc_scheduler}" _sc_probe)
+scaling_probe_replace(
+    "                    : target + m_scale_step;\n                const auto result = _ApplyTargetLocked(next, notify, lock);"
+    "                    : target + m_scale_step;\n                ::ScalingAutoCommitProbe();\n                const auto result = _ApplyTargetLocked(next, notify, lock);")
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/Scheduler_scaling_probe.cc"
+    "void ScalingAutoCommitProbe();\n${_sc_probe}")
+target_sources(Test_scheduler_scaling PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/Scheduler_scaling_probe.cc")
+target_link_options(Test_scheduler_scaling PRIVATE -Wl,--export-dynamic)
+set(_sc_modes boundaries noloop_loop_reaper noloop_manual_reaper driver_parked auto_busy auto_queue
+    tls_thread tls_noloop self_retire pin_bound pin_failed pin_detaching outstanding_limit
+    concurrent_control auto_reverse admission_late admission_inflight rebalance_short_backlog)
+if(PROFILE)
+    list(APPEND _sc_modes profile_cycles)
+endif()
+foreach(mode IN LISTS _sc_modes)
+    add_test(NAME Test_scheduler_scaling_${mode} COMMAND Test_scheduler_scaling)
+    set_tests_properties(Test_scheduler_scaling_${mode} PROPERTIES
+        ENVIRONMENT "BBT_SCALING_MODE=${mode}" TIMEOUT 30 LABELS "scaling")
+endforeach()
+
+# ELF new/pthread interpose 隔离在故障可执行；不向生产库增加测试 seam。
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_executable(Test_scheduler_scaling_failures Test_scheduler_scaling_failures.cc)
+    target_link_libraries(Test_scheduler_scaling_failures ${MY_LIBS} ${CMAKE_DL_LIBS})
+    target_link_options(Test_scheduler_scaling_failures PRIVATE -Wl,--export-dynamic)
+    foreach(mode expand shrink pthread tls_alloc)
+        add_test(NAME Test_scheduler_scaling_failures_${mode} COMMAND Test_scheduler_scaling_failures ${mode})
+        set_tests_properties(Test_scheduler_scaling_failures_${mode} PROPERTIES TIMEOUT 60 LABELS "scaling")
+    endforeach()
+endif()
+
 add_executable(Test_scheduler_exec Test_scheduler_exec.cc)
 target_link_libraries(Test_scheduler_exec ${MY_LIBS})
 add_test(NAME Test_scheduler_exec COMMAND Test_scheduler_exec)

@@ -40,6 +40,7 @@
 - 继续采用有栈协程；本阶段不迁移到 C++20 原生 coroutine。
 - 保留当前 detached 协程模型，不强制引入 `Task/Join`。
 - 支持多 worker 并行。
+- worker 数可手动调整或显式开启自动策略；真实物理线程协作退役，细则见 §6.1–§6.3，不引入 P/M 两层调度模型。
 - 单个协程同一时刻只能在一个 worker 上运行。
 - 协程挂起后允许恢复到其他 worker。
 - 继续使用全局单例运行时；`g_scheduler` 是默认且当前核心设计的一部分，本阶段不做多实例。
@@ -97,17 +98,44 @@ Hook 属于核心适配层，目标是参考 libco 的方式，尽可能将其�
 核心运行时不提供业务停机入口：`Scheduler::Stop()` 已删除，不留兼容壳，也不改名藏到退出钩子。运行时的寿命是**进程寿命（process-lifetime）**：
 
 - 没有「停止接收新任务」状态：`RegistCoroutineTask` 只在队列/Processer 容量不足时报错；
-- 不取消、不唤醒、不销毁等待中的协程；
-- 不 join worker、不做运行时资源回收；
-- 不提供 restart：成功初始化一次后重复 `Start`（含并发 `Start`）抛 `std::logic_error`，不重置配置/队列、不新增 worker。
+- 不因业务关闭或 worker 退役取消、唤醒、销毁等待中的协程；显式取消与事件完成仍按正常路径唤醒；
+- 不做全局 runtime teardown；worker 缩容可由 runtime reaper 在锁外 join 退役线程，不等于关闭运行时；
+- 不提供 restart：成功初始化一次后重复 `Start`（含并发 `Start`）抛 `std::logic_error`，不重置配置/队列，也不以重复启动新增 worker；扩容只经专用控制入口。
 
 运行时可观察的初始化状态是 `Scheduler::IsInitialized()`。必要时序是「worker 与 poller/config 就绪 → 发布初始化标志 → 进入运行循环」；标志在初始化完成后恒为 true，不因业务关闭归零。使用 `SchedulerStartOpt::SCHE_START_OPT_SCHE_LOOP`（`Start` 不返回）时，这是外部唯一能观察到初始化完成的时刻。
 
 运行时及其依赖（poller、全局配置、Scheduler 单例、DNS worker 池）按同一进程寿命策略不在静态退出期析构：删除 Stop 后静态析构会直接销毁仍被 worker 线程使用的对象，因此单例由刻意泄漏的持有者维持，且不使用 `std::thread::detach` 代替对象寿命论证。
 
-旧契约中「`Scheduler::Stop()` 对仍挂起协程直接销毁、不做栈展开」是**已废止（superseded）**的历史语义（2026-09-12 #338 的用户决策）：当前实现没有 Stop 路径，因此该例外不再存在。挂起协程「不做栈展开」只是「不存在业务停机」的推论；协程级取消仍按 §2 协作式取消执行，等待中的协程可被唤醒并经正常路径返回。
+旧契约中「`Scheduler::Stop()` 对仍挂起协程直接销毁、不做栈展开」是**已废止（superseded）**的历史语义（2026-09-12 #338 的用户决策）：当前实现没有 Stop 路径，因此该例外不再存在。worker 退役同样不扫描、销毁或展开挂起协程栈；协程级取消仍按 §2 协作式取消执行，等待中的协程可被唤醒并经正常路径返回。
 
 工具层（例如 `CoPool`）的停止与排空语义独立定义，不依赖运行时停机：`CoPool::Release()` 不再把「运行时正在停机」当作等待逃生条件，普通线程与协程调用路径都必须在池排空期间维持进展。
+
+### 6.1 worker 扩缩容与物理回收
+
+> 2026-10-19 接受的动态扩缩容决策修订旧的「不 join worker」限制；进程寿命、单次初始化和无 Stop/restart 不变。控制接口及线程生命周期遵循下述契约，是否满足仍以对应实现与验证证据为准，不以本文替代验收。
+
+- worker 生命周期区分 Preparing、Active、Retiring、Exited、Joined。`PROC_EXIT`/Exited 只表示调度函数发布退出，不证明物理线程返回、用户 TLS 析构或 join 完成。active 数、target 数与 retiring/exited-unjoined 数必须分别可观察。
+- 扩容先准备整批 Processer、线程、ready/失败通道及待发布 registry；全部就绪后一次发布。准备期间不接用户任务或绑定 driver；创建/初始化/快照分配失败只清理未公开批次，旧 active/target/mode/样本计数不变，不无限等 ready。
+- 缩容整批提交关闭 admission 并移出 active；旧快照只保对象寿命，每次本地入队仍须重新校验。普通投递失败重试 active/global；定向首投对已退役目标明确拒绝。global pull、steal、睡前复查及 driver Wake 均须覆盖门禁。
+- worker 完成本次 Resume 后的完整 READY 入队、EVENT_WAIT park 提交或 FINAL 销毁，才在自身调度栈确认退役。停止获取新工作后，以实际 dequeue 排空所有优先级本地 runnable 并可靠转交全局，失败不丢任务；近似队长和 executing=false 不是排空/退出证明。
+- reaper 持有稳定线程记录和 Processer 引用，在全部 runtime/driver/队列锁外 join，返回后才发布 Joined、清理记录。用户 thread_local 析构随原 worker 退出，线程局部地址/资源不承诺与 runtime 等寿命；永久阻塞的用户代码或 TLS 析构不承诺有界回收。
+- parked 协程仍由全局 runtime 持有，事件完成后在剩余 active worker 恢复，不扫描或强制展开其业务栈。已退役 P 身份不复用。
+
+### 6.2 控制模式、结果与驱动边界
+
+- 手动/自动请求及相反方向请求经同一串行入口线性化。合法手动请求（包括 same-target）切到 Manual 并重置双向样本；只有显式恢复才切回 Auto，模式切换重置样本。未初始化、越界、driver 约束、创建失败、SelfRetire、Busy 等未接受请求不改 target/mode/样本。
+- `ProcesserResizeResult` 区分 Ok、Pending（目标已提交但退役/回收尚未完成）、NotInitialized、InvalidTarget、DriverBound、CreateFailed、SelfRetire 和 Busy（暂时不能接受新目标）。控制成功不是物理 join 收据；不得在持自身 gate/生命周期锁的栈上同步等自身退役。
+- Bound、Failed、Detaching driver 均 pin 所属 P 到同代归属真正清除；绑定与退役提交须共用 lifecycle/admission 互斥。绑定先提交则跳过该 P；退役先提交则绑定返回 InvalidTarget 且输出 token 不变。没有 driver 迁移协议。
+- 默认 THREAD/LOOP 的调度循环推进自动采样与 reaper；NO_LOOP 不创建隐藏 S 线程，自动采样依赖调用方 `LoopOnce()`。手动控制入口与 `LoopOnce()` 均推进有限 reaper 收割；无后续调用时只能报告 join 未完成，不能声称资源已回收。未完成退役批次须有界，冲突请求以 Busy 等明确结果限制物理线程资源积累，不复活旧 P。
+- active 快照须持稳定强引用并以 C++17 可用同步发布；所有外部回调、driver/异常对象最终析构和 join 均在 runtime 锁外。Profiler 的 worker registry 同步纳入准备失败和退役清理，不保活已回收 P。
+
+### 6.3 配置与策略信号
+
+- initial 为 Start 前有效 `m_cfg_static_thread_num`；其构造默认仍为 `hardware_concurrency()`，不可用时 1，不尝试识别是否显式设置。显式 static=0 非法；min/max=0 各自回退 initial。解析后 `1 <= min <= initial <= max <= INT_MAX`，不静默截断。
+- auto 默认 false；interval=100ms、up/down samples=3、step=1、busy up/down=80/20%、queue up/down=1/0（全局加 active 本地 runnable 近似总数）。interval 在 `[1, chrono::milliseconds::rep 最大值]`，samples 在 `[1, SIZE_MAX]`，step 在 `[1, INT_MAX]`；busy 在 `[0,100]` 且 down<=up；queue 在 `[0,SIZE_MAX]` 且 `1 <= up`、down<=up。auto 关闭也校验所有字段。
+- `GlobalConfig::ResolveProcesserScalingBounds` 无副作用校验上述全部规则，成功才写 initial/min/max 输出。核心实现须在 Start 不可逆启动和占用一次性启动状态前调用；非法配置抛 `std::invalid_argument`，修正后可重试，不能留下线程或半初始化状态。
+- 扩容为 `queue >= up OR busy >= up`，缩容为 `queue <= down AND busy <= down`，分别连续命中配置样本数；不命中复位该方向。若相等阈值使同拍双向满足，只选择扩容方向；提交后双向计数复位，计数饱和不溢出，每采样拍至多一批且受 step/min/max/退役候选约束。
+- busy 为 active 中正在 Resume 的 worker 占比，轻量信号独立于 `stall_warn_ms` 维护；诊断采集仍可关闭。近似 runnable 仅作控制信号，不证明队列空、所有权移交或安全退役。运行期不得并发修改静态配置字段。
 
 ## 7. 用户入口
 
@@ -158,7 +186,7 @@ M1 按以下顺序推进：
 
 ### 11.2 通用 adapter 与动态单槽绑定
 
-- adapter 不包含 Asio、socket 或其它第三方类型；Scheduler 仅对初始化完成后的已登记 worker 提供枚举、绑定、状态查询、同代同步解绑和定向首投。不得用 `GetLocalProcesser()` 惰性创建的未登记 P 充当目标。
+- adapter 不包含 Asio、socket 或其它第三方类型；Scheduler 仅对初始化完成后的已登记 worker 提供枚举、绑定、状态查询、同代同步解绑和定向首投。枚举是调用时的 active 快照，可能过期，后续绑定/定向投递须重新校验；不得用 `GetLocalProcesser()` 惰性创建的未登记 P 充当目标。退役与 driver 归属互斥见 §6.2。
 - 一个 P 至多一个 driver；允许启动后动态绑定，不抢占已有 Bound、Failed 或 Detaching 的归属。driver 不持 P 的强引用；runtime 按绑定代持有 driver 强引用。
 - 成功绑定产生包含 P 身份与非零代次的 token；解绑精确校验同代身份。过期 token 不能解绑新一代，也不能作为旧代成功解绑的收据。并发同代解绑只能确认该代，不得误操作后续重绑。
 - 注册前未初始化、非法目标、空 driver、占用、过期 token、自解绑等均须有明确结果。定向首投只接受已登记 P；失败不伪造目标成功，也不改变后续全局恢复和 stealing 路径。

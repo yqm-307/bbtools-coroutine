@@ -177,7 +177,36 @@ enum ProcesserStatus : int32_t
     PROC_DEFAULT = 0,    // 默认。尚未初始化
     PROC_SUSPEND = 1,    // 挂起中
     PROC_RUNNING = 2,    // 运行中。在执行任务
-    PROC_EXIT    = 3,    // 运行结束
+    PROC_EXIT    = 3,    // 调度函数发布退出；不证明线程返回、用户 TLS 析构或 join 完成
+};
+
+/* 与 ProcesserStatus 的运行/挂起状态正交；Joined 只能在锁外 join 返回后发布。 */
+enum class ProcesserLifecycleState
+{
+    Preparing,
+    Active,
+    Retiring,
+    Exited,
+    Joined,
+};
+
+enum class ProcesserScalingMode
+{
+    Manual,
+    Auto,
+};
+
+/* 供 Scheduler 扩缩容入口使用，不改变既有 driver adapter 的结果集合。 */
+enum class ProcesserResizeResult
+{
+    Ok,             // 目标已提交；不等同于物理 join 完成
+    Pending,        // 目标已提交，仍有退役/物理回收待推进
+    NotInitialized,
+    InvalidTarget,  // 数量不在合法范围
+    DriverBound,    // Bound/Failed/Detaching 的归属约束阻止缩容
+    CreateFailed,   // 未公开的扩容批次创建失败；旧 active/target/mode 不变
+    SelfRetire,     // 会等待自身退役的调用上下文；无副作用拒绝
+    Busy,           // 未完成退役批次等暂态限制；未接受新目标
 };
 
 enum ScheudlerStatus: int32_t

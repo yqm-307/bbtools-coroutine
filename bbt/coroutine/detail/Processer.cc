@@ -105,6 +105,26 @@ private:
     bool                                  m_acquired{false};
 };
 
+/* 轻量 busy 信号的作用域守卫：只覆盖用户协程 Resume 本身，不依赖
+ * m_cfg_worker_stall_warn_ms。异常退出也必须复位，否则自动缩容会
+ * 把该 worker 永久认为忙。 */
+class BusyScope
+{
+public:
+    explicit BusyScope(std::atomic_bool& busy): m_busy(busy)
+    {
+        m_busy.store(true, std::memory_order_release);
+    }
+    ~BusyScope()
+    {
+        m_busy.store(false, std::memory_order_release);
+    }
+    BusyScope(const BusyScope&) = delete;
+    BusyScope& operator=(const BusyScope&) = delete;
+private:
+    std::atomic_bool& m_busy;
+};
+
 } // namespace
 
 Processer::SPtr Processer::Create()
@@ -135,6 +155,13 @@ Processer::SPtr Processer::GetLocalProcesser()
     }
 
     return tl_processer;
+}
+
+void Processer::_InstallLocalProcesser(SPtr proc)
+{
+    /* commit 阶段已完成 Scheduler/Profiler 登记；这里只把新线程的 TLS
+     * 指向同一个 P，避免惰性创建第二个未登记的 Processer。 */
+    _GetLocalProcesserStorage() = std::move(proc);
 }
 
 ProcesserId Processer::_GenProcesserId()
@@ -180,14 +207,59 @@ ProcesserId Processer::GetId()
     return m_id;
 }
 
-void Processer::AddCoroutineTask(CoroutinePriority priority, Coroutine::Ptr coroutine)
+bool Processer::AddCoroutineTask(CoroutinePriority priority, Coroutine::Ptr coroutine)
+{
+    /* 外部普通投递：入队后需要 _PublishRunnable 唤醒 worker。 */
+    return _EnqueueAdmitted(priority, coroutine, /*notify*/true);
+}
+
+bool Processer::_EnqueueAdmitted(CoroutinePriority priority, Coroutine::Ptr coroutine, bool notify)
 {
     AssertWithInfo(coroutine != nullptr, "coroutine is nullptr!");
-    AssertWithInfo(m_coroutine_queue[priority].enqueue(coroutine), "oom!");
+    if (!m_admission_open.load(std::memory_order_acquire))
+        return false;
+
+    /* admission 与入队的线性化：先登记 in-flight，再复查 admission。
+     * retire 先关闭 admission 后，本路径要么在关闭前完成入队（随后由
+     * worker drain 收回），要么在复查时拒绝，绝不落入已排空的 retired
+     * 本地队列。 */
+    m_enqueue_inflight.fetch_add(1, std::memory_order_seq_cst);
+    if (!m_admission_open.load(std::memory_order_seq_cst)) {
+        _ReleaseEnqueueSlot();
+        return false;
+    }
+
+    const bool enqueued = m_coroutine_queue[priority].enqueue(coroutine);
+    AssertWithInfo(enqueued, "oom!");
+    _ReleaseEnqueueSlot();
+    if (!enqueued)
+        return false;   // 调用方仍持有协程所有权，可重试/显式拒绝
 
     /* 锁内只发布 latch/cond：driver Wake 由调用方在退出调用链锁后
-     * 经 _NotifyRunnable/_WakeDriver 触发（deferral 生效时只记 pending）。 */
-    _PublishRunnable();
+     * 经 _NotifyRunnable/_WakeDriver 触发（deferral 生效时只记 pending）。
+     * notify=false 用于 worker 自身在持 run_cond 的睡前复查/steal 路径，
+     * 避免对同一把 m_run_cond_mutex 自锁。 */
+    if (notify)
+        _PublishRunnable();
+    return true;
+}
+
+void Processer::_ReleaseEnqueueSlot()
+{
+    if (m_enqueue_inflight.fetch_sub(1, std::memory_order_acq_rel) == 1 &&
+        !m_admission_open.load(std::memory_order_acquire)) {
+        /* 与 _WaitEnqueueQuiescent 的谓词共用 mutex，避免丢唤醒 */
+        std::lock_guard<std::mutex> lock(m_enqueue_wait_mutex);
+        m_enqueue_wait_cv.notify_all();
+    }
+}
+
+void Processer::_WaitEnqueueQuiescent()
+{
+    std::unique_lock<std::mutex> lock(m_enqueue_wait_mutex);
+    m_enqueue_wait_cv.wait(lock, [this] {
+        return m_enqueue_inflight.load(std::memory_order_seq_cst) == 0;
+    });
 }
 
 void Processer::_PublishRunnable()
@@ -209,6 +281,10 @@ void Processer::_NotifyRunnable()
 
 void Processer::_WaitForWork()
 {
+    /* 已确认退役：不再取全局/等待，交给 _Run 尾部排空本地队列。 */
+    if (m_retire_requested.load(std::memory_order_acquire))
+        return;
+
     const auto timeout_us = bbt::core::clock::us(
         g_bbt_coroutine_config->m_cfg_processer_proc_interval_us);
 
@@ -259,7 +335,8 @@ void Processer::_WaitForWork()
         m_run_cond.wait_for(lock, timeout_us,
                    [this] {
                        return !m_is_running.load(std::memory_order_acquire) ||
-                           !m_run_cond_notify.load(std::memory_order_acquire);
+                           !m_run_cond_notify.load(std::memory_order_acquire) ||
+                           m_retire_requested.load(std::memory_order_acquire);
                    });
     m_run_cond_notify.store(true, std::memory_order_release);
 }
@@ -270,6 +347,41 @@ void Processer::_Init()
     m_is_running.store(true, std::memory_order_release);
     m_run_cond_notify.store(true, std::memory_order_release);
     m_running_coroutine = nullptr;
+    m_lifecycle.store(ProcesserLifecycleState::Preparing, std::memory_order_release);
+    m_admission_open.store(false, std::memory_order_release);
+    m_retire_requested.store(false, std::memory_order_release);
+    m_busy.store(false, std::memory_order_release);
+    m_enqueue_inflight.store(0, std::memory_order_release);
+}
+
+void Processer::_Activate()
+{
+    /* commit 阶段在 map/lifecycle 锁内调用：先开 admission，再发布 Active。
+     * 观察者通过同一把 Scheduler 锁看到两个状态，不会出现“Active 但拒收”。 */
+    m_admission_open.store(true, std::memory_order_release);
+    m_lifecycle.store(ProcesserLifecycleState::Active, std::memory_order_release);
+}
+
+void Processer::_BeginRetire()
+{
+    /* 调用方持有 Scheduler 的 lifecycle 互斥，且已确认 slot 为空。
+     * 顺序：先关 admission（新投递立即拒绝），再发布 Retiring，最后
+     * 置 retire 请求；worker 在自身调度栈的安全点确认。 */
+    /* 与 enqueue 的登记/复查及 drain 的计数读取组成 SC 全序；仅用
+     * acquire/release 允许双方同时看到旧值，造成 drain 结束后仍入队。 */
+    m_admission_open.store(false, std::memory_order_seq_cst);
+    m_lifecycle.store(ProcesserLifecycleState::Retiring, std::memory_order_release);
+    m_retire_requested.store(true, std::memory_order_release);
+}
+
+bool Processer::_IsActive() const noexcept
+{
+    return m_lifecycle.load(std::memory_order_acquire) == ProcesserLifecycleState::Active;
+}
+
+void Processer::_MarkJoined()
+{
+    m_lifecycle.store(ProcesserLifecycleState::Joined, std::memory_order_release);
 }
 
 void Processer::Start(bool background_thread)
@@ -289,17 +401,17 @@ void Processer::_Run()
 {
     /**
      * Processer主循环逻辑
-     * 
+     *
      * 1. 尝试从全局队列或者本地队列取协程对象
      *      - 若取不到，就挂起Processer线程
      *      - 若取得到，本地线程处理协程执行
-     * 
+     *
      * 2. 处理完本地的协程后，尝试取窃取其他P的协程
      *      - 如果窃取不到就挂起当前线程。
      *      - 如果窃取到，就执行窃取到的协程
-     * 
+     *
      * 3. 重复1、2步骤，进程寿命内不设退出条件（无业务停机入口）
-     * 
+     *
      * XXX 这里也许可以优化的点：
      *      - 是否在空闲的时候降低调度频率？
      */
@@ -333,6 +445,11 @@ void Processer::_Run()
 
     while (m_is_running.load(std::memory_order_acquire))
     {
+        /* 退役只在完整 disposition 之后、新一轮取工作之前确认：
+         * 已提交的 Resume 不会被中断，parked 协程栈也不会被展开。 */
+        if (m_retire_requested.load(std::memory_order_acquire))
+            break;
+
         m_run_status = ProcesserStatus::PROC_RUNNING;
 
         /* driver Tick(before)：每轮调度前至多一次；worker 线程、非业务
@@ -345,10 +462,21 @@ void Processer::_Run()
 
         // 对各个优先级任务进行执行，按运行时间预算（微秒）加权轮转
         bool any_dequeued = false;
+        bool retire_now = false;
         for (auto&& p : {CO_PRIORITY_CRITICAL, CO_PRIORITY_HIGH, CO_PRIORITY_NORMAL, CO_PRIORITY_LOW})
         {
+            if (retire_now)
+                break;
+
             while (priority_runtime_budget_us[p] > 0)
             {
+                /* 退役请求到达后不再取本地/全局/steal 新任务；当前
+                 * Resume 及其 disposition 已在上一轮完整提交。 */
+                if (m_retire_requested.load(std::memory_order_acquire)) {
+                    retire_now = true;
+                    break;
+                }
+
                 /* 如果取不到或者取到空的，就退出循环 */
                 if (!m_coroutine_queue[p].try_dequeue(m_running_coroutine) || m_running_coroutine == nullptr)
                 {
@@ -357,7 +485,11 @@ void Processer::_Run()
                      * 使 NORMAL 等低优先级协程长期无法被取回本地执行。
                      * 一次只搬 1 个（最小必要粒度），避免每轮按 16 个批量搬运
                      * 放大全局队列竞争；单轮搬运总量仍由预算循环门控 */
-                    if (g_scheduler->GetCoroutineFromGlobal(p, m_coroutine_queue[p], 1) <= 0)
+                    if (m_retire_requested.load(std::memory_order_acquire)) {
+                        retire_now = true;
+                        break;
+                    }
+                    if (g_scheduler->GetCoroutineFromGlobal(p, m_coroutine_queue[p], 1, this) <= 0)
                         break;
                     continue;
                 }
@@ -388,7 +520,12 @@ void Processer::_Run()
 #ifdef BBT_COROUTINE_PROFILE
                 m_co_swap_times++;
 #endif
-                m_running_coroutine->Resume();
+                /* busy 是自动策略的独立信号，始终维护；stall 诊断字段仍
+                 * 只由 m_cfg_worker_stall_warn_ms 控制。 */
+                {
+                    BusyScope busy_scope(m_busy);
+                    m_running_coroutine->Resume();
+                }
                 if (g_bbt_coroutine_config->m_cfg_worker_stall_warn_ms > 0)
                     m_executing.store(false, std::memory_order_release);
                 // MLFQ: 记录运行时长（微秒），供后续降级判断
@@ -420,6 +557,9 @@ void Processer::_Run()
             }
         }
 
+        if (retire_now)
+            break;
+
         // 检测 size_approx 假阳性：认为有任务但取不到任何协程
         if (!any_dequeued && GetExecutableNum() > 0) {
 #ifdef BBT_COROUTINE_PROFILE
@@ -433,6 +573,9 @@ void Processer::_Run()
 
         // 每 CHECK_INTERVAL 轮无条件检查全局队列
         // spin worker 会让本地队列 size_approx 始终非零
+        if (m_retire_requested.load(std::memory_order_acquire))
+            break;
+
         if (++m_global_check_counter >= kGlobalCheckInterval) {
             m_global_check_counter = 0;
             _TryGetCoroutineFromGlobal();
@@ -449,6 +592,9 @@ void Processer::_Run()
         if (any_dequeued && GetExecutableNum() > 0)
             continue;
 
+        if (m_retire_requested.load(std::memory_order_acquire))
+            break;
+
         m_run_status = ProcesserStatus::PROC_SUSPEND;
         auto steal_num = g_scheduler->TryWorkSteal(shared_from_this());
 #ifdef BBT_COROUTINE_PROFILE
@@ -462,9 +608,21 @@ void Processer::_Run()
 #endif
             _WaitForWork();
 #ifdef BBT_COROUTINE_PROFILE
-            m_suspend_cost_times += std::chrono::duration_cast<decltype(m_suspend_cost_times)>(bbt::core::clock::now<bbt::core::clock::microseconds>() - begin);
+            m_suspend_cost_times.fetch_add(
+                std::chrono::duration_cast<bbt::core::clock::us>(
+                    bbt::core::clock::now<bbt::core::clock::microseconds>() - begin).count(),
+                std::memory_order_relaxed);
 #endif
         }
+    }
+
+    if (m_retire_requested.load(std::memory_order_acquire)) {
+        /* 退役者自身的收尾顺序：排空本地 runnable -> 唤醒剩余 active ->
+         * 发布 Exited -> 线程函数返回。PROC_EXIT 只表示调度函数退出，
+         * 不证明 TLS 析构或 reaper join 完成。 */
+        _DrainLocalToGlobal();
+        g_scheduler->_WakeActiveWorkers();
+        m_lifecycle.store(ProcesserLifecycleState::Exited, std::memory_order_release);
     }
 
     m_run_status = ProcesserStatus::PROC_EXIT;
@@ -473,7 +631,11 @@ void Processer::_Run()
 
 size_t Processer::_TryGetCoroutineFromGlobal()
 {
-    /* 希望获取的总数 */ 
+    /* retired worker 不再从全局取任务；进入 drain 前的最后一道门。 */
+    if (!m_admission_open.load(std::memory_order_acquire))
+        return 0;
+
+    /* 希望获取的总数 */
     auto expected_size = g_bbt_coroutine_config->m_cfg_processer_get_co_from_g_count;
     /* 已经处理的数量 */
     size_t already_count = 0;
@@ -481,7 +643,7 @@ size_t Processer::_TryGetCoroutineFromGlobal()
     /* 每个队列都尝试去全局队列中取一下 */
     for (auto && priority : { CO_PRIORITY_CRITICAL, CO_PRIORITY_HIGH, CO_PRIORITY_NORMAL, CO_PRIORITY_LOW})
     {
-        already_count += g_scheduler->GetCoroutineFromGlobal(priority, m_coroutine_queue[priority], expected_size - already_count);
+        already_count += g_scheduler->GetCoroutineFromGlobal(priority, m_coroutine_queue[priority], expected_size - already_count, this);
         if (already_count >= expected_size)
             break;
     }
@@ -497,7 +659,7 @@ Coroutine::Ptr Processer::GetCurrentCoroutine()
 uint64_t Processer::GetContextSwapTimes()
 {
 #ifdef BBT_COROUTINE_PROFILE
-    return m_co_swap_times;
+    return m_co_swap_times.load(std::memory_order_relaxed);
 #else
     return 0;
 #endif
@@ -506,7 +668,7 @@ uint64_t Processer::GetContextSwapTimes()
 uint64_t Processer::GetSuspendCostTime()
 {
 #ifdef BBT_COROUTINE_PROFILE
-    return m_suspend_cost_times.count();
+    return m_suspend_cost_times.load(std::memory_order_relaxed);
 #else
     return 0;
 #endif
@@ -515,7 +677,7 @@ uint64_t Processer::GetSuspendCostTime()
 uint64_t Processer::GetStealSuccTimes()
 {
 #ifdef BBT_COROUTINE_PROFILE
-    return m_steal_succ_times;
+    return m_steal_succ_times.load(std::memory_order_relaxed);
 #else
     return 0;
 #endif
@@ -524,7 +686,7 @@ uint64_t Processer::GetStealSuccTimes()
 uint64_t Processer::GetStealCount()
 {
 #ifdef BBT_COROUTINE_PROFILE
-    return m_steal_count;
+    return m_steal_count.load(std::memory_order_relaxed);
 #else
     return 0;
 #endif
@@ -533,7 +695,7 @@ uint64_t Processer::GetStealCount()
 uint64_t Processer::GetStallLoopCount()
 {
 #ifdef BBT_COROUTINE_PROFILE
-    return m_stall_loop_count;
+    return m_stall_loop_count.load(std::memory_order_relaxed);
 #else
     return 0;
 #endif
@@ -541,6 +703,16 @@ uint64_t Processer::GetStallLoopCount()
 
 size_t Processer::Steal(Processer::SPtr thief)
 {
+    /* victim 已退役则其本地队列正被 drain；thief 正在退役则不得再收新任务。
+     * 两者都通过 admission/lifecycle gate 判断，不依赖近似队长。 */
+    if (thief == nullptr)
+        return 0;
+    if (!m_admission_open.load(std::memory_order_acquire) ||
+        !_IsActive())
+        return 0;
+    if (!thief->_IsActive())
+        return 0;
+
     Coroutine::Ptr item = nullptr;
     size_t steal_num = 0;
     size_t expect_size = 0;
@@ -549,16 +721,17 @@ size_t Processer::Steal(Processer::SPtr thief)
     size_t size = GetExecutableNum();
     if (size <= 0)
         return steal_num;
-    
-    /* 运行时间过久的才需要偷。
-     * m_running_coroutine_begin 与预算同为微秒（gettime_mono<us>），
-     * elapsed 必须用 us 计时；与 ms 配置比较前先换算为 us，避免 ms/us 混算 */
-    uint64_t prev_run = m_running_coroutine_begin.load();
-    auto already_run_time_us =
-        bbt::core::clock::gettime_mono<bbt::core::clock::us>() - prev_run;
-    if (already_run_time_us <
-        static_cast<uint64_t>(g_bbt_coroutine_config->m_cfg_processer_worksteal_timeout_ms) * 1000) {
-        return steal_num;
+
+    /* 可变范围需要空闲 worker 及时分摊已有积压：连续短 Resume 会不断重置
+     * 起点，沿用停顿阈值会让新增容量始终空闲。固定规模保留原策略；bounds
+     * 在 Start 发布初始化前固定，运行期只读。双方 admission 门禁仍不变。 */
+    if (g_scheduler->m_min_num == g_scheduler->m_max_num) {
+        const uint64_t prev_run = m_running_coroutine_begin.load();
+        const auto already_run_time_us =
+            bbt::core::clock::gettime_mono<bbt::core::clock::us>() - prev_run;
+        if (already_run_time_us <
+            static_cast<uint64_t>(g_bbt_coroutine_config->m_cfg_processer_worksteal_timeout_ms) * 1000)
+            return steal_num;
     }
 
     /* 计算下需要偷多少个 */
@@ -575,7 +748,15 @@ size_t Processer::Steal(Processer::SPtr thief)
             if (!m_coroutine_queue[p].try_dequeue(item))
                 break;
 
-            AssertWithInfo(thief->m_coroutine_queue[p].enqueue(item), "oom!");
+            /* 目标写入同样过 admission gate；thief 在途中退役时把任务
+             * 可靠送回全局，绝不写入已关闭接纳的本地队列。notify=false：
+             * 目的端 worker 正在运行，无需自唤醒。 */
+            if (!thief->_EnqueueAdmitted(p, item, /*notify*/false)) {
+                while (!g_scheduler->_EnqueueGlobal(p, item))
+                    std::this_thread::yield();
+                item = nullptr;
+                break;
+            }
             item = nullptr;
             ++count;
         }
@@ -589,6 +770,35 @@ size_t Processer::Steal(Processer::SPtr thief)
 #endif
 
     return steal_num;
+}
+
+void Processer::_DrainLocalToGlobal()
+{
+    /* 关闭 admission 后先等所有在途 enqueue 收敛，再实际 dequeue；此后
+     * 不可能再有人写入本地队列。近似队长不作排空证明。 */
+    _WaitEnqueueQuiescent();
+
+    for (auto && priority : {CO_PRIORITY_CRITICAL, CO_PRIORITY_HIGH, CO_PRIORITY_NORMAL, CO_PRIORITY_LOW})
+    {
+        Coroutine::Ptr item = nullptr;
+        while (m_coroutine_queue[priority].try_dequeue(item))
+        {
+            /* 每次实际出队都必须有成功/失败结果：失败不静默丢弃，重试
+             * 直到全局接受（仅分配失败时可能长时间 yield，任务所有权
+             * 仍在本 worker，不丢、不重复）。 */
+            while (!g_scheduler->_EnqueueGlobal(priority, item))
+                std::this_thread::yield();
+            item = nullptr;
+        }
+    }
+}
+
+bool Processer::_HasDriverOwnership()
+{
+    /* Bound/Failed/Detaching 任一存在即占 slot；只有同代解绑真正清槽后
+     * 才回到可退役候选集合。 */
+    std::lock_guard<std::mutex> lock(m_driver_slot_mutex);
+    return m_driver_binding != nullptr;
 }
 
 std::shared_ptr<ProcesserDriverBinding> Processer::_GetDriverBinding()
@@ -666,6 +876,12 @@ ProcesserDriverStatus Processer::_BindDriver(
     const std::shared_ptr<IProcesserDriver>& driver,
     ProcesserDriverToken& out_token)
 {
+    /* 调用方（Scheduler::RegisterProcesserDriver）持有 lifecycle 互斥，与
+     * 退役提交共用同一线性化点：绑定先到则该 P 被 pin，退役跳过；退役先到
+     * 则该 P 已非 Active/已移出 active，返回 InvalidTarget 且 out_token 不变。 */
+    if (m_lifecycle.load(std::memory_order_acquire) != ProcesserLifecycleState::Active)
+        return ProcesserDriverStatus::InvalidTarget;
+
     {
         std::lock_guard<std::mutex> lock(m_driver_slot_mutex);
         /* 单槽：Bound/Failed/Detaching 都占归属，detached 后才让位 */
@@ -686,9 +902,8 @@ ProcesserDriverStatus Processer::_BindDriver(
         out_token.m_generation = gen;
     }
 
-    /* 动态绑定打断旧的 CV/Wait，让 worker 尽快进入 Tick/Wait 驱动路径 */
-    _PublishRunnable();
-    _WakeDriver();
+    /* 动态绑定打断旧 CV/Wait 的发布与 driver Wake 由调用方在退出
+     * lifecycle/slot 锁后执行（_PublishRunnable/_WakeDriver）。 */
     return ProcesserDriverStatus::Ok;
 }
 

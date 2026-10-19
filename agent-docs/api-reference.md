@@ -8,7 +8,7 @@
 
 ## 覆盖范围
 
-- **运行时**：`g_scheduler`、`Start` / `LoopOnce` / `IsInitialized`、`SchedulerStartOpt`
+- **运行时**：`g_scheduler`、`Start` / `LoopOnce` / `IsInitialized`、Processer 扩缩容控制与查询、`SchedulerStartOpt`
 - 注册：`bbtco` / `bbtco_desc` / `bbtco_ref` / `bbtco_noexcept`
 - 让出：`bbtco_yield`、`bbtco_sleep`
 - 查询：`GetLocalCoroutineId`、`GetLocalCoroutineStackSize`
@@ -63,6 +63,29 @@
 
 - 旧签名 `void Stop();` 与 `void Scheduler::GetRunGeneration()`、`RuntimeGeneration` 一起删除，**不留兼容壳**。运行时是进程寿命对象，不做取消式停机、不排空任务、不 unload（契约 §6）。
 - 旧语义（停止接新任务、join worker、回收未执行与 parked 协程、停机后 `RegistCoroutineTask` 抛 `std::runtime_error`）**superseded**，历史报告保持原文并在迁移说明中标注，不作为当前实现依据。
+- worker 缩容的协作退出和 reaper join 不属于 Stop/teardown；不展开 parked 栈、不停止全局运行时（目标契约 §6.1–§6.3）。
+
+### Processer 扩缩容控制与查询
+
+头文件：`bbt/coroutine/detail/Scheduler.hpp`；结果及状态类型位于 `Define.hpp`，命名空间均为 `bbt::coroutine::detail`。
+
+| 签名 | 行为 |
+|---|---|
+| `ProcesserResizeResult SetProcesserNum(size_t num)` | 请求 `[min,max]` 内的活动 worker 数；合法请求（含 same-target）切到 Manual、重置采样；扩容整批发布，缩容协作退役 |
+| `ProcesserResizeResult SetProcesserAutoScale(bool enable)` | 显式切换 Auto/Manual 并重置双向采样；不通过并发修改配置字段切换 |
+| `size_t GetProcesserNum()` | 当前 active 数，已经扣除 Retiring/Exited，不是物理线程总数；未初始化返回 0 |
+| `size_t GetProcesserTargetNum()` | 最近提交的目标数，未初始化为 0 |
+| `size_t GetProcesserRetiringNum()` | 已移出 active、尚未发布 Exited 的 worker 数；未初始化返回 0 |
+| `size_t GetProcesserExitedUnjoinedNum()` | 已发布 Exited、尚未完成 join 的 worker 数，包含等待 TLS 析构的线程；未初始化返回 0 |
+| `ProcesserScalingMode GetProcesserScalingMode()` | 当前 Manual/Auto，未初始化为 Manual |
+
+- `ProcesserLifecycleState{Preparing, Active, Retiring, Exited, Joined}` 区分线程生命周期；不改既有 `ProcesserStatus` 数值或 driver 的结果集合。各 getter 单独同步，不构成同一时刻的联合快照。
+- `ProcesserResizeResult`：`Ok` 为扩容/同目标请求已提交；`Pending` 为缩容目标已提交，但退役/物理回收尚未完成；`NotInitialized` / `InvalidTarget` / `DriverBound` / `CreateFailed` / `SelfRetire` / `Busy` 为未接受该目标。拒绝的手动请求不改变 target/mode/采样。扩容准备分配或线程初始化失败返回 `CreateFailed`，不公开半批；缩容准备分配失败或未完成退役总数将超过 32 时返回 `Busy`。
+- Bound/Failed/Detaching driver 均 pin 所属 worker，目标低于可保留数量时返回 `DriverBound`。在 worker 上调用时会跳过自身；若必须退役自身才能达到目标，返回 `SelfRetire`，不等待自身。控制可能持锁、创建线程并等待初始化，不是无阻塞接口，建议由外部控制线程调用。
+- `Ok`、`Pending`、active 下降及 `PROC_EXIT` 都不是物理 join 收据；观察 retiring 与 exited-unjoined 均归零才能确认已提交退役记录收口。用户 TLS 析构未完成时保持 exited-unjoined，reaper 不为等待它阻塞调度事件驱动。
+- THREAD/LOOP 的调度循环推进 auto 与 reaper；NO_LOOP 无隐藏调度线程，auto 采样依赖 `LoopOnce()`，`SetProcesserNum()` 与 `LoopOnce()` 均能推进 reaper。getter 不推进回收；停止调用控制/驱动入口时可能保持 exited-unjoined。单次收割至多 8 条已完成线程退出的记录，不强杀用户代码，不展开 parked 栈。
+- `Start` 在一次性启动状态和线程副作用前消费 `ResolveProcesserScalingBounds`；非法配置抛 `std::invalid_argument`，修正后可重试。具体配置见本文配置表，运行时语义见契约 §6.1–§6.3。
+- 解析后 `min < max` 时，空闲 active worker 可立即偷取其它 active worker 的本地积压，不等待当前 Resume 超过停顿阈值；手动扩容同样可分担连续短任务。`min == max` 的固定规模保留原偷取阈值。两者都不抢占正在 Resume 的协程，也不保证定向首投的硬亲和。
 
 ### `Scheduler::RegistCoroutineTask`
 
@@ -103,7 +126,7 @@
 
 #### `Scheduler` adapter 入口
 
-- `std::vector<ProcesserId> GetWorkerProcesserIds()` — 未初始化返回空，不惰性创建 P。
+- `std::vector<ProcesserId> GetWorkerProcesserIds()` — 未初始化返回空，不惰性创建 P；调用时快照，不承诺后续绑定/定向投递目标仍有效（动态退役目标契约见 §6.2）。
 - `ProcesserDriverStatus RegisterProcesserDriver(ProcesserId, std::shared_ptr<IProcesserDriver>, ProcesserDriverToken&)` — 目标必须是已登记 worker（`GetLocalProcesser()` 惰性 P 与未知 id 一律 `InvalidTarget`）；空 driver `InvalidDriver`；已有归属 `Occupied`；失败不改 `out_token`。
 - `ProcesserDriverStatus QueryProcesserDriver(ProcesserId, ProcesserDriverSnapshot&)` — 合法空槽返回 `Ok` + `Unbound` 快照；目标非法 `InvalidTarget`；失败不改 `out_snapshot`。
 - `ProcesserDriverStatus UnregisterProcesserDriver(const ProcesserDriverToken&)` — 同代精确校验，旧/伪 token `StaleToken`；目标 worker 线程、受管业务协程、持该代 callback lease 的线程、以及仍处 runtime 通知临界区（`DriverWakeDeferral` 生效）的线程调用一律 `SelfDetach`——否则终止 Wake 会穿透 deferral 在 runtime 锁内执行。返回 `Ok` 前已执行终止 Wake 并等全部在途 Tick/Wait/Wake 退出——这是「runtime 不再调用该代」的确认，不是业务资源已物理关闭的收据。
@@ -370,14 +393,25 @@ int idx = sync::CoSelect()
 | `m_cfg_static_coroutine` | `0` | 启动时预创建数量（只对默认 U/保护桶预热，裁剪到 `m_cfg_stackpool_max_alloc_size`） |
 | `m_cfg_stackpool_min_alloc_size` | `128` | 定时回收的全池最低保留数（不是每桶下限）；显式清缓存不受它限制 |
 | `m_cfg_stackpool_max_alloc_size` | 同 `m_cfg_max_coroutine` | 跨桶「同时借出 + 申请中」的总上限，不是每桶上限或内存字节预算 |
-| `m_cfg_static_thread_num` | `0` → `hardware_concurrency()` | worker 数 |
+| `m_cfg_static_thread_num` | 构造时 `hardware_concurrency()`，不可用时 `1` | initial worker 数；Start 前显式改成 `0` 非法，不识别用户是否显式设置 |
+| `m_cfg_processer_auto_scale` | `false` | 初始自动策略开关；运行期不能并发改配置字段 |
+| `m_cfg_processer_min_num` / `m_cfg_processer_max_num` | `0` / `0` | 各自回退 initial；解析后 `1 <= min <= initial <= max <= INT_MAX` |
+| `m_cfg_processer_scale_interval_ms` | `100` | `[1, chrono::milliseconds::rep 最大值]` ms |
+| `m_cfg_processer_scale_up_samples` / `m_cfg_processer_scale_down_samples` | `3` / `3` | 连续命中次数，各在 `[1, SIZE_MAX]` |
+| `m_cfg_processer_scale_step` | `1` | 每拍至多改变的数量，`[1, INT_MAX]`，实际受 min/max 约束 |
+| `m_cfg_processer_scale_up_busy_percent` / `m_cfg_processer_scale_down_busy_percent` | `80` / `20` | 各在 `[0,100]` 且 down<=up；不依赖 stall 告警开关 |
+| `m_cfg_processer_scale_up_queue_watermark` / `m_cfg_processer_scale_down_queue_watermark` | `1` / `0` | 全局加 active 本地 runnable 近似总数，各在 `[0,SIZE_MAX]`，up>=1 且 down<=up；不作排空证明 |
 | `m_cfg_scan_interval_ms` | `1` | 调度扫描间隔 |
 | `m_ext_coevent_exception_callback` | `nullptr` | detached 异常回调；回调不得再抛给运行时 |
 | `m_unhandled_exception_count` | `0` | 无回调时计数 |
 | `m_cfg_worker_stall_warn_ms` | `0` 关 | worker 单次执行超过该毫秒告警 |
 | `m_ext_worker_stall_callback` | 默认 stderr | 调度线程调用，勿阻塞 |
 
-`m_cfg_processer_*` 与栈池参数是内部调优，见头文件。
+`bool GlobalConfig::ResolveProcesserScalingBounds(ProcesserScalingBounds& out_bounds) const noexcept` 校验全部扩缩容字段（auto 关闭也校验），成功返回 true 并写 `m_initial_num/m_min_num/m_max_num`；失败返回 false，输出与原始配置不变，不启动线程。`ProcesserScalingBounds` 与 helper 位于 `GlobalConfig.hpp`，供核心启动路径消费。
+
+扩缩容策略：queue>=up **或** busy>=up 连续命中时扩容；queue<=down **且** busy<=down 连续命中时缩容。双向计数独立，不命中即复位；相等阈值同拍双向命中时仅选扩容，提交后双向复位，每拍至多一批。运行期通过上面的控制入口切换，不直接并发改配置；详见契约 §6.1–§6.3。
+
+其余 `m_cfg_processer_*` 与栈池参数是内部调优，见头文件。
 
 ---
 

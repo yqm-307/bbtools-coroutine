@@ -1,0 +1,98 @@
+{
+  "schema_version": "local_scaling_acceptance/v1",
+  "base_sha": "1e9f0e8c25de85dde003def65bb58b90bdac0e0b",
+  "branch": "feat/processer-dynamic-scaling",
+  "product_candidate_sha256": "12d25e5ac8debb952217fe1911808a8365f57790f56ecc83352c29aa31df7d2b",
+  "product_file_count": 16,
+  "summary_excluded_from_product_fingerprint": true,
+  "status": "local_delivery_verified_uncommitted",
+  "commit_push_pr_ci_release": "not_executed",
+  "functional": {
+    "release_scaling_passed": 22,
+    "smoke_passed": 8,
+    "direct_coupling_passed": 25,
+    "profile_scaling_passed": 23,
+    "additional_profile_executions_passed": 45,
+    "additional_rebalance_executions_passed": 20,
+    "profile_expansion_actual_fault_points_passed": 25,
+    "cxx17_no_rtti_wall_werror_syntax": "PASS",
+    "diff_check": "PASS",
+    "rebalance_red_exit_code": 8,
+    "rebalance_red_new_worker_tasks": 0,
+    "original_probe_fixed_runs": [
+      {"exit_code": 0, "completed": 1200, "new_worker_tasks": 900, "drain_ms": 60.417},
+      {"exit_code": 0, "completed": 1200, "new_worker_tasks": 899, "drain_ms": 60.510},
+      {"exit_code": 0, "completed": 1200, "new_worker_tasks": 900, "drain_ms": 60.561}
+    ]
+  },
+  "performance": {
+    "independent_processes": 36,
+    "measured_batches": 108,
+    "processes_per_workload_config": 3,
+    "warmup_batches_per_process": 1,
+    "measured_batches_per_process": 3,
+    "all_exit_codes_zero": true,
+    "per_task_exactly_once_checked": true,
+    "build": "Release/O3/PROFILE=OFF",
+    "cpu_affinity": [0, 1, 2, 3, 4, 5],
+    "exclusive_cpu": false,
+    "ld_library_path_removed": true,
+    "summary": [
+      {
+        "workload": "short", "tasks": 2000, "task_us": 30,
+        "drain_ms_median": {"old_fixed4": 16.232, "candidate_fixed4": 16.226, "candidate_fixed1": 61.718, "dynamic4": 24.213},
+        "dynamic_throughput_tasks_s_median": 82601.358,
+        "candidate_fixed4_vs_old_throughput_change_percent": 0.03673774534940222,
+        "dynamic_peak_workers_sampled_median": 4,
+        "dynamic_fallback_join_ms_median": 48.714818,
+        "dynamic_threads_peak_idle_median": [6, 3],
+        "dynamic_rss_peak_idle_kib_median": [21652, 21652]
+      },
+      {
+        "workload": "sustained", "tasks": 20000, "task_us": 300,
+        "drain_ms_median": {"old_fixed4": 1509.541, "candidate_fixed4": 1508.732, "candidate_fixed1": 6027.729, "dynamic4": 1519.200},
+        "dynamic_throughput_tasks_s_median": 13164.823,
+        "candidate_fixed4_vs_old_throughput_change_percent": 0.053573599884004786,
+        "dynamic_vs_fixed4_drain_change_percent_rounded": 0.694,
+        "dynamic_speedup_vs_fixed1_rounded": 3.968,
+        "dynamic_peak_workers_sampled_median": 4,
+        "dynamic_fallback_join_ms_median": 49.423574,
+        "dynamic_threads_peak_idle_median": [6, 3],
+        "dynamic_rss_peak_idle_kib_median": [168416, 168416]
+      },
+      {
+        "workload": "scheduling", "tasks": 10000, "task_us": 0,
+        "drain_ms_median": {"old_fixed4": 88.832, "candidate_fixed4": 67.960, "candidate_fixed1": 13.405, "dynamic4": 37.879},
+        "dynamic_throughput_tasks_s_median": 263995.553,
+        "candidate_fixed4_vs_old_throughput_change_percent": 30.7133058225753,
+        "dynamic_peak_workers_sampled_median": 4,
+        "dynamic_fallback_join_ms_median": 48.060481,
+        "dynamic_threads_peak_idle_median": [6, 3],
+        "dynamic_rss_peak_idle_kib_median": [6904, 6904]
+      }
+    ],
+    "limitations": [
+      "WSL host contention and nonexclusive CPU affinity",
+      "Dynamic begins at one worker; short bursts include expansion startup cost",
+      "Single worker can outperform multiple workers for zero-duration microtasks",
+      "RSS is sampled; no promise of immediate allocator or stack-pool OS return",
+      "Drain time used as agreed alternative; p95/p99 not measured",
+      "Finite local sample, not production long soak"
+    ]
+  },
+  "review": {
+    "previous_full_candidate": "1f0ea36ddcd9566f4c09217f3a3d6586200867db3b32e3e8f43564824cdcc805",
+    "previous_full_verdict": "PASS",
+    "previous_p0": 0,
+    "previous_p1": 0,
+    "previous_p2": 2,
+    "four_file_rebalance_delta": "PASS_report_readback_and_candidate_verified",
+    "delta_p0": 0,
+    "delta_p1": 0,
+    "delta_p2": 0,
+    "review_execution_boundary_incident": "Read-only reviewer checked out identical base, leaving detached HEAD; parent restored intended branch with product hashes and index unchanged"
+  },
+  "raw_evidence_root": "tests/reports/work/perf/20261019-12d25e5-scaling",
+  "not_covered": ["TSan/ASan", "ARM weak memory", "full local CTest", "remote CI", "production long soak", "real network consumers"],
+  "local_test_policy_conflict": "Top-level AGENTS scoped smoke/feature/coupled tests followed as accepted; process document local full-CTest requirement not also claimed satisfied"
+}

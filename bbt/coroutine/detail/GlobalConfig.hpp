@@ -8,6 +8,14 @@
 namespace bbt::coroutine::detail
 {
 
+/* Start 前解析的 worker 数量边界；零值回退只作用于 min/max，不改写原始配置。 */
+struct ProcesserScalingBounds
+{
+    size_t m_initial_num{0};
+    size_t m_min_num{0};
+    size_t m_max_num{0};
+};
+
 /**
  * @brief 协程库静态配置
  * 
@@ -22,6 +30,9 @@ public:
         return *_holder;
     }
 
+    /* 校验全部扩缩容配置并解析数量边界；失败返回 false，out_bounds 不变。
+     * 不启动线程、不修改配置；调用者须在 Start 的不可逆副作用前调用。 */
+    bool                                        ResolveProcesserScalingBounds(ProcesserScalingBounds& out_bounds) const noexcept;
 
     /* 这里的配置都是非线程安全的，建议在启动前设置好 */
     size_t                                      m_cfg_max_coroutine{65535};                 // 最大协程数，超过此数量，继续注册会throw异常
@@ -36,10 +47,30 @@ public:
     size_t                                      m_cfg_stack_size{1024 * 12};                // 栈大小
     bool                                        m_cfg_stack_protect{true};                  // 栈保护
     size_t                                      m_cfg_scan_interval_ms{1};                  // scheduler 扫描间隔
-    size_t                                      m_cfg_static_thread_num{0};                 // 静态线程数，如果不指定则默认是 std::thread::hardware_concurrency()
+    size_t                                      m_cfg_static_thread_num{0};                 // initial；构造时取 hardware_concurrency()，不可用时取 1
     const size_t                                m_cfg_profile_printf_ms{1000};              // 打印profile间隔，0不打印
 
     /* Processer */
+    /* 启动前配置，运行期模式切换由 Scheduler 控制，不能并发改这些字段。
+     * auto 默认关闭，min/max=0 分别回退 initial，保持旧调用方的 worker 数。
+     * 数量和 step 在 [1, INT_MAX]；initial 必须在解析后的 [min,max] 内。 */
+    bool                                        m_cfg_processer_auto_scale{false};
+    size_t                                      m_cfg_processer_min_num{0};
+    size_t                                      m_cfg_processer_max_num{0};
+    /* interval 毫秒数在 [1, chrono::milliseconds::rep 最大值]；samples >= 1。 */
+    size_t                                      m_cfg_processer_scale_interval_ms{100};
+    size_t                                      m_cfg_processer_scale_up_samples{3};
+    size_t                                      m_cfg_processer_scale_down_samples{3};
+    size_t                                      m_cfg_processer_scale_step{1};
+    /* busy 为 active worker 中正在 Resume 的百分比，0..100，down <= up。
+     * 只作控制信号，不作为 worker 退役安全点，也不依赖 stall 告警开关。 */
+    size_t                                      m_cfg_processer_scale_up_busy_percent{80};
+    size_t                                      m_cfg_processer_scale_down_busy_percent{20};
+    /* 全局 + active 本地 runnable 近似总数：up >= 1，0 <= down <= up。
+     * >= up 或 busy >= up 连续命中扩容；<= down 且 busy <= down 连续命中缩容。 */
+    size_t                                      m_cfg_processer_scale_up_queue_watermark{1};
+    size_t                                      m_cfg_processer_scale_down_queue_watermark{0};
+
     const size_t                                m_cfg_processer_get_co_from_g_count{16};   // 每次从g队列获取任务数量
     const size_t                                m_cfg_processer_steal_once_min_task_num{8};// 如果有任务，最少偷64个
     const size_t                                m_cfg_processer_worksteal_timeout_ms{10};   // work steal 认为任务饿死的超时时间
@@ -71,7 +102,8 @@ public:
     std::atomic_uint64_t                       m_unhandled_exception_count{0};
 
     /* worker 无进展检测（#277）：>0 启用，协程单次执行超过该毫秒数即告警；
-     * 0=关闭（默认，零开销）。检测在调度线程 _FixTimingScan 内，每拍扫描。 */
+     * 0=关闭诊断采集（默认）；自动扩缩容的轻量 busy 信号独立维护。
+     * 检测在调度线程 _FixTimingScan 内，每拍扫描。 */
     size_t                                      m_cfg_worker_stall_warn_ms{0};
     /* 告警回调。未设置时默认 fprintf(stderr) 一行。调度线程调用，勿阻塞。 */
     WorkerStallCallback                         m_ext_worker_stall_callback{nullptr};

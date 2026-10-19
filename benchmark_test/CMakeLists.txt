@@ -10,6 +10,14 @@ set(MY_LIBS
 add_executable(fatigue_coroutine fatigue_coroutine.cc)
 target_link_libraries(fatigue_coroutine ${MY_LIBS})
 
+# 仅构建；短跑/长跑均由调用方显式启动，不注册自动 benchmark。
+add_executable(benchmark_processer_scaling benchmark_processer_scaling.cc)
+target_link_libraries(benchmark_processer_scaling ${MY_LIBS})
+option(BBT_SCALING_LEGACY_RUNTIME "仅在已核实的旧 runtime 上构建 fixed-old 基准" OFF)
+if(BBT_SCALING_LEGACY_RUNTIME)
+    target_compile_definitions(benchmark_processer_scaling PRIVATE BBT_SCALING_LEGACY_RUNTIME)
+endif()
+
 add_executable(benchmark_coroutine benchmark_coroutine.cc)
 target_link_libraries(benchmark_coroutine ${MY_LIBS})
 
