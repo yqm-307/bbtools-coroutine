@@ -178,14 +178,20 @@ M1 按以下顺序推进：
 - 绑定 worker、受管业务协程以及当前线程持该代任一 callback lease 时，同步解绑在任何副作用前拒绝，避免等待自身或嵌套外调。最后一个 driver 强引用不得在锁内析构。
 - 同代同步解绑成功是该代不再由 runtime 调用的确认，不是业务资源已物理关闭、runtime 已停止或 context 已自动转移 owner 的确认。
 
-### 11.5 infra 消费者责任（目标，尚未实现）
+### 11.5 infra 消费者责任（R2 已确认目标，尚未实现/联调）
 
-- infra 自有 main/sub context 与网络资源；目标为每个 reactor owner 占一个已登记 P 的 driver 槽，由该 P 的非业务协程 Tick/Wait 推进。worker 槽不足明确失败并回滚已绑槽，不自动扩 worker、不回退旧线程模式、不静默改 loop 数。B1 不引入网络 API，也不反向依赖 infra。
-- native I/O、事件注册/撤销、mutable buffer、fd close 与终态仍在稳定 owner 串行域。业务 Handler 只在受管协程执行，同连接事件门保证至多一个活跃；handler 可挂起/迁移，不要求与 pump 同 P。bridge 只做有界命令投递、不可变数据/操作状态交接和既有 CoWaiter/任务通知；不直接 Resume、不跨域裸借 mutable ring、不挂起持 OS mutex。
-- 正常关闭由原 owner 推进。一次可恢复 Tick/Wait 失败时，infra 控制线程先封口业务/命令接纳、冻结新资源操作并保留已接纳责任，再以同代 token 同步解绑；确认全部 callback 已退出后，控制线程才通过 infra 内部清理入口独占接管旧 context。该清理不重新绑定 driver、不向复用槽提交旧资源、不新增 runtime teardown/owner-transfer/restart API。
-- 物理关闭、取消完成 callback 的有界 drain 及旧 context 单执行者检查属于 infra。清理未完成时保持封口、资源可达和可重试状态，不发布 Stopped、不 DetachOwner、不释放 context；物理与 callback 均收口后，才在 context 活着时 DetachOwner 并释放。不得用 stop 丢 callback 伪造完成，也不等待业务 handler 自身返回。
-- B1 fake-driver 只验证失败可观察、全 callback 退出后控制线程可单 owner 清理旧 fake 资源、其它 worker 继续进展；不代表真实 Asio、TCP、Close 或两仓集成已验证。真实消费者若无法兑现这些前提，B2 须暂停并独审最小修正，不降低关闭成功条件。
+- infra 自有 main/sub context、网络资源和 Engine 控制域；每个 Reactor owner 占一个已登记 P 的 driver 槽，由该 P 的非业务协程 Tick/Wait 推进，不额外创建网络 I/O 线程。Engine 自动选择空闲已登记槽，以成功绑定 token 为准；不足或竞争失败明确回滚，不抢占、不扩 worker、不回退旧线程、不静默缩 loop 数。B1 不引入网络 API，也不反向依赖 infra。
+- native socket I/O、事件注册/撤销、fd close 与 backend 生命周期维持稳定 owner 串行域。**原始短回调与业务协程分层**：infra 原始 OnAccept/OnConnect/OnRead/OnWrite/OnClose 在 owner 的非业务协程边界执行，必须短、非阻塞、不可挂起，同连接不重入且不递归调用户回调；业务处理及可挂起同步外观由上层使用既有 CoWaiter/Chan/任务注册薄封装，业务协程仍可迁移 P。不强制为每连接/就绪自动创建业务协程，不再要求所有网络通知先进入受管业务事件快照。
+- 接收 ring 的存储、字节顺序及未消费数据归 infra；允许通过 infra 自有的最小同步访问面安全共享，**不要求 mutable 接收缓冲只能被 owner 消费**。OnRead 只通知，ring 是数据真源；try 访问竞争明确 Busy、零消费，组合 Peek/Consume 在短保护内，裸 view 不越保护、不挂起持 OS mutex。owner 遇竞争退让，保护释放/容量恢复的持久通知与登记后复查由 infra 兑现。所有用户回调和 Notify 在外层锁之外；关闭后已有接收数据仍可读，ring/状态寿命不依赖已销毁 socket/context。runtime 不托管该缓冲，不建设第二接收队列或等待仲裁。
+- bridge 仅负责有界命令、数据所有权/操作状态交接与既有通知，不直接 Resume、不要求协程回原 P。AsyncWrite 的提交接纳、本地发送完成和业务回包分开；已接纳操作的部分进度、唯一终态及超时仍在途责任由 infra 诚实提供。普通 fd errno、EOF、协程等待超时/取消不升级为 driver Failed，不自动关闭/重发；业务重试、分帧、请求匹配与连接使用策略归上层。精确网络 API/背压规则只在 infra 文档定义，不变成 runtime 公共 API。
+- Engine::Run 在非受管协程、非 owner 的宿主 native 线程运行控制域，不新建库内控制线程。宿主须明确保证 runtime 内部 EventLoop 独立持续推进；NO_LOOP 不能因 Run 占用唯一 LoopOnce 执行流而停止 Timer/等待维护。现有 IsInitialized 不是持续进展证明；runtime 不新增启动模式探活或 Stop/restart。网络启动拒绝及 RequestClose/Run 返回语义由 infra 定义。
+- 正常网络关闭仍由原 owner 推进；控制域同代同步解绑成功后才可独占旧 context 进行必要的最后清理。RequestClose 封口不等于资源已释放，Run 返回的收口语义由 infra 兑现，不等待上层业务任务返回或外部句柄归零。同步解绑没有 deadline，不捏造可取消解绑或硬时限。
+- 一次可恢复 Tick/Wait 失败时，infra 控制循环通过现有 QueryProcesserDriver 按持有 token 有限间隔复查，不依赖 runtime 新增失败 callback；每代明确报告错误、封口并保留已接纳责任，再同代同步解绑。全部 callback lease 退出后，控制线程才通过 infra 内部入口独占清理旧 context，不重绑、不向复用槽提交旧资源、不新增 runtime teardown/owner-transfer/restart。driver Failed 后不在控制域冒充 owner 补调用户原始回调；infra 用控制域错误、可查询冻结状态及内部完成订阅作为明确替代出口。
+- 物理关闭、取消完成 callback 的有界 drain 和旧 context 单执行者检查属于 infra。未收口时保持封口、资源可达与可重试，不发布 Stopped、不 DetachOwner、不释放 context；物理及 callback 均收口后才在 context 活着时拆 backend/DetachOwner 并释放。不得用 stop 丢 callback 伪造完成，也不等待业务 handler 自身返回。持续资源耗尽、永久阻塞或不获调度不承诺有界完成，不据此建设自愈/迁移平台。
+- B1 fake-driver 只验证失败可观察、全 callback 退出后控制线程可单 owner 清理旧 fake 资源、其它 worker 继续进展；不代表 R2 真实 Asio/TCP/Close 或两仓集成已验证。真实消费者若无法兑现这些前提，B2 须暂停并独审最小修正，不降低关闭成功条件。
 - 上层仍负责 readiness/drain/EAGAIN、单 callback 及跨 tick 预算、部分写和背压。Asio 公共 async_wait 不等价 native per-fd EPOLLET；外层 poll_one 数量预算也不自动约束 callback 内部耗时。
+
+此处按用户确认的 R2 修订消费者目标，不修改 §11.3–§11.4 的 runtime 行为或既有 API；本地文档修改不等于发布、依赖升级或实现放行。infra 侧当前目标见其 `docs/architecture/gnet-network-execution.md` 与 `docs/decisions/0010-gnet-network-foundation.md`；双方发布后消费需记录实际契约、源码和链接 SHA。
 
 ### 11.6 共享 executor 与参考边界
 

@@ -110,6 +110,8 @@
 - `void RegistCoroutineTaskOn(ProcesserId, const CoroutineCallback&, const char* desc = nullptr)` 与带 `stack_size` 重载 — 定向首投：仅入目标 worker 初始队列的偏好，无硬亲和；stealing 与挂起恢复路径不变。未初始化抛 `std::logic_error`，非法目标抛 `std::invalid_argument`。
 - 上述可能分配/持锁的入口均非 `noexcept`；全部 driver 回调在整条调用链的 runtime 锁之外执行。
 
+> **infra 消费者目标与已实现 API 分开：** 核心契约 [§11.5](2026-09-07-core-runtime-contract.md#115-infra-消费者责任r2-已确认目标尚未实现联调) 按已确认 R2 区分 owner 短原始回调、可挂起业务协程和受保护共享接收 ring；这些是 infra 待实现的网络职责，不新增本节 runtime 函数。`IsInitialized()` 不证明内部 EventLoop 持续推进；宿主须让 net Run 与唯一 runtime loop 驱动执行流分开。driver `Failed` 可通过现有查询观察，解绑无 deadline，成功只确认 runtime callback 已退出。本文列出的 runtime API 签名与行为不因消费者文档修订改变。
+
 ---
 
 ## 2. 协程注册宏
