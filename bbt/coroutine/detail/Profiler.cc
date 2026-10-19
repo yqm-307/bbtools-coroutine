@@ -50,6 +50,8 @@ void Profiler::OnEvent_TriggerCoPollEvent()
 
 void Profiler::OnEvent_StartProcesser(Processer::SPtr proc)
 {
+    if (proc == nullptr)
+        return;
     std::unique_lock<std::mutex> _(m_processer_map_mutex);
     ProcesserId id = proc->GetId();
     auto it = m_processer_map.find(id);
@@ -57,13 +59,19 @@ void Profiler::OnEvent_StartProcesser(Processer::SPtr proc)
     m_processer_map.insert(std::make_pair(id, proc));
 }
 
-void Profiler::OnEvent_StopPorcesser(Processer::SPtr proc)
+void Profiler::OnEvent_StopPorcesser(Processer::SPtr proc) noexcept
 {
-    std::unique_lock<std::mutex> _(m_processer_map_mutex);
-    ProcesserId id = proc->GetId();
-    auto it = m_processer_map.find(id);
-    Assert(it != m_processer_map.end());
-    m_processer_map.erase(it);
+    if (proc == nullptr)
+        return;
+    try {
+        std::unique_lock<std::mutex> _(m_processer_map_mutex);
+        ProcesserId id = proc->GetId();
+        auto it = m_processer_map.find(id);
+        /* 退役清理按生命周期做幂等：重复清理或未注册过都只是无匹配。 */
+        if (it != m_processer_map.end())
+            m_processer_map.erase(it);
+    } catch (...) {
+    }
 }
 
 void Profiler::OnEvent_StealSucc(int num)
@@ -124,14 +132,26 @@ void Profiler::ProfileInfo(std::string& info)
     info += "CoEvent 触发数量："  + std::to_string(m_trigger_event_count.load()) + '\n';
     info += "CoMutex竞争导致挂起次数：" + std::to_string(m_comutex_lock_count.load()) + '\n';
     info += "StackPool 指标, alloc_count=" + std::to_string(m_stack_alloc_count.load()) + "\trelease_count=" + std::to_string(m_stack_release_count.load()) + '\n';
-    for (auto&& processer : m_processer_map)
+
+    /* 锁内只拷贝稳定强引用，锁外格式化：扩容/退役与 ProfileInfo 并发时
+     * registry 仍受保护，退役 P 由 reaper 在 join 后移除。 */
+    std::vector<Processer::SPtr> processers;
     {
-        info += "\tPID："                    + std::to_string(processer.second->GetId()) +
-                "\t本地队列任务数："          + std::to_string(processer.second->GetExecutableNum()) + 
-                "\t上下文切换次数："          + std::to_string(processer.second->GetContextSwapTimes()) +
-                "\t挂起时间(ms)："            + std::to_string(processer.second->GetSuspendCostTime() / 1000) +
-                "\tSteal数量(偷/被偷)："           + std::to_string(processer.second->GetStealSuccTimes()) + "/" + std::to_string(processer.second->GetStealCount()) +
-                "\t空队列循环数："                 + std::to_string(processer.second->GetStallLoopCount()) +
+        std::unique_lock<std::mutex> _(m_processer_map_mutex);
+        processers.reserve(m_processer_map.size());
+        for (auto&& kv : m_processer_map)
+            processers.push_back(kv.second);
+    }
+    for (auto&& processer : processers)
+    {
+        if (processer == nullptr)
+            continue;
+        info += "\tPID："                    + std::to_string(processer->GetId()) +
+                "\t本地队列任务数："          + std::to_string(processer->GetExecutableNum()) +
+                "\t上下文切换次数："          + std::to_string(processer->GetContextSwapTimes()) +
+                "\t挂起时间(ms)："            + std::to_string(processer->GetSuspendCostTime() / 1000) +
+                "\tSteal数量(偷/被偷)："           + std::to_string(processer->GetStealSuccTimes()) + "/" + std::to_string(processer->GetStealCount()) +
+                "\t空队列循环数："                 + std::to_string(processer->GetStallLoopCount()) +
                 '\n';
     }
 }

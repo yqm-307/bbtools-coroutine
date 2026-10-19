@@ -36,15 +36,15 @@ struct ProcesserDriverBinding
 
 /**
  * @brief Processer类
- * 
+ *
  * Processer是协程的执行单元，负责调度和执行协程任务。
  * 每个Processer绑定一个线程，且每个线程只能有一个Processer。
- * 
+ *
  * Processer的主要职责包括：
  * - 执行协程任务
  * - 管理协程的状态
  * - 支持协程的窃取和负载均衡
- * 
+ *
  */
 class Processer:
     public std::enable_shared_from_this<Processer>
@@ -75,7 +75,11 @@ protected:
     void                            Start(bool background_thread = true);
     size_t                          GetLoadValue();
     size_t                          GetExecutableNum(); /* 可执行协程数 */
-    void                            AddCoroutineTask(CoroutinePriority priority, Coroutine::Ptr coroutine);
+    /* admission gate：返回 false 表示 P 已关闭接纳（Preparing/Retiring/
+     * Exited），调用方仍持有协程所有权，必须重试 active/global 或显式拒绝。
+     * 入队与关闭 admission 通过 in-flight 计数线性化，旧 snapshot 命中
+     * 不能仅凭 shared_ptr 保活就写 retired 本地队列。 */
+    bool                            AddCoroutineTask(CoroutinePriority priority, Coroutine::Ptr coroutine);
 
     uint64_t                        GetContextSwapTimes();  /* 协程上下文换出次数 */
     uint64_t                        GetSuspendCostTime();     /* 任务执行耗时，返回微秒 */
@@ -84,7 +88,7 @@ protected:
     uint64_t                        GetStallLoopCount(); /* 空队列但size_approx非零的循环数 */
     /**
      * @brief 从Processer中窃取任务（线程安全）
-     * 
+     *
      * @param works 窃取的任务
      * @return 偷取任务数量
      */
@@ -106,7 +110,34 @@ protected:
                                                 ProcesserDriverToken& out_token);
     ProcesserDriverStatus           _QueryDriver(ProcesserDriverSnapshot& out_snapshot);
     ProcesserDriverStatus           _UnregisterDriver(uint64_t generation);
+
+    /* ---- 动态 worker 生命周期（仅 Scheduler 经 friend 调用）----
+     * Preparing -> Active -> Retiring -> Exited -> Joined：
+     *  - Preparing：本批线程尚未 commit，不接任务/不绑定 driver；
+     *  - Active：active 快照成员，admission 开放；
+     *  - Retiring：已从 active 移除、admission 关闭；worker 完成当前
+     *    Resume 的 READY/EVENT_WAIT/FINAL disposition 后排空本地队列；
+     *  - Exited：调度函数已发布退出，不等于线程返回/TLS 析构/join；
+     *  - Joined：reaper 在锁外 join 返回后才发布。
+     * Scheduler 提交 Active/Retiring，worker 发布 Exited，reaper 发布 Joined；
+     * admission 关闭与 enqueue/drain 握手使用 SC 全序，其余状态 release 发布。 */
+    static void                     _InstallLocalProcesser(SPtr proc);
+    void                            _Activate();
+    void                            _BeginRetire();
+    bool                            _IsActive() const noexcept;
+    /* Bound/Failed/Detaching 任一有归属状态都占 slot，均 pin 到同代清槽 */
+    bool                            _HasDriverOwnership();
+    /* worker 自身调度栈：等 admission in-flight 归零后实际 dequeue 各优先级
+     * 本地 runnable，逐项可靠转交全局；失败不丢所有权。 */
+    void                            _DrainLocalToGlobal();
+    void                            _MarkJoined();
 private:
+    /* 带 notify 开关的 admission 入队：AddCoroutineTask 用于外部生产者
+     * （需要 _PublishRunnable 唤醒）；worker 自身在持 run_cond 的睡前复查
+     * 或 steal 目的端使用 notify=false，避免自锁。 */
+    bool                            _EnqueueAdmitted(CoroutinePriority priority, Coroutine::Ptr coroutine, bool notify);
+    void                            _ReleaseEnqueueSlot();
+    void                            _WaitEnqueueQuiescent();
     std::shared_ptr<ProcesserDriverBinding> _GetDriverBinding();
     void                            _DriverOnTick(ProcesserDriverPhase phase);
     void                            _DriverFail(const std::shared_ptr<ProcesserDriverBinding>& binding,
@@ -117,6 +148,18 @@ private:
     /* 控制信息 */
     const ProcesserId               m_id{BBT_COROUTINE_INVALID_PROCESSER_ID};
     std::atomic<ProcesserStatus>    m_run_status{ProcesserStatus::PROC_DEFAULT};
+
+    /* 生命周期/admission：与 m_run_status 正交。m_admission_open 是本地
+     * 队列的唯一接纳门；m_retire_requested 由 worker 在自身调度栈确认。 */
+    std::atomic<ProcesserLifecycleState> m_lifecycle{ProcesserLifecycleState::Preparing};
+    std::atomic_bool                m_admission_open{false};
+    std::atomic_bool                m_retire_requested{false};
+    /* 轻量 busy 信号：每次 Resume 前后维护，独立于 stall_warn_ms。 */
+    std::atomic_bool                m_busy{false};
+    /* admission 关闭时等待在途 enqueue 收敛（生产者每次入队 ++/--）。 */
+    std::atomic_int                 m_enqueue_inflight{0};
+    std::mutex                      m_enqueue_wait_mutex;
+    std::condition_variable         m_enqueue_wait_cv;
 
     /* 调度相关 */
     CoPriorityQueue                 m_coroutine_queue;
@@ -154,11 +197,12 @@ private:
 
     // XXX 可以优化到profiler中
 #ifdef BBT_COROUTINE_PROFILE
-    uint64_t                        m_co_swap_times{0};
-    bbt::core::clock::us            m_suspend_cost_times{0};
-    uint64_t                        m_steal_succ_times{0};  // 偷取数量
-    uint64_t                        m_steal_count{0};       // 被偷取数量
-    uint64_t                        m_stall_loop_count{0};  // 本地队列空但size_approx非零的次数
+    /* ProfileInfo 可在 worker 运行/退役时并发采样，计数不与其它状态组成快照。 */
+    std::atomic_uint64_t            m_co_swap_times{0};
+    std::atomic_uint64_t            m_suspend_cost_times{0}; // 微秒
+    std::atomic_uint64_t            m_steal_succ_times{0};   // 偷取数量
+    std::atomic_uint64_t            m_steal_count{0};        // 被偷取数量
+    std::atomic_uint64_t            m_stall_loop_count{0};   // 本地队列空但size_approx非零的次数
 #endif
 };
 
