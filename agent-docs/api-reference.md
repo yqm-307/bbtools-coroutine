@@ -133,6 +133,8 @@
 - `void RegistCoroutineTaskOn(ProcesserId, const CoroutineCallback&, const char* desc = nullptr)` 与带 `stack_size` 重载 — 定向首投：仅入目标 worker 初始队列的偏好，无硬亲和；stealing 与挂起恢复路径不变。未初始化抛 `std::logic_error`，非法目标抛 `std::invalid_argument`。
 - 上述可能分配/持锁的入口均非 `noexcept`；全部 driver 回调在整条调用链的 runtime 锁之外执行。
 
+> **infra 消费者目标与已实现 API 分开：** 核心契约 [§11.5](2026-09-07-core-runtime-contract.md#115-infra-消费者责任r2-已确认目标尚未实现联调) 按已确认 R2 区分 owner 短原始回调、可挂起业务协程和受保护共享接收 ring；这些是 infra 待实现的网络职责，不新增本节 runtime 函数。`IsInitialized()` 不证明内部 EventLoop 持续推进；宿主须让 net Run 与唯一 runtime loop 驱动执行流分开。driver `Failed` 可通过现有查询观察，解绑无 deadline，成功只确认 runtime callback 已退出。本文列出的 runtime API 签名与行为不因消费者文档修订改变。
+
 ---
 
 ## 2. 协程注册宏
@@ -374,6 +376,8 @@ int idx = sync::CoSelect()
 - 协程 IO 期间临时 `O_NONBLOCK`，返回时恢复原 flags。
 - `MSG_DONTWAIT` 立即返回。
 - `SO_RCVTIMEO` / `SO_SNDTIMEO` 按协程 deadline 有界返回 `-1`/`EAGAIN`。
+- 超时以毫秒计，亚毫秒向上取整；数据与超时同刻到达时先重试 syscall，可能返回数据。`Hook_Connect` 未接入 `IoTimeout`，不承诺有界 `ETIMEDOUT`。
+- `IoTimeout` 当前以 `int` 毫秒存储；超出其可表示范围的 `timeval` 未提供可靠转换保证，不能依赖它保持有界等待（`Hook.cc` 的转换尚无溢出保护）。这不是无限等待的受支持契约。
 - 等待中 fd 被 close：唤醒后重试 syscall，得到 `EBADF`。
 - 不支持多线程对同一 fd 并发走 Hook IO。
 
@@ -423,4 +427,4 @@ int idx = sync::CoSelect()
 - 签名：`boost::asio::any_io_executor GetExecutor();`
 - 说明：返回 CoPoller 全局 EventLoop 所持同一 io_context 的 executor（`any_io_executor` 投递句柄），供上层适配层把 Asio 异步操作接入既有协程事件循环。投递的 handler 只由 Scheduler 现有 `PollOnce` 在驱动线程兑现：默认后台模式即 Scheduler 调度线程（S）；`NO_LOOP` 模式即调用 `LoopOnce` 的驱动线程（首个调用 `PollOnce` 的线程）；`SCHE_LOOP` 模式即执行调度循环的当前线程。
 - 约束（仅限定共享 executor 的使用方式）：不得为它创建新线程或独立 io_context 驱动；句柄不暴露原始 io_context，无法 stop/restart/run。生命周期由 CoPoller 单例保证，随 runtime 进程寿命存在。
-- 边界：本条不禁止上层拥有独立线程与 io_context 的网络 I/O 域（契约 §11 目标架构，尚未实现），独立域不经本句柄投递。头文件注释中「不创建新线程」的措辞按本条限定范围理解，与契约 §11.3 一致。
+- 边界：上层网络域使用自有 context，不经本句柄投递；当前已确认的消费者目标通过 Processer driver 在 P 的非业务协程边界推进，不额外创建网络 I/O 线程。详见契约 §11.3–§11.6；目标说明不是消费者实现或联调证据。

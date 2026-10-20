@@ -1,15 +1,15 @@
-# perf-check-wiring —— `性能回归检查` 同 runner base/head 自动性能门禁（本地候选）
+# perf-check-wiring —— `性能回归检查` 同 runner base/head 自动性能门禁
 
-**状态：** 本地候选（未 commit / 未 push / 未建 PR / 未触发 CI）。远端写入由父级执行。
+**状态：** 已合并生效（随 #383 / #385 进入 main，main 真实 hosted run 已产出该 check）。
 **范围：** 把 `性能回归检查`（app 15368，required context）从「等待 server3 外部 commit comment 的
-受控报告消费者」替换为**同一 hosted runner 上自动构建并测量 base+head 的真实比较**。**不改**
+受控报告消费者」替换为**同一 hosted runner 上自动构建并测量 base+head 的真实比较**。**未改**
 required 集合、`scripts/release_gate.py`、ruleset、`release.yml`、正式 `perf-baseline`、仓库变量或
 任何产品/runtime 代码。
 
 ## 1. 背景与目标
 
 `性能回归检查` 原先 fail-closed 地等待可信控制端发布的 commit comment，报告未产出时该 context 永远
-failure，普通 PR 因 required 而不满足合并资格。本轮改为**自给自足**：在同一个 hosted job 内顺序构建
+failure，普通 PR 因 required 而不满足合并资格。现已改为**自给自足**：在同一个 hosted job 内顺序构建
 base 与 head 两棵隔离源码/构建树，用**同一份 driver**（head 的 `scripts/ci_perf_check.py`）分别测量
 六模块 45s × 2 threads，再以 base 报告为 runner 临时基线对 head 做**严格**比较。这样每次 PR/push 都
 能产出真实的同机 base↔head 相对退化结论，不依赖外部报告产出。
@@ -69,9 +69,9 @@ base 与 head 两棵隔离源码/构建树，用**同一份 driver**（head 的 
 - 普通 CI 其余 job（`变更类型检测`/`分类/计划`/`编译 & 单元测试`/`结果汇聚`）与 callee 汇聚契约不变。
 - 复用未改脚本：`scripts/ci/prepare_boost.sh`、`scripts/ci/ci_common.py`、`scripts/ci/perf_contract.py`。
 - **`scripts/ci/perf_report_ingest.py` 现不再被 workflow 引用**（原报告消费路径被本方案替换）。该脚本
-  与其测试仍在树内且自测通过，本轮**未删除**（超出本候选授权范围）；是否退役由父级决定。
+  与其测试仍在树内且自测通过，**未删除**；是否退役由后续清理决定。
 
-## 7. `ci_perf_check.py` 的最小改动（共同根因 + 同 runner 支持）
+## 7. `ci_perf_check.py` 的接线改动（共同根因 + 同 runner 支持）
 
 - `run_benchmark`：**新增** `errors>0 → {"error": "nonzero_errors"}`。这是共同最小根因——errors>0 是
   操作失败而非有效吞吐样本，旧实现把它当有效测量放行（仅补跑冻结检测，检测为 `ok` 就保留原判定，
@@ -117,21 +117,21 @@ perf `timeout-minutes: 60`、`permissions: {contents: read}`、无 `needs`）；
 
 ## 9. 未覆盖 / 残余（诚实边界）
 
-- **任何真实 hosted run**：Boost 下载校验、两棵树真实 cmake/ninja 构建、六模块真实 45s×2 测量、
-  check 状态——本地只做静态契约 + 假二进制端到端，真实链路由父级 PR CI 连通。
+- **真实 hosted run 已由合并后的 PR/main 连通**：迁移时本地只做静态契约 + 假二进制端到端，
+  未自行验证 Boost 下载校验、两棵树真实 cmake/ninja 构建与六模块 45s×2 真实测量；这些已由
+  实际 run 承担，但本文件不引用具体 run 结论——以远端 check 状态为准。
 - **`vars.PERF_BASELINE_COMMIT` / 正式 baseline / 控制端**：本方案**不涉及**；server3 采样与报告发布
-  路径本轮不接线。
+  路径未接线。
 - **fork PR 的 head SHA**：`actions/checkout ref: head.sha` 在**同仓** PR（本仓常态）可达；若某 fork
   的 head commit 在 base 仓不可达，checkout/核验会 fail-closed 失败（符合「不可达即失败」，但会阻塞该
-  fork PR）。是否放宽（改用 `refs/pull/N/head`）需父级决定。
+  fork PR）。是否放宽（改用 `refs/pull/N/head`）是开放问题。
 - **`perf_report_ingest.py`**：已不被 workflow 引用但保留在树内（见 §6）。
 - **`scripts/test_release_gate.py`**：其中 `test_gate_layering_perf_is_bounded_hosted_measurement`
-  （原 `…keeps_merge_path_cheap`）直接读 workflow 文本守卫，**必须**随本次接线同步更新才能全绿；该文件
-  不在父级给的允许清单内，属**必要一致性更新**，请父级复核/接受。
+  （原 `…keeps_merge_path_cheap`）直接读 workflow 文本守卫，已随本次接线同步更新。
 
 ## 10. 设计边界（ponytail ceiling）
 
 同 runner 短测是**廉价、自足的 base↔head 同机相对退化门禁**，**不是** server3 长期性能基线：它只
 回答「同一台机器上 head 相对 base 是否退化」，不提供跨机可比性、长期趋势或绝对基线。长期/跨机趋势
-仍由 `record_baseline.py` + `perf-baseline` 分支承担（本轮不接）。若要升级为长期基线，应把 base 报告
-按批准流程写入正式 baseline 并在 server3 上复采——那是后续独立工作，不在本候选内。
+仍由 `record_baseline.py` + `perf-baseline` 分支承担（本方案不接）。若要升级为长期基线，应把 base 报告
+按批准流程写入正式 baseline 并在 server3 上复采——那是后续独立工作，不在本文范围。

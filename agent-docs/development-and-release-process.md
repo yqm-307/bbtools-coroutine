@@ -40,13 +40,15 @@ Issue / 里程碑计划
 
 ### 验证阶梯
 
+本地验证与 PR 的 required checks（`编译 & 单元测试`、`性能回归检查`，分钟级）对齐；`gh pr checks` 结果与发布 Gate 结论以远端为准，不把本地输出当成远端证据。运行时/Hook 改动本地最低验证：冒烟 + 本次开发功能的单测 + 直接耦合功能的单测，三者全过；本地不跑全量 `ctest`，全量走 PR 的 CI。行为变更必须留下可重复验证入口。
+
 | 改动类型 | 本地最低验证 | 合入仍走的 PR Checks | 不要在普通 PR 当完成证据 |
 |----------|--------------|----------------------|--------------------------|
-| 仅文档 / 模板 / gitignore | `git diff --check`；抽查链接 | `编译 & 单元测试`、`性能回归检查` | 真实客户端、疲劳 |
+| 仅文档 / 模板 / gitignore | `git diff --check`；抽查链接 | `编译 & 单元测试`（docs-only 时 build job 显式 skip）、`性能回归检查` | 真实客户端、疲劳 |
 | `scripts/` 或 `release_gate.py` | `python3 scripts/test_release_gate.py` 或对应 `scripts/ci/test_*.py` | 同上 | 发布 Gate、dispatch RC |
 | 单测 / example | 相关 `ctest` 或该 example | 同上 | 1h soak |
-| 运行时 / 公开 API | 全量 `ctest --test-dir build --output-on-failure` | 同上 | 真实客户端 |
-| Hook / 兼容行为 | 相关 hook 单测 + 全量 ctest | 同上 | #256/#284 长测与发布 Gate |
+| 运行时 / 公开 API | 冒烟 + 功能单测 + 直接耦合单测 | 同上 | 真实客户端 |
+| Hook / 兼容行为 | 冒烟 + 相关 hook 单测 + 直接耦合单测 | 同上 | #259 真实客户端长测（吸收 #284/#285）与发布 Gate |
 | 压测程序本身 | 短跑或相关 benchmark | `性能回归检查` | 未授权的长 soak |
 
 本地命令见 §9。普通 PR 不把 `scripts/acceptance_real_clients.py`、1h `run_fatigue.py` / `run_parallel_stress.sh` 当合入完成证据。
@@ -57,10 +59,10 @@ PR 快速反馈，main 快速集成，Release 严格发布。普通改动先自�
 
 以下检查是 PR 合入 main 的硬门槛（均为分钟级）：
 
-- `编译 & 单元测试`
-- `性能回归检查`（unified_stress 45s/模块快速回归）
+- `编译 & 单元测试`（hosted `ubuntu-24.04`：Boost 1.90 context 私有前缀、全量 CTest、Test_smoke、Test_reliability；docs-only 变更时该 job 由分类器判为 optional 显式 skip，不伪造 success）
+- `性能回归检查`（同 runner 顺序构建 base+head 的 `unified_stress`，六模块 45s×2 threads 严格比较；缺证据、`errors>0`、zero ops、NaN/inf 一律 `exit 2` fail-closed，不以 skipped 或空成功置绿）
 
-`性能回归检查` 对无基线、基线损坏或环境指纹不一致保持显式 `NO_COMPARABLE_BASELINE`（warning），但不能宣称性能通过；版本发布要求可比基线。性能基线只在发布 Gate 完整长测通过后写入（见 §5），禁止手改指纹以伪造可比性。
+两个 check 的语义与边界以 `agent-docs/formal-ci.md` 与 `agent-docs/perf-check-wiring.md` 为准，本文不复制细节。
 
 `真实客户端验收` 与长时疲劳压测不在普通合并路径执行，只在发布 Gate 执行（见 §5）。发布 Gate 的 `真实客户端验收` 必须在明确的 Redis 环境中执行。Redis 不可用时，发布 Gate 失败；本地脚本允许用 CTest skip code 77 表示环境缺失，但不能把 skip 当作发布通过。
 
@@ -164,7 +166,7 @@ GitHub tag ruleset 的“限制创建”按 bypass actor 授权，不能直接�
 
 当前边界（2026-09-09 回读）：仓库公开；两个 Environment 均有唯一审核者 `yqm-307`，允许同账号触发后审核（`prevent_self_review=false`）。发布仍需用户授权，不要求另设账号。Environment 的 `can_admins_bypass=true`，管理员仍可旁路 Environment 审核；`v*` 规则的创建已收紧到发布 deploy key（见上），管理员凭据无法创建、更新或删除版本 tag。
 
-公开仓库的 `pull_request` 执行的是 PR head 中的 workflow 文件；常驻 self-hosted runner 上，YAML 内的 `if` 无法阻止 fork 替换 workflow 后请求同一 runner。仓库 Actions `approval_policy` 已设为 `all_external_contributors`（API 回读），`GITHUB_TOKEN` 默认 `read` 且禁止用它批准 PR review。外部 fork workflow 必须由有写权限的人批准才会跑；Agent 和用户都不得批准未审查的 fork workflow 到该 runner。有写权限的人一旦批准，隔离仍不成立。完整隔离只能改为私有仓库，或撤销本仓库的 self-hosted runner。上述配置不等于发布闭环完成。
+公开仓库的 `pull_request` 执行的是 PR head 中的 workflow 文件，YAML 内的 `if` 无法阻止 fork 替换 workflow。普通 CI（`unit_test.yml`、`docs-check.yml`）已迁到 hosted `ubuntu-24.04`，不再依赖常驻 self-hosted runner；发布 Gate（`release.yml` 的 `gate` job）仍运行在 `arc-s4`，内存检测在专用 `arc-s4-memcheck`。仓库 Actions `approval_policy` 已设为 `all_external_contributors`（API 回读），`GITHUB_TOKEN` 默认 `read` 且禁止用它批准 PR review。外部 fork workflow 必须由有写权限的人批准才会跑；Agent 和用户都不得批准未审查的 fork workflow。有写权限的人一旦批准，fork 代码仍会在所选 runner 上执行，隔离仍不成立——对仍用 self-hosted 的 release/memcheck 链路，完整隔离只能改为私有仓库或撤销对应 runner。上述配置不等于发布闭环完成。
 
 ## 8. 证据与失败处理
 
@@ -182,10 +184,13 @@ GitHub tag ruleset 的“限制创建”按 bypass actor 授权，不能直接�
 ## 9. 本地入口
 
 ```bash
-# PR 基础验证
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DNEED_TEST=ON -DNEED_BENCHMARK=ON -DNEED_EXAMPLE=ON
-cmake --build build -j2
-ctest --test-dir build --output-on-failure
+# PR 基础验证（新 configure 加 ccache；JOBS 上限 nproc/4，最小 2）
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DNEED_TEST=ON -DNEED_BENCHMARK=ON -DNEED_EXAMPLE=ON \
+  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+JOBS=$(( $(nproc) / 4 )); JOBS=$(( JOBS < 2 ? 2 : JOBS ))
+cmake --build build --parallel "$JOBS"
+ctest --test-dir build --output-on-failure   # 完整套件仅按需；普通改动按验证阶梯做聚焦验证
 
 # 真实客户端验收
 python3 scripts/acceptance_real_clients.py \
