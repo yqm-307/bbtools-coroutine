@@ -35,8 +35,9 @@ bbtools-coroutine 有以下特点：
 ```shell
 git clone https://github.com/yqm-307/bbtools-coroutine.git
 cd bbtools-coroutine
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build --parallel
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+JOBS=$(( $(nproc) / 4 )); JOBS=$(( JOBS < 2 ? 2 : JOBS ))
+cmake --build build --parallel "$JOBS"
 cd shell && sudo ./install.sh    # 头文件装到 /usr/local/include，库装到 /usr/local/lib
 ```
 
@@ -45,7 +46,7 @@ CMake 开关（默认全部 `OFF`）：
 | 开关 | 作用 |
 |------|------|
 | `CMAKE_BUILD_TYPE=Release` | 优化构建；不指定时为无优化构建（本库不强制 Release） |
-| `NEED_TEST=ON` | 编译单元测试（CTest 42 个 unit tests） |
+| `NEED_TEST=ON` | 编译单元测试（CTest 注册的套件数以构建目录中 `ctest -N` 输出为准） |
 | `NEED_BENCHMARK=ON` | 编译 `benchmark_test/`（含 `unified_stress`） |
 | `NEED_EXAMPLE=ON` | 编译 `example/`；与 `NEED_TEST=ON` 同开时额外注册无条件的 `Test_real_clients_echo`（必须 PASS），`co_with_hiredis` target 存在时再注册 `Test_real_clients_hiredis` |
 | `NEED_DEBUG=ON` | 编译 `debug/` |
@@ -575,13 +576,13 @@ int main()
 | `g_scheduler->LoopOnce()` | 单次调度循环（仅 `NO_LOOP` 模式，用于手动驱动/测试） | 手动模式循环调用 |
 | `g_scheduler->IsInitialized()` | 运行时是否已完成初始化（进程寿命内恒为 true） | 注册任务前检查 |
 
-## 三之二、进程寿命与生命周期契约（v1 M1）
+## 三之二、进程寿命与生命周期契约（v3 进程寿命）
 
 与旧文档/旧行为的关键差异，迁移时必读：
 
 | 变更 | 新契约 | 迁移动作 |
 |------|--------|----------|
-| `Scheduler::Stop()` / 重启 | 已删除，不留兼容壳；运行时是进程寿命对象：不做取消式停机、不排空任务、不 unload、不 join worker。旧「取消式停机：不强杀运行中协程；parked 协程被唤醒销毁；未执行任务真回收；Stop 有界可重复调用」的说明 **superseded** | 删除 `Stop()` 调用与停机后重启逻辑；把「停机前自行等业务 latch」这类依赖改为进程退出即结束 |
+| `Scheduler::Stop()` / 重启 | 已删除，不留兼容壳；运行时是进程寿命对象：不做取消式停机、不排空任务、不 unload、不做全局 teardown。worker 缩容时由 runtime reaper 在锁外 join 退役线程（契约 §6.1），不等于关闭运行时。旧「取消式停机：不强杀运行中协程；parked 协程被唤醒销毁；未执行任务真回收；Stop 有界可重复调用」的说明 **superseded** | 删除 `Stop()` 调用与停机后重启逻辑；把「停机前自行等业务 latch」这类依赖改为进程退出即结束 |
 | `Scheduler::IsRunning()` | 已删除，改为 `Scheduler::IsInitialized()`：初始化完成后恒为 true，不因业务关闭归零 | 把 `IsRunning()` 判断改为 `IsInitialized()`；不再有「已停止」分支 |
 | 运行时代际 | `RuntimeGeneration` / `CurrentRuntimeGeneration()` / `Scheduler::GetRunGeneration()` / `CoObjectInfo::generation` 全部删除；`CreateObjectInfo` 前置条件改为「运行时已初始化」 | 删除代际字段与代际查询调用；对象身份只保留进程内递增、不复用的 `id` |
 | 静态退出期析构 | 运行时及其依赖（poller/config/DNS worker/Scheduler 单例）按进程寿命策略不在静态退出期析构（实例持有者刻意泄漏，不 detach 线程） | 不要依赖运行时析构做收尾清理 |
@@ -600,27 +601,28 @@ int main()
 
 ### 线程模型与网络 I/O 域边界
 
-- 默认 `SCHE_START_OPT_SCHE_THREAD`：Scheduler 专属调度线程驱动内部 CoPoller/EventLoop（FD/Timer/Wakeup、共享 executor 上投递的 handler）与运行时维护；每个 Processer 绑定各自 worker 线程，只 Resume 受管协程。`SCHE_LOOP` 在调用者当前线程跑调度循环（`Start` 不返回）；`NO_LOOP` 由调用方 `LoopOnce` 手动 tick——并非所有启动模式都有独立调度线程。
-- `io::GetExecutor()` 只是共享 io_context 的投递句柄，handler 仅在调度驱动线程兑现，不得为它另启线程。runtime 线程与 bbtools-infra 网络 Engine 的独立 main/sub I/O 线程（自有 io_context）彼此分离，业务协程只在 Processer 执行——该网络域是目标架构，当前未实现。边界与架构图见契约 §11：`agent-docs/2026-09-07-core-runtime-contract.md`。
+- 默认 `SCHE_START_OPT_SCHE_THREAD`：Scheduler 专属调度线程驱动内部 CoPoller/EventLoop（FD/Timer/Wakeup、共享 executor 上投递的 handler）与运行时维护；每个 Processer 绑定各自 worker 线程，只 Resume 受管协程，并可在非业务协程调度边界推进一个已绑定的通用 driver（`OnTick`/`Wait`/`Wake`，契约 §11.3）。`SCHE_LOOP` 在调用者当前线程跑调度循环（`Start` 不返回）；`NO_LOOP` 由调用方 `LoopOnce` 手动 tick——并非所有启动模式都有独立调度线程。
+- `io::GetExecutor()` 只是共享 io_context 的投递句柄，handler 仅在调度驱动线程兑现，不得为它另启线程。runtime 线程与 bbtools-infra 网络 Engine 的控制域彼此分离：按契约 §11.5 的目标（R2），infra 自有 main/sub context 与网络资源，每个 Reactor owner 占一个已登记 P 的 driver 槽、由该 P 的非业务协程 Tick/Wait 推进，不额外创建网络 I/O 线程——该网络域是已确认的目标分层，当前尚未实现或两仓联调。边界与架构图见契约 §11：`agent-docs/2026-09-07-core-runtime-contract.md`。
 
 ## 三之三、测试、冒烟与压测
 
 ```shell
 # 构建并运行全部单元测试
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DNEED_TEST=ON
-cmake --build build --parallel
-ctest --test-dir build --output-on-failure        # 42 个核心测试套件
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DNEED_TEST=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+JOBS=$(( $(nproc) / 4 )); JOBS=$(( JOBS < 2 ? 2 : JOBS ))
+cmake --build build --parallel "$JOBS"
+ctest --test-dir build --output-on-failure        # 套件数以 `ctest -N` 输出为准
 
 # 冒烟（独立构建 + 报告）
 python3 scripts/ci/run_smoke.py --build-dir build-ci-smoke
 
 # 长时 soak（默认 6 小时；先构建 unified_stress）
-cmake -S . -B build-soak -G Ninja -DCMAKE_BUILD_TYPE=Release -DNEED_BENCHMARK=ON
-cmake --build build-soak --target unified_stress --parallel
+cmake -S . -B build-soak -G Ninja -DCMAKE_BUILD_TYPE=Release -DNEED_BENCHMARK=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+cmake --build build-soak --target unified_stress --parallel "$JOBS"
 python3 scripts/ci/run_soak.py --build-dir build-soak
 ```
 
-- 核心套件 42 个：协程状态机、调度与停机、取消、异常、hook 契约、同步原语、eventloop 契约、profiler 等；完整列表与 CI 说明见 `docs/ci-guide.md`。
+- 单元测试覆盖：协程状态机、调度与进程寿命、取消、异常、hook 契约、同步原语、eventloop 契约、profiler 等；注册数以构建目录 `ctest -N` 输出为准，CI 说明见 `docs/ci-guide.md`。
 - 真实客户端验收：`NEED_EXAMPLE=ON` 且 `NEED_TEST=ON` 时注册 `Test_real_clients_echo`（无条件、必须 PASS）；`co_with_hiredis` target 存在（系统装有 hiredis 库）时再注册 `Test_real_clients_hiredis`，运行时本机无 Redis 以 skip 77 跳过，不伪造通过。
 - 压测：`benchmark_test/unified_stress.cc` 提供六模块长时压测入口，由 `run_soak.py` 驱动。
 - 报告目录：
@@ -675,7 +677,7 @@ python3 scripts/ci/run_soak.py --build-dir build-soak
 |------|------|------|------|
 | 2026-09-08 | 同上 | `ninja benchmark_copool` | 1468 ms |
 
-复现命令：`cd build && cmake .. -G Ninja -DNEED_BENCHMARK=ON && ninja && ./bin/benchmark_test/benchmark_coroutine`。CPU/内存频率不同会带来误差，仅供参考；bbtco 内部使用无锁队列，CPU/内存频率越高调度效率越高。原始报告：`tests/ci-reports/`（runner 本地，不提交）。
+复现命令：`cmake -S . -B build -G Ninja -DNEED_BENCHMARK=ON && cmake --build build --parallel "$JOBS" && ./build/bin/benchmark_test/benchmark_coroutine`（`JOBS` 取 `max(2, nproc/4)`）。CPU/内存频率不同会带来误差，仅供参考；bbtco 内部使用无锁队列，CPU/内存频率越高调度效率越高。原始报告：`tests/ci-reports/`（runner 本地，不提交）。
 
 ## 六、综合示例
 

@@ -1,11 +1,13 @@
-# formal-ci —— bbtools-coroutine hosted 普通 CI 正式候选（Issue #50）
+# formal-ci —— bbtools-coroutine hosted 普通 CI 正式说明（Issue #50）
 
-**状态：** 本地候选（未 commit / 未 push / 未建 PR / 未触发 CI）。远端写入与 PR 由父级执行。
-**阶段限定：** 本候选把**普通 CI 的 Layer 1** 与 **docs-check** 迁到 hosted，并把影子入口退役；
+**状态：** 已合并生效。本文件由本地候选经 #383（`b172f53`）与 #385（`b36f5c4`）合入 main；
+main 的真实 hosted run 已连通（含 `编译 & 单元测试` 与 `性能回归检查`）。本文记录现行普通 CI
+配方、分类/结果语义与安全边界；流程真源仍是 `agent-docs/development-and-release-process.md`，
+用户向说明见 `docs/ci-guide.md`。
+**阶段限定：** 本迁移把**普通 CI 的 Layer 1** 与 **docs-check** 迁到 hosted，并把影子入口退役；
 **`性能回归检查` 由受控报告消费者改为同 runner base/head 自动构建+测量比较（fail-closed）**——每次
 PR/push 自给自足产出真实同机相对退化结论；required 集合、Release 执行逻辑、memcheck、runner 规则、
-正式 baseline 均未改。性能接线细节见 `agent-docs/perf-check-wiring.md`。在获准合并与远端核对完成前，
-本文不构成「迁移已完成」的结论。
+正式 baseline 均未改。性能接线细节见 `agent-docs/perf-check-wiring.md`。
 
 ## 1. 做了什么
 
@@ -14,7 +16,7 @@ PR/push 自给自足产出真实同机相对退化结论；required 集合、Rel
 - workflow 名保持 `CI`、workflow path 保持 `.github/workflows/unit_test.yml`——`scripts/release_gate.py`
   的 `validate_main_ci` 按该 path 精确读取 `push main` run 与两个 success job，不能转到别的 path。
 - 普通触发面：`pull_request → main`、`push → main`。**不新增** `workflow_dispatch`（旧 sanitizer
-  长测依赖它；本轮不开启新的长期执行）。
+  长测依赖它；本方案不开启新的长期执行）。
 - 全部本地 job 固定 hosted `ubuntu-24.04`；顶层 `permissions: {}`，仅需 checkout 的 job 授予
   `contents: read`；无 secret / OIDC / 写权限 / secrets 透传；远程 `uses` 全部完整 40-hex SHA pin。
 - 复用**已发布 fixed-SHA** 的 framework 分类/结果 reusable callee
@@ -29,7 +31,7 @@ PR/push 自给自足产出真实同机相对退化结论；required 集合、Rel
 
 ## 2. 判据等价（与旧 `unit_test.yml` 的 Layer 1）
 
-| 判据 | 旧 unit_test.yml（Layer 1） | 本候选 |
+| 判据 | 旧 unit_test.yml（Layer 1） | 现行配方 |
 |---|---|---|
 | 构建 | `cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DNEED_TEST=ON -DNEED_BENCHMARK=ON` + `cmake --build . --parallel "$JOBS"`（`JOBS: 3`） | 同左 |
 | 工具自测 | `python3 scripts/test_release_gate.py` + `python3 -m unittest discover -s scripts/ci -p 'test_*.py'` | 同左 |
@@ -76,7 +78,7 @@ cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 - PR：group 用 `github.ref`（`refs/pull/<N>/merge`）→ 只取消同一 PR 的旧 run。
 - 普通 check 只有本文件一个 producer（影子已删，非双跑）。
 
-## 6. 明确未完成 / 规则阻断（本轮授权的性能冻结）
+## 6. 明确未完成 / 规则阻断（范围冻结）
 
 - **`性能回归检查` 由受控报告消费者改为同 runner base/head 自动构建+测量比较（fail-closed）**：
   同一 hosted job 内顺序 checkout/构建 base 与 head 两棵隔离源码/构建树（**只**构建 `unified_stress`
@@ -95,20 +97,21 @@ cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     缺 `性能回归检查` success → **Release fail-closed 拒绝**（行为未改）。
 - 上述状态由 `scripts/ci/test_formal_ci.py::FormalRecipeGuardTests` 的同 runner fail-closed 守卫
   （`test_perf_job_is_same_runner_fail_closed` 等，直接读本 workflow 文本）与 `scripts/test_release_gate.py`
-  的 `test_gate_layering_perf_is_bounded_hosted_measurement` 断言，防止后人误把本候选当作「整体已就绪」。
+  的 `test_gate_layering_perf_is_bounded_hosted_measurement` 断言，防止后人误把本文当作「整体已就绪」。
 - **Sanitizer（ASAN+UBSAN）长测**：旧 `unit_test.yml` 的 `sanitizer-check` 需要 `workflow_dispatch`
   才可达，而旧 `on:` 从未声明 workflow_dispatch，故该 job **实际不可达**、不属于普通适用测试。
-  本轮不开启新的长期执行，该 job 从本文件移除；配置保留在 git 历史（HEAD c704458 的旧
+  本文件不开启新的长期执行，该 job 从本 workflow 移除；配置保留在 git 历史（HEAD c704458 的旧
   `unit_test.yml`）中，**需单独迁移为独立 workflow 后再启用**。
-- **实际 context 状态必须以远端为准**：合并后由 GitHub API 回读 PR 的 check 集合与 ruleset
+- **实际 context 状态必须以远端为准**：GitHub API 回读 PR 的 check 集合与 ruleset
   required 的匹配情况；本文件的静态断言不等于线上证据。
 
-## 7. 流程文档的处置（阶段限定，不代表迁移完成）
+## 7. 流程文档的处置
 
-- 流程真源 `agent-docs/development-and-release-process.md` 与用户向 `docs/ci-guide.md` **本轮不改**。
-  其 runner、Layer 2 与超时描述属于本候选前的流程，不代表新入口仍执行这些任务；维护窗内以本文明确的未迁移状态对账，不据旧描述宣称可合并或可发布。
+- 流程真源 `agent-docs/development-and-release-process.md` 与用户向 `docs/ci-guide.md` 已随本仓
+  清理同步为现行 hosted 描述；两者只保留入口级说明，CI 机制细节以本文与
+  `agent-docs/perf-check-wiring.md` 为准，不再三处复制。
 - `AGENTS.md`、`memery_test_info.yml`、`release.yml`、产品 C++、`CMakeLists.txt`、依赖锁、
-  `perf_contract.py`、性能基线路径、required 规则、runner 标签均未改动。
+  `perf_contract.py`、性能基线路径、required 规则、runner 标签未随本迁移改动。
 
 ## 8. 本地验证（真实结果）
 
@@ -137,23 +140,21 @@ docs-check 行为负例（真实 bash）：SHA 格式非法/缺失 → 拒绝（
 真实尾随空白 → 被抓住；干净范围 → 放行；`git grep` 退出码 >1（非 git 仓库）→ fail-closed（exit 2）；
 synthetic token（片段拼接，本测试源码不含真实凭据）→ 命中（exit 1）。
 
-## 9. 未覆盖（本地不冒充已验）
+## 9. 未覆盖（迁移时本地不冒充已验；当前状态见下）
 
-- 任何**真实 hosted run**：reusable 跨仓在线身份/权限、hosted 工具链实际版本、Boost 下载与校验的
-  真实执行、`编译 & 单元测试` / `结果汇聚` 的真实 check 状态。
-- 任何 **C++ 全量构建 / ctest 真实执行**（本地只做 bash -n / 静态契约 / 配方守卫 / 真实 cli 路由 /
-  有界 bash 行为负例）。
-- **性能路径**：真实 hosted 上 Boost 下载校验、两棵源码/构建树的真实 cmake/ninja 构建与六模块
-  45s×2 真实测量、真实 check 状态——本地只做静态契约 + 假二进制端到端（见
-  `agent-docs/perf-check-wiring.md`，真实链路由父级 PR CI 连通）。**server3 长期基线/控制端报告发布
-  本轮不接线**；同 runner 短测不是长期基线。
-- required 集合调整、Release 侧放行、memcheck、runner 采购/准入、生产发布链路。
-- 合并后远端对账（PR checks、ruleset 生效状态）。
+以下记录的是合并前候选的验证边界，作为接线证据的历史说明保留；main 的真实 hosted run 已由
+#383/#385 连通（含 `性能回归检查`），但这些 run 不代表以下全部条目都已被真实验证过——区分「已连通」与「仍属外部/后续工作」：
+
+- 迁移时本地未跑过任何**真实 hosted run**（reusable 跨仓在线身份/权限、hosted 工具链实际版本、
+  Boost 下载与校验的真实执行）；合并后由真实 run 读回证据，不据本地结果宣称。
+- **server3 长期基线 / 控制端报告发布**仍未接线：同 runner 短测不是长期基线，
+  `vars.PERF_BASELINE_COMMIT` / 正式 `perf-baseline` 分支路径不变。
+- required 集合调整、Release 侧放行、memcheck、runner 采购/准入、生产发布链路不在本说明范围内。
 
 ## 10. 残余差异 / 需注意
 
 1. **docs-only 时 `编译 & 单元测试` 为 skipped**（显式跳过）。旧 unit_test.yml 走「空成功 step」
-   使该 check 显示 success；本候选按授权改为显式 skip，并由 callee 的 optional 语义限定**仅
+   使该 check 显示 success；本方案改为显式 skip，并由 callee 的 optional 语义限定**仅
    docs-only** 可跳过。该 context 在 docs-only PR 上是否满足 required 需以远端回读为准。
 2. 已发布 callee 内部纯逻辑 job 固定 `ubuntu-latest`（caller 不可改）。
 3. hosted `cmake` 版本可能高于旧 ARC 的 `3.28.3`（本仓只需 `>=3.16`）；真实值需 run 读回。

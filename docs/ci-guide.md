@@ -1,9 +1,9 @@
 # bbtools-coroutine CI 使用文档与团队接入指南
 
-> 版本: 3.0 | 日期: 2026-09-09
->
 > 开发、main 集成和版本发布的唯一流程真源：
 > [`agent-docs/development-and-release-process.md`](../agent-docs/development-and-release-process.md)。
+> 普通 CI 的机制与配方细节：`agent-docs/formal-ci.md` 与 `agent-docs/perf-check-wiring.md`；
+> 本文只给使用口径与本地命令，不再第三处复制 CI 内部实现。
 >
 > 本文档说明 bbtools-coroutine 的 CI 流水线：如何触发、如何解读结果、常见问题处理、
 > 如何添加测试、如何本地验证。
@@ -18,33 +18,37 @@
 # 1. 基于最新 main 开分支
 git fetch origin && git checkout -b feat/my-change origin/main
 
-# 2. 修改代码 + 本地验证（必做！）
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DNEED_TEST=ON -DNEED_BENCHMARK=ON
-cmake --build build -j2
-cd build
-ctest --output-on-failure                          # 37 个核心测试套件，~90s
-./bin/unit_test/Test_smoke --log_level=test_suite  # 冒烟测试，~8s
+# 2. 修改代码 + 本地聚焦验证（必做！）
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DNEED_TEST=ON -DNEED_BENCHMARK=ON \
+  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+JOBS=$(( $(nproc) / 4 )); JOBS=$(( JOBS < 2 ? 2 : JOBS ))
+cmake --build build --parallel "$JOBS"
+ctest --test-dir build --output-on-failure               # 全量仅按需；普通改动按验证阶梯做聚焦验证
+./build/bin/unit_test/Test_smoke --log_level=test_suite  # 冒烟测试
 
 # 3. 推送分支 → 创建 PR
 git push -u origin feat/my-change
 # GitHub 上创建 PR，CI 自动运行编译+测试
 ```
 
-CI 在 PR 创建/更新时运行编译、单元测试、Smoke、Reliability 和快速性能回归（约 8 分钟）。
+CI 在 PR 创建/更新时运行分类、编译+CTest、Smoke、Reliability 和同 runner 性能回归门禁（分钟级）。
 **发布级检查（真实客户端验收、可配置时长的疲劳压测、基线写入）只在发布 Gate 执行**。
 
 ### 我是 reviewer，要审 PR
 
-CI 通过（编译+ctest+smoke 全绿、快速性能回归不退化）是 merge 的前提条件。
+CI 通过（编译+ctest+smoke 全绿、性能回归未超阈值）是 merge 的前提条件。
 检查 PR 页面上的 CI checks 状态：
 
 | 信号 | 含义 | 动作 |
 |------|------|------|
 | ✅ `编译 & 单元测试` pass | 编译通过+全部测试通过 | 可以 review 代码 |
-| ✅ `性能回归检查` pass | 45s/模块快速回归未超阈值 | 可以 review 性能敏感改动 |
-| ❌ required check fail | 编译、单测或性能门禁失败 | 要求修复后重推 |
+| ✅ `性能回归检查` pass | 同 runner base/head 45s/模块严格比较未超阈值 | 可以 review 性能敏感改动 |
+| `编译 & 单元测试` skipped | 分类器判为 docs-only，重型 build job 显式跳过（不伪造 success） | 仅文档变更属正常 |
+| ❌ required check fail | 分类、编译、单测或性能门禁失败 | 要求修复后重推 |
 
-**性能影响：** 快速性能回归检查在 PR 和 main 都执行（45s/模块，退化 ≥20% 阻断合并）；完整性能 Gate、长时疲劳压测和基线写入只在发布 Gate 执行。性能敏感变更仍应在合入前定向验证。
+**性能影响：** `性能回归检查` 在 PR 和 push main 都执行（同 runner 顺序构建 base+head 的
+`unified_stress`，六模块 45s×2 threads 严格比较；缺证据即失败）。完整性能 Gate、长时疲劳压测和
+基线写入只在发布 Gate 执行。性能敏感变更仍应在合入前定向验证。
 
 ### 1.1 真实客户端验收（发布 Gate）
 
@@ -70,30 +74,37 @@ python3 scripts/acceptance_real_clients.py \
 
 ## 2. CI 触发机制
 
-### CI 工作流：unit_test.yml（代码变更）与 docs-check.yml（纯文档变更）
+### CI 工作流：unit_test.yml（普通门禁）与 docs-check.yml（文档快速反馈）
 
-| 事件 | 触发 | 编译+测试 | 快速性能回归 | 疲劳压测 |
-|------|------|:---------:|:------------:|:--------:|
-| **PR 创建/更新（含代码）** | `pull_request → main`（`unit_test.yml`，文档类路径 `paths-ignore`） | ✅ | ✅ | ❌ |
-| **push main（含代码）** | `push → main`（`unit_test.yml`，文档类路径 `paths-ignore`） | ✅ | ✅ | ❌ |
-| **纯文档 PR / push** | `docs-check.yml`（`paths` 仅文档类路径，<2min：空格/密钥扫描） | ❌ | ❌ | ❌ |
-| **发布 Gate** | `workflow_dispatch` + Environment 审核 | ✅ | ✅（严格） | ✅（默认 1h，可配到 24h） |
+普通门禁 `.github/workflows/unit_test.yml` 对 `pull_request → main` 与 `push → main` 运行，
+按 `scripts/ci/changed_files.py` 产出的真实 diff 交给 framework 分类 callee 分类：
 
-文档类路径（两处 workflow 共用同一清单，互补）：`**.md`、`docs/**`、`agent-docs/**`、`LICENSE`、`**/*.png|jpg|svg`。
-混合变更（文档+代码）走 `unit_test.yml` 全量，`docs-check.yml` 同时给出快速反馈。
+| 分类 | `编译 & 单元测试`（build job） | `性能回归检查`（perf job） |
+|------|------------------------------|----------------------------|
+| code / unknown / 分类失败 | ✅ 全量构建 + CTest + Smoke + Reliability | ✅ 同 runner base/head 严格比较 |
+| docs-only | 显式 skipped（optional 语义允许，不靠空成功伪造绿） | ✅ 照常运行 |
+
+`docs-check.yml` 是文档类路径（`**.md`、`docs/**`、`agent-docs/**`、`LICENSE`、图片）上的
+轻量快速反馈（<5min：空格 diff 检查 + 密钥扫描，fail-closed），与 unit_test.yml 不互斥。
+混合变更（文档+代码）走 unit_test.yml 全量。
 
 ### 运行环境
 
-基于 **self-hosted runner**（Linux，runner 名 `txclould`），`runs-on: ["self-hosted", "linux"]`。
+普通 CI 全部 job 运行在 **hosted `ubuntu-24.04`**；不再使用常驻 self-hosted runner。
+发布 Gate 的 `gate` job 仍在 `arc-s4`，内存检测在专用 `arc-s4-memcheck`（见 §4）。
 
-仓库公开。fork PR 会执行 PR head 里的 workflow，不能靠本仓库 YAML 的 `if` 隔离常驻 runner。硬闸门是 Actions `approval_policy=all_external_contributors`：外部贡献者的 fork workflow 默认不跑，必须人工批准。不要批准未审查的 fork workflow。受支持的贡献路径是同仓分支 PR。
+仓库公开。fork PR 会执行 PR head 里的 workflow，不能靠本仓库 YAML 的 `if` 隔离 runner。硬闸门是
+Actions `approval_policy=all_external_contributors`：外部贡献者的 fork workflow 默认不跑，必须人工
+批准。不要批准未审查的 fork workflow。受支持的贡献路径是同仓分支 PR。
 
 ### 超时设置
 
 | 阶段 | timeout | 说明 |
 |------|---------|------|
-| build-and-test | 未设置 job 超时（GitHub 默认 6h） | CTest step 10min；Smoke / Reliability step 各 8min |
-| perf-regression | 15 min | 每模块快速性能回归（45s/模块） |
+| `变更类型检测` | 5 min | 真实 diff + 分类输入 |
+| `编译 & 单元测试`（build job） | 75 min | 含 Boost 1.90 context 源码前缀准备、全量构建、CTest（step 10min）、Smoke / Reliability（step 各 8min） |
+| `性能回归检查`（perf job） | 60 min | 两棵树顺序构建 `unified_stress` + 六模块 45s×2 测量 |
+| `docs-check` | 5 min | 空格 + 密钥扫描 |
 | release / gate | 1500 min | 含构建、验收、性能 Gate、可配置时长压测（默认 1h，最长 24h）与基线写入；不是实测完成时间承诺 |
 | release / CTest | step 15 min | `ctest --timeout 60`，避免单测挂死吃完 120 min |
 | release / 真实客户端验收 | step 10 min | Redis 缺失必须失败，不走 skip |
@@ -104,8 +115,11 @@ python3 scripts/acceptance_real_clients.py \
 
 ```
 每个 PR/push main（分钟级）:
-  build-and-test:  编译 → ctest（37 suites）→ Test_smoke → 上传 build artifact
-  perf-regression: 下载同一 build artifact → 45s/模块快速性能回归门禁
+  变更类型检测（真实 diff）→ framework 分类 callee（plan）
+    → 编译 & 单元测试（docs-only 显式 skip）
+    → 结果汇聚（always，fail-closed）
+  性能回归检查（独立 context）：同 runner 顺序构建 base+head 的 unified_stress
+    → base 无基线测量（runner 临时基线）→ head --strict-comparable 严格比较
 
 发布 Gate（workflow_dispatch + Environment 审核）:
   Release 构建 → 全量 CTest → 真实客户端验收 → 严格性能 Gate
@@ -113,44 +127,31 @@ python3 scripts/acceptance_real_clients.py \
   → 性能基线记录 / 趋势检查 / 推送 perf-baseline
 ```
 
-### 3.1 编译与单元测试（每次含代码的 PR/push 必跑，纯文档走 docs-check）
+### 3.1 编译与单元测试（code/unknown 时必跑；docs-only 显式跳过）
 
-**步骤（见 `.github/workflows/unit_test.yml`；CI 当前使用 workflow 内联命令）：**
+**步骤（见 `.github/workflows/unit_test.yml`）：**
 
-1. **编译：** workflow 清空并重建 `build/` 目录，执行 CMake 和 Ninja，成功后将
-   性能 job 所需的 `unified_stress`、运行库和 `CMakeCache.txt` 打包为短期 GitHub
-   Actions artifact；性能 job 下载并复用这份产物，不再重复 checkout 后重新
-   configure/build。artifact 使用 tar 保留可执行权限、符号链接和目录结构，并通过
-   下载重试降低 VPN 链路瞬断影响；
-   `shell/workflow/unit_test/compile_code.sh` 是遗留的本地辅助脚本，不是当前 CI 入口。
-2. **ctest：** `cd build && ctest --output-on-failure` — 运行全部 37 个核心测试套件
-3. **冒烟测试：** `build/bin/unit_test/Test_smoke --log_level=test_suite` — 覆盖 8 个核心模块 happy-path
-4. **可靠性测试：** 独立运行 `Test_reliability`。
+1. **工具链：** `scripts/ci/prepare_boost.sh` 按锁定 SHA256 源码构建 Boost 1.90 `context`
+   到工作区私有前缀（hosted 预装 Boost 版本不同，不借用）；
+2. **编译：** `cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DNEED_TEST=ON -DNEED_BENCHMARK=ON`，
+   固定 `JOBS=3`；**不存在** build artifact 打包/跨 job 复用——perf job 在同一 runner 上
+   独立 checkout 两棵源码树并自行构建 `unified_stress`；
+3. **自测：** `python3 scripts/test_release_gate.py` + `python3 -m unittest discover -s scripts/ci -p 'test_*.py'`；
+4. **ctest：** `ctest --timeout 60 --output-on-failure`，最多 3 次有界重试（step 10min）；
+   注册套件数以构建目录 `ctest -N` 输出为准，不硬编码数量；
+5. **冒烟 / 可靠性：** `Test_smoke` / `Test_reliability` 各自有界重试（step 各 8min）。
 
-基础测试列表（37 个）：
+本地完整测试清单以 `ctest -N` 为准；新增测试必须在 `unit_test/CMakeLists.txt` 用
+`add_test()` 注册（见 §8）。`Test_scheduler_stop` 等已删除的套件不应再出现在任何文档中。
 
-```
-Test_coroutine_stack      Test_coroutine             Test_coroutine_api
-Test_coroutine_exception  Test_scheduler_exec       Test_coroutine_cancel
-Test_exception_stop       Test_hook                  Test_hook_contract
-Test_hook_blocking_fd     Test_coroutine_diag        Test_hook_timeout_flags
-Test_worker_stall         Test_crash_diag             Test_hook_error_matrix
-Test_scheduler_stop       Test_poller                 Test_eventloop_boundary
-Test_copollevent_state    Test_eventloop_backend     Test_eventloop_contract
-Test_cond                 Test_g_co                  Test_macro_wrap
-Test_scheduler_api        Test_chan                  Test_coselect
-Test_comutex              Test_lockguard              Test_rwlock_guard
-Test_defer                Test_profiler               Test_co_rwmutex
-Test_coevent              Test_copool                 Test_smoke
-Test_reliability
-```
-
-真实客户端验收是独立 CI job，不属于基础 37 项列表；本地同时启用 `NEED_EXAMPLE=ON` 时会额外注册 `Test_real_clients`。
+真实客户端验收不属于普通门禁；`NEED_EXAMPLE=ON` 且 `NEED_TEST=ON` 时本地额外注册
+`Test_real_clients_echo`（无条件必须 PASS）与 `Test_real_clients_hiredis`（无 Redis 时 skip 77）。
 
 **失败含义：**
 - 编译失败 → 代码有语法/链接错误，检查编译日志
 - ctest 失败 → 某测试用例失败，检查对应模块的 `--output-on-failure` 输出
 - Test_smoke 失败 → 核心模块 happy-path 被破坏
+- docs-only 之外 build skipped → 分类/汇聚 fail-closed，不是绿
 
 ### 3.2 并行疲劳压测（仅发布 Gate）
 
@@ -168,16 +169,21 @@ Test_reliability
 - 每模块独立日志 `tests/reports/<timestamp>/<module>.log`
 - 发布 Gate 自动上传 `release-gate` artifact；本地运行时报告仍只写入 `tests/reports/`
 
-### 3.3 性能回归门禁（#310）
+### 3.3 性能回归门禁
 
-**三级结构：**
-- PR / push main（`perf-regression`）：`ci_perf_check.py --threads=2 --dur=45`，
-  与最近可比基线对比，只检查不写基线。
-- 发布 Gate 尾部：压测成功后 `record_baseline.py record`
-  生成新基线，并 `trend` 检查连续退化，最后推送到长期分支。
-- 基线长期记录：orphan 分支 `perf-baseline`（目录 `tests/baselines/<machine>/`），
-  artifact `performance-baseline` 仅作传输副本。main 检查先 fetch 该分支再比较，
-  分支缺失时显式 `NO_COMPARABLE_BASELINE`。
+普通门禁 `性能回归检查` 是**同 runner 自给自足**的 base/head 比较：
+
+- 同一 hosted job 内顺序 checkout `perf-src-base` / `perf-src-head`（显式完整 SHA 校验），
+  顺序构建两棵树的 `unified_stress`（不跑全量 CTest），用 **head 的**
+  `scripts/ci_perf_check.py` 分别测量六模块 45s × 2 threads；
+- **base** 无基线测量（verdict `NO_COMPARABLE_BASELINE`，exit 0）——只作 runner 临时基线，
+  **不是** PASS 声明；任一模块测不干净 base 即 `exit 2`；
+- **head** 以 base 报告为基线 + `--strict-comparable --gate-enabled` 严格比较：退化 ≥20%
+  （CoCond ≥40%）FAIL；缺基线、缺模块、环境指纹不一致、`errors>0`、zero ops、NaN/inf 一律
+  `exit 2`——**缺证据不得置绿**；
+- 基线仅 runner 临时，**不**读/写 `perf-baseline` 分支、不改仓库变量、不触碰
+  `release_gate.py`。该 job 不进 framework result 汇聚（独立 context）。
+- 详细判定链、信任边界与退出码见 `agent-docs/perf-check-wiring.md`。
 
 **判定阈值（沿用 ADR D6）：**
 | 模块 | WARN | FAIL（--gate-enabled） |
@@ -188,49 +194,37 @@ Test_reliability
 CoCond 放宽原因：其 ops 由 frame/timeout 定时器节拍驱动，对调度抖动和
 runner 时钟噪声天然敏感，10% 会大量误报（历史压测观察）。
 
-**`ci_perf_check.py` 的 verdict 与退出码（main 沿用，发布额外收紧）：**
-- `PASS` / `NO_COMPARABLE_BASELINE` → exit 0。无基线、基线损坏、环境指纹
-  （machine/cpu/内存/编译器/cmake/ninja/build type/线程数）任一不一致，
-  一律 `NO_COMPARABLE_BASELINE`，**不伪装成性能通过**，也不做静默比较。
-- `WARN` → exit 0 + GitHub `::warning::` 注解和 summary 显式标注。不阻塞
-  合并，但不得当作 PASS。
-- `FAIL` / `METRIC_INVALID`（timeout/crash/zero ops/缺字段）→ exit 2，
-  步骤红叉。**PR/main 性能检查启用 `--gate-enabled`**：吞吐退化 ≥20%（CoCond ≥40%）
-  使 required check 失败并阻断合并与发布；10%~20% 仍是 WARN。
+**Release 基线与趋势：** 发布 Gate 在长测通过后才 `record_baseline.py record` 生成正式基线并
+推 `perf-baseline` 分支，`trend` 检查连续退化；这与普通门禁的 runner 临时基线是两条路径。
+`record_baseline.py record` 在任一模块 no_data/超时/指标无效时拒绝落盘（exit 2）；失败、取消、
+超时的 run 不会覆盖好基线。**连续两次发布基线或发布前确认性能回退，必须创建专项修复 Issue**；
+单次异常先复测并记录环境。推送步骤自动裁剪每机器目录至最近 20 份，关键发布基线打 tag
+（在 `perf-baseline` 分支上，如 `baseline-v2.1.0`）长期保留。
 
-**main 与发布的区别：** main 对 `NO_COMPARABLE_BASELINE` 保持 exit 0，并显示 warning；它只说明缺少性能比较证据，不是 PASS。Release Gate 仅接受六模块均为 `PASS` / `WARN` 且 `errors=0`；无基线、损坏或指纹不一致均阻断发布。
-
-**Release 基线迁移：** 旧流程记录的空 `build_type` 与显式 `Release` 不可比。首个迁移 PR 允许显式不可比状态合入；合入后由发布 Gate 完成长测并通过 record 写入闸门，生成同 runner / 参数的 Release 基线，再执行 RC Gate。不手改基线指纹、不伪造数据、不关闭 required check。
-
-**故障分类：** runner/环境故障看「编译 & 单元测试」是否同挂与 `NO_COMPARABLE_BASELINE`
-的 reason 键；harness 故障 = `METRIC_INVALID`（指标缺失/进程崩溃）；代码性能回退 =
-指纹一致下的 WARN/FAIL delta。三者不混算。
-
-**基线写入闸门：** `record_baseline.py record` 在任一模块 no_data/超时/指标无效时
-拒绝落盘（exit 2）；失败、取消、超时的 run 不会覆盖好基线。
-
-**趋势与修复义务：** `record_baseline.py trend` 比较最近 4 份基线，逐次下降且累计
-≥15% 时告警。**连续两次发布基线或发布前确认性能回退，必须创建专项修复 Issue**；
-单次异常先复测并记录环境。
-
-**基线保留规则：** 推送步骤自动裁剪每机器目录至最近 20 份（约 20 次发布）；
-关键发布基线打 tag（在 `perf-baseline` 分支上，如 `baseline-v2.1.0`）长期保留。
+**故障分类：** runner/环境故障看「编译 & 单元测试」是否同挂与报告里的 reason 键；harness 故障 =
+`METRIC_INVALID`（指标缺失/进程崩溃）；代码性能回退 = 指纹一致下的 WARN/FAIL delta。三者不混算。
 
 **本地复现：**
 
 ```bash
-# 构建（Release，与 CI 同参数）
+# 构建（Release，与 CI 同参数；新 configure 加 ccache，JOBS 上限 nproc/4、最小 2）
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-  -DNEED_TEST=ON -DNEED_BENCHMARK=ON
-cmake --build build -j2
+  -DNEED_TEST=ON -DNEED_BENCHMARK=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+JOBS=$(( $(nproc) / 4 )); JOBS=$(( JOBS < 2 ? 2 : JOBS ))
+cmake --build build --parallel "$JOBS"
 
 # 冒烟（不比较基线）
 python3 scripts/ci_perf_check.py --module=comutex --threads=2 --dur=15 --no-baseline-compare
 
-# 快速回归（自动取本机最新基线比较；无基线则 NO_COMPARABLE_BASELINE）
-python3 scripts/ci_perf_check.py --threads=2 --dur=45
+# 本地两阶段对比（等价于 CI 的 base/head 语义）：先对被测构建树做无基线测量作临时基线，
+# 再对另一构建树严格比较；CI 用的是同 runner 两棵隔离源码/构建树
+python3 scripts/ci_perf_check.py --build-dir <base-build> --commit-sha <base-sha> \
+  --no-baseline-compare --dur 45 --threads 2 --output /tmp/perf-base.json
+python3 scripts/ci_perf_check.py --build-dir <head-build> --commit-sha <head-sha> \
+  --baseline /tmp/perf-base.json --strict-comparable --gate-enabled \
+  --dur 45 --threads 2 --output /tmp/perf-head.json
 
-# 记录基线（仅 main 长测语义；本地试验用 --output 写到别处）
+# 记录基线（仅发布 Gate 语义；本地试验用 --output 写到别处）
 python3 scripts/record_baseline.py record --threads=2 --dur=60 --quick
 
 # 趋势检查
@@ -355,8 +349,8 @@ python3 scripts/ci/test_memcheck_contract.py
 
 PR 的必需检查为 `编译 & 单元测试` 与 `性能回归检查`；发布级 job（真实客户端验收、疲劳压测）只在发布 Gate 执行：
 
-- ✅ **`编译 & 单元测试`** — 绿色 = 编译、CTest、Smoke、Reliability 全部通过
-- ✅ **`性能回归检查`** — 绿色 = 45s/模块快速回归未超阈值
+- ✅ **`编译 & 单元测试`** — 绿色 = 编译、CTest、Smoke、Reliability 全部通过；docs-only 分类下该 check 为 skipped（显式跳过，属正常）
+- ✅ **`性能回归检查`** — 绿色 = 同 runner base/head 六模块 45s×2 严格比较未超阈值
 - 发布 Gate 才检查 **`真实客户端验收`** 与并行疲劳压测
 - ❌ 红色 = 失败，点击展开查看具体失败的 step 日志
 
@@ -364,15 +358,15 @@ PR 的必需检查为 `编译 & 单元测试` 与 `性能回归检查`；发布�
 
 ctest 失败时展开 CI 日志中的 "ctest" step，查看具体失败的 test suite 和断言消息。
 
-示例输出：
+示例输出（套件数仅示意，实际以 `ctest -N` 为准）：
 ```
 Test project /path/to/build
     Start 1: Test_coroutine_stack
-1/37 Test #1: Test_coroutine_stack .............   Passed    0.05 sec
+1/N Test #1: Test_coroutine_stack .............   Passed    0.05 sec
     Start 2: Test_coroutine
-2/37 Test #2: Test_coroutine ..................   Passed    0.11 sec
+2/N Test #2: Test_coroutine ..................   Passed    0.11 sec
 ...
-100% tests passed, 0 tests failed out of 37
+100% tests passed, 0 tests failed out of N
 ```
 
 ### 5.3 压测结果解读
@@ -397,7 +391,7 @@ Test project /path/to/build
 - 全部进程成功退出，六模块 `ops_total > 0`、`errors=0`、`elapsed_s` 达到计划时长，才可判 PASS。
 - 零操作、错误计数、缺失指标或提前结束均判 FAIL；错误原因需结合模块日志定位，不能仅凭计数断言是 CoCond 问题。
 
-**性能回归：** CI 通过 `perf-regression`（PR + main）和发布 Gate 自动执行基线对比。`PASS` 正常，`WARN` 会显式标注但不阻塞，`FAIL`、`METRIC_INVALID` 和无可比基线按流程分类处理；不得把 `WARN` 说成 `PASS`。
+**性能回归：** CI 通过 `性能回归检查`（PR + push main）和发布 Gate 自动执行比较。`PASS` 正常，`WARN` 会显式标注但不阻塞，`FAIL`、`METRIC_INVALID` 与缺证据（strict 模式下含 `NO_COMPARABLE_BASELINE`）按 fail-closed 处理；不得把 `WARN` 说成 `PASS`。
 
 ---
 
@@ -406,16 +400,19 @@ Test project /path/to/build
 ### 6.1 编译
 
 ```bash
+# 构建（新 configure 加 ccache；JOBS 上限 nproc/4、最小 2）
 cmake -S /path/to/bbtools-coroutine -B /path/to/bbtools-coroutine/build \
-  -G Ninja -DCMAKE_BUILD_TYPE=Release -DNEED_TEST=ON -DNEED_BENCHMARK=ON
-cmake --build /path/to/bbtools-coroutine/build -j2
+  -G Ninja -DCMAKE_BUILD_TYPE=Release -DNEED_TEST=ON -DNEED_BENCHMARK=ON \
+  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+JOBS=$(( $(nproc) / 4 )); JOBS=$(( JOBS < 2 ? 2 : JOBS ))
+cmake --build /path/to/bbtools-coroutine/build --parallel "$JOBS"
 cd /path/to/bbtools-coroutine/build
 ```
 
 ### 6.2 单元测试
 
 ```bash
-# 基础单元测试（37 个 suite）
+# 全部注册的单元测试（套件数以 `ctest -N` 为准）
 ctest --output-on-failure
 
 # 单个模块
@@ -464,17 +461,7 @@ INTERVAL=60 bash scripts/run_parallel_stress.sh 3600 2  # 1 小时全量
 FATIGUE_INTERVAL=60 ./build/bin/benchmark_test/unified_stress --module=comutex --threads=4 600 0 0
 ```
 
-### 6.5 覆盖率测试
-
-```bash
-# 一键：构建插桩版 → 跑全部单元测试 → 生成 HTML 报告
-bash scripts/coverage.sh all
-
-# 浏览器打开
-open coverage_report/index.html
-```
-
-### 6.6 Sanitizer 本地诊断
+### 6.5 Sanitizer 本地诊断
 
 ASAN+UBSAN 用于检测 use-after-free、buffer overflow 等：
 
@@ -484,14 +471,15 @@ mkdir build_san && cd build_san
 cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Debug -DNEED_BENCHMARK=ON \
   -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -g" \
   -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
-ninja -j$(nproc)
+JOBS=$(( $(nproc) / 4 )); JOBS=$(( JOBS < 2 ? 2 : JOBS ))
+cmake --build . --parallel "$JOBS"
 
 # 运行（约 2× 性能开销）
 ASAN_OPTIONS=detect_leaks=0:halt_on_error=0 \
   ./bin/benchmark_test/unified_stress --module=comutex --threads=4 600 0 0
 ```
 
-### 6.7 内存泄漏检测（RSS 监控）
+### 6.6 内存泄漏检测（RSS 监控）
 
 Valgrind 在协程场景下不可靠，推荐 RSS 时序监控：
 
@@ -526,7 +514,7 @@ p.terminate()
 
 展开 CI 日志定位是哪个阶段失败：
 
-- **编译失败** → 检查本地是否 pass 了 `ninja -j$(nproc)`。CI 用 Ninja 编译，确认本地也用了 Ninja。
+- **编译失败** → 检查本地是否用相同的 Ninja 构建通过。CI 用 Ninja + 私有 Boost 前缀编译，确认本地 configure 参数一致。
 - **ctest 失败** → 展开 CI 日志看具体哪个 test case 失败，本地 `ctest --output-on-failure` 复现。
 - **Test_smoke 失败** → 本地运行 `./bin/unit_test/Test_smoke --log_level=test_suite` 看完整输出。
 
@@ -546,13 +534,14 @@ CI 的编译脚本等价于：
 
 ```bash
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DNEED_TEST=ON -DNEED_BENCHMARK=ON
-cmake --build build -j2
+JOBS=$(( $(nproc) / 4 )); JOBS=$(( JOBS < 2 ? 2 : JOBS ))
+cmake --build build --parallel "$JOBS"
 cd build
 ctest --output-on-failure
 ./bin/unit_test/Test_smoke --log_level=test_suite
 ```
 
-本地跑一遍等价流程即可复现 CI 环境。
+本地跑一遍等价流程即可复现 CI 环境（hosted 上另有 `prepare_boost.sh` 的 Boost 1.90 私有前缀）。
 
 ### Q: 本地运行压测卡住了？
 
@@ -697,9 +686,11 @@ GitHub tag ruleset 按 bypass actor 限制创建者，不能直接指定 workflo
 |------|------|------|
 | CI Workflow | `.github/workflows/unit_test.yml` | CI 配置源码 |
 | 内存检测 Workflow | `.github/workflows/memery_test_info.yml` | 内存检测配置 |
+| 发布 Workflow | `.github/workflows/release.yml` | 发布 Gate |
+| 正式 CI 说明 | `agent-docs/formal-ci.md` | 普通 CI 配方与分类/结果语义 |
+| 性能门禁接线 | `agent-docs/perf-check-wiring.md` | 同 runner base/head 判定链与边界 |
 | 遗留编译脚本 | `shell/workflow/unit_test/compile_code.sh` | 本地辅助入口；当前 CI 不调用 |
 | 并行压测脚本 | `scripts/run_parallel_stress.sh` | 6 模块并行压测 |
-| 覆盖率脚本 | `scripts/coverage.sh` | 覆盖率报告生成 |
 | 压测运行器 | `scripts/run_fatigue.py` | 串行疲劳测试运行器 |
 
 ---

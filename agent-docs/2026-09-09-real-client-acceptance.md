@@ -46,7 +46,8 @@ python3 scripts/acceptance_real_clients.py \
 ```
 
 构建同时启用 `NEED_TEST=ON` 和 `NEED_EXAMPLE=ON` 时，CTest 注册
-`Test_real_clients`。Redis 不可用时返回 CTest skip code 77，不伪造通过。
+`Test_real_clients_echo`（无条件、必须 PASS）；`co_with_hiredis` target 存在时再注册
+`Test_real_clients_hiredis`，Redis 不可用时返回 CTest skip code 77，不伪造通过。
 
 ## 边界
 

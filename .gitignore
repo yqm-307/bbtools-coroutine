@@ -38,6 +38,18 @@ build*/
 .kilo/
 .state/
 .superpowers/
+/.superpower/
+/superpowers/
+/superpower/
+/openspec/
+/.openspec/
+/.wayfinder/
+/wayfinder/
+/.wfer/
+/wfer/
+/.omh/
+/.cache/
+/work/
 
 # Test and benchmark outputs
 # 细则在 tests/reports/.gitignore：work/ 与时间戳目录忽略，archive/ 结论可提交
