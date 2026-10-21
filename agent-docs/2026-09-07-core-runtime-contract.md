@@ -90,6 +90,7 @@ Hook 属于核心适配层，目标是参考 libco 的方式，尽可能将其�
 - `EINTR`、`EAGAIN`、`EWOULDBLOCK`、`EBADF`、`EOF` 等错误和边界结果不得被吞掉或误转成功。
 - 无法安全转换时必须明确降级、原生直通或返回明确错误；禁止静默改变为协程等待。
 - `close` 的代际/closing/waiter 摘除在准备分配完成后一次发布；准备失败不得遗留半发布状态。Hook 边界不让准备阶段 C++ 异常外泄：一次 `bad_alloc` 后只重做尚无副作用的准备，不重试可能已执行的 syscall；再次分配失败返回 `-1/ENOMEM`，其它准备异常返回 `-1/EIO`。
+- `close` 对「同号 fd 上的等待」的关闭语义（#370+#402 精确边界）：一次等待从建立到完成只承认一个代际。已 park 的等待在 `BeginFdClose` 时被摘表并以 `POLL_EVENT_CLOSED` 唤醒；事件已就绪但协程尚未恢复时发生 close+reuse，恢复侧代际比对失败按 `EBADF` 收口；`BeginFdClose` 与 `EndFdClose` 之间（底层 close 未返回）发起建立的新等待，在建立点观察到 closing 即被锁存为 CLOSED，不得因 `EndFdClose` 解除 closing 而重获新代准入。三者收敛到同一结果：旧操作 `-1/EBADF`，不重试跨代 syscall、不回写旧 flags/偏移、不影响复用后的同号新对象。本承诺只覆盖 Hook IO 的 `close` 交错，不泛化到任意同 fd 并发 IO；`poll`/`select` 的 close 时序不在本轮承诺内。
 - 已 PARKED 等待的完成赢家在延迟销毁提交扩容失败一次时，仍持有原 Event，在同一临界区有界重做无副作用的提交，再完成唯一唤醒；不回退首胜状态，不在通知线程销毁底层 Event。本保证针对该分配点单次失败且随后内存恢复，不承诺持续 OOM、mutex 损坏、用户回调或其它调度分配失败的通用恢复。
 - 是否支持某个调用，以真实兼容矩阵和客户端验证为准，不以 Hook 函数数量作为完成标准。
 

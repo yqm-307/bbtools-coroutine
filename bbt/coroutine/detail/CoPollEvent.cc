@@ -330,14 +330,41 @@ int CoPollEvent::InitFdEvent(int fd, short events, int timeout)
     m_fd = fd;
     m_listen_events = events;
     m_timeout = timeout;
-    /* #370 establish-epoch：在绑 fd 建立等待的起点锁内采样 fd 代际作为
-     * 本次等待的基线。_TrackWaiter 登记时若发现 epoch 已推进（说明
-     * InitFdEvent→Regist 窗口内发生过 close），即以 POLL_EVENT_CLOSED
-     * 拒绝——asio async_wait 若绑在已死 fd 上事件永不触发，必须在此
-     * 拦下而不是等一个不会到的唤醒。 */
+    /* #370 establish-epoch + #402 establish-closing：在绑 fd 建立等待的起点
+     * 于同一临界区采样 fd 代际与 closing。
+     *   - m_wait_epoch 作为本次等待的代际基线：_TrackWaiter 登记时若发现
+     *     epoch 已推进（InitFdEvent→Regist 窗口内发生过 close），即拒绝
+     *     登记，由 Regist 以 POLL_EVENT_CLOSED 自触——close 已完整落在建立
+     *     窗口内，本次等待不能再被当作有效等待。
+     *   - establish_closing 覆盖更靠前的窗口：BeginFdClose 已推进代际并
+     *     置 closing，但底层 close 尚未返回。若在此窗口内建立等待，Init
+     *     采到的已是新一代 epoch；EndFdClose 解除 closing 后，登记时
+     *     _TrackWaiter 看到「epoch 相同且未 closing」会误当新对象准入。
+     *     这条等待并不会安静失效：Event 构造期的私有 dup 若早于用户
+     *     close，旧 open file description 经该 dup 存活，旧 peer 就绪仍会
+     *     真的唤醒本事件；若 dup 落在 close+reuse 之后，则直接绑到同号新
+     *     对象上。两种形态在同一 epoch 下都被放行，风险是漏关闭（本应随
+     *     close 收敛 EBADF 的等待被当成新代有效等待）与跨对象重试（唤醒
+     *     后 syscall 打到同号新对象）。故建立时只要观察到 closing，就不
+     *     创建底层 Event、把失效结果锁存为 POLL_EVENT_CLOSED（INITED→
+     *     PENDING，复用既有提前首胜），不留到 Regist 时重获有效性；恢复
+     *     侧由 FdWaitEpochValid 读 CLOSED 位收敛 EBADF，与「等待中被摘表」
+     *     走同一路径。 */
+    bool establish_closing = false;
     if (fd >= 0) {
         std::lock_guard<std::mutex> lock(_WaitersMtx());
-        m_wait_epoch = _Slots()[fd].epoch;
+        const auto& slot = _Slots()[fd];
+        m_wait_epoch = slot.epoch;
+        establish_closing = slot.closing;
+    }
+    /* establish 命中 closing：不再创建底层 Event——其构造期 dup 可能落在
+     * 已复用的同号新对象上，且本次等待已被判定为失效（不再有资格成为新代
+     * 有效等待）。Init 仍返回 0（等待建立本身成功），失效经锁存的
+     * PENDING(CLOSED) 走既有完成/EBADF 路径；若其它触发已先胜（如取消），
+     * Trigger 失败无害，首胜结果不变。 */
+    if (establish_closing) {
+        Trigger(POLL_EVENT_CLOSED);
+        return 0;
     }
     auto weakthis = weak_from_this();
     /* #284：asio 侧旧监听的析构延迟到驱动线程下一次 PollOnce 兑现；本协程
