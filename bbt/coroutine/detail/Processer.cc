@@ -500,13 +500,15 @@ void Processer::_Run()
                 // 执行前设置当前协程缓存（预算单位为微秒，计时必须显式 us）
                 m_running_coroutine_begin.exchange(bbt::core::clock::gettime_mono<bbt::core::clock::us>());
 
-                /* worker 无进展快照（#277）：每 Resume 刷新一次。spin/parked
+                /* worker 无进展快照（#277/#367）：每 Resume 刷新一次。spin/parked
                  * 都只执行一次 Resume——区分"执行停顿"靠 executing 标志：
                  * 调度线程读到 true 且 begin_ts 超阈值 = 用户代码占死 worker；
-                 * 读到 false = 协程已让出，不算停顿。 */
+                 * 读到 false = 协程已让出，不算停顿。整组字段在
+                 * m_exec_mutex 临界区内一次提交，读者同锁整组复制，
+                 * 一致性由互斥保证（诊断路径，允许极短锁占用）。 */
                 if (g_bbt_coroutine_config->m_cfg_worker_stall_warn_ms > 0)
                 {
-                    m_exec_seq.store(m_exec_seq.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed); // 奇=写中
+                    std::lock_guard<std::mutex> lock(m_exec_mutex);
                     m_exec_co_id = m_running_coroutine->GetId();
                     m_exec_begin_us = m_running_coroutine_begin.load(std::memory_order_relaxed);
                     m_exec_backlog = GetExecutableNum();
@@ -514,8 +516,7 @@ void Processer::_Run()
                     size_t n = d.size() < sizeof(m_exec_desc) - 1 ? d.size() : sizeof(m_exec_desc) - 1;
                     memcpy(m_exec_desc, d.data(), n);
                     m_exec_desc[n] = '\0';
-                    m_exec_seq.store(m_exec_seq.load(std::memory_order_relaxed) + 1, std::memory_order_release); // 偶=稳定
-                    m_executing.store(true, std::memory_order_release);
+                    m_executing = true;
                 }
 #ifdef BBT_COROUTINE_PROFILE
                 m_co_swap_times++;
@@ -527,7 +528,10 @@ void Processer::_Run()
                     m_running_coroutine->Resume();
                 }
                 if (g_bbt_coroutine_config->m_cfg_worker_stall_warn_ms > 0)
-                    m_executing.store(false, std::memory_order_release);
+                {
+                    std::lock_guard<std::mutex> lock(m_exec_mutex);
+                    m_executing = false;
+                }
                 // MLFQ: 记录运行时长（微秒），供后续降级判断
                 m_running_coroutine->SetLastRunTimeUs(
                     bbt::core::clock::gettime_mono<bbt::core::clock::us>() - m_running_coroutine_begin.load());

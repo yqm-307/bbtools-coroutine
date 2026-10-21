@@ -1,0 +1,37 @@
+{
+  "base_sha": "41f73016a248ae40b2eeca0131a8688fc68b3b40",
+  "issue": 367,
+  "branch": "fix/worker-stall-snapshot-367-ready",
+  "source_files": {
+    "bbt/coroutine/detail/Processer.hpp": "81f760f0d94db1c5c576393ceb840f0a267958311c074324653dd641cd7e5051",
+    "bbt/coroutine/detail/Processer.cc": "157d899d9dcf7c96d2dab80b42e4b00f1c96d7552e16fe6981597ae64e6b6bdf",
+    "bbt/coroutine/detail/Scheduler.cc": "964a9d5540a006c6420e228117442a6f976e7901feaaad4ec9fbd151d63863f2",
+    "unit_test/Test_worker_stall.cc": "72d7792fa270e2aeb5835b509dc94fbdd409945b19253aa8af65c19c20065c94",
+    "unit_test/CMakeLists.txt": "b1e9cf1e6ed5d93581045819d1349ae42abade9cabfed93058839fb9d6f26d53"
+  },
+  "source_manifest_sha256": "97bae2a392c62cde426b13433d11302a97b469548808ee8471d41f8584310c8a",
+  "local_tests": {
+    "default_release": {
+      "passed": 11,
+      "failed": 0
+    },
+    "PROFILE_debug": {
+      "passed": 3,
+      "failed": 0
+    }
+  },
+  "matching_library_required": true,
+  "compiler_warnings": 0,
+  "cmake_configuration_warning": "existing CMP0167 development warning",
+  "review_scope": "Extracted source/test files match previously independently checked-clean #367/#403 subset; unresolved synchronization/debug failure handling excluded. CMake changes register only the corresponding tests.",
+  "not_run": [
+    "full_local_ctest",
+    "ASAN",
+    "TSan",
+    "weak_memory_platform",
+    "real_client_soak",
+    "remote_PR_CI"
+  ],
+  "overall": "local_focused_pass_pending_remote_CI_and_user_review",
+  "merge_gate": "current-head required CI green plus user review approval"
+}
