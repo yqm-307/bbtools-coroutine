@@ -34,3 +34,13 @@ strict 与 debug-info 档专用诊断测试每次实际运行 7 个 case，stder
 ## 复用边界
 
 原始日志、core、内存地址、私有调试器与工具脚本均在仓外，不入 Git。归档完成后 20 文件候选（18 源码 + 2 归档）已按实际文件冻结指纹，工作树无提交，故不记录 HEAD_SHA。若在另一环境续接，先固定源码、编译配置与库指纹再复用已有首故障即停采集入口。
+
+## main 合入 PR407 后的整合追加（2026-10-21）
+
+上文 30/30 四档、PROFILE 档 `--repeat until-fail:100` 与 18 源聚合 `c5d40f25…a46c90` 属于**前一冻结点**（BASE `41f7301`，提交前工作树），历史口径保持不变，本节不覆盖也不重跑。随后 PR407（#403 构造失败 fd 单次关闭、Ctor 测试与其注册、两份归档）已在远端合入 main（`461deb4e614e660ef899e5cb20ac54086e9e18fa`），因此本仓需要与 main 整合：
+
+- 整合基线：已审查提交 `ee5d0f87a5c903912e81d70059f37687b1364e17`（ship/high/0），并入上游 `461deb4e…`。
+- 唯一冲突是注册文件：解法取「原先 33 项已测组合快照」减去 PR406 的 `Test_worker_stall_disabled` 两行。保留 BASE 的 worker stall 目标、PR407 的 Ctor 两模式、本仓的 sync/stringent/diagnostic 目标与 registry 三模式，未并入 PR406 实现与 disabled 模式，注册总数 62 行 `add_test`。
+- 整合后直接回归（四档各 9 项，注册数与实际执行数均为 9，退出码 0，编译告警 0；每档 `LD_LIBRARY_PATH` 显式绑定并逐目标 ldd 确认解析到本档库）：`Test_event_constructor_rollback_{rollback_timer_fail,construct_ok}`、`Test_event_callback_registry_lifetime_{exit_live_event,normal_reclaim,cancel_reclaim}`、`Test_diagnostic_wait_oom`、`Test_cowaiter_outcome`、`Test_copollevent_state`、`Test_smoke`。production（`-DNDEBUG`、无 `BBT_COROUTINE_STACK_TESTING`）增量构建 `bbt_coroutine` 通过，0 新增告警。
+- 当前 18 个已知 feature 文件的逐文件 SHA256 与聚合 SHA256 记于 summary.json 的 `integration.current_feature_source_map`，聚合沿用同一公式 `sha256(json.dumps(map, sort_keys=True).encode())`，共 18 项、不含本归档自身。该映射相对前一冻结点变化 4 项：`bbt/pollevent/Event.cc`、`bbt/pollevent/Event.hpp`、`unit_test/CMakeLists.txt`、`unit_test/Test_event_callback_registry_lifetime.cc`（前三项为并入上游/整合注册，末项仅为已知 5 处行尾空白清理，逻辑不变）；其余 14 个继承源仍与旧冻结映射逐字节一致。
+- 边界不变：原始 SIGSEGV 的机制取证已闭环，其回归来源仍为 unknown；#384 更早的 FD 快照/Poller 间歇故障仍未解释。本次代码复用已通过的独立审查与已测组合证据，**当前合并结果本身尚未提交，PR CI 与最终 Git 收尾仍待处理**，不构成新的 ship 或完成结论；未重跑全量、100 次、ASAN 或长程。

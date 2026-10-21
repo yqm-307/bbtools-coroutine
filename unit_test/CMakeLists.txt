@@ -366,6 +366,16 @@ target_link_libraries(Test_sync_wait_regist_fail ${MY_LIBS})
 add_test(NAME Test_sync_wait_regist_fail COMMAND Test_sync_wait_regist_fail)
 set_tests_properties(Test_sync_wait_regist_fail PROPERTIES TIMEOUT 60)
 
+# #403：构造回滚 fd 单次关闭与同号新对象存活
+add_executable(Test_event_constructor_rollback Test_event_constructor_rollback.cc)
+target_link_libraries(Test_event_constructor_rollback ${MY_LIBS})
+target_link_options(Test_event_constructor_rollback PRIVATE -Wl,--export-dynamic)
+foreach(mode rollback_timer_fail construct_ok)
+    add_test(NAME Test_event_constructor_rollback_${mode}
+             COMMAND Test_event_constructor_rollback ${mode})
+    set_tests_properties(Test_event_constructor_rollback_${mode} PROPERTIES TIMEOUT 15)
+endforeach()
+
 # 进程退出时仍存活的 Event 不得遭注册表静态析构，正常取消/析构仍逐项回收。
 add_executable(Test_event_callback_registry_lifetime Test_event_callback_registry_lifetime.cc)
 target_link_libraries(Test_event_callback_registry_lifetime ${MY_LIBS})
