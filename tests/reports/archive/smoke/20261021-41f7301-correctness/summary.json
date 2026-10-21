@@ -1,0 +1,189 @@
+{
+ "base_sha": "41f73016a248ae40b2eeca0131a8688fc68b3b40",
+ "head_sha": null,
+ "candidate": "R3_extracted_plus_F02",
+ "worktree_state": "uncommitted",
+ "overall": "local_validation_passed_independent_review_new_pr_and_ci_pending",
+ "delivery_file_count": 20,
+ "source_files_count": 18,
+ "archive_files_count": 2,
+ "candidate_source_manifest_sha256": "c5d40f25c593abbbe643d18c43ddef018e3e03c8b42d7b6c0b850b4efca46c90",
+ "source_files": {
+  "agent-docs/api-reference.md": "91a7168eb743531299be3f78d9c0e0db2a834bb44ac951e84ce69523ed1ffcb7",
+  "bbt/coroutine/detail/CoPollEvent.cc": "72263eb8d79744a12d7fbb71388c64eb9c38f6b6bd0033922fd99784600ef730",
+  "bbt/coroutine/detail/Context.cc": "caf107aa0ade331c35387e37adcc53c539d4073ad40bb93e10abfad5a9774bd7",
+  "bbt/coroutine/detail/Coroutine.cc": "e18760a181613fc172957ae3ede81b7856603eec8ae2698440000b2714a3eea2",
+  "bbt/coroutine/detail/debug/DebugMgr.cc": "b005e11ab8e0366351355dc9df036ae6907f4ca7fdc5b25a7f871356fe6f8679",
+  "bbt/coroutine/detail/debug/DebugMgr.hpp": "4424089a84e7c36ce7f26a6d048198a39fc08bce13e04ecb7e8965b2eae7f071",
+  "bbt/coroutine/sync/CoLockGuard.hpp": "02a129a481664f500eb10c71ea15b0179fa632898e9885c648ac1a3fb6fac992",
+  "bbt/coroutine/sync/CoMutex.cc": "c9e17beb42f090d5b2e1a668391de99800a3b5e00a22d0717479a58963d66779",
+  "bbt/coroutine/sync/CoRWMutex.cc": "1603e832f7c7ea0cd6b3680a31df1cfbeb410b2eed35a202e740c71a9580c338",
+  "bbt/coroutine/sync/CoRWMutex.hpp": "958a89b13f692229cad3b4a382ff2efa320ea146d8532f73f39ee4092a7bad44",
+  "bbt/coroutine/sync/CoWaiter.cc": "b86755d08c1bd9fcc980e0db3e1664bd53858f00a6eb7cc399a91d80fa659f97",
+  "bbt/pollevent/Event.cc": "bb24fd08e980e7d70740237653b23a9ae0b1bc49276257c21d81e355b81ed520",
+  "bbt/pollevent/Event.hpp": "92c0068abf46661562cb18aea353cc266e04ff17fd524dbbbb1ecd565cda9afb",
+  "unit_test/CMakeLists.txt": "e2af5241c05c6ed40fec9401c7ca002846094e47de6b90e6c8299ba78df352b3",
+  "unit_test/Test_diagnostic_wait_oom.cc": "d50e795c88b2a48a26c30640e6d715e485ce4067a3a3abfda6e88b11329ac87a",
+  "unit_test/Test_event_callback_registry_lifetime.cc": "def0d5849c23f158ecefda4c1397862b36189bca9f1d46fb65fa93948374b494",
+  "unit_test/Test_stringent_debug.cc": "ea14e2f1e595842b2907229a323c03bf36f8c642f1c0952bfe2a93cd95e20361",
+  "unit_test/Test_sync_wait_regist_fail.cc": "91a9805eab08a8fc275d21129b813e1b4dc4d7955e4248fcad2fde4e3a133191"
+ },
+ "scope": {
+  "included": [
+   "#368",
+   "#369",
+   "#404",
+   "F-02 event callback registry lifetime"
+  ],
+  "excluded_as_split_prs": [
+   "PR406/#367 Processer.cc,Processer.hpp,Scheduler.cc,Test_worker_stall.cc,CMake increment",
+   "PR407/#403 Event constructor single-close hunks,Test_event_constructor_rollback.cc,its registration"
+  ],
+  "stall_files_equal_base": true,
+  "event_retains_F02_registry_holder_change_only": true
+ },
+ "current_candidate_checks": {
+  "configs": {
+   "build-integrated": {
+    "ctest_passed": 30,
+    "ctest_total": 30,
+    "registered": 30,
+    "warnings": 0
+   },
+   "build-strict": {
+    "ctest_passed": 30,
+    "ctest_total": 30,
+    "registered": 30,
+    "warnings": 0
+   },
+   "build-profile": {
+    "ctest_passed": 30,
+    "ctest_total": 30,
+    "registered": 30,
+    "warnings": 0
+   },
+   "build-debug-info": {
+    "ctest_passed": 30,
+    "ctest_total": 30,
+    "registered": 30,
+    "warnings": 0
+   }
+  },
+  "ldd_matching_library_records_per_config": 26,
+  "diagnostic_oom_behavior_per_strict_run": {
+   "cases": 7,
+   "regist_event_alloc_failed": 5,
+   "resume_co_alloc_failed": 1,
+   "yield_co_alloc_failed": 0
+  },
+  "first_winner_probes": {
+   "passed": 8,
+   "total": 8,
+   "matrix": "strict+debug-info x notify/cancel x fault 0/1"
+  },
+  "original_debug_info_probe_markers": {
+   "caught": 1,
+   "hits": 1,
+   "callback_calls": 0,
+   "status_running": 1,
+   "await_reusable": 1
+  },
+  "profile_cowaiter_outcome_repeat100": {
+   "iterations_started": 100,
+   "iterations_passed": 100,
+   "iterations_failed": 0,
+   "unique_tests_in_ctest_summary": 1,
+   "counting_note": "ctest --repeat summarises unique tests (out of 1); passed counted from per-iteration Passed lines, not the summary number"
+  },
+  "production_build": {
+   "returncode": 0,
+   "warnings": 0,
+   "library_translation_units": 37,
+   "library_compile_commands_with_NDEBUG": 37,
+   "library_compile_commands_with_stack_testing": 0,
+   "recompiled_statistic": "omitted: no complete per-TU recompile record was kept for the 100x rerun",
+   "note": "existing evidence and current SHA only; no rebuild performed in this finalization"
+  }
+ },
+ "f02_root_cause": {
+  "captured": {
+   "attempt": 542,
+   "previous_healthy": 541,
+   "elapsed_seconds": 146.26019118283875,
+   "signal": "SIGSEGV",
+   "stop_on_first_failure": true,
+   "artifacts_unchanged": true,
+   "observed_mechanism": "main thread __cxa_finalize destroying Event global callback map freed an already-reclaimed closure/node; bad weak control-block value equalled the glibc tcache_key; worker and Scheduler threads still alive",
+   "fix": "Event callback map and mutex moved behind Event::_Registry() into a process-lifetime holder, consistent with core contract section 6 (runtime is process-lifetime, no teardown at static exit); normal cancel/destructor still erase callbacks per item",
+   "new_test_modes": [
+    "exit_live_event",
+    "normal_reclaim",
+    "cancel_reclaim"
+   ]
+  },
+  "attribution_separation": {
+   "same_lifetime_mechanism_present_in_base": true,
+   "original_SIGSEGV_reproduced_on_base": false,
+   "original_SIGSEGV_origin": "unknown",
+   "note": "The captured fault has direct evidence of the static-destruction lifetime race. Whether this batch introduced the crash or exposed the BASE-existing mechanism through changed timing remains unknown; unreproduced BASE runs do not prove it cannot occur."
+  },
+  "stability_evidence": {
+   "postfix_window_seconds": 300,
+   "postfix_attempts": 1118,
+   "postfix_passed": 1118,
+   "postfix_first_failure": null
+  }
+ },
+ "independent_review_status": {
+  "F01_two_file_increment": "ship/low/0 findings (earlier round, closed)",
+  "original_two_P1_closures": "confirmed closed",
+  "F02_and_final_extracted_candidate": "pending independent review; no overall ship/completed verdict is claimed"
+ },
+ "standalone_PR_status": {
+  "PR406": {
+   "state": "OPEN",
+   "merged": false,
+   "head": "d1f0ef54422bfc43ab31157909f75a3f2995e47d",
+   "checks_passed": 10,
+   "user_reviews": 0
+  },
+  "PR407": {
+   "state": "OPEN",
+   "merged": false,
+   "head": "547f9dd407b86699344c5a1e01e492d0bdc56285",
+   "checks_passed": 10,
+   "user_reviews": 0
+  },
+  "note": "those CI results are not this candidate's CI"
+ },
+ "combined_candidate_evidence": {
+  "scope": "combination including PR406/PR407 implementations, separate from this 30/30 + 100x extracted candidate",
+  "configs": 4,
+  "passed_each": 33,
+  "warnings": 0,
+  "note": "separate record; not a substitute for this candidate's results"
+ },
+ "known_limits": [
+  "legacy strict ordinal-4 probe depended on a throw-then-release-holder handshake and still ends mutually waiting with recorded rc 1; it is not reported as passed, and its real lock-acquire/cancel/successor-progress coverage is closed by later R3 regression tests",
+  "no remote CI, no local full ctest, no TSan, no weak-order platform runs, no real long-client runs for this candidate",
+  "#384 earlier FD-snapshot/Poller intermittent failure remains unexplained; #402 static investigation only; #400/#259 out of scope",
+  "continuous OOM behaviour and arbitrary user callback exception self-healing are not promised"
+ ],
+ "evidence_boundary": {
+  "raw_logs": "kept outside the repository",
+  "not_committed": [
+   "raw logs",
+   "core dumps",
+   "raw memory addresses",
+   "private debugger/ASAN/signal tooling",
+   "private binaries"
+  ],
+  "hash_before_after_claim": "no separate before/after hash record exists for the 100x rerun, so identities_unchanged is not claimed for it; boundary rests on matching ldd records, no other writer during the window, and the current frozen hashes"
+ },
+ "verification_tooling": {
+  "faults_in_previous_summary_scripts": true,
+  "nature": "validator pre-check/counting/variable-scope defects only",
+  "impact": "none on the underlying build and test logs, which were re-read directly",
+  "note": "builds/tests were not re-run for this finalization"
+ }
+}

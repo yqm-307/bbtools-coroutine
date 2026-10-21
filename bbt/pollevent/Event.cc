@@ -1,6 +1,8 @@
 #include <atomic>
 #include <cerrno>
+#include <mutex>
 #include <system_error>
+#include <unordered_map>
 #include <boost/asio.hpp>
 #include <bbt/pollevent/Event.hpp>
 #include <bbt/pollevent/detail/EventBase.hpp>
@@ -9,8 +11,19 @@
 namespace bbt::pollevent
 {
 
-std::unordered_map<EventId, OnEventCallback>    Event::m_callback_map;
-std::mutex                                      Event::m_callback_map_mtx;
+struct Event::CallbackRegistry
+{
+    std::unordered_map<EventId, OnEventCallback> m_callbacks;
+    std::mutex m_mutex;
+};
+
+Event::CallbackRegistry& Event::_Registry()
+{
+    // 与 runtime 保持进程寿命，避免静态退出与 worker 删除回调竞争。
+    // Event 取消/析构仍逐项释放回调，仅注册表及其锁不做静态析构。
+    static auto* holder = new CallbackRegistry();
+    return *holder;
+}
 
 Event::Event(detail::EventBase* base, evutil_socket_t fd, short listen_events,
              const OnEventCallback& onevent_cb)
@@ -268,29 +281,33 @@ EventId Event::GenerateId()
 
 void Event::AddEventCallback(EventId id, const OnEventCallback& cb)
 {
-    std::lock_guard<std::mutex> lock(m_callback_map_mtx);
-    m_callback_map[id] = cb;
+    auto& reg = _Registry();
+    std::lock_guard<std::mutex> lock(reg.m_mutex);
+    reg.m_callbacks[id] = cb;
 }
 
 void Event::DelEventCallback(EventId id)
 {
-    std::lock_guard<std::mutex> lock(m_callback_map_mtx);
-    m_callback_map.erase(id);
+    auto& reg = _Registry();
+    std::lock_guard<std::mutex> lock(reg.m_mutex);
+    reg.m_callbacks.erase(id);
 }
 
 size_t Event::CallbackEntryCount()
 {
-    std::lock_guard<std::mutex> lock(m_callback_map_mtx);
-    return m_callback_map.size();
+    auto& reg = _Registry();
+    std::lock_guard<std::mutex> lock(reg.m_mutex);
+    return reg.m_callbacks.size();
 }
 
 void Event::CallEventCallback(EventId id, int fd, short events)
 {
     OnEventCallback cb = nullptr;
     {
-        std::lock_guard<std::mutex> lock(m_callback_map_mtx);
-        auto it = m_callback_map.find(id);
-        if (it != m_callback_map.end())
+        auto& reg = _Registry();
+        std::lock_guard<std::mutex> lock(reg.m_mutex);
+        auto it = reg.m_callbacks.find(id);
+        if (it != reg.m_callbacks.end())
             cb = it->second;
     }
     if (cb) cb(fd, events, id);

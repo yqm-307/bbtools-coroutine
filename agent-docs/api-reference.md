@@ -287,9 +287,10 @@ int idx = sync::CoSelect()
 - 头文件：`bbt/coroutine/sync/CoRWMutex.hpp`
 - 创建：`bbtco_make_corwmutex()`
 - 写优先：有等待写锁时新读者挂起。
-- `RLock` / `WLock` 成功返回 `0`。持读锁再取写锁 assert。
-- `TryRLock` / `TryWLock`：`0` 成功，`-1` 会阻塞。带 `ms`：`0` / `1` / `-1`。
-- RAII：`CoReadLock` / `CoWriteLock`（同一头文件）。
+- `RLock` / `WLock` 成功返回 `0`，等待登记失败返回 `-1`；等待准备分配失败可抛出 `std::bad_alloc`，异常离开前释放内部锁。持读锁再取写锁不受支持。
+- `TryRLock` / `TryWLock`：`0` 成功，`-1` 未获得。带 `ms`：`0` 成功、`1` 超时、`-1` 错误。
+- RAII：`CoReadLock` / `CoWriteLock`（`CoLockGuard.hpp`）。构造和 `lock()` 仅在真实获锁后置 `owns_lock()==true`；底层返回失败时抛出 `std::system_error`，分配异常继续传播。失败对象不负责解锁。
+- `CoUniqueLock` / `CoReadLock` / `CoWriteLock` 的 `try_lock_for(ms)` 为 `noexcept`，等待准备异常收敛为 `false`；其 `bool` 返回值不区分超时与错误。
 
 ---
 
