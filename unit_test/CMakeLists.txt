@@ -198,6 +198,8 @@ add_executable(Test_worker_stall Test_worker_stall.cc)
 target_link_libraries(Test_worker_stall ${MY_LIBS})
 add_test(NAME Test_worker_stall COMMAND Test_worker_stall)
 set_tests_properties(Test_worker_stall PROPERTIES TIMEOUT 30 RUN_SERIAL TRUE)
+add_test(NAME Test_worker_stall_disabled COMMAND Test_worker_stall -- --stall-warn-ms=0)
+set_tests_properties(Test_worker_stall_disabled PROPERTIES TIMEOUT 30 RUN_SERIAL TRUE)
 
 add_executable(Test_crash_diag Test_crash_diag.cc)
 target_link_libraries(Test_crash_diag ${MY_LIBS})

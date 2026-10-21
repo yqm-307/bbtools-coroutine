@@ -3,6 +3,7 @@
 #include <cstring>
 #include <cstdio>
 #include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <unordered_set>
 #include <vector>
@@ -473,25 +474,25 @@ void Scheduler::_FixTimingScan()
     {
         if (proc == nullptr)
             continue;
-        if (!proc->m_executing.load(std::memory_order_acquire))
-            continue;   // worker 空闲/协程已让出，不算停顿
-
-        /* seqlock 读：取稳定快照 */
-        uint64_t s1 = proc->m_exec_seq.load(std::memory_order_acquire);
-        if (s1 & 1)
-            continue;   // 正在写入，跳过一拍
-        uint64_t begin_us = proc->m_exec_begin_us;
-        CoroutineId co_id = proc->m_exec_co_id;
-        uint64_t backlog = proc->m_exec_backlog;
+        /* 一致性快照：与写者共用 m_exec_mutex，临界区内整组复制，
+         * 必然读到同一次 Resume 提交的完整载荷（互斥 happens-before）。 */
+        uint64_t begin_us;
+        CoroutineId co_id;
+        uint64_t backlog;
         char desc[sizeof(proc->m_exec_desc)];
-        memcpy(desc, proc->m_exec_desc, sizeof(desc));
-        /* acquire 尾检：把字段读排序在两次 seq 读之间，消除形式数据竞争
-         *（#277 review：relaxed 尾检理论上可让撕裂快照通过） */
-        uint64_t s2 = proc->m_exec_seq.load(std::memory_order_acquire);
-        if (s1 != s2 || begin_us == 0)
-            continue;   // 读到撕裂数据
+        {
+            std::lock_guard<std::mutex> lock(proc->m_exec_mutex);
+            if (!proc->m_executing)
+                continue;   // worker 空闲/协程已让出，不算停顿
+            begin_us = proc->m_exec_begin_us;
+            co_id = proc->m_exec_co_id;
+            backlog = proc->m_exec_backlog;
+            memcpy(desc, proc->m_exec_desc, sizeof(desc));
+        }
+        if (begin_us == 0)
+            continue;   // 尚未发布过快照
 
-        if (now_us - begin_us < threshold_us)
+        if (now_us < begin_us || now_us - begin_us < threshold_us)
             continue;
 
         if (proc->m_last_stall_report_begin == begin_us)
@@ -524,7 +525,9 @@ void Scheduler::_FixTimingScan()
 
 void Scheduler::_OnUpdate()
 {
+#ifdef BBT_COROUTINE_PROFILE
     static auto prev_profile_timepoint = bbt::core::clock::now<>();
+#endif
     bool actived = false;
     do {
 

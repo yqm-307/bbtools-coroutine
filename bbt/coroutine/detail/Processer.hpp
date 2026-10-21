@@ -1,5 +1,6 @@
 #pragma once
 #include <condition_variable>
+#include <mutex>
 #include <bbt/core/clock/Clock.hpp>
 #include <bbt/coroutine/detail/Coroutine.hpp>
 #include <bbt/coroutine/detail/interface/IProcesserDriver.hpp>
@@ -172,15 +173,16 @@ private:
     Coroutine::Ptr                  m_running_coroutine{nullptr};   // processer当前运行中的协程
     std::atomic_uint64_t            m_running_coroutine_begin{0};   // 当前运行协程开始执行的时间
 
-    /* ---- worker 无进展快照（#277）----
+    /* ---- worker 无进展快照（#277/#367）----
      * 单写者=worker 线程（协程每次进入 Resume 前），读者=调度线程。
-     * seqlock 协议：写前 seq->1（奇），写完 seq->2（偶，此后字段稳定直到
-     * 下一轮）。读者只在 executing==true 且 seq 为偶、前后两读一致时使用
-     * 字段；m_last_stall_report_begin 仅调度线程读写。全部 plain 字段配合
-     * seq/atomic fence，无需更重的同步——诊断数据，允许跳过一拍。 */
-    std::atomic_bool                m_executing{false};             // 正在 Resume 用户协程中
-    std::atomic_uint64_t            m_exec_seq{0};                  // seqlock 序号
-    uint64_t                        m_exec_co_id{0};                // 以下字段被 seqlock 保护
+     * 同步依据：全部字段受 m_exec_mutex 保护，写者在临界区内一次性提交，
+     * 读者在临界区内整组复制——快照一致性直接由互斥锁的 happens-before
+     * 给出，每次上报载荷同属一次 Resume，无需无锁协议的正确性论证。
+     * 诊断可选且非热路径，取可证明的最小同步。
+     * m_last_stall_report_begin 仅调度线程读写。 */
+    std::mutex                      m_exec_mutex;                   // 以下快照字段均由它保护
+    bool                            m_executing{false};             // 正在 Resume 用户协程中
+    uint64_t                        m_exec_co_id{0};
     uint64_t                        m_exec_begin_us{0};
     uint64_t                        m_exec_backlog{0};
     char                            m_exec_desc[56]{};
