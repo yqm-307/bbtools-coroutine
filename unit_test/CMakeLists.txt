@@ -360,6 +360,16 @@ target_link_libraries(Test_cowaiter_regist_fail ${MY_LIBS})
 add_test(NAME Test_cowaiter_regist_fail COMMAND Test_cowaiter_regist_fail)
 set_tests_properties(Test_cowaiter_regist_fail PROPERTIES TIMEOUT 30)
 
+# #403：构造回滚 fd 单次关闭与同号新对象存活
+add_executable(Test_event_constructor_rollback Test_event_constructor_rollback.cc)
+target_link_libraries(Test_event_constructor_rollback ${MY_LIBS})
+target_link_options(Test_event_constructor_rollback PRIVATE -Wl,--export-dynamic)
+foreach(mode rollback_timer_fail construct_ok)
+    add_test(NAME Test_event_constructor_rollback_${mode}
+             COMMAND Test_event_constructor_rollback ${mode})
+    set_tests_properties(Test_event_constructor_rollback_${mode} PROPERTIES TIMEOUT 15)
+endforeach()
+
 # Smoke 候选：CI 快速回归集，统一 60s 超时防止无进展挂死。
 # Test_reliability 不进 Smoke，保留给完整回归与独立 Reliability Job。
 set_tests_properties(
