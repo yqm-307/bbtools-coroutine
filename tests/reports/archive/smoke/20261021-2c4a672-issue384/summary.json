@@ -1,0 +1,238 @@
+{
+  "issue": 384,
+  "executor_status": "本地 T2 执行完成；执行者沙箱远端读取失败保留，父代理已补齐远端核对",
+  "alice_acceptance": "PASS：限固定源码候选的本次诊断验证；不包含报告提交的新 CI、合并、Issue 关闭或发布",
+  "base": "2c4a672b9b7fa2b2efbcb91957c3d8e6229cf102",
+  "head": "2c4a672b9b7fa2b2efbcb91957c3d8e6229cf102",
+  "branch": "agent/issue384-diagnostics",
+  "worktree": ".",
+  "source_diff": "无",
+  "raw_evidence": "tests/reports/work/issue384-20261021-native",
+  "source_manifest_sha256": "b369583406a55684b6fcfee6c7f922fd8c09838a19fe4f741d9a85d1dd0bd15b",
+  "jobs": 3,
+  "test_environment": {
+    "BOOST_TEST_LOG_LEVEL": "test_suite",
+    "CCACHE_DIR": "build-384-ccache",
+    "TMPDIR": "build-384-tmp",
+    "LD_LIBRARY_PATH": "每档显式指向其 build-384-*/lib"
+  },
+  "configurations": {
+    "release": {
+      "passed": 10,
+      "failed": 0,
+      "skipped": 0,
+      "seconds": 7.3788158893585205
+    },
+    "profile": {
+      "passed": 10,
+      "failed": 0,
+      "skipped": 0,
+      "seconds": 7.430558681488037
+    },
+    "strict": {
+      "passed": 10,
+      "failed": 0,
+      "skipped": 0,
+      "seconds": 7.430841445922852
+    }
+  },
+  "library_audit": {
+    "release": {
+      "library_tus": 37,
+      "macros_pass": true,
+      "seams": {
+        "Stack::_TestFailNextAlloc": true,
+        "Stack::_TestFailNextApplyProtect": true,
+        "Stack::_TestFailNextReleaseProtect": true,
+        "Stack::s_test_fail_alloc": true,
+        "Stack::s_test_fail_apply_protect": true,
+        "Stack::s_test_fail_release_protect": true,
+        "StackPool::_TestFailNextPoolPush": true,
+        "StackPool::s_test_fail_push": true
+      },
+      "sha256": "0b2e8e8b6887d305f83abbd4d8e90a889dffce80033369dd5a69c649e89eedac",
+      "file": "build-384-release/lib/libbbt_coroutine.so: ELF 64-bit LSB shared object, x86-64, version 1 (GNU/Linux), dynamically linked, BuildID[sha1]=10e9685fd37e530dd1c5376cf74b02a236b84fa1, not stripped"
+    },
+    "profile": {
+      "library_tus": 37,
+      "macros_pass": true,
+      "seams": {
+        "Stack::_TestFailNextAlloc": true,
+        "Stack::_TestFailNextApplyProtect": true,
+        "Stack::_TestFailNextReleaseProtect": true,
+        "Stack::s_test_fail_alloc": true,
+        "Stack::s_test_fail_apply_protect": true,
+        "Stack::s_test_fail_release_protect": true,
+        "StackPool::_TestFailNextPoolPush": true,
+        "StackPool::s_test_fail_push": true
+      },
+      "sha256": "c664d58e6cc40f352b05879765ed6b164ce120e0f4295aa2a5d9fb81f0a246fa",
+      "file": "build-384-profile/lib/libbbt_coroutine.so: ELF 64-bit LSB shared object, x86-64, version 1 (GNU/Linux), dynamically linked, BuildID[sha1]=057ab971ef9c73f4d2a4e06608d630e44017693a, with debug_info, not stripped"
+    },
+    "strict": {
+      "library_tus": 37,
+      "macros_pass": true,
+      "seams": {
+        "Stack::_TestFailNextAlloc": true,
+        "Stack::_TestFailNextApplyProtect": true,
+        "Stack::_TestFailNextReleaseProtect": true,
+        "Stack::s_test_fail_alloc": true,
+        "Stack::s_test_fail_apply_protect": true,
+        "Stack::s_test_fail_release_protect": true,
+        "StackPool::_TestFailNextPoolPush": true,
+        "StackPool::s_test_fail_push": true
+      },
+      "sha256": "0fa0915d0d55cc074b88e4fa84f1de871e582d4956aa37daaf758306020bf013",
+      "file": "build-384-strict/lib/libbbt_coroutine.so: ELF 64-bit LSB shared object, x86-64, version 1 (GNU/Linux), dynamically linked, BuildID[sha1]=dfca7907ef04a17bfe4a2b5f40d1d1e82b017cd4, with debug_info, not stripped"
+    },
+    "production": {
+      "library_tus": 37,
+      "macros_pass": true,
+      "seams": {
+        "Stack::_TestFailNextAlloc": false,
+        "Stack::_TestFailNextApplyProtect": false,
+        "Stack::_TestFailNextReleaseProtect": false,
+        "Stack::s_test_fail_alloc": false,
+        "Stack::s_test_fail_apply_protect": false,
+        "Stack::s_test_fail_release_protect": false,
+        "StackPool::_TestFailNextPoolPush": false,
+        "StackPool::s_test_fail_push": false
+      },
+      "sha256": "54b7304fea01d784c9a5b4a46027daa787ec6c93bc9e1dca76d01fd2687a38ab",
+      "file": "build-384-production/lib/libbbt_coroutine.so: ELF 64-bit LSB shared object, x86-64, version 1 (GNU/Linux), dynamically linked, BuildID[sha1]=cb95db2d1936c65a71e22e97e229954fb94b200b, not stripped"
+    }
+  },
+  "compiler_warnings": [],
+  "configure_warning": "四档现有根 CMake find_package 触发 CMP0167 dev warning，原样保留",
+  "dependency": {
+    "boost": "1.90.0-6ubuntu1 Ubuntu deb，/usr/include + /usr/lib/x86_64-linux-gnu",
+    "boost_source_git_sha": null,
+    "boost_context_sha256": "4f5c85d3efc766e01e79a087474f08f8207ae0f320c81c4e2622d2df19c59359",
+    "external_core": "无；内置源码绑定候选 SHA"
+  },
+  "criteria": {
+    "C1": "固定候选/源码指纹完成；Alice 已读取 Issue 全线程及固定 SHA 的 10 项成功 check-run",
+    "C2": "本地证据满足；PROFILE 三次实际计数，STRICT 宏及真实路径已核对",
+    "C3": "本地 3 档 protected/unprotected 和栈测试通过",
+    "C4": "Release 37 个库 TU 均 NDEBUG；真实拒绝及回滚通过，测试 TU 为 Debug",
+    "C5": "四档 37 TU 与八个 Stack/StackPool seam 隔离通过；不包含 #369 既有 Coroutine 注入点",
+    "C6": "已逐项映射现有断言，见 summary.md",
+    "C7": "独立证据审查 PASS；Alice 四档产物审计及 Release/STRICT 两次行为复验通过",
+    "C8": "仅归档两份摘要，受本次 Git 提交跟踪；本次验证验收 PASS，未作远端写入"
+  },
+  "failures_preserved": [
+    "initial-release-ldd-Test_smoke: 验证脚本误用 bin/Test_smoke，实际为 bin/unit_test/Test_smoke；修正后全目标 ldd 通过；无产品失败",
+    "issue384: gh API 连接失败，未读取线程"
+  ],
+  "boundaries": [
+    "未新增 ASAN、TSan、弱序平台证据",
+    "旧 FD 快照/Poller 间歇问题不在本包验收",
+    "历史 Valgrind 只覆盖其原 SHA/工作负载，不外推本次混合尺寸/保护模式",
+    "未运行全量 CTest、长 soak、发布 Gate",
+    "未推送、未建 PR、未评论/Review、未关闭 Issue、未合并或发布；仅本地归档报告",
+    "C5 仅覆盖八个 Stack/StackPool seam；#369 的 Coroutine::_TestFailNextAwaitRegist 与 s_test_fail_await_regist 在生产库仍存在，本次未修改",
+    "父代理行为复验复用原构建产物，不代表独立重新构建；未采集 ccache 命中统计",
+    "PROFILE 三次计数检查全部发生在 reject-before-start 一个进程，未声称三个运行模式各验一次"
+  ],
+  "blockers": [],
+  "utc": "2026-10-21T10:58:34.076520+00:00",
+  "executor_commit_created": false,
+  "archive_delivery": "本摘要随归档提交受 Git 跟踪，提交身份以 Git 历史为准",
+  "alice_observations": {
+    "issue": {
+      "url": "https://github.com/yqm-307/bbtools-coroutine/issues/384",
+      "state": "OPEN",
+      "updatedAt": "2026-10-20T14:49:07Z",
+      "full_thread_read": true
+    },
+    "fixed_source_ci": {
+      "check_runs": [
+        {
+          "conclusion": "success",
+          "head_sha": "2c4a672b9b7fa2b2efbcb91957c3d8e6229cf102",
+          "html_url": "https://github.com/yqm-307/bbtools-coroutine/actions/runs/39578710019/job/119154473941",
+          "name": "结果汇聚（framework result callee） / verdict aggregate (no checkout, no permissions)",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "head_sha": "2c4a672b9b7fa2b2efbcb91957c3d8e6229cf102",
+          "html_url": "https://github.com/yqm-307/bbtools-coroutine/actions/runs/39578710019/job/119154431938",
+          "name": "结果汇聚（framework result callee） / result contract (pure logic)",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "head_sha": "2c4a672b9b7fa2b2efbcb91957c3d8e6229cf102",
+          "html_url": "https://github.com/yqm-307/bbtools-coroutine/actions/runs/39578710019/job/119154372654",
+          "name": "结果汇聚（framework result callee） / classify (pure logic, automation checkout only)",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "head_sha": "2c4a672b9b7fa2b2efbcb91957c3d8e6229cf102",
+          "html_url": "https://github.com/yqm-307/bbtools-coroutine/actions/runs/39578710019/job/119150853077",
+          "name": "编译 & 单元测试",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "head_sha": "2c4a672b9b7fa2b2efbcb91957c3d8e6229cf102",
+          "html_url": "https://github.com/yqm-307/bbtools-coroutine/actions/runs/39578710019/job/119150809343",
+          "name": "分类/计划（framework classify callee） / verdict aggregate (no checkout, no permissions)",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "head_sha": "2c4a672b9b7fa2b2efbcb91957c3d8e6229cf102",
+          "html_url": "https://github.com/yqm-307/bbtools-coroutine/actions/runs/39578710019/job/119150755826",
+          "name": "分类/计划（framework classify callee） / result contract (pure logic)",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "head_sha": "2c4a672b9b7fa2b2efbcb91957c3d8e6229cf102",
+          "html_url": "https://github.com/yqm-307/bbtools-coroutine/actions/runs/39578710019/job/119150712700",
+          "name": "分类/计划（framework classify callee） / classify (pure logic, automation checkout only)",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "head_sha": "2c4a672b9b7fa2b2efbcb91957c3d8e6229cf102",
+          "html_url": "https://github.com/yqm-307/bbtools-coroutine/actions/runs/39578710019/job/119150654489",
+          "name": "变更类型检测",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "head_sha": "2c4a672b9b7fa2b2efbcb91957c3d8e6229cf102",
+          "html_url": "https://github.com/yqm-307/bbtools-coroutine/actions/runs/39578710019/job/119150654191",
+          "name": "性能回归检查",
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "head_sha": "2c4a672b9b7fa2b2efbcb91957c3d8e6229cf102",
+          "html_url": "https://github.com/yqm-307/bbtools-coroutine/actions/runs/39578709165/job/119150650661",
+          "name": "文档检查（空格/链接/密钥）",
+          "status": "completed"
+        }
+      ],
+      "total_count": 10
+    },
+    "library_audit": "四档各 37 TU，集合/宏/八 seam/哈希/未 strip 全部匹配",
+    "behavior_reproduction": [
+      {
+        "mode": "release",
+        "command": "ctest --test-dir build-384-release --output-on-failure --verbose -j1 -R ^Test_multi_size_stack_runtime_reject_before_start$",
+        "exit_code": 0
+      },
+      {
+        "mode": "strict",
+        "command": "ctest --test-dir build-384-strict --output-on-failure --verbose -j1 -R ^Test_stringent_debug$",
+        "exit_code": 0
+      }
+    ],
+    "independent_evidence_review": "PASS，C1–C8；原始报告留在仓外，范围与限制见 summary.md"
+  }
+}
