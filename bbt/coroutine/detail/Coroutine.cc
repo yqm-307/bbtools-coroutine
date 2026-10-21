@@ -1,5 +1,6 @@
 #include <atomic>
 #include <algorithm>
+#include <cstdio>
 #include <bbt/coroutine/detail/Coroutine.hpp>
 #include <bbt/coroutine/detail/Scheduler.hpp>
 #include <bbt/coroutine/detail/Processer.hpp>
@@ -57,6 +58,13 @@ Coroutine::Coroutine(size_t stack_size, const CoroutineCallback& co_func, bool n
 Coroutine::~Coroutine()
 {
     // Assert(m_bind_processer_id != BBT_COROUTINE_INVALID_PROCESSER_ID);
+#ifdef BBT_COROUTINE_STRINGENT_DEBUG
+    /* #404：销毁是所有驱动方式的共同出口。直接 Create/Resume/delete
+     * 的终态让出不经过 CommitYield，m_co_map 里可能仍挂着本协程的
+     * 借用登记——对象一销毁即成悬空指针，必须在此按 id 幂等清账。
+     * 受管路径的配对核销仍由 CommitYield FINAL 完成，本调用只兜底。 */
+    g_bbt_dbgmgr->OnEvent_DestroyCo(m_id);
+#endif
 #ifdef BBT_COROUTINE_PROFILE
     g_bbt_profiler->OnEvent_DestoryCoroutine();
 #endif
@@ -67,9 +75,18 @@ void Coroutine::Resume()
     Assert(m_run_status == CoroutineStatus::CO_RUNNABLE || m_run_status == CoroutineStatus::CO_SUSPEND);
     m_run_status = CoroutineStatus::CO_RUNNING;
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
-    g_bbt_dbgmgr->OnEvent_ResumeCo(shared_from_this());
+    /* #404：Coroutine 为裸指针借用对象（Create 返回 Ptr、不归 shared_ptr
+     * 所有），无 enable_shared_from_this；诊断表只登记借用的 this，
+     * 与 DebugMgr 的 Coroutine* 签名及实际所有权一致。 */
+    g_bbt_dbgmgr->OnEvent_ResumeCo(this);
 #endif
-    g_bbt_dbgp_full(("[Coroutine::Resume] co=" + std::to_string(GetId())).c_str());
+    /* 日志装配不分配：本函数在 worker 原生栈执行，std::to_string 拼接的
+     * bad_alloc 会逃出 Resume 直达 Processer 调度循环，不在协程侧任何
+     * catch 可达域内。栈缓冲 snprintf 保持同一日志语义、消除逃逸点。 */
+    char resume_log[64];
+    std::snprintf(resume_log, sizeof(resume_log), "[Coroutine::Resume] co=%llu",
+                  static_cast<unsigned long long>(GetId()));
+    g_bbt_dbgp_full(resume_log);
     m_context.Resume();
 }
 
@@ -79,9 +96,12 @@ void Coroutine::Yield()
     m_yield_disposition = CoroutineYieldDisposition::MANUAL;
     m_run_status = CoroutineStatus::CO_SUSPEND;
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
-    g_bbt_dbgmgr->OnEvent_YieldCo(shared_from_this());
+    g_bbt_dbgmgr->OnEvent_YieldCo(this);
 #endif
-    g_bbt_dbgp_full(("[Coroutine::Yield] co=" + std::to_string(GetId())).c_str());
+    char yield_log[64];
+    std::snprintf(yield_log, sizeof(yield_log), "[Coroutine::Yield] co=%llu",
+                  static_cast<unsigned long long>(GetId()));
+    g_bbt_dbgp_full(yield_log);
     m_context.Yield();
 }
 
@@ -91,14 +111,44 @@ int Coroutine::YieldWithCallback(const CoroutineOnYieldCallback& cb)
      * 确保协程挂起后，才可以触发事件
      */
     Assert(m_run_status == CoroutineStatus::CO_RUNNING);
+    /* R2-01：日志装配不分配——snprintf 进栈缓冲，OOM 无处抛出，原 R2-01
+     * 故障点（to_string 动态拼接）已整体移除。armed 注入的首个真实分配
+     * 因此落在 Context::YieldWithCallback 的 m_onyield_callback 存储上，
+     * 由下方统一 catch 回滚。宏关闭时 snprintf 语句仍执行但为零成本诊断，
+     * 保持与既有 g_bbt_dbgp_full 调用点一一对应。 */
+    char yieldcb_log[80];
+    std::snprintf(yieldcb_log, sizeof(yieldcb_log),
+                  "[Coroutine::YieldWithCallback] co=%llu",
+                  static_cast<unsigned long long>(GetId()));
+    g_bbt_dbgp_full(yieldcb_log);
+    /* #368-R2/F3：callback 装配链上可分配的失败点为本层入参拷贝与
+     * Context::YieldWithCallback 内同一 `m_onyield_callback = cb` 存储赋值。
+     * 任一抛出时协程仍在 CO_RUNNING、尚未让出；归还 await 事件（INITED
+     * 事件由 shared_ptr 析构回收）后原样上抛。不做「先干跑一遍存储」的
+     * 预演：多一次拷贝不证明下一次成功，反而多执行一次 callable 拷贝/析构
+     * 副作用；唯一存储点的真实失败由 Context 侧收口（空槽 + NO_CHECK），
+     * 下方 catch 统一完成 await/运行态回滚。 */
     m_yield_disposition = _AwaitEvent() == nullptr ?
         CoroutineYieldDisposition::MANUAL : CoroutineYieldDisposition::EVENT_WAIT;
     m_run_status = CoroutineStatus::CO_SUSPEND;
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
-    g_bbt_dbgmgr->OnEvent_YieldCo(shared_from_this());
+    g_bbt_dbgmgr->OnEvent_YieldCo(this);
 #endif
-    g_bbt_dbgp_full(("[Coroutine::YieldWithCallback] co=" + std::to_string(GetId())).c_str());
-    const int ret = m_context.YieldWithCallback(cb);
+    /* YieldWithCallback 内唯一存储点失败（target 非 SBO 复制遇上 OOM）时
+     * 协程尚未让出但已标 CO_SUSPEND——按 CHECK_FAILED 相同口径回滚
+     * CO_RUNNING 并清 await 后重抛。 */
+    int ret = 0;
+    try {
+        ret = m_context.YieldWithCallback(cb);
+    } catch (...) {
+        _SetAwaitEvent(nullptr);
+        m_yield_disposition = CoroutineYieldDisposition::MANUAL;
+        m_run_status = CoroutineStatus::CO_RUNNING;
+#ifdef BBT_COROUTINE_STRINGENT_DEBUG
+        g_bbt_dbgmgr->OnEvent_ResumeCo(this);
+#endif
+        throw;
+    }
     /* #369：挂起回调失败（CHECK_FAILED）时协程被立刻重入、并未真正挂起，
      * 必须把运行态还原为 CO_RUNNING——否则 m_run_status 残留 CO_SUSPEND，
      * 本协程仍在运行却对外谎报挂起，下一次 Yield* 的 CO_RUNNING 断言会
@@ -107,6 +157,13 @@ int Coroutine::YieldWithCallback(const CoroutineOnYieldCallback& cb)
     if (bbt_unlikely(ret != 0)) {
         m_yield_disposition = CoroutineYieldDisposition::MANUAL;
         m_run_status = CoroutineStatus::CO_RUNNING;
+#ifdef BBT_COROUTINE_STRINGENT_DEBUG
+        /* #404：CHECK_FAILED 重入走 Context::_Resume 直达协程，不经过
+         * Coroutine::Resume，m_co_map 不会产生新的 Resume 记账；但协程
+         * 恢复运行后下一次 Yield* 仍会走 OnEvent_YieldCo 核销——此处按
+         * 「重入即一次运行区间起点」补登记，保持 resume/yield 严格配对。 */
+        g_bbt_dbgmgr->OnEvent_ResumeCo(this);
+#endif
     }
     return ret;
 }
@@ -117,9 +174,13 @@ void Coroutine::YieldAndPushGCoQueue()
     m_yield_disposition = CoroutineYieldDisposition::READY;
     m_run_status = CoroutineStatus::CO_SUSPEND;
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
-    g_bbt_dbgmgr->OnEvent_YieldCo(shared_from_this());
+    g_bbt_dbgmgr->OnEvent_YieldCo(this);
 #endif
-    g_bbt_dbgp_full(("[Coroutine::YieldAndPushGCoQueue] co=" + std::to_string(GetId())).c_str());
+    char yieldpush_log[80];
+    std::snprintf(yieldpush_log, sizeof(yieldpush_log),
+                  "[Coroutine::YieldAndPushGCoQueue] co=%llu",
+                  static_cast<unsigned long long>(GetId()));
+    g_bbt_dbgp_full(yieldpush_log);
     m_context.Yield();
 }
 
@@ -391,6 +452,14 @@ CoroutineYieldDisposition Coroutine::CommitYield()
 {
     if (m_run_status == CoroutineStatus::CO_FINAL) {
         m_yield_disposition = CoroutineYieldDisposition::FINAL;
+#ifdef BBT_COROUTINE_STRINGENT_DEBUG
+        /* #404：FINAL 的最后一次让出发生在 Context::_CoroutineMain 尾部，
+         * 走 Context::Yield → _Yield 直达调度线程，不经过 Coroutine::Yield
+         * ——m_co_map 里本协程的 Resume 记账没有对应核销点。此处是 Processer
+         * 在协程终态上下文退出后、delete 之前的唯一收口位置（含正常与异常
+         * 两条 FINAL 路径），按「终态让出」核销，维持配对不变式。 */
+        g_bbt_dbgmgr->OnEvent_YieldCo(this);
+#endif
         return CoroutineYieldDisposition::FINAL;
     }
 
@@ -436,7 +505,17 @@ void Coroutine::OnCoPollEvent(int event, int custom_key)
     m_parked_us = 0;  // 唤醒即清等待现场（#276）
 
     // 先取消事件，然后push到全局队列中
-    g_bbt_dbgp_full(("[CoEvent:Trigger] co=" + std::to_string(GetId()) + " trigger_event=" + std::to_string(event) + " id=" + std::to_string(ev->GetId()) + " customkey=" + std::to_string(custom_key)).c_str());
+    /* 日志装配不分配：本函数经 _Complete 的 callback 在 Processer 原生栈
+     * 执行，to_string 拼接的 bad_alloc 会中断唤醒回调（_SetAwaitEvent 与
+     * 入队被跳过）致协程悬挂。栈缓冲 snprintf 同型消除该逃逸点。 */
+    char trigger_log[160];
+    std::snprintf(trigger_log, sizeof(trigger_log),
+                  "[CoEvent:Trigger] co=%llu trigger_event=%d id=%llu customkey=%d",
+                  static_cast<unsigned long long>(GetId()),
+                  static_cast<int>(event),
+                  static_cast<unsigned long long>(ev->GetId()),
+                  custom_key);
+    g_bbt_dbgp_full(trigger_log);
     _SetAwaitEvent(nullptr);
     m_yield_disposition = CoroutineYieldDisposition::MANUAL;
 

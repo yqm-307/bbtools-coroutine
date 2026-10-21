@@ -33,12 +33,12 @@ void Context::_CoroutineMain(boost::context::detail::transfer_t transfer)
 
     /**
      * 在这里执行用户协程的主函数。
-     * 
+     *
      * 用户协程内总是会调用 Yield() 来让出 CPU 控制权，同时
      * 为了防止用户调用某些阻塞操作导致当前线程挂起，我们需要
      * 提供一套非阻塞且使协程挂起的操作（bbt::co::sync提供了
      * 相关类）。
-     * 
+     *
      */
     try {
         context->m_user_main();
@@ -83,7 +83,7 @@ void Context::_CoroutineMain(boost::context::detail::transfer_t transfer)
 #if defined(BBT_COROUTINE_PROFILE)
     g_bbt_profiler->OnEvent_DoneCoroutine();
 #endif
-    
+
     /**
      * 执行完后，切回到调度逻辑中去
      */
@@ -152,18 +152,28 @@ int Context::YieldWithCallback(const CoroutineOnYieldCallback& cb)
 {
     /**
      * 因为我们有CoEvent我们需要再协程挂起后再注册事件。
-     * 
+     *
      * 因为我们的CoEvent触发是在另外的线程执行的，如果挂起前
      * 就注册了CoEvent，那么在尚未挂起，可能会触发CoEvent的回
      * 调，CoEvent会尝试唤醒当前协程，这样就会导致一个协程尚未
      * 被挂起就被唤醒出现异常。
-     * 
+     *
      */
     int ret = 0;
 
     Assert(m_onyield_callback == nullptr);
     m_onyield_callback_result = YieldCheckStatus::NO_CHECK;
-    m_onyield_callback = cb;
+    try {
+        m_onyield_callback = cb;
+    } catch (...) {
+        /* #368-R2/F3：target 非 SBO 时存储复制可抛 bad_alloc。此时协程
+         * 尚未让出，回调槽按「未登记」收口——恢复空槽与 NO_CHECK，由
+         * Coroutine::YieldWithCallback 负责 await/运行态回滚。本 catch
+         * 只做成员复位，不产生新分配。 */
+        m_onyield_callback = nullptr;
+        m_onyield_callback_result = YieldCheckStatus::NO_CHECK;
+        throw;
+    }
 
     _Yield();
 
@@ -205,7 +215,7 @@ int Context::_Yield()
 {
     /**
      * 调用jump后，切换回调度线程
-     * 
+     *
      * 当jump返回时，说明调度线程通过 Resume 返回了。trf中保存了调度协程的上下文
      */
     boost::context::detail::transfer_t transfer{fctx: nullptr, data: nullptr};

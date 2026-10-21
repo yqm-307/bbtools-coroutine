@@ -58,9 +58,24 @@ int CoWaiter::Wait()
      * 检查 IsCancelRequested（预取消立即自唤醒），成功后把协程纳入登记，
      * 事件状态机回收才有落点。直接 event->Regist() 会绕过两者：
      * 预取消协程无限挂起。 */
-    coroutine->YieldWithCallback([coroutine](){
-        return coroutine->_RegistAwaitEvent();
-    });
+    /* #368-R2/F3：临时 std::function 包装与 Coroutine 入参拷贝都可能抛
+     * bad_alloc；此时协程未挂起、挂起回调未执行，须把已占的等待位与
+     * await 登记完整回滚，否则下一次 Wait 被拒且等待位泄漏。 */
+    try {
+        coroutine->YieldWithCallback([coroutine](){
+            return coroutine->_RegistAwaitEvent();
+        });
+    } catch (...) {
+        coroutine->_SetAwaitEvent(nullptr);
+        {
+            std::lock_guard<std::mutex> lock(m_notify_mutex);
+            if (m_co_event == wait_event) {
+                m_co_event = nullptr;
+                m_run_status = COND_FREE;
+            }
+        }
+        throw;
+    }
 
     {
         std::lock_guard<std::mutex> lock(m_notify_mutex);
@@ -80,6 +95,7 @@ int CoWaiter::WaitWithCallback(const detail::CoroutineOnYieldCallback& cb)
     AssertWithInfo(coroutine != nullptr, "current coroutine is nullptr!");
     Assert(cb != nullptr);
     std::shared_ptr<detail::CoPollEvent> wait_event;
+    int ret = 0;
 
     {
         std::lock_guard<std::mutex> lock(m_notify_mutex);
@@ -97,12 +113,26 @@ int CoWaiter::WaitWithCallback(const detail::CoroutineOnYieldCallback& cb)
     }
 
     /* 同 Wait()，走公共登记路径；cb 保持"挂起后、唤醒前"的既有语义 */
-    int ret = coroutine->YieldWithCallback([coroutine, cb](){
-        if (!coroutine->_RegistAwaitEvent())
-            return false;
-        cb();
-        return true;
-    });
+    /* #368-R2/F3：同 Wait() 的回滚约定——装配抛异常时协程未挂起、回调
+     * 未执行，清 await 与等待位后原样上抛。 */
+    try {
+        ret = coroutine->YieldWithCallback([coroutine, cb](){
+            if (!coroutine->_RegistAwaitEvent())
+                return false;
+            cb();
+            return true;
+        });
+    } catch (...) {
+        coroutine->_SetAwaitEvent(nullptr);
+        {
+            std::lock_guard<std::mutex> lock(m_notify_mutex);
+            if (m_co_event == wait_event) {
+                m_co_event = nullptr;
+                m_run_status = COND_FREE;
+            }
+        }
+        throw;
+    }
 
     {
         std::lock_guard<std::mutex> lock(m_notify_mutex);
@@ -138,9 +168,22 @@ int CoWaiter::WaitWithTimeout(int ms)
         m_run_status = COND_WAIT;
     }
 
-    ret = coroutine->YieldWithCallback([coroutine](){
-        return coroutine->_RegistAwaitEvent();
-    });
+    /* #368-R2/F3：同 Wait() 的回滚约定。 */
+    try {
+        ret = coroutine->YieldWithCallback([coroutine](){
+            return coroutine->_RegistAwaitEvent();
+        });
+    } catch (...) {
+        coroutine->_SetAwaitEvent(nullptr);
+        {
+            std::lock_guard<std::mutex> lock(m_notify_mutex);
+            if (m_co_event == wait_event) {
+                m_co_event = nullptr;
+                m_run_status = COND_FREE;
+            }
+        }
+        throw;
+    }
 
     /* #369：登记失败（ret != 0）时本协程未真正挂起，
      * 唤醒掩码仍是上一次等待的旧值，不得参与超时/取消映射。
@@ -184,12 +227,25 @@ int CoWaiter::WaitWithTimeoutAndCallback(int ms, const detail::CoroutineOnYieldC
         m_run_status = COND_WAIT;
     }
 
-    ret = coroutine->YieldWithCallback([coroutine, cb](){
-        if (!coroutine->_RegistAwaitEvent())
-            return false;
-        cb();
-        return true;
-    });
+    /* #368-R2/F3：同 Wait() 的回滚约定。 */
+    try {
+        ret = coroutine->YieldWithCallback([coroutine, cb](){
+            if (!coroutine->_RegistAwaitEvent())
+                return false;
+            cb();
+            return true;
+        });
+    } catch (...) {
+        coroutine->_SetAwaitEvent(nullptr);
+        {
+            std::lock_guard<std::mutex> lock(m_notify_mutex);
+            if (m_co_event == wait_event) {
+                m_co_event = nullptr;
+                m_run_status = COND_FREE;
+            }
+        }
+        throw;
+    }
 
     /* 同 WaitWithTimeout：取消位并入超时族返回值，保证旧行为不变 */
     if (ret == 0 && coroutine->GetLastResumeEvent() & (POLL_EVENT_TIMEOUT | POLL_EVENT_CANCELLED))
@@ -267,13 +323,28 @@ WaitStatus CoWaiter::WaitWithCallback(
         m_run_status = COND_WAIT;
     }
 
-    const int yield_ret = coroutine->YieldWithCallback([coroutine, on_registered]() {
-        if (!coroutine->_RegistAwaitEvent())
-            return false;   /* 登记失败不投递回调，调用方按 RuntimeUnavailable 收尾 */
-        if (on_registered)
-            on_registered();
-        return true;
-    });
+    /* #368-R2/F3：装配失败的同一回滚约定——协程未挂起、on_registered
+     * 未执行（登记失败本就不投递），清 await 与等待位后原样上抛。 */
+    int yield_ret = 0;
+    try {
+        yield_ret = coroutine->YieldWithCallback([coroutine, on_registered]() {
+            if (!coroutine->_RegistAwaitEvent())
+                return false;   /* 登记失败不投递回调，调用方按 RuntimeUnavailable 收尾 */
+            if (on_registered)
+                on_registered();
+            return true;
+        });
+    } catch (...) {
+        coroutine->_SetAwaitEvent(nullptr);
+        {
+            std::lock_guard<std::mutex> lock(m_notify_mutex);
+            if (m_co_event == wait_event) {
+                m_co_event = nullptr;
+                m_run_status = COND_FREE;
+            }
+        }
+        throw;
+    }
 
     /* 决议只读唤醒原因掩码：CoPollEvent 状态机保证仅首个胜出 Trigger 的
      * flags 被锁存并交付（PENDING 提前触发同样经掩码兑现），恢复后不按
@@ -400,13 +471,27 @@ CombinedWaitStatus CoWaiter::Wait(
         m_run_status = COND_WAIT;
     }
 
-    const int yield_ret = coroutine->YieldWithCallback([coroutine, on_registered]() {
-        if (!coroutine->_RegistAwaitEvent())
-            return false;
-        if (on_registered)
-            on_registered();
-        return true;
-    });
+    /* #368-R2/F3：同一回滚约定。 */
+    int yield_ret = 0;
+    try {
+        yield_ret = coroutine->YieldWithCallback([coroutine, on_registered]() {
+            if (!coroutine->_RegistAwaitEvent())
+                return false;
+            if (on_registered)
+                on_registered();
+            return true;
+        });
+    } catch (...) {
+        coroutine->_SetAwaitEvent(nullptr);
+        {
+            std::lock_guard<std::mutex> lock(m_notify_mutex);
+            if (m_co_event == wait_event) {
+                m_co_event = nullptr;
+                m_run_status = COND_FREE;
+            }
+        }
+        throw;
+    }
 
     const int resume_event = (yield_ret == 0) ? coroutine->GetLastResumeEvent() : 0;
 
@@ -453,7 +538,7 @@ int CoWaiter::Notify()
      * 执行；driver Wake 必须推迟到本函数退出（全部锁已释放）之后。 */
     detail::DriverWakeDeferral _defer;
     std::lock_guard<std::mutex> lock(m_notify_mutex);
-    
+
     if (m_co_event == nullptr || m_run_status != COND_WAIT) {
         return -1;
     }

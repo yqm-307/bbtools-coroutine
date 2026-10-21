@@ -56,8 +56,8 @@ private:
     std::unique_ptr<boost::asio::posix::stream_descriptor> m_sd;
     std::unique_ptr<boost::asio::steady_timer>             m_timer;
 
-    static std::unordered_map<EventId, OnEventCallback>    m_callback_map;
-    static std::mutex                                      m_callback_map_mtx;
+    struct CallbackRegistry;
+    static CallbackRegistry& _Registry();
 };
 
 } // namespace bbt::pollevent

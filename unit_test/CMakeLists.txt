@@ -360,6 +360,12 @@ target_link_libraries(Test_cowaiter_regist_fail ${MY_LIBS})
 add_test(NAME Test_cowaiter_regist_fail COMMAND Test_cowaiter_regist_fail)
 set_tests_properties(Test_cowaiter_regist_fail PROPERTIES TIMEOUT 30)
 
+# #368 + #369：同步锁等待登记失败的锁不变量、进展和返回码回归
+add_executable(Test_sync_wait_regist_fail Test_sync_wait_regist_fail.cc)
+target_link_libraries(Test_sync_wait_regist_fail ${MY_LIBS})
+add_test(NAME Test_sync_wait_regist_fail COMMAND Test_sync_wait_regist_fail)
+set_tests_properties(Test_sync_wait_regist_fail PROPERTIES TIMEOUT 60)
+
 # #403：构造回滚 fd 单次关闭与同号新对象存活
 add_executable(Test_event_constructor_rollback Test_event_constructor_rollback.cc)
 target_link_libraries(Test_event_constructor_rollback ${MY_LIBS})
@@ -369,6 +375,28 @@ foreach(mode rollback_timer_fail construct_ok)
              COMMAND Test_event_constructor_rollback ${mode})
     set_tests_properties(Test_event_constructor_rollback_${mode} PROPERTIES TIMEOUT 15)
 endforeach()
+
+# 进程退出时仍存活的 Event 不得遭注册表静态析构，正常取消/析构仍逐项回收。
+add_executable(Test_event_callback_registry_lifetime Test_event_callback_registry_lifetime.cc)
+target_link_libraries(Test_event_callback_registry_lifetime ${MY_LIBS})
+foreach(mode exit_live_event normal_reclaim cancel_reclaim)
+    add_test(NAME Test_event_callback_registry_lifetime_${mode}
+             COMMAND Test_event_callback_registry_lifetime ${mode})
+    set_tests_properties(Test_event_callback_registry_lifetime_${mode} PROPERTIES TIMEOUT 15)
+endforeach()
+
+# R3：挂起/唤醒链中诊断分配失败必须有界收口，且 await/锁/等待者保持可复用
+add_executable(Test_diagnostic_wait_oom Test_diagnostic_wait_oom.cc)
+target_link_libraries(Test_diagnostic_wait_oom ${MY_LIBS})
+target_link_options(Test_diagnostic_wait_oom PRIVATE -Wl,--export-dynamic)
+add_test(NAME Test_diagnostic_wait_oom COMMAND Test_diagnostic_wait_oom)
+set_tests_properties(Test_diagnostic_wait_oom PROPERTIES TIMEOUT 60)
+
+# #404：诊断模式下真实挂起、失败重入和终态配对
+add_executable(Test_stringent_debug Test_stringent_debug.cc)
+target_link_libraries(Test_stringent_debug ${MY_LIBS})
+add_test(NAME Test_stringent_debug COMMAND Test_stringent_debug)
+set_tests_properties(Test_stringent_debug PROPERTIES TIMEOUT 30)
 
 # Smoke 候选：CI 快速回归集，统一 60s 超时防止无进展挂死。
 # Test_reliability 不进 Smoke，保留给完整回归与独立 Reliability Job。
