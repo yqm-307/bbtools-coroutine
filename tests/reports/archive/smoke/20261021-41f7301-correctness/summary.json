@@ -1,0 +1,364 @@
+{
+    "base_sha": "41f73016a248ae40b2eeca0131a8688fc68b3b40",
+    "head_sha": null,
+    "candidate": "R3_extracted_plus_F02",
+    "worktree_state": "uncommitted",
+    "overall": "local_validation_passed_independent_review_new_pr_and_ci_pending",
+    "delivery_file_count": 20,
+    "source_files_count": 18,
+    "archive_files_count": 2,
+    "candidate_source_manifest_sha256": "c5d40f25c593abbbe643d18c43ddef018e3e03c8b42d7b6c0b850b4efca46c90",
+    "source_files": {
+        "agent-docs/api-reference.md": "91a7168eb743531299be3f78d9c0e0db2a834bb44ac951e84ce69523ed1ffcb7",
+        "bbt/coroutine/detail/CoPollEvent.cc": "72263eb8d79744a12d7fbb71388c64eb9c38f6b6bd0033922fd99784600ef730",
+        "bbt/coroutine/detail/Context.cc": "caf107aa0ade331c35387e37adcc53c539d4073ad40bb93e10abfad5a9774bd7",
+        "bbt/coroutine/detail/Coroutine.cc": "e18760a181613fc172957ae3ede81b7856603eec8ae2698440000b2714a3eea2",
+        "bbt/coroutine/detail/debug/DebugMgr.cc": "b005e11ab8e0366351355dc9df036ae6907f4ca7fdc5b25a7f871356fe6f8679",
+        "bbt/coroutine/detail/debug/DebugMgr.hpp": "4424089a84e7c36ce7f26a6d048198a39fc08bce13e04ecb7e8965b2eae7f071",
+        "bbt/coroutine/sync/CoLockGuard.hpp": "02a129a481664f500eb10c71ea15b0179fa632898e9885c648ac1a3fb6fac992",
+        "bbt/coroutine/sync/CoMutex.cc": "c9e17beb42f090d5b2e1a668391de99800a3b5e00a22d0717479a58963d66779",
+        "bbt/coroutine/sync/CoRWMutex.cc": "1603e832f7c7ea0cd6b3680a31df1cfbeb410b2eed35a202e740c71a9580c338",
+        "bbt/coroutine/sync/CoRWMutex.hpp": "958a89b13f692229cad3b4a382ff2efa320ea146d8532f73f39ee4092a7bad44",
+        "bbt/coroutine/sync/CoWaiter.cc": "b86755d08c1bd9fcc980e0db3e1664bd53858f00a6eb7cc399a91d80fa659f97",
+        "bbt/pollevent/Event.cc": "bb24fd08e980e7d70740237653b23a9ae0b1bc49276257c21d81e355b81ed520",
+        "bbt/pollevent/Event.hpp": "92c0068abf46661562cb18aea353cc266e04ff17fd524dbbbb1ecd565cda9afb",
+        "unit_test/CMakeLists.txt": "e2af5241c05c6ed40fec9401c7ca002846094e47de6b90e6c8299ba78df352b3",
+        "unit_test/Test_diagnostic_wait_oom.cc": "d50e795c88b2a48a26c30640e6d715e485ce4067a3a3abfda6e88b11329ac87a",
+        "unit_test/Test_event_callback_registry_lifetime.cc": "def0d5849c23f158ecefda4c1397862b36189bca9f1d46fb65fa93948374b494",
+        "unit_test/Test_stringent_debug.cc": "ea14e2f1e595842b2907229a323c03bf36f8c642f1c0952bfe2a93cd95e20361",
+        "unit_test/Test_sync_wait_regist_fail.cc": "91a9805eab08a8fc275d21129b813e1b4dc4d7955e4248fcad2fde4e3a133191"
+    },
+    "scope": {
+        "included": [
+            "#368",
+            "#369",
+            "#404",
+            "F-02 event callback registry lifetime"
+        ],
+        "excluded_as_split_prs": [
+            "PR406/#367 Processer.cc,Processer.hpp,Scheduler.cc,Test_worker_stall.cc,CMake increment",
+            "PR407/#403 Event constructor single-close hunks,Test_event_constructor_rollback.cc,its registration"
+        ],
+        "stall_files_equal_base": true,
+        "event_retains_F02_registry_holder_change_only": true
+    },
+    "current_candidate_checks": {
+        "configs": {
+            "build-integrated": {
+                "ctest_passed": 30,
+                "ctest_total": 30,
+                "registered": 30,
+                "warnings": 0
+            },
+            "build-strict": {
+                "ctest_passed": 30,
+                "ctest_total": 30,
+                "registered": 30,
+                "warnings": 0
+            },
+            "build-profile": {
+                "ctest_passed": 30,
+                "ctest_total": 30,
+                "registered": 30,
+                "warnings": 0
+            },
+            "build-debug-info": {
+                "ctest_passed": 30,
+                "ctest_total": 30,
+                "registered": 30,
+                "warnings": 0
+            }
+        },
+        "ldd_matching_library_records_per_config": 26,
+        "diagnostic_oom_behavior_per_strict_run": {
+            "cases": 7,
+            "regist_event_alloc_failed": 5,
+            "resume_co_alloc_failed": 1,
+            "yield_co_alloc_failed": 0
+        },
+        "first_winner_probes": {
+            "passed": 8,
+            "total": 8,
+            "matrix": "strict+debug-info x notify/cancel x fault 0/1"
+        },
+        "original_debug_info_probe_markers": {
+            "caught": 1,
+            "hits": 1,
+            "callback_calls": 0,
+            "status_running": 1,
+            "await_reusable": 1
+        },
+        "profile_cowaiter_outcome_repeat100": {
+            "iterations_started": 100,
+            "iterations_passed": 100,
+            "iterations_failed": 0,
+            "unique_tests_in_ctest_summary": 1,
+            "counting_note": "ctest --repeat summarises unique tests (out of 1); passed counted from per-iteration Passed lines, not the summary number"
+        },
+        "production_build": {
+            "returncode": 0,
+            "warnings": 0,
+            "library_translation_units": 37,
+            "library_compile_commands_with_NDEBUG": 37,
+            "library_compile_commands_with_stack_testing": 0,
+            "recompiled_statistic": "omitted: no complete per-TU recompile record was kept for the 100x rerun",
+            "note": "existing evidence and current SHA only; no rebuild performed in this finalization"
+        }
+    },
+    "f02_root_cause": {
+        "captured": {
+            "attempt": 542,
+            "previous_healthy": 541,
+            "elapsed_seconds": 146.26019118283875,
+            "signal": "SIGSEGV",
+            "stop_on_first_failure": true,
+            "artifacts_unchanged": true,
+            "observed_mechanism": "main thread __cxa_finalize destroying Event global callback map freed an already-reclaimed closure/node; bad weak control-block value equalled the glibc tcache_key; worker and Scheduler threads still alive",
+            "fix": "Event callback map and mutex moved behind Event::_Registry() into a process-lifetime holder, consistent with core contract section 6 (runtime is process-lifetime, no teardown at static exit); normal cancel/destructor still erase callbacks per item",
+            "new_test_modes": [
+                "exit_live_event",
+                "normal_reclaim",
+                "cancel_reclaim"
+            ]
+        },
+        "attribution_separation": {
+            "same_lifetime_mechanism_present_in_base": true,
+            "original_SIGSEGV_reproduced_on_base": false,
+            "original_SIGSEGV_origin": "unknown",
+            "note": "The captured fault has direct evidence of the static-destruction lifetime race. Whether this batch introduced the crash or exposed the BASE-existing mechanism through changed timing remains unknown; unreproduced BASE runs do not prove it cannot occur."
+        },
+        "stability_evidence": {
+            "postfix_window_seconds": 300,
+            "postfix_attempts": 1118,
+            "postfix_passed": 1118,
+            "postfix_first_failure": null
+        }
+    },
+    "independent_review_status": {
+        "F01_two_file_increment": "ship/low/0 findings (earlier round, closed)",
+        "original_two_P1_closures": "confirmed closed",
+        "F02_and_final_extracted_candidate": "pending independent review; no overall ship/completed verdict is claimed"
+    },
+    "standalone_PR_status": {
+        "PR406": {
+            "state": "OPEN",
+            "merged": false,
+            "head": "d1f0ef54422bfc43ab31157909f75a3f2995e47d",
+            "checks_passed": 10,
+            "user_reviews": 0
+        },
+        "PR407": {
+            "state": "OPEN",
+            "merged": false,
+            "head": "547f9dd407b86699344c5a1e01e492d0bdc56285",
+            "checks_passed": 10,
+            "user_reviews": 0
+        },
+        "note": "those CI results are not this candidate's CI"
+    },
+    "combined_candidate_evidence": {
+        "scope": "combination including PR406/PR407 implementations, separate from this 30/30 + 100x extracted candidate",
+        "configs": 4,
+        "passed_each": 33,
+        "warnings": 0,
+        "note": "separate record; not a substitute for this candidate's results"
+    },
+    "known_limits": [
+        "legacy strict ordinal-4 probe depended on a throw-then-release-holder handshake and still ends mutually waiting with recorded rc 1; it is not reported as passed, and its real lock-acquire/cancel/successor-progress coverage is closed by later R3 regression tests",
+        "no remote CI, no local full ctest, no TSan, no weak-order platform runs, no real long-client runs for this candidate",
+        "#384 earlier FD-snapshot/Poller intermittent failure remains unexplained; #402 static investigation only; #400/#259 out of scope",
+        "continuous OOM behaviour and arbitrary user callback exception self-healing are not promised"
+    ],
+    "evidence_boundary": {
+        "raw_logs": "kept outside the repository",
+        "not_committed": [
+            "raw logs",
+            "core dumps",
+            "raw memory addresses",
+            "private debugger/ASAN/signal tooling",
+            "private binaries"
+        ],
+        "hash_before_after_claim": "no separate before/after hash record exists for the 100x rerun, so identities_unchanged is not claimed for it; boundary rests on matching ldd records, no other writer during the window, and the current frozen hashes"
+    },
+    "verification_tooling": {
+        "faults_in_previous_summary_scripts": true,
+        "nature": "validator pre-check/counting/variable-scope defects only",
+        "impact": "none on the underlying build and test logs, which were re-read directly",
+        "note": "builds/tests were not re-run for this finalization"
+    },
+    "integration": {
+        "recorded_at_utc": "2026-10-21",
+        "reason": "PR407 merged into origin/main after the frozen 30/30 + 100x point, so the reviewed commit is integrated with upstream main",
+        "base_before": "41f73016a248ae40b2eeca0131a8688fc68b3b40",
+        "reviewed_commit": "ee5d0f87a5c903912e81d70059f37687b1364e17",
+        "merged_upstream": "461deb4e614e660ef899e5cb20ac54086e9e18fa",
+        "independent_review_of_reviewed_commit": "ship/high/0",
+        "conflict_resolution": {
+            "files": [
+                "unit_test/CMakeLists.txt"
+            ],
+            "method": "taken from the previously full-tested 33-test combination snapshot minus the two PR406 Test_worker_stall_disabled lines",
+            "removed_lines": [
+                "add_test(NAME Test_worker_stall_disabled COMMAND Test_worker_stall -- --stall-warn-ms=0)",
+                "set_tests_properties(Test_worker_stall_disabled PROPERTIES TIMEOUT 30 RUN_SERIAL TRUE)"
+            ],
+            "preserved": [
+                "BASE worker stall target",
+                "PR407 Ctor two-mode registration",
+                "feature sync/stringent/diagnostic targets",
+                "registry three-mode registration"
+            ],
+            "add_test_line_count": 62,
+            "pr406_implementation_included": false,
+            "conflict_markers_remaining": 0
+        },
+        "selected_regression": {
+            "tests": [
+                "Test_event_constructor_rollback_rollback_timer_fail",
+                "Test_event_constructor_rollback_construct_ok",
+                "Test_event_callback_registry_lifetime_exit_live_event",
+                "Test_event_callback_registry_lifetime_normal_reclaim",
+                "Test_event_callback_registry_lifetime_cancel_reclaim",
+                "Test_diagnostic_wait_oom",
+                "Test_cowaiter_outcome",
+                "Test_copollevent_state",
+                "Test_smoke"
+            ],
+            "built_targets": [
+                "Test_event_constructor_rollback",
+                "Test_event_callback_registry_lifetime",
+                "Test_diagnostic_wait_oom",
+                "Test_cowaiter_outcome",
+                "Test_copollevent_state",
+                "Test_smoke"
+            ],
+            "ctest_parallelism": "-j1",
+            "counting_note": "registered count from ctest -N and executed count from the ctest summary both equal 9 per config; the recorded returncode is the raw ctest exit status, not a PASS string from the log",
+            "configs": {
+                "build-integrated": {
+                    "label": "default",
+                    "ctest_returncode": 0,
+                    "ctest_passed": 100,
+                    "ctest_failed": 0,
+                    "ctest_total": 9,
+                    "registered_selected": 9,
+                    "executed_selected": 9,
+                    "compile_warnings": 0,
+                    "ldd_records": 6,
+                    "ldd_resolved_to_this_build_lib": 6,
+                    "ldd_not_found": 0,
+                    "library_sha256": "c5eef0789e6b157f8e81e56ad0825339cf2b92d8abddeb657bc69af50585901d"
+                },
+                "build-strict": {
+                    "label": "strict",
+                    "ctest_returncode": 0,
+                    "ctest_passed": 100,
+                    "ctest_failed": 0,
+                    "ctest_total": 9,
+                    "registered_selected": 9,
+                    "executed_selected": 9,
+                    "compile_warnings": 0,
+                    "ldd_records": 6,
+                    "ldd_resolved_to_this_build_lib": 6,
+                    "ldd_not_found": 0,
+                    "library_sha256": "f79fcdd75d9cad19fd12209ee1ad9b50da42f63534a4688cd66f4da8be8ba304"
+                },
+                "build-profile": {
+                    "label": "PROFILE",
+                    "ctest_returncode": 0,
+                    "ctest_passed": 100,
+                    "ctest_failed": 0,
+                    "ctest_total": 9,
+                    "registered_selected": 9,
+                    "executed_selected": 9,
+                    "compile_warnings": 0,
+                    "ldd_records": 6,
+                    "ldd_resolved_to_this_build_lib": 6,
+                    "ldd_not_found": 0,
+                    "library_sha256": "a57fca3134025bb6ea141becbac999e62a8d906892e61d3fd9a74df86b6d328e"
+                },
+                "build-debug-info": {
+                    "label": "strict+DEBUG_INFO",
+                    "ctest_returncode": 0,
+                    "ctest_passed": 100,
+                    "ctest_failed": 0,
+                    "ctest_total": 9,
+                    "registered_selected": 9,
+                    "executed_selected": 9,
+                    "compile_warnings": 0,
+                    "ldd_records": 6,
+                    "ldd_resolved_to_this_build_lib": 6,
+                    "ldd_not_found": 0,
+                    "library_sha256": "74b84e71995c8ccd6a513d86e6d08772daf479afecc479988fd2952219cd3da7"
+                }
+            },
+            "production": {
+                "returncode": 0,
+                "compile_warnings": 0,
+                "target": "bbt_coroutine (incremental)",
+                "NDEBUG_in_flags": true,
+                "stack_testing_define_count": 0,
+                "library_sha256": "c3be88bbf9fcced3a891eeca9fd2d3879870710a32c38cd1d1d0755f936a8d05"
+            }
+        },
+        "current_feature_source_map": {
+            "formula": "sha256(json.dumps(map, sort_keys=True).encode()); 18 known feature files, excludes this archive itself",
+            "aggregate_sha256": "cdaeb81eb37a9b235e3c5fc59436208844d32217590c7a961c2cf0c2598a99a7",
+            "changed_vs_frozen_point": [
+                "bbt/pollevent/Event.cc",
+                "bbt/pollevent/Event.hpp",
+                "unit_test/CMakeLists.txt",
+                "unit_test/Test_event_callback_registry_lifetime.cc"
+            ],
+            "unchanged_count": 14,
+            "change_reason": {
+                "bbt/pollevent/Event.cc": "merged upstream PR407 single-close hunks; F-02 registry holder fix retained",
+                "bbt/pollevent/Event.hpp": "merged upstream PR407 ownership/comment note",
+                "unit_test/CMakeLists.txt": "integration registration union adding the PR407 Ctor target",
+                "unit_test/Test_event_callback_registry_lifetime.cc": "known 5 trailing-whitespace-only cleanup, no logic token change"
+            },
+            "files": {
+                "agent-docs/api-reference.md": "91a7168eb743531299be3f78d9c0e0db2a834bb44ac951e84ce69523ed1ffcb7",
+                "bbt/coroutine/detail/CoPollEvent.cc": "72263eb8d79744a12d7fbb71388c64eb9c38f6b6bd0033922fd99784600ef730",
+                "bbt/coroutine/detail/Context.cc": "caf107aa0ade331c35387e37adcc53c539d4073ad40bb93e10abfad5a9774bd7",
+                "bbt/coroutine/detail/Coroutine.cc": "e18760a181613fc172957ae3ede81b7856603eec8ae2698440000b2714a3eea2",
+                "bbt/coroutine/detail/debug/DebugMgr.cc": "b005e11ab8e0366351355dc9df036ae6907f4ca7fdc5b25a7f871356fe6f8679",
+                "bbt/coroutine/detail/debug/DebugMgr.hpp": "4424089a84e7c36ce7f26a6d048198a39fc08bce13e04ecb7e8965b2eae7f071",
+                "bbt/coroutine/sync/CoLockGuard.hpp": "02a129a481664f500eb10c71ea15b0179fa632898e9885c648ac1a3fb6fac992",
+                "bbt/coroutine/sync/CoMutex.cc": "c9e17beb42f090d5b2e1a668391de99800a3b5e00a22d0717479a58963d66779",
+                "bbt/coroutine/sync/CoRWMutex.cc": "1603e832f7c7ea0cd6b3680a31df1cfbeb410b2eed35a202e740c71a9580c338",
+                "bbt/coroutine/sync/CoRWMutex.hpp": "958a89b13f692229cad3b4a382ff2efa320ea146d8532f73f39ee4092a7bad44",
+                "bbt/coroutine/sync/CoWaiter.cc": "b86755d08c1bd9fcc980e0db3e1664bd53858f00a6eb7cc399a91d80fa659f97",
+                "bbt/pollevent/Event.cc": "3f0b73183071cb407ae4e47b7f41ee90ce5b3feb6a97aadcc65ef59fc5e7e723",
+                "bbt/pollevent/Event.hpp": "a86578875a008367ec8376a2a60375b0b7b5e9b215a6bcf07a2a36350ae3a95f",
+                "unit_test/CMakeLists.txt": "d4142b8daa5b29698b6b7ab7395c9c065a3404ef7f0c772a11697fd00e47cefe",
+                "unit_test/Test_diagnostic_wait_oom.cc": "d50e795c88b2a48a26c30640e6d715e485ce4067a3a3abfda6e88b11329ac87a",
+                "unit_test/Test_event_callback_registry_lifetime.cc": "a894e28480d078c1ac8e43b4fc1a4fb4ad8109737384e06a11cc47be5bab4d65",
+                "unit_test/Test_stringent_debug.cc": "ea14e2f1e595842b2907229a323c03bf36f8c642f1c0952bfe2a93cd95e20361",
+                "unit_test/Test_sync_wait_regist_fail.cc": "91a9805eab08a8fc275d21129b813e1b4dc4d7955e4248fcad2fde4e3a133191"
+            }
+        },
+        "git_state": {
+            "MERGE_HEAD_present": true,
+            "MERGE_HEAD": "461deb4e614e660ef899e5cb20ac54086e9e18fa",
+            "ORIG_HEAD": "ee5d0f87a5c903912e81d70059f37687b1364e17",
+            "merge_committed": false,
+            "unmerged_index_entries": [
+                "unit_test/CMakeLists.txt"
+            ],
+            "index_staging_by": "parent (not this step)",
+            "commit_or_push_by": "parent (not this step)"
+        },
+        "not_evidence_boundary": [
+            "merge is not committed and not pushed by this step",
+            "no remote PR CI was run for this merged result",
+            "full ctest, the 100x repeat, ASAN and long runs were not re-run",
+            "no matrix beyond the 9 selected tests per config"
+        ],
+        "unchanged_semantics": {
+            "original_SIGSEGV_mechanism": "closed by the F-02 lifetime evidence",
+            "original_SIGSEGV_regression_origin": "unknown",
+            "issue_384_fd_snapshot_poller_intermittent": "still unexplained"
+        }
+    }
+}

@@ -98,6 +98,9 @@ CoPollEvent::CoPollEvent(CoroutineId id, const CoPollEventCallback& cb):
 
 CoPollEvent::~CoPollEvent()
 {
+#ifdef BBT_COROUTINE_STRINGENT_DEBUG
+    g_bbt_dbgmgr->OnEvent_DestroyEvent(m_event_id);
+#endif
     // 已 arm 的 Event 只能在 PollOnce 线程析构，避免与 event loop 竞态。
     _CannelAllFdEvent();
 }
@@ -383,12 +386,33 @@ int CoPollEvent::InitCustomEvent(int key, void* args)
 
 int CoPollEvent::Regist()
 {
+#ifdef BBT_COROUTINE_STRINGENT_DEBUG
+    /* R2-02：诊断登记经 TryRegistEvent 收口——map 节点单次分配失败返回
+     * false（内部已报告 + 计数，不抛出——本函数可运行在 Context::Resume
+     * 原生 worker 栈，协程侧 catch 不可达，出逃即 terminate）。
+     * 失败语义统一为「登记未完成」：PENDING 分支返回 -1 由挂起回调按
+     * CHECK_FAILED 收口（CommitPark 不再消费，事件不走向 _Complete，
+     * 无 map 配对需求）；ARMED 主线先 UnRegist 收敛终态再 -1。
+     * 登记点仍在原分支内：失败不提前登记，保证同一事件的多次 Regist
+     * 调用与「repeat regist」断言语义不变。
+     * F-01：std::map::insert 单次分配失败无副作用（强保证 map 无残留），
+     * 同一无副作用登记可有界重试一次——与 co 侧 OnEvent_ResumeCo 同一
+     * 策略，保住已接纳的 PENDING 首胜（触发位与 Notify 载荷）。连续 OOM
+     * 第二次失败仍按「登记未完成」返回 false（TryRegistEvent 内部已各自
+     * 报告 + 计数），不承诺持续 OOM 自愈；无无界循环、无跳记账、无手工
+     * 再次 Trigger。 */
+    const auto dbg_regist = [this]() -> bool {
+        if (g_bbt_dbgmgr->TryRegistEvent(shared_from_this()))
+            return true;
+        return g_bbt_dbgmgr->TryRegistEvent(shared_from_this());
+    };
+#else
+    const auto dbg_regist = []() -> bool { return true; };
+#endif
+
     uint64_t state = m_state.load(std::memory_order_acquire);
     if (GetCoPollEventPhase(state) == CoPollEventPhase::PENDING) {
-#ifdef BBT_COROUTINE_STRINGENT_DEBUG
-        g_bbt_dbgmgr->OnEvent_RegistEvent(shared_from_this());
-#endif
-        return 0;
+        return dbg_regist() ? 0 : -1;
     }
 
     uint64_t expected = PackCoPollEventState(CoPollEventPhase::INITED);
@@ -397,10 +421,7 @@ int CoPollEvent::Regist()
                                          std::memory_order_acquire))
     {
         if (GetCoPollEventPhase(expected) == CoPollEventPhase::PENDING) {
-#ifdef BBT_COROUTINE_STRINGENT_DEBUG
-            g_bbt_dbgmgr->OnEvent_RegistEvent(shared_from_this());
-#endif
-            return 0;
+            return dbg_regist() ? 0 : -1;
         }
         return -1;
     }
@@ -424,10 +445,7 @@ int CoPollEvent::Regist()
         }
         _CannelAllFdEvent();
         if (GetCoPollEventPhase(state) == CoPollEventPhase::PENDING) {
-#ifdef BBT_COROUTINE_STRINGENT_DEBUG
-            g_bbt_dbgmgr->OnEvent_RegistEvent(keep_alive);
-#endif
-            return 0;
+            return dbg_regist() ? 0 : -1;
         }
         return -1;
     }
@@ -437,15 +455,12 @@ int CoPollEvent::Regist()
         while (GetCoPollEventPhase(state) == CoPollEventPhase::ARMING) {
             if (m_state.compare_exchange_weak(state, PackCoPollEventState(CoPollEventPhase::CANCELLED),
                                               std::memory_order_acq_rel,
-                                              std::memory_order_acquire))
+                                               std::memory_order_acquire))
                 break;
         }
         _CannelAllFdEvent();
         if (GetCoPollEventPhase(state) == CoPollEventPhase::PENDING) {
-#ifdef BBT_COROUTINE_STRINGENT_DEBUG
-            g_bbt_dbgmgr->OnEvent_RegistEvent(keep_alive);
-#endif
-            return 0;
+            return dbg_regist() ? 0 : -1;
         }
         return -1;
     }
@@ -457,14 +472,24 @@ int CoPollEvent::Regist()
     {
         _CannelAllFdEvent();
         if (GetCoPollEventPhase(expected) == CoPollEventPhase::PENDING) {
-#ifdef BBT_COROUTINE_STRINGENT_DEBUG
-            g_bbt_dbgmgr->OnEvent_RegistEvent(keep_alive);
-#endif
-            return 0;
+            return dbg_regist() ? 0 : -1;
         }
         return -1;
     }
 
+#ifdef BBT_COROUTINE_STRINGENT_DEBUG
+    /* 登记拒绝也会进入 CLOSED 完成路径，必须先记账再允许它触发。
+     * R2-02：诊断记账失败时事件绝不允许走向 _Complete——PENDING/完成
+     * 路径的 TriggerEvent 配对断言依赖 map 条目，缺失即断言中止。
+     * 按「登记未完成」闭环：ARMED→CANCELLED 终态 + 底层事件移交回收
+     * （与既有 UnRegist 同一回收路径），返回 -1 使挂起回调以
+     * CHECK_FAILED 重入协程——协程侧清 await、未执行的放锁段由调用方
+     * -1 分支释放，无 map 残留、无悬挂、无异常穿越 worker。 */
+    if (!dbg_regist()) {
+        UnRegist();
+        return -1;
+    }
+#endif
     // ARMED 起进入监听态，纳入 fd 唤醒注册表（#262）
     /* #370：登记时若 fd 正在 closing，或自 InitFdEvent 采样 establish-epoch
      * 以来代际已推进（close 完整落在建立窗口内，asio wait 绑在死 fd 上），
@@ -475,13 +500,17 @@ int CoPollEvent::Regist()
         return 0;   // 已由 CLOSED 路径完成，Regist 语义为"等待建立完成"
     }
 
-#ifdef BBT_COROUTINE_STRINGENT_DEBUG
-    g_bbt_dbgmgr->OnEvent_RegistEvent(keep_alive);
-#endif
-    g_bbt_dbgp_full(("[CoEvent:Regist] co=" + std::to_string(m_co_id) +
-                                     " event=" + std::to_string(m_listen_events) +
-                                     " id=" + std::to_string(GetId()) +
-                                     " customkey=" + std::to_string(m_custom_key)).c_str());
+    /* 日志装配不分配：Regist() 可经 Context::Resume 的 onyield 回调在
+     * worker 原生栈执行，to_string 拼接的 bad_alloc 无协程侧 catch 可达，
+     * 出逃即 terminate。栈缓冲 snprintf 保持同一日志语义、消除逃逸点。 */
+    char regist_log[192];
+    std::snprintf(regist_log, sizeof(regist_log),
+                  "[CoEvent:Regist] co=%llu event=%d id=%llu customkey=%d",
+                  static_cast<unsigned long long>(m_co_id),
+                  static_cast<int>(m_listen_events),
+                  static_cast<unsigned long long>(GetId()),
+                  m_custom_key);
+    g_bbt_dbgp_full(regist_log);
 #ifdef BBT_COROUTINE_PROFILE
     g_bbt_profiler->OnEvent_RegistCoPollEvent();
 #endif
