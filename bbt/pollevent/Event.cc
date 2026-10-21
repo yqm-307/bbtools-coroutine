@@ -61,8 +61,14 @@ Event::Event(detail::EventBase* base, evutil_socket_t fd, short listen_events,
             m_timer = std::make_unique<boost::asio::steady_timer>(base->GetContext());
         }
         catch (...) {
-            /* fd 事件先于 timer 创建：timer 构造抛异常时回收内部 dup fd
-             * （此时 callback 尚未注册，唯一泄漏面就是 m_internal_fd）。 */
+            /* fd 事件先于 timer 创建：timer 构造抛异常时回收内部 dup fd。
+             * m_sd 自构造起即持有 m_internal_fd（adopt 语义），destroy 会对
+             * 仍 open 的 descriptor 再 close 一次——先 release() 剥离所有权
+             * 再 ::close，保证同一 fd 号只关一次，与 CancelListen 口径一致
+             * （此时 callback 尚未注册，fd 是唯一待回收资源）。 */
+            if (m_sd) {
+                m_sd->release();
+            }
             if (m_internal_fd >= 0) {
                 ::close(m_internal_fd);
                 m_internal_fd = -1;
@@ -194,8 +200,8 @@ int Event::CancelListen(bool need_close_fd)
             // 再触发一次 deregister（内部号唯一，无复用冲突，但保持干净）
             m_sd->release();
         }
-        /* release() 已 deregister 并归还内部 fd 号；此处 ::close 它，
-         * 回收 dup 出来的内核资源（adopt 时代不拥有 fd，dup 时代拥有）。 */
+        /* release() 只 deregister 并返回内部 fd 号（不 close）；此处 ::close
+         * 回收 dup 出来的内核资源——Event 是 m_internal_fd 的唯一 owner。 */
         if (m_internal_fd >= 0) {
             ::close(m_internal_fd);
             m_internal_fd = -1;
