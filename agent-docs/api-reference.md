@@ -379,7 +379,7 @@ int idx = sync::CoSelect()
 - `SO_RCVTIMEO` / `SO_SNDTIMEO` 按协程 deadline 有界返回 `-1`/`EAGAIN`。
 - 超时以毫秒计，亚毫秒向上取整；数据与超时同刻到达时先重试 syscall，可能返回数据。`Hook_Connect` 未接入 `IoTimeout`，不承诺有界 `ETIMEDOUT`。
 - `IoTimeout` 当前以 `int` 毫秒存储；超出其可表示范围的 `timeval` 未提供可靠转换保证，不能依赖它保持有界等待（`Hook.cc` 的转换尚无溢出保护）。这不是无限等待的受支持契约。
-- 等待中 fd 被 close：唤醒后重试 syscall，得到 `EBADF`。
+- 等待中 fd 被 close：唤醒后不重试跨代 fd 上的 syscall，直接返回 `-1`/`EBADF`（#370 代际校验）。精确覆盖 close 的三类交错：已 park 的等待被 `BeginFdClose` 摘表唤醒；事件已就绪但协程尚未恢复时 close+reuse（恢复侧 epoch 比对拦截）；以及 `close` 声明与 `close` 返回之间的窗口内建立的新等待（establish 时观察到 closing，等待被锁存为 CLOSED，恢复侧按 `EBADF` 收口）。三种情形旧操作都不会在复用后的同号新对象上重试、也不会把旧 fd 的 flags/偏移回写到新对象。
 - 不支持多线程对同一 fd 并发走 Hook IO。
 
 ---
