@@ -45,7 +45,8 @@ private:
     detail::EventBase*          m_ref_base{nullptr};
     evutil_socket_t             m_fd{-1};
     /* #370：fd 事件实际交给 asio 的内部 dup fd（构造函数 ::dup(m_fd)），
-     * 与用户 fd 号生命周期解耦；析构/取消时由本对象负责 ::close 回收。
+     * 与用户 fd 号生命周期解耦。构造成功后由 m_sd adopt 持有，析构/取消
+     * 走 release()+::close 单一收口；构造中失败时同口径只关一次。
      * 非 fd 事件为 -1。 */
     evutil_socket_t             m_internal_fd{-1};
     short                       m_listen_events{0};
