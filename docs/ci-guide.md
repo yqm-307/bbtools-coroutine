@@ -106,7 +106,7 @@ Actions `approval_policy=all_external_contributors`：外部贡献者的 fork wo
 | `性能回归检查`（perf job） | 60 min | 两棵树顺序构建 `unified_stress` + 六模块 45s×2 测量 |
 | `docs-check` | 5 min | 空格 + 密钥扫描 |
 | release / gate | 1500 min | 含构建、验收、性能 Gate、可配置时长压测（默认 1h，最长 24h）与基线写入；不是实测完成时间承诺 |
-| release / CTest | step 15 min | `ctest --timeout 60`，避免单测挂死吃完 120 min |
+| release / CTest | step 15 min | `ctest --timeout 60`，避免单测挂死吃掉整个 Gate 的时间预算（gate job timeout 见 workflow） |
 | release / 真实客户端验收 | step 10 min | Redis 缺失必须失败，不走 skip |
 
 ---
@@ -142,7 +142,8 @@ Actions `approval_policy=all_external_contributors`：外部贡献者的 fork wo
 5. **冒烟 / 可靠性：** `Test_smoke` / `Test_reliability` 各自有界重试（step 各 8min）。
 
 本地完整测试清单以 `ctest -N` 为准；新增测试必须在 `unit_test/CMakeLists.txt` 用
-`add_test()` 注册（见 §8）。`Test_scheduler_stop` 等已删除的套件不应再出现在任何文档中。
+`add_test()` 注册（见 §8）。`Test_scheduler_stop` 等已删除的套件不得再列为现行可执行测试目标；
+历史报告、迁移警告与故障查阅中的旧名称及其版本边界按原文保留，不据此改写历史记录。
 
 真实客户端验收不属于普通门禁；`NEED_EXAMPLE=ON` 且 `NEED_TEST=ON` 时本地额外注册
 `Test_real_clients_echo`（无条件必须 PASS）与 `Test_real_clients_hiredis`（无 Redis 时 skip 77）。
@@ -165,9 +166,8 @@ Actions `approval_policy=all_external_contributors`：外部贡献者的 fork wo
 - job 超时 1500min（覆盖最长 24h 压测）；模块进程在计划时长后 120s 发送 TERM，再给 30s 退出兜底
 
 **产物：**
-- 汇总报告 `tests/reports/<timestamp>/summary.txt` — 各模块最终 ops + errors
-- 每模块独立日志 `tests/reports/<timestamp>/<module>.log`
-- 发布 Gate 自动上传 `release-gate` artifact；本地运行时报告仍只写入 `tests/reports/`
+- 脚本默认把汇总报告写在 `tests/reports/<timestamp>/summary.txt`，模块日志 `tests/reports/<timestamp>/<module>.log`
+- 发布 Gate 中输出目录为 `tests/reports/release-<run_id>-<run_attempt>`（workflow 的 `OUTDIR`），artifact 名称 `release-gate-<run_id>-<run_attempt>`，均以 `release.yml` 定义为准；本地运行时报告仍只写入 `tests/reports/`
 
 ### 3.3 性能回归门禁
 
@@ -198,8 +198,7 @@ runner 时钟噪声天然敏感，10% 会大量误报（历史压测观察）。
 推 `perf-baseline` 分支，`trend` 检查连续退化；这与普通门禁的 runner 临时基线是两条路径。
 `record_baseline.py record` 在任一模块 no_data/超时/指标无效时拒绝落盘（exit 2）；失败、取消、
 超时的 run 不会覆盖好基线。**连续两次发布基线或发布前确认性能回退，必须创建专项修复 Issue**；
-单次异常先复测并记录环境。推送步骤自动裁剪每机器目录至最近 20 份，关键发布基线打 tag
-（在 `perf-baseline` 分支上，如 `baseline-v2.1.0`）长期保留。
+单次异常先复测并记录环境。推送步骤自动裁剪每机器目录至最近 20 份；workflow 不自动打基线 tag，历史基线经 `perf-baseline` 分支的提交历史追溯（如需固定发布索引另行决策）。
 
 **故障分类：** runner/环境故障看「编译 & 单元测试」是否同挂与报告里的 reason 键；harness 故障 =
 `METRIC_INVALID`（指标缺失/进程崩溃）；代码性能回退 = 指纹一致下的 WARN/FAIL delta。三者不混算。
@@ -241,8 +240,9 @@ python3 scripts/record_baseline.py trend
 单 job（build + memcheck）共享同一工作区，产物关系显式，不再隐式依赖跨 job 工作区。
 job 跑在专用 ARC runner **`arc-s4-memcheck`**，其镜像必须是带 `valgrind`、`libc6-dbg`
 以及 `/etc/bbttools-runner/profile=bbtools-runner:v2-memcheck` 的 `bbtools-runner:v2`。
-该 scale set 与普通 `arc-s4` 隔离；在镜像和 scale set 部署完成前不要合并本工作流变更，
-并设 `timeout-minutes: 120` 有界。
+该 scale set 与普通 `arc-s4` 的隔离是持续条件，不是一次性部署状态：每次运行都使用隔离专用 runner，
+步骤 0/1 的镜像 profile 校验与环境前置校验必须通过，不匹配即失败；涉及 runner/镜像的变更仍按
+授权处理。job 设 `timeout-minutes: 120` 有界。
 
 **步骤：**
 0. `test "$(cat /etc/bbttools-runner/profile)" = "bbtools-runner:v2-memcheck"` — 校验专用 runner 镜像来源；不匹配即 FAIL
@@ -251,7 +251,7 @@ job 跑在专用 ARC runner **`arc-s4-memcheck`**，其镜像必须是带 `valgr
 3. `python3 scripts/ci/run_memcheck.py --binary … --report-dir tests/ci-reports/memcheck` — 运行并判定
 4. 上传 `memcheck-report`（日志 + summary.json/md，`if: always()`）
 
-前置校验步骤与构建步骤的 `run` 首行都显式 `set -o pipefail`：GitHub 默认 shell 是
+前置校验步骤与构建步骤都在 `run` 内、管道执行前显式 `set -o pipefail`：GitHub 默认 shell 是
 `bash -e {0}`（**没有** `pipefail`），不加这行 `| tee` 会把失败退出码吞掉、门禁形同虚设。
 Valgrind 3.22 在 Docker 默认超大 `RLIMIT_NOFILE`（实测约 1e9）下会在启动期报
 `Private file creation failed`；环境前置校验和判定步骤各自先执行 `ulimit -n 65536`，只影响该
@@ -674,11 +674,11 @@ add_test(NAME Test_my_module COMMAND Test_my_module)
 v3.0.0-rc1 -> v3.0.0-rcN -> v3.0.0
 ```
 
-RC 输入 `release_kind=rc`、`version=v3.0.0-rc1`、当前 main 的完整 `source_sha`、可选 `soak_seconds`（默认 3600）。Stable 输入 `release_kind=stable`、`version=v3.0.0`、RC 的完整 `source_sha` 和 `rc_tag`。Release Gate 会执行 Release 构建、全量 CTest、真实客户端验收、可配置时长疲劳压测，并在通过后写入性能基线，同时校验版本、main HEAD、RC tag 和 GitHub Release。
+RC 输入 `release_kind=rc`、`version`（尚未存在、由用户确认的合法 rcN 版本号，照抄已存在的 tag 会被 Gate 拒绝）、当前 main 的完整 `source_sha`、可选 `soak_seconds`（默认 3600）。Stable 输入 `release_kind=stable`、`version=v3.0.0`、RC 的完整 `source_sha` 和 `rc_tag`。Release Gate 会执行 Release 构建、全量 CTest、真实客户端验收、可配置时长疲劳压测，并在通过后写入性能基线，同时校验版本、main HEAD、RC tag 和 GitHub Release。
 
 任一 Gate 失败都不会创建 tag 或 Release。Stable 只能从已验证 RC 的同一 commit 晋级；需要修复时递增 RC 序号，不移动已发布 tag。若创建后回读失败，先按 workflow run 对账，禁止盲目重试。
 
-GitHub tag ruleset 按 bypass actor 限制创建者，不能直接指定 workflow；若未配置专用 GitHub App，不能把“仅 release workflow 可建 tag”当作已落地硬保护。详细规则见 [`agent-docs/development-and-release-process.md`](../agent-docs/development-and-release-process.md)。
+GitHub tag ruleset 按 bypass actor 限制创建者，不能直接指定 workflow；本仓采用发布专用 deploy key 作为 bypass actor 实现版本 tag 保护（配置与边界见 [`agent-docs/development-and-release-process.md`](../agent-docs/development-and-release-process.md) §7，含 deploy key 自身的写权限残余风险）。发布前仍须用 GitHub API 实时回读 ruleset 确认现行配置，不以此处描述为准。
 
 ## 11. 参考文档
 
@@ -695,4 +695,4 @@ GitHub tag ruleset 按 bypass actor 限制创建者，不能直接指定 workflo
 
 ---
 
-> **最后更新**: 2026-09-10 | **下次评审**: CI 流程变更时更新
+> 本文件随 CI 变更同步维护；各步骤参数（timeout、OUTDIR、artifact 名称等）以 workflow 定义为准。

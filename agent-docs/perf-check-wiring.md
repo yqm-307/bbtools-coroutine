@@ -86,7 +86,8 @@ base 与 head 两棵隔离源码/构建树，用**同一份 driver**（head 的 
 
 ```bash
 cd <candidate-worktree>
-export TMPDIR=<alice-scratch> PYTHONDONTWRITEBYTECODE=1 HOME=<isolated-home>
+export TMPDIR=<scratch-dir> PYTHONDONTWRITEBYTECODE=1 HOME=<isolated-home>
+# <scratch-dir>=读者自选的可写临时目录（不绑定任何特定工具环境）；<isolated-home>=临时隔离 HOME，理由见下方说明。
 
 # 聚焦：perf 契约与新增回归
 python3 -m unittest scripts.ci.test_perf_contract           # 79/0

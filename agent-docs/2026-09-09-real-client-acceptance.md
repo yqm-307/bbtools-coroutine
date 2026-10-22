@@ -1,5 +1,7 @@
 # M1-07 真实客户端验收场景
 
+> **场景说明**：本文件描述发布 Gate 沿用的验收场景与入口（`scripts/acceptance_real_clients.py`，由 `release.yml` 调用）；它不是某次运行的记录，实际运行结果以绑定 SHA 的报告为准。
+
 ## 目的
 
 用真实阻塞式客户端验证协程 Hook 不只在单元测试中成立。测试入口为
@@ -25,7 +27,7 @@ socket 作为阻塞式客户端，覆盖：
 
 ## hiredis 场景
 
-由 `example/redis/co_with_hiredis.cc` 使用 hiredis 1.1.0 连接本机 Redis，覆盖：
+由 `example/redis/co_with_hiredis.cc` 使用 hiredis（1.1.0 是历史记录时的版本，本仓不 pin 依赖版本、亦未复验其当时环境）连接本机 Redis，覆盖：
 
 - 10 个协程池任务，每个任务复用一个独占 `redisContext`；
 - 每个任务执行 1,000 次混合操作，总计 10,000 次写入/读取校验；

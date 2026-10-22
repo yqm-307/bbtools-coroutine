@@ -8,7 +8,7 @@
 
 ## 基本用法
 
-### 启动、注册、停止
+### 启动、注册与进程退出
 
 ```cpp
 #include <bbt/coroutine/coroutine.hpp>
@@ -34,7 +34,7 @@ int main()
 
 - 默认 `Start()` = 后台调度线程。返回后即可 `bbtco`。
 - `bbtco` 是 detached，注册后不保证执行顺序。
-- 主线程要用普通 `sleep`/`latch` 等协程跑一段时间；没有业务停机入口，业务完成后返回 main 即进程退出。
+- 主线程要用普通 `sleep`/`latch` 等协程跑一段时间；没有业务停机入口，业务完成后返回 main 即进程退出。示例的 `sleep(1)` 只等待时间，不证明任务完成；要等业务跑完，用 `latch`/`Chan` 收齐后再返回。
 - 运行时一次初始化：重复 `Start()` 抛 `std::logic_error`；`IsInitialized()` 初始化后恒真。
 - 给关键协程起名：`bbtco_desc("worker") [](){};`
 
@@ -124,7 +124,7 @@ bbtco_defer { cleanup(); };
 
 ### 配置
 
-`g_bbt_coroutine_config` 在 **`Start` 之前**改。常用：`m_cfg_stack_size`（默认 12 KiB）、`m_cfg_static_thread_num`（`0` 表示 `hardware_concurrency()`）、`m_cfg_stack_protect`、`m_ext_coevent_exception_callback`、`m_cfg_worker_stall_warn_ms`。
+`g_bbt_coroutine_config` 在 **`Start` 之前**改。常用：`m_cfg_stack_size`（默认 12 KiB）、`m_cfg_static_thread_num`（构造默认取 `hardware_concurrency()`，不可用时 `1`；显式设 `0` 非法，`Start` 校验失败抛 `std::invalid_argument`，完整边界见 API 参考的 `ResolveProcesserScalingBounds`）、`m_cfg_stack_protect`、`m_ext_coevent_exception_callback`、`m_cfg_worker_stall_warn_ms`。
 
 ---
 

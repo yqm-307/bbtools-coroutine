@@ -9,6 +9,8 @@ description: Use when creating new fatigue tests, registering them in CMakeLists
 
 Fatigue tests are long-running stress binaries for individual coroutine primitives (chan, mutex, copool, etc.). Each test lives in `benchmark_test/` as `fatigue_<name>.cc`, is built via CMake, and monitored through a Python web dashboard.
 
+**Scope:** 本 skill 只覆盖 `fatigue_<name>` 的本地构建与监控路径，不自动纳入 CI。发布/CI 门禁的压测走 `unified_stress` 模块集合；需变更门禁覆盖时先按现行授权确认，入口见 `docs/ci-guide.md` §8.2。
+
 **Announce at start:** "I'm using the managing-fatigue-tests skill."
 
 ## When to Use
@@ -71,18 +73,17 @@ add_executable(fatigue_<name> fatigue_<name>.cc)
 target_link_libraries(fatigue_<name> ${MY_LIBS})
 ```
 
-Insert alongside the other fatigue entries (currently grouped together after the `set(MY_LIBS ...)` block).
+参照现有 `fatigue_*` target 就近插入即可；fatigue 与 benchmark 目标在文件中交错分布，不要依赖行序或「成组」假设。
 
 ## Step 3: Build
 
-```bash
-# From project root
-./build.sh
+`./build.sh` 不开启 benchmark（且会继续执行 `shell/install.sh`），不要用它构建 fatigue。显式 configure 一次，再按 target 增量构建：
 
-# Or manually:
-mkdir -p build && cd build
-cmake -DNEED_BENCHMARK=ON ..
-make
+```bash
+# From project root；JOBS 取 max(2, nproc/4)，同机多 agent 并行时不要全量并行
+JOBS=$(( $(nproc) / 4 )); JOBS=$(( JOBS < 2 ? 2 : JOBS ))
+cmake -S . -B build -DNEED_BENCHMARK=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+cmake --build build --target fatigue_<name> --parallel "$JOBS"   # <name> 填实际模块名，如 comutex
 ```
 
 Binaries output to: `build/bin/benchmark_test/fatigue_<name>`

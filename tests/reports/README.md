@@ -18,7 +18,7 @@ tests/reports/
 
 `<kind>` 只允许：`smoke` `soak` `fatigue` `perf` `sanitizer`。不另开 kind。
 
-脚本若仍写到 `tests/reports/<时间戳>/`（如 `run_fatigue.py`），视为 work，不入仓。不在本 Issue 改脚本默认路径。
+脚本若仍写到 `tests/reports/<时间戳>/`（如 `run_fatigue.py`），视为 work，不入仓。
 
 CI 仍写 `tests/ci-reports/` 与 Actions artifact；基线仍只在 `perf-baseline` 的 `tests/baselines/`。
 
@@ -38,6 +38,8 @@ CI 仍写 `tests/ci-reports/` 与 Actions artifact；基线仍只在 `perf-basel
 何时归档：支撑 Issue/PR/发布结论、无法稳定重现、或后续要对照。日常本地跑只进 `work/`。没有自动晋升脚本：Agent 或人拷 `summary.*`。
 
 ## 本地疲劳（现有入口，输出视为 work）
+
+前置：脚本固定读取 `build_cov/bin/benchmark_test/` 下的二进制（见 `scripts/run_fatigue.py`）。需先以 `NEED_BENCHMARK=ON` configure 并增量构建所选 `fatigue_<name>` target（构建限制见 `AGENTS.md`「构建」：ccache、`JOBS=max(2, nproc/4)`）。个别二进制缺失时脚本只 WARN 并跳过该模块，实际运行模块以脚本输出为准，不要当作全模块覆盖；全部缺失则直接失败。此路径不是 CI 发布 Gate 的 unified_stress 路径。
 
 ```bash
 python3 scripts/run_fatigue.py --duration 3600
