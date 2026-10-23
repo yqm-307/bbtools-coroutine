@@ -34,8 +34,8 @@ labels: []
 - [ ] 仅文档 / 模板 / gitignore：`git diff --check`；抽查链接
 - [ ] `scripts/` 或 release_gate：对应 python 测试 / 离线校验
 - [ ] 单测 / example：相关 ctest 或该 example
-- [ ] 运行时 / 公开 API：全量 ctest
-- [ ] Hook / 兼容行为：相关 hook 单测 + 全量 ctest
+- [ ] 运行时 / 公开 API：冒烟 + 本次功能单测 + 直接耦合单测
+- [ ] Hook / 兼容行为：冒烟 + 相关 hook 单测 + 直接耦合单测
 - [ ] 压测程序本身：短跑或相关 benchmark
 
 ## 风险与未覆盖

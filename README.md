@@ -41,7 +41,7 @@ cmake --build build --parallel "$JOBS"
 cd shell && sudo ./install.sh    # 头文件装到 /usr/local/include，库装到 /usr/local/lib
 ```
 
-CMake 开关（默认全部 `OFF`）：
+CMake 常用开关（布尔项默认全部 `OFF`；构建类型由 `CMAKE_BUILD_TYPE` 单独控制，完整选项以 `CMakeLists.txt` 为准）：
 
 | 开关 | 作用 |
 |------|------|
@@ -94,7 +94,7 @@ int main()
 
 ### 2. 协程通道（Chan）
 
-Chan 是协程间通信的重要工具，支持阻塞读写：`Write`/`Read` 返回 0 成功、-1 失败；`TryWrite`/`TryRead` 立即返回，带毫秒参数的版本等待至超时；`Close()` 后读方以失败返回；`IsClosed()` 查询关闭状态：
+Chan 是协程间通信的重要工具，支持阻塞读写：`Write`/`Read` 返回 0 成功、-1 关闭（`Close()` 后须读空缓冲才返回 -1）、-2 错误；`TryWrite`/`TryRead` 立即返回，带毫秒参数的版本等待至超时（超时返回码以 API 参考为准）；`Close()` 后仍可读尽缓冲数据；`IsClosed()` 查询关闭状态：
 
 ```cpp
 #include <bbt/coroutine/coroutine.hpp>
@@ -521,12 +521,12 @@ int main()
 
 协程内调用常见阻塞 syscall 时，Hook 将其转为协程等待，不占死调度线程；非协程上下文直通原生实现，第三方同步客户端（如 hiredis）可原样复用。
 
-已拦截：`socket`、`connect`、`accept`/`accept4`、`send`/`sendto`/`sendmsg`、`recv`/`recvfrom`/`recvmsg`、`read`/`readv`、`write`/`writev`、`close`、`poll`/`select`/`pselect`、`sleep`/`usleep`/`nanosleep`/`clock_nanosleep`、`getaddrinfo`/`getnameinfo`。
+已拦截：`socket`、`connect`、`accept`/`accept4`、`send`/`sendto`/`sendmsg`、`recv`/`recvfrom`/`recvmsg`、`read`/`readv`、`write`/`writev`、`close`、`poll`/`select`/`pselect`、`sleep`/`usleep`/`nanosleep`/`clock_nanosleep`、`getaddrinfo`/`getnameinfo`/`gethostbyname`/`gethostbyaddr`。
 
 - 传入 blocking FD 无需自行改造：协程 IO 期间临时 `O_NONBLOCK`，返回时恢复原 flags；
 - `MSG_DONTWAIT` 直通原生；`SO_RCVTIMEO`/`SO_SNDTIMEO` 保持有界返回 `-1/EAGAIN`；
 - 等待中的 FD 被 `close` 时唤醒等待协程并返回 `EBADF`，不会永久挂起；
-- 语义边界与迁移注意见「三之二、停机与生命周期契约」。
+- 语义边界与迁移注意见「三之二、进程寿命与生命周期契约」。
 
 调用矩阵与契约测试：`Test_hook_contract`、`Test_hook_blocking_fd`、`Test_hook_timeout_flags`、`Test_hook_error_matrix`。
 
@@ -582,12 +582,12 @@ int main()
 
 | 变更 | 新契约 | 迁移动作 |
 |------|--------|----------|
-| `Scheduler::Stop()` / 重启 | 已删除，不留兼容壳；运行时是进程寿命对象：不做取消式停机、不排空任务、不 unload、不做全局 teardown。worker 缩容时由 runtime reaper 在锁外 join 退役线程（契约 §6.1），不等于关闭运行时。旧「取消式停机：不强杀运行中协程；parked 协程被唤醒销毁；未执行任务真回收；Stop 有界可重复调用」的说明 **superseded** | 删除 `Stop()` 调用与停机后重启逻辑；把「停机前自行等业务 latch」这类依赖改为进程退出即结束 |
+| `Scheduler::Stop()` / 重启 | 已删除，不留兼容壳；运行时是进程寿命对象：不做取消式停机、不排空任务、不 unload、不做全局 teardown。worker 缩容时由 runtime reaper 在锁外 join 退役线程（契约 §6.1），不等于关闭运行时。旧「取消式停机：不强杀运行中协程；parked 协程被唤醒销毁；未执行任务真回收；Stop 有界可重复调用」的说明 **superseded** | 删除 `Stop()` 调用与停机后重启逻辑；进程退出即结束 runtime，但业务完成等待（latch/Chan）与资源 owner 收口仍由应用自行负责，不随退出自动完成 |
 | `Scheduler::IsRunning()` | 已删除，改为 `Scheduler::IsInitialized()`：初始化完成后恒为 true，不因业务关闭归零 | 把 `IsRunning()` 判断改为 `IsInitialized()`；不再有「已停止」分支 |
 | 运行时代际 | `RuntimeGeneration` / `CurrentRuntimeGeneration()` / `Scheduler::GetRunGeneration()` / `CoObjectInfo::generation` 全部删除；`CreateObjectInfo` 前置条件改为「运行时已初始化」 | 删除代际字段与代际查询调用；对象身份只保留进程内递增、不复用的 `id` |
 | 静态退出期析构 | 运行时及其依赖（poller/config/DNS worker/Scheduler 单例）按进程寿命策略不在静态退出期析构（实例持有者刻意泄漏，不 detach 线程） | 不要依赖运行时析构做收尾清理 |
 | `CoPool::Release()` | 取消式：停止接收新任务、等待运行中协程退出、排空未执行任务；带 future 的被排任务以 `broken_promise` 兑现，不会永挂 | `SubmitAndWait` 的 future 增加 `broken_promise` catch；不要指望 Release 后 future 全部有效 |
-| Hook IO 与 FD | 库不要求也不期望传入 blocking fd：协程 IO 期间临时强制 `O_NONBLOCK`，返回时恢复原 flags（#260）；`MSG_DONTWAIT` 直通原生（#261）；`SO_RCVTIMEO/SNDTIMEO` 由协程 deadline 实现有界返回 `-1/EAGAIN`（#261） | 多线程共享同一 fd 并发做 IO 的旧代码需自查 flags 竞态（契约排除项） |
+| Hook IO 与 FD | 支持传入 blocking FD，无需调用方为协程等待手动设置 `O_NONBLOCK`：协程 IO 期间临时设置并在返回时恢复原 flags（#260）；`MSG_DONTWAIT` 直通原生（#261）；`SO_RCVTIMEO/SNDTIMEO` 由协程 deadline 实现有界返回 `-1/EAGAIN`（#261） | 多线程共享同一 fd 并发做 IO 的旧代码需自查 flags 竞态（契约排除项） |
 | 等待中 fd 被 close | 唤醒等待协程，重试 syscall 返回 `EBADF`（#262，不再永久挂起） | 依赖"close 后等待者自醒"的代码语义已可正常工作 |
 | detached 协程抛异常 | 保存 `exception_ptr` 可取回（#267）；无回调时日志+计数（`m_unhandled_exception_count`），不静默吞、不 terminate（#275） | 设置 `m_ext_coevent_exception_callback` 收口生产环境异常 |
 | Release 构建栈释放 | `Stack::Clear/~Stack` 真正 free（#279，旧版 assert 吞副作用致每栈泄漏） | 无需动作；升级后 Release RSS 应下降 |
@@ -661,9 +661,9 @@ python3 scripts/ci/run_soak.py --build-dir build-soak
 
 ## 五、性能对比，libgo，go
 
-> 历史表格（三 CPU 执行 1000w 协程，2025-07 前口径）因基准源码已调整
-> （`benchmark_coroutine.cc` 现为 100w 协程）且无复现记录，已移除。
-> 以下为当前源码可复现的实测数据。
+> 历史样本：以下数值绑定表内日期、机器与 `main@63de06a`/编译环境，不代表当前源码可复现的结果
+> （`benchmark_coroutine.cc` 现为 100w 协程，与更早的三 CPU 1000w 口径也不同），不与其他负载直接比较。
+> 更新的性能归档见 `tests/reports/archive/perf/20261022-a4d52c2-attribution/`（负载与下表不同，同样不能直接比较）。
 
 **bbtco 协程调度基准（100w 协程，`benchmark_test/benchmark_coroutine.cc`，nsum_co=1000000）：**
 

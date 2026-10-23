@@ -100,7 +100,7 @@ cancel-in-progress: ${{ github.event_name == 'pull_request' }}
   的 `test_gate_layering_perf_is_bounded_hosted_measurement` 断言，防止后人误把本文当作「整体已就绪」。
 - **Sanitizer（ASAN+UBSAN）长测**：旧 `unit_test.yml` 的 `sanitizer-check` 需要 `workflow_dispatch`
   才可达，而旧 `on:` 从未声明 workflow_dispatch，故该 job **实际不可达**、不属于普通适用测试。
-  本文件不开启新的长期执行，该 job 从本 workflow 移除；配置保留在 git 历史（HEAD c704458 的旧
+  本文件不开启新的长期执行，该 job 从本 workflow 移除；配置保留在 git 历史（历史提交 c704458 的旧
   `unit_test.yml`）中，**需单独迁移为独立 workflow 后再启用**。
 - **实际 context 状态必须以远端为准**：GitHub API 回读 PR 的 check 集合与 ruleset
   required 的匹配情况；本文件的静态断言不等于线上证据。
@@ -114,6 +114,11 @@ cancel-in-progress: ${{ github.event_name == 'pull_request' }}
   `perf_contract.py`、性能基线路径、required 规则、runner 标签未随本迁移改动。
 
 ## 8. 本地验证（真实结果）
+
+路径守卫前提：`run_smoke` 的既有校验会拒绝「`--build-dir` 位于 `$HOME` 下但不在 `--source-dir` 内」
+（该目录会被整体 rmtree）。若工作区/临时目录落在 `$HOME` 下，相应用例会因此误红；隔离布局与
+TMPDIR/HOME 关系见 `agent-docs/perf-check-wiring.md` §8。隔离只作用于测试子进程，不全局改 `HOME`，
+也不要求放宽该路径安全守卫。
 
 ```bash
 cd <coroutine-worktree>

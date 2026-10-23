@@ -104,7 +104,7 @@ v3.0.0-rc1 -> v3.0.0-rc2（必要时） -> v3.0.0
 由 `.github/workflows/release.yml` 的 `workflow_dispatch` 触发，输入：
 
 - `release_kind=rc`：只能由用户授权触发；Agent 可准备输入和证据，但不得自行发布 RC。
-- `version=v3.0.0-rc1`
+- `version=<用户确认的、尚未存在的合法 rcN 版本号>`：tag 必须尚不存在；照抄已存在的版本（如历史上的 v3.0.0-rc1）会被 Gate 拒绝。
 - `source_sha=<main 的完整 SHA>`
 - `soak_seconds=<疲劳压测秒数，默认 3600，范围 60-86400>`：发布前可提高到数小时-数十小时；长测只在发布 Gate 执行
 
@@ -184,21 +184,25 @@ GitHub tag ruleset 的“限制创建”按 bypass actor 授权，不能直接�
 ## 9. 本地入口
 
 ```bash
-# PR 基础验证（新 configure 加 ccache；JOBS 上限 nproc/4，最小 2）
+# 本地聚焦验证（新 configure 加 ccache；JOBS 上限 nproc/4，最小 2）
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
   -DNEED_TEST=ON -DNEED_BENCHMARK=ON -DNEED_EXAMPLE=ON \
   -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 JOBS=$(( $(nproc) / 4 )); JOBS=$(( JOBS < 2 ? 2 : JOBS ))
-cmake --build build --parallel "$JOBS"
-ctest --test-dir build --output-on-failure   # 完整套件仅按需；普通改动按验证阶梯做聚焦验证
+# 按验证阶梯做聚焦增量构建：<target> 填本次改动涉及的测试可执行名（如 Test_smoke，
+# 用 `ctest -N` 或 unit_test/CMakeLists.txt 查）；不跑裸全量 ctest——全量单测由 PR CI 执行，
+# 发布 Gate 另行全量。
+cmake --build build --target <target> --parallel "$JOBS"
+ctest --test-dir build -R <test-regex> --output-on-failure   # <test-regex> 填对应套件名正则
 
 # 真实客户端验收
 python3 scripts/acceptance_real_clients.py \
   --echo-server ./build/bin/example/echo_server \
   --hiredis ./build/bin/example/co_with_hiredis
 
-# 发布前本地模拟（不创建远端 tag/Release）
-python3 scripts/release_gate.py validate-version --version v3.0.0-rc1
+# 发布前本地模拟（不创建远端 tag/Release）；<rc 版本号> 填用户确认的目标版本。
+# validate-version 只验格式合法性，不证明该版本可发布或 tag 尚不存在。
+python3 scripts/release_gate.py validate-version --version <rc 版本号>
 ```
 
 本地验证不能替代 GitHub required checks；远端 release workflow 是版本发布唯一入口。
