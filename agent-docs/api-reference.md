@@ -137,9 +137,46 @@
 
 ---
 
-## 2. 协程注册宏
+## 2. 协程注册与调用语法
 
-头文件：`bbt/coroutine/syntax/SyntaxMacro.hpp`。宏映射到 `RegistCoroutineTask`，不另起状态机。
+头文件：`bbt/coroutine/syntax/SyntaxMacro.hpp`。注册宏映射到 `RegistCoroutineTask`；调用语法只检查环境与解包返回值，不另起状态机。
+
+### `bbt_co_async(T)` / `bbt_co_await`
+
+头文件：`bbt/coroutine/syntax/Async.hpp`，也由 `SyntaxMacro.hpp` 和公共伞头 `coroutine.hpp` 引入；需链接 `bbt_coroutine`。
+
+```cpp
+template<class T>
+bbt_co_async(T) Echo(T value)
+{
+    return std::move(value);
+}
+
+bbt_co_async(std::pair<int, int>) ReadPair()
+{
+    bbtco_sleep(1);
+    return std::make_pair(1, 2);
+}
+
+bbt_co_async(void) Handle()
+{
+    auto pair = bbt_co_await ReadPair();
+    auto value = bbt_co_await Echo(pair.first);
+    (void)value;
+    return {}; // 实际返回空标记对象，不能使用裸 return; 或走到函数末尾
+}
+
+// Start 后，通过已有入口创建协程；async/await 自身不创建协程。
+bbtco [] { bbt_co_await Handle(); };
+```
+
+- `bbt_co_async(T)` 展开为带 `[[nodiscard]]` 的内部 `detail::AsyncReturn<T>` 类型；可用于函数模板、成员函数和 lambda 尾置返回类型。可变参数宏支持类型中的逗号（如 `std::pair<int, int>`）。这会改变真实函数签名，不是原始 `T` 的类型别名。
+- `bbt_co_await f()` 展开为 `detail::AwaitHelper{} ->* f()`。C++17 运算符写法先求值左侧，helper 复用 `GetLocalCoroutineId()` 检查环境；非协程抛 `std::logic_error`，发生在右侧实参及函数体执行之前。仅初始化 runtime 或处于 worker 的非协程回调中都不满足前提。
+- 调用沿当前有栈协程同步执行，期间可通过已有 API 挂起；返回后解包。没有延迟任务、Future、额外队列/线程或新的等待状态机；不保存 worker/TLS 指针，恢复可迁移 worker，异常直接传播。
+- 普通值按值移出包装（因此类型需支持从右值构造），支持只移动值；`T&` / `const T&` 保留借用且只接受类型兼容的左值，调用方保证被引用对象寿命；不支持 `T&&` 返回类型。`void` 必须显式 `return {};`。包装本身无堆分配，但业务类型的构造/移动和错误路径可分配；正常路径仍有环境查询及可能的值移动，不承诺绝对零开销。
+- 优先级沿用 `->*`，并非原生关键字。例如取结果成员应写 `(bbt_co_await ReadPair()).first`，取反写 `!(bbt_co_await Ready())`；需要括号时括住整个 await 表达式。`decltype` 中按普通 C++ 非求值上下文处理。
+- 类型约束：未 await 的返回值不能隐式转换为 `T`，普通值不能 await；丢弃包装结果产生 `nodiscard` 警告（是否阻断由编译选项决定）。仅接受临时/右值包装，保存的包装需要显式 `std::move` 后解包。
+- 限制：`auto result = f();` 仍能绕过 await 并执行函数体，声明本身不插入环境检查；编译器也不强制调用者声明 async。此版本不含完整静态检查插件，不保证“没有 await 就不会挂起”（透明 Hook 仍保留）。建议依赖协程专用调用的业务函数也使用 async 标记。
 
 ### `bbtco`
 

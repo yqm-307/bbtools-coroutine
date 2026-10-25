@@ -7,6 +7,7 @@
 | 架构简介 | `.github/skills/bbtools-coroutine/references/architecture.md` |
 | 基本用法 / 进阶用法 / 使用范式 | `.github/skills/bbtools-coroutine/references/usage.md` |
 | API 参考（仅当前事实） | `agent-docs/api-reference.md` |
+| 显式协程声明与调用（`bbt_co_async(T)` / `bbt_co_await`） | [API 参考 §2](api-reference.md#2-协程注册与调用语法) |
 | 坑点与禁止行为 | `.github/skills/bbtools-coroutine/references/pitfalls.md` |
 | 执行域与网络 I/O 域边界（目标架构） | `agent-docs/2026-09-07-core-runtime-contract.md` §11 |
 

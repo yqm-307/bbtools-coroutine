@@ -66,6 +66,11 @@ add_executable(Test_coroutine_api Test_coroutine_api.cc)
 target_link_libraries(Test_coroutine_api ${MY_LIBS})
 add_test(NAME Test_coroutine_api COMMAND Test_coroutine_api)
 
+add_executable(Test_async_syntax Test_async_syntax.cc)
+target_link_libraries(Test_async_syntax ${MY_LIBS})
+add_test(NAME Test_async_syntax COMMAND Test_async_syntax)
+set_tests_properties(Test_async_syntax PROPERTIES TIMEOUT 20)
+
 add_executable(Test_coroutine_exception Test_coroutine_exception.cc)
 target_link_libraries(Test_coroutine_exception ${MY_LIBS})
 add_test(NAME Test_coroutine_exception COMMAND Test_coroutine_exception)
