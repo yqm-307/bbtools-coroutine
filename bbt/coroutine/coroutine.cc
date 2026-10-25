@@ -1,4 +1,5 @@
 #include <bbt/coroutine/coroutine.hpp>
+#include <stdexcept>
 #include <bbt/coroutine/detail/LocalThread.hpp>
 #include <bbt/coroutine/detail/Coroutine.hpp>
 #include <bbt/coroutine/detail/Scheduler.hpp>
@@ -6,6 +7,12 @@
 
 namespace bbt::coroutine
 {
+
+detail::AwaitHelper::AwaitHelper()
+{
+    if (GetLocalCoroutineId() == 0)
+        throw std::logic_error("bbt_co_await requires a coroutine context");
+}
 
 detail::CoroutineId GetLocalCoroutineId()
 {
