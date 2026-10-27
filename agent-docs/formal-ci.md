@@ -20,7 +20,7 @@ PR/push 自给自足产出真实同机相对退化结论；required 集合、Rel
 - 全部本地 job 固定 hosted `ubuntu-24.04`；顶层 `permissions: {}`，仅需 checkout 的 job 授予
   `contents: read`；无 secret / OIDC / 写权限 / secrets 透传；远程 `uses` 全部完整 40-hex SHA pin。
 - 复用**已发布 fixed-SHA** 的 framework 分类/结果 reusable callee
-  `yqm-307/bbt-framework/.github/workflows/bbtools-classify-v1.yml@1c0b0fb0ebc8e7ca3888aa4f6a74d1baecf08cc7`：
+  `yqm-307/bbt-framework/.github/workflows/bbtools-classify-v1.yml@ce247be9d3473432e0da6c204481ad9403c430bb`：
   `plan` 只做 classification（不传 results）；`result` 恒 `always()` 汇聚三个真实 `needs.*.result`（含
   skipped），fail-closed。callee 只做分类/结果，不承担 C++ 构建。
 - `docs-check.yml`：generic self-hosted → `ubuntu-24.04`，checkout 完整 SHA pin，保持既有 trigger
