@@ -100,7 +100,7 @@ jobs:
   plan:
     name: "分类/计划（framework classify callee）"
     needs: [changes]
-    uses: yqm-307/bbt-framework/.github/workflows/bbtools-classify-v1.yml@1c0b0fb0ebc8e7ca3888aa4f6a74d1baecf08cc7
+    uses: yqm-307/bbt-framework/.github/workflows/bbtools-classify-v1.yml@ce247be9d3473432e0da6c204481ad9403c430bb
     permissions:
       contents: read
     with:
@@ -322,7 +322,7 @@ jobs:
     name: "结果汇聚（framework result callee）"
     needs: [changes, plan, build]
     if: ${{ always() }}
-    uses: yqm-307/bbt-framework/.github/workflows/bbtools-classify-v1.yml@1c0b0fb0ebc8e7ca3888aa4f6a74d1baecf08cc7
+    uses: yqm-307/bbt-framework/.github/workflows/bbtools-classify-v1.yml@ce247be9d3473432e0da6c204481ad9403c430bb
     permissions:
       contents: read
     with:
