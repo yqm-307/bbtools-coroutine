@@ -81,6 +81,14 @@ else()
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC ${Wall_Flag}")
 endif()
 
+# bbt_co_async/bbt_co_await 的误用只能靠编译器诊断兜底，必须是错误而不是警告：
+#   - return-type：bbt_co_async(void) 函数走到末尾不写 `return {};` 是未定义行为；
+#   - unused-result：漏写 bbt_co_await 时函数体照常执行，只有 AsyncReturn 的
+#     [[nodiscard]] 会报 -Wunused-result。
+# 依赖本库的仓库（infra、framework 等）需在自己的 CMake 中同样开启，详见
+# bbt/coroutine/syntax/Async.hpp 宏处注释。
+add_compile_options(-Werror=return-type -Werror=unused-result)
+
 if (PROFILE)
     add_definitions(-DBBT_COROUTINE_PROFILE)
 endif()
