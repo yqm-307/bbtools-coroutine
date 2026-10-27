@@ -59,7 +59,7 @@ RELEASE_GATE = os.path.join(WORKTREE, "scripts", "release_gate.py")
 PREPARE_BOOST = os.path.join(HERE, "prepare_boost.sh")
 CHANGED = os.path.join(HERE, "changed_files.py")
 
-CALLEE_SHA = "1c0b0fb0ebc8e7ca3888aa4f6a74d1baecf08cc7"
+CALLEE_SHA = "ce247be9d3473432e0da6c204481ad9403c430bb"
 CALLEE = f"yqm-307/bbt-framework/.github/workflows/bbtools-classify-v1.yml@{CALLEE_SHA}"
 CHECKOUT_SHA = "11d5960a326750d5838078e36cf38b85af677262"
 SHA_PIN_RE = re.compile(r"^[^@\s]+@[0-9a-f]{40}$")
