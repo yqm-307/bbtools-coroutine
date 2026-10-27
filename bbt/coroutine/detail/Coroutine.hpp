@@ -1,5 +1,6 @@
 #pragma once
 #include <atomic>
+#include <bbt/coroutine/detail/CfsRunQueue.hpp>
 #include <exception>
 #include <memory>
 #include <mutex>
@@ -64,6 +65,7 @@ public:
     friend class bbt::coroutine::sync::CoWaiter;
     friend class bbt::coroutine::sync::CoMutex;
     friend class Scheduler;
+    friend class Processer;
 
     Coroutine(size_t stack_size, const CoroutineCallback& co_func, bool need_protect);
     virtual ~Coroutine();
@@ -219,6 +221,7 @@ private:
     static std::atomic_bool                     s_test_fail_await_regist;
 
 private:
+    CfsEntity                       m_cfs;
     Context                         m_context;
     const CoroutineId               m_id{BBT_COROUTINE_INVALID_COROUTINE_ID};
     volatile CoroutineStatus        m_run_status{CoroutineStatus::CO_DEFAULT};

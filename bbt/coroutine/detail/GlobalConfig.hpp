@@ -76,8 +76,9 @@ public:
     const size_t                                m_cfg_processer_worksteal_timeout_ms{10};   // work steal 认为任务饿死的超时时间
     const size_t                                m_cfg_processer_proc_interval_us{3000};     // proc 每次执行间隔时间
 
-    /** 各优先级协程每轮最大运行时间预算（单位：微秒），顺序为 LOW/NORMAL/HIGH/CRITICAL。
-     *  非线程安全，建议在启动前设置好。 */
+    /** CFS 相对服务权重，顺序 LOW/NORMAL/HIGH/CRITICAL；保留旧预算字段名及默认比例。
+     *  记账为 elapsed_us / max(1, weight)，零值不再让任务永久失去调度机会。
+     *  非线程安全，必须在启动前设置。 */
     std::array<uint64_t, CO_PRIORITY_COUNT>     m_cfg_processer_priority_runtime_budget_us{50, 150, 200, 600};
 
     /**

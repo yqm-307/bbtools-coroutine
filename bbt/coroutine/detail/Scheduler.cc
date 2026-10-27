@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <cstdio>
@@ -430,10 +431,9 @@ void Scheduler::OnActiveCoroutine(CoroutinePriority priority, Coroutine::Ptr cor
     AssertWithInfo(coroutine != nullptr, "coroutine is nullptr!");
     /* 无停机、无代际：激活的协程一律回全局队列；没有需要 reclaim 的
      * “已停止/旧代际”路径，也不再有 Stop 排空的所有权交接。 */
-    {
-        std::lock_guard<std::mutex> lock(m_global_queue_mutex);
-        AssertWithInfo(m_global_coroutine_queue[priority].enqueue(coroutine), "oom!");
-    }
+    // 唤醒已接纳的任务不能因一次队列扩容失败而失去所有权。
+    while (!_EnqueueGlobal(priority, coroutine))
+        std::this_thread::yield();
     /* 只广播当前 active 快照；退役 P 已移出 active，不再接收通知。
      * 不按 PROC_SUSPEND 过滤：运行→睡眠之间的通知必须由谓词记住。
      * driver Wake 若在 deferral 作用域内只记 pending，最外层 runtime 锁
@@ -567,7 +567,8 @@ void Scheduler::_Run()
      */
 
     m_begin_timestamp = bbt::core::clock::now<>();
-    auto prev_scan_timepoint = bbt::core::clock::now<>();
+    /* 维护节拍用 steady_clock 绝对时刻，不看事件次数 */
+    auto next_scan_deadline = std::chrono::steady_clock::now();
 
 #ifdef BBT_COROUTINE_PROFILE
     g_bbt_profiler->OnEvent_StartScheudler();
@@ -577,8 +578,24 @@ void Scheduler::_Run()
     {
         _OnUpdate();
 
-        prev_scan_timepoint = prev_scan_timepoint + bbt::core::clock::ms(g_bbt_coroutine_config->m_cfg_scan_interval_ms);
-        std::this_thread::sleep_until(prev_scan_timepoint);
+        const size_t interval_ms = g_bbt_coroutine_config->m_cfg_scan_interval_ms;
+
+        /* interval==0 保持既有「不停拍」语义：旧实现的 sleep_until 此时也已过期，
+           两者都是立即进入下一轮。 */
+        if (interval_ms == 0)
+            continue;
+
+        /* 维护节拍只按真实时间推进：被事件提前唤醒时保留同一 deadline，不按
+           唤醒次数把它推远——否则密集事件会让 AutoScale/Reaper/stall/StackPool
+           的节拍无限延后。 */
+        const auto now = std::chrono::steady_clock::now();
+        if (now >= next_scan_deadline)
+            next_scan_deadline = now + std::chrono::milliseconds(interval_ms);
+
+        /* 停拍期间不空等：有已注册事件时阻塞到「事件派发」或「扫描拍到期」先到
+           先醒，没有事件时退回旧的定时休眠。派发过事件也回到 _OnUpdate 排空，
+           剩余时间仍按同一 deadline 等待。 */
+        g_bbt_poller->PollOnceUntil(next_scan_deadline);
     }
 }
 
@@ -686,32 +703,21 @@ void Scheduler::LoopOnce()
     _OnUpdate();
 }
 
-size_t Scheduler::GetCoroutineFromGlobal(CoroutinePriority priority, CoroutineQueue& queue, size_t size, Processer* owner)
+size_t Scheduler::GetCoroutineFromGlobal(CoroutinePriority priority, size_t size, Processer& owner)
 {
     size_t count = 0;
     Coroutine::Ptr item = nullptr;
-
-    for (size_t i = 0; i < size; ++i) {
-        if (!m_global_coroutine_queue[priority].try_dequeue(item))
+    while (count < size && m_global_coroutine_queue[priority].try_dequeue(item)) {
+        if (!owner._EnqueueAdmitted(priority, item, /*notify*/false)) {
+            // 睡前复查可能持 run_cond，不能嵌套 global mutex；底层队列自身支持 MPMC。
+            // 未发布前保有任务，归还成功才结束，不把 retired P 当临时收件箱。
+            while (!m_global_coroutine_queue[priority].enqueue(item))
+                std::this_thread::yield();
             break;
-
-        if (owner != nullptr) {
-            /* 逐项重新过 admission gate：worker 在拉取过程中被提交退役时，
-             * 已出队的任务必须保留所有权。notify=false：调用方可能正持有
-             * 自己的 run_cond（睡前复查），不能重入 _PublishRunnable；也不能
-             * 取 global 锁（会在 run_cond 内形成 global→map→run_cond→global
-             * 环）。gate 关闭时直接放回本地队列——本 worker 随后必走 drain，
-             * 与自身 drain 顺序执行，无丢失/重复。 */
-            if (!owner->_EnqueueAdmitted(priority, item, /*notify*/false)) {
-                AssertWithInfo(owner->m_coroutine_queue[priority].enqueue(item), "oom!");
-            }
-        } else {
-            AssertWithInfo(queue.enqueue(item), "oom!");
         }
         item = nullptr;
         ++count;
     }
-
     return count;
 }
 

@@ -3,8 +3,10 @@
 #include <boost/test/included/unit_test.hpp>
 
 #include <atomic>
+#include <chrono>
 #include <mutex>
 #include <set>
+#include <thread>
 
 #include <bbt/core/thread/Lock.hpp>
 #include <bbt/coroutine/coroutine.hpp>
@@ -146,6 +148,44 @@ BOOST_AUTO_TEST_CASE(t_yield_keeps_single_running_and_valid_tls)
     BOOST_REQUIRE(!procs.empty());
     for (auto id : procs)
         BOOST_CHECK_NE(id, 0u);
+}
+
+BOOST_AUTO_TEST_CASE(t_dense_ready_events_do_not_starve_timer_dispatch)
+{
+    BOOST_REQUIRE(g_started.load());
+
+    /* 密集短定时事件摊在 1..8ms：每毫秒约 kChurnEvents/8 个 ready，模拟停拍期间
+       持续有事件派发的形态；另加一个更晚的探针事件。 */
+    constexpr int kChurnEvents = 64;
+    static std::atomic<int>  churn_fired{0};
+    static std::atomic<bool> probe_fired{false};
+
+    bbtco [&]() {
+        for (int i = 0; i < kChurnEvents; ++i) {
+            bbtco_ev_t(1 + (i % 8)) [](int, short) {
+                churn_fired.fetch_add(1);
+            };
+        }
+    };
+
+    bbtco [&]() {
+        bbtco_ev_t(50) [](int, short) {
+            probe_fired.store(true);
+        };
+    };
+
+    /* 宽松上界：只判「没有丢派发、没有被等待拖死」，不是性能断言。 */
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (std::chrono::steady_clock::now() < deadline &&
+           (probe_fired.load() == false || churn_fired.load() != kChurnEvents))
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    /* 丢唤醒的形态：计数到不齐，或更晚的定时事件始终不出现（维护节拍被密集
+       事件无限推迟）。 */
+    BOOST_CHECK_EQUAL(churn_fired.load(), kChurnEvents);
+    BOOST_CHECK(probe_fired.load());
 }
 
 BOOST_AUTO_TEST_CASE(t_end)

@@ -192,13 +192,7 @@ size_t Processer::GetLoadValue()
 
 size_t Processer::GetExecutableNum()
 {
-    size_t total_size = 0;
-    for (auto&& it : m_coroutine_queue)
-    {
-        total_size += it.size_approx();
-    }
-
-    return total_size;
+    return m_coroutine_queue.Size();
 }
 
 
@@ -229,8 +223,8 @@ bool Processer::_EnqueueAdmitted(CoroutinePriority priority, Coroutine::Ptr coro
         return false;
     }
 
-    const bool enqueued = m_coroutine_queue[priority].enqueue(coroutine);
-    AssertWithInfo(enqueued, "oom!");
+    const bool enqueued = m_coroutine_queue.Enqueue(coroutine->m_cfs, coroutine, priority,
+        g_bbt_coroutine_config->m_cfg_processer_priority_runtime_budget_us[priority]);
     _ReleaseEnqueueSlot();
     if (!enqueued)
         return false;   // 调用方仍持有协程所有权，可重试/显式拒绝
@@ -329,9 +323,9 @@ void Processer::_WaitForWork()
     }
 
     /* 无 driver（或 Failed/Detaching 拒绝普通 lease）：保留 #393 原路径，
-     * 睡前 global 复查 + 锁内 latch 等待，不引入新的本地队列门控。 */
+     * 睡前 global/实际本地队列复查 + 锁内 latch 等待。 */
     std::unique_lock<std::mutex> lock(m_run_cond_mutex);
-    if (_TryGetCoroutineFromGlobal() == 0)
+    if (_TryGetCoroutineFromGlobal() == 0 && GetExecutableNum() == 0)
         m_run_cond.wait_for(lock, timeout_us,
                    [this] {
                        return !m_is_running.load(std::memory_order_acquire) ||
@@ -415,34 +409,7 @@ void Processer::_Run()
      * XXX 这里也许可以优化的点：
      *      - 是否在空闲的时候降低调度频率？
      */
-    /* 优先级运行时间预算（单位：微秒）来自 GlobalConfig，启动前可配置；
-     * 初始预算与每次公平轮次重置均从配置拷贝。 */
-    auto priority_runtime_budget_us =
-        g_bbt_coroutine_config->m_cfg_processer_priority_runtime_budget_us;
-
-    auto reset_priority_budget_if_needed = [&]() {
-        bool has_runnable_queue = false;
-        bool has_runnable_queue_with_budget = false;
-        for (auto&& p : {CO_PRIORITY_CRITICAL,
-                         CO_PRIORITY_HIGH,
-                         CO_PRIORITY_NORMAL,
-                         CO_PRIORITY_LOW})
-        {
-            if (m_coroutine_queue[p].size_approx() == 0)
-                continue;
-
-            has_runnable_queue = true;
-            if (priority_runtime_budget_us[p] > 0)
-                has_runnable_queue_with_budget = true;
-        }
-
-        // 空队列不参与预算耗尽判定；仅当所有非空队列都耗尽预算
-        // （或当前没有本地 runnable 队列）时开启下一公平轮次。
-        if (!has_runnable_queue || !has_runnable_queue_with_budget)
-            priority_runtime_budget_us =
-                g_bbt_coroutine_config->m_cfg_processer_priority_runtime_budget_us;
-    };
-
+    // 每轮至多 64 次 Resume，给 driver/global/退役检查确定的调度机会。
     while (m_is_running.load(std::memory_order_acquire))
     {
         /* 退役只在完整 disposition 之后、新一轮取工作之前确认：
@@ -460,104 +427,84 @@ void Processer::_Run()
         if (GetExecutableNum() <= 0)
             _TryGetCoroutineFromGlobal();
 
-        // 对各个优先级任务进行执行，按运行时间预算（微秒）加权轮转
         bool any_dequeued = false;
         bool retire_now = false;
-        for (auto&& p : {CO_PRIORITY_CRITICAL, CO_PRIORITY_HIGH, CO_PRIORITY_NORMAL, CO_PRIORITY_LOW})
+        for (unsigned turn = 0; turn < 64; ++turn)
         {
-            if (retire_now)
+            if (m_retire_requested.load(std::memory_order_acquire)) {
+                retire_now = true;
                 break;
+            }
+            auto* selected = m_coroutine_queue.Pick();
+            if (selected == nullptr)
+                break;
+            m_running_coroutine = selected->Task();
+            any_dequeued = true;
 
-            while (priority_runtime_budget_us[p] > 0)
+            AssertWithInfo(m_running_coroutine->GetStatus() != CO_RUNNING && m_running_coroutine->GetStatus() != CO_FINAL, "bad coroutine status!");
+
+            // 执行前设置当前协程缓存（预算单位为微秒，计时必须显式 us）
+            m_running_coroutine_begin.exchange(bbt::core::clock::gettime_mono<bbt::core::clock::us>());
+
+            /* worker 无进展快照（#277/#367）：每 Resume 刷新一次。spin/parked
+             * 都只执行一次 Resume——区分"执行停顿"靠 executing 标志：
+             * 调度线程读到 true 且 begin_ts 超阈值 = 用户代码占死 worker；
+             * 读到 false = 协程已让出，不算停顿。整组字段在
+             * m_exec_mutex 临界区内一次提交，读者同锁整组复制，
+             * 一致性由互斥保证（诊断路径，允许极短锁占用）。 */
+            if (g_bbt_coroutine_config->m_cfg_worker_stall_warn_ms > 0)
             {
-                /* 退役请求到达后不再取本地/全局/steal 新任务；当前
-                 * Resume 及其 disposition 已在上一轮完整提交。 */
-                if (m_retire_requested.load(std::memory_order_acquire)) {
-                    retire_now = true;
-                    break;
-                }
-
-                /* 如果取不到或者取到空的，就退出循环 */
-                if (!m_coroutine_queue[p].try_dequeue(m_running_coroutine) || m_running_coroutine == nullptr)
-                {
-                    /* 本地该优先级队列已空但预算未耗尽：
-                     * 按优先级从全局队列补充任务，避免 CRITICAL 全局积压
-                     * 使 NORMAL 等低优先级协程长期无法被取回本地执行。
-                     * 一次只搬 1 个（最小必要粒度），避免每轮按 16 个批量搬运
-                     * 放大全局队列竞争；单轮搬运总量仍由预算循环门控 */
-                    if (m_retire_requested.load(std::memory_order_acquire)) {
-                        retire_now = true;
-                        break;
-                    }
-                    if (g_scheduler->GetCoroutineFromGlobal(p, m_coroutine_queue[p], 1, this) <= 0)
-                        break;
-                    continue;
-                }
-                any_dequeued = true;
-
-                AssertWithInfo(m_running_coroutine->GetStatus() != CO_RUNNING && m_running_coroutine->GetStatus() != CO_FINAL, "bad coroutine status!");
-
-                // 执行前设置当前协程缓存（预算单位为微秒，计时必须显式 us）
-                m_running_coroutine_begin.exchange(bbt::core::clock::gettime_mono<bbt::core::clock::us>());
-
-                /* worker 无进展快照（#277/#367）：每 Resume 刷新一次。spin/parked
-                 * 都只执行一次 Resume——区分"执行停顿"靠 executing 标志：
-                 * 调度线程读到 true 且 begin_ts 超阈值 = 用户代码占死 worker；
-                 * 读到 false = 协程已让出，不算停顿。整组字段在
-                 * m_exec_mutex 临界区内一次提交，读者同锁整组复制，
-                 * 一致性由互斥保证（诊断路径，允许极短锁占用）。 */
-                if (g_bbt_coroutine_config->m_cfg_worker_stall_warn_ms > 0)
-                {
-                    std::lock_guard<std::mutex> lock(m_exec_mutex);
-                    m_exec_co_id = m_running_coroutine->GetId();
-                    m_exec_begin_us = m_running_coroutine_begin.load(std::memory_order_relaxed);
-                    m_exec_backlog = GetExecutableNum();
-                    const auto& d = m_running_coroutine->GetDescription();
-                    size_t n = d.size() < sizeof(m_exec_desc) - 1 ? d.size() : sizeof(m_exec_desc) - 1;
-                    memcpy(m_exec_desc, d.data(), n);
-                    m_exec_desc[n] = '\0';
-                    m_executing = true;
-                }
+                std::lock_guard<std::mutex> lock(m_exec_mutex);
+                m_exec_co_id = m_running_coroutine->GetId();
+                m_exec_begin_us = m_running_coroutine_begin.load(std::memory_order_relaxed);
+                m_exec_backlog = GetExecutableNum();
+                const auto& d = m_running_coroutine->GetDescription();
+                size_t n = d.size() < sizeof(m_exec_desc) - 1 ? d.size() : sizeof(m_exec_desc) - 1;
+                memcpy(m_exec_desc, d.data(), n);
+                m_exec_desc[n] = '\0';
+                m_executing = true;
+            }
 #ifdef BBT_COROUTINE_PROFILE
-                m_co_swap_times++;
+            m_co_swap_times++;
 #endif
-                /* busy 是自动策略的独立信号，始终维护；stall 诊断字段仍
-                 * 只由 m_cfg_worker_stall_warn_ms 控制。 */
-                {
-                    BusyScope busy_scope(m_busy);
-                    m_running_coroutine->Resume();
-                }
-                if (g_bbt_coroutine_config->m_cfg_worker_stall_warn_ms > 0)
-                {
-                    std::lock_guard<std::mutex> lock(m_exec_mutex);
-                    m_executing = false;
-                }
-                // MLFQ: 记录运行时长（微秒），供后续降级判断
-                m_running_coroutine->SetLastRunTimeUs(
-                    bbt::core::clock::gettime_mono<bbt::core::clock::us>() - m_running_coroutine_begin.load());
+            /* busy 是自动策略的独立信号，始终维护；stall 诊断字段仍
+             * 只由 m_cfg_worker_stall_warn_ms 控制。 */
+            {
+                BusyScope busy_scope(m_busy);
+                m_running_coroutine->Resume();
+            }
+            if (g_bbt_coroutine_config->m_cfg_worker_stall_warn_ms > 0)
+            {
+                std::lock_guard<std::mutex> lock(m_exec_mutex);
+                m_executing = false;
+            }
+            // MLFQ: 记录运行时长（微秒），供后续降级判断
+            m_running_coroutine->SetLastRunTimeUs(
+                bbt::core::clock::gettime_mono<bbt::core::clock::us>() - m_running_coroutine_begin.load());
 
-                // 按本次实际运行时长扣减优先级预算，单次至少扣 1 微秒
-                const auto charged_us = std::max<uint64_t>(
-                    1, m_running_coroutine->GetLastRunTimeUs());
-                priority_runtime_budget_us[p] =
-                    charged_us >= priority_runtime_budget_us[p]
-                        ? 0
-                        : priority_runtime_budget_us[p] - charged_us;
+            // elapsed monotonic us，不是线程 CPU 时间。发布 park 前先结清账目。
+            m_coroutine_queue.Account(m_running_coroutine->m_cfs,
+                m_running_coroutine->GetLastRunTimeUs(),
+                m_running_coroutine->m_yield_disposition == CoroutineYieldDisposition::EVENT_WAIT);
 
-                /* 先移交再发布：CommitYield（EVENT_WAIT 的 CommitPark）与
-                 * READY 的 OnActiveCoroutine 都可能让该协程被其它 worker
-                 * 立即恢复销毁；此后 Wake 回调可重入 GetLocalCoroutineId，
-                 * m_running_coroutine 必须先清空，绝不向回调暴露已移交对象。 */
-                Coroutine::Ptr yielded = m_running_coroutine;
-                m_running_coroutine = nullptr;
-                const auto disposition = yielded->CommitYield();
-                if (disposition == CoroutineYieldDisposition::READY) {
-                    g_scheduler->OnActiveCoroutine(CO_PRIORITY_NORMAL, yielded);
-                    yielded = nullptr;  // 已移交全局队列，不再读
+            /* 先移交再发布：CommitYield（EVENT_WAIT 的 CommitPark）与
+             * READY 入队都可能让该协程被其它 worker
+             * 立即恢复销毁；此后 Wake 回调可重入 GetLocalCoroutineId，
+             * m_running_coroutine 必须先清空，绝不向回调暴露已移交对象。 */
+            Coroutine::Ptr yielded = m_running_coroutine;
+            m_running_coroutine = nullptr;
+            const auto disposition = yielded->CommitYield();
+            if (disposition == CoroutineYieldDisposition::READY) {
+                // READY 保留既有 NORMAL 策略；退役门禁拒收时可靠归还 global。
+                if (!_EnqueueAdmitted(CO_PRIORITY_NORMAL, yielded, /*notify*/false)) {
+                    while (!g_scheduler->_EnqueueGlobal(CO_PRIORITY_NORMAL, yielded))
+                        std::this_thread::yield();
+                    g_scheduler->_WakeActiveWorkers();
                 }
-                else if (disposition == CoroutineYieldDisposition::FINAL) {
-                    delete yielded;
-                }
+                yielded = nullptr;  // 发布后绝不再读 Coroutine
+            }
+            else if (disposition == CoroutineYieldDisposition::FINAL) {
+                delete yielded;
             }
         }
 
@@ -571,12 +518,8 @@ void Processer::_Run()
 #endif
         }
 
-        // work-conserving：只按非空队列判断预算耗尽，避免空队列的
-        // 未用预算阻止公平轮次重置；不提前 continue，保留空转休眠路径。
-        reset_priority_budget_if_needed();
-
         // 每 CHECK_INTERVAL 轮无条件检查全局队列
-        // spin worker 会让本地队列 size_approx 始终非零
+        // 持续 yield 仍需把外部唤醒搬入本地集合
         if (m_retire_requested.load(std::memory_order_acquire))
             break;
 
@@ -590,9 +533,7 @@ void Processer::_Run()
          * 经过 after，保证 before/after 成对覆盖每个调度轮次。 */
         _DriverOnTick(ProcesserDriverPhase::AfterSchedule);
 
-        /* 本轮确实出队且仍有本地任务：预算已重置，继续公平轮次，不把
-         * 已搬入本地的 runnable 留给轮询。any_dequeued 门控保证
-         * size_approx 假阳性至多多转一轮，不形成无任务忙等。 */
+        /* 本轮确实出队且仍有本地任务：继续有界轮次，不把 runnable 留给轮询。 */
         if (any_dequeued && GetExecutableNum() > 0)
             continue;
 
@@ -644,12 +585,14 @@ size_t Processer::_TryGetCoroutineFromGlobal()
     /* 已经处理的数量 */
     size_t already_count = 0;
 
-    /* 每个队列都尝试去全局队列中取一下 */
-    for (auto && priority : { CO_PRIORITY_CRITICAL, CO_PRIORITY_HIGH, CO_PRIORITY_NORMAL, CO_PRIORITY_LOW})
-    {
-        already_count += g_scheduler->GetCoroutineFromGlobal(priority, m_coroutine_queue[priority], expected_size - already_count, this);
-        if (already_count >= expected_size)
-            break;
+    // 跨轮保留游标：即使配置每次仅取一个，也不能让 CRITICAL 持续挡住其它级别。
+    unsigned empty_levels = 0;
+    while (already_count < expected_size && empty_levels < CO_PRIORITY_COUNT) {
+        const auto priority = static_cast<CoroutinePriority>(m_global_pull_priority);
+        m_global_pull_priority = (m_global_pull_priority + CO_PRIORITY_COUNT - 1) % CO_PRIORITY_COUNT;
+        const auto pulled = g_scheduler->GetCoroutineFromGlobal(priority, 1, *this);
+        already_count += pulled;
+        empty_levels = pulled == 0 ? empty_levels + 1 : 0;
     }
 
     return already_count;
@@ -741,31 +684,22 @@ size_t Processer::Steal(Processer::SPtr thief)
     /* 计算下需要偷多少个 */
     expect_size = g_bbt_coroutine_config->m_cfg_processer_steal_once_min_task_num > size / 2 ? g_bbt_coroutine_config->m_cfg_processer_steal_once_min_task_num : size / 2;
 
-    for (auto && p : {CO_PRIORITY_CRITICAL, CO_PRIORITY_HIGH, CO_PRIORITY_NORMAL, CO_PRIORITY_LOW})
+    while (steal_num < expect_size)
     {
-        if (steal_num >= expect_size)
+        auto* entity = m_coroutine_queue.Take();
+        if (entity == nullptr)
             break;
-
-        size_t count = 0;
-        for (size_t i = 0; i < (expect_size - steal_num); ++i)
-        {
-            if (!m_coroutine_queue[p].try_dequeue(item))
-                break;
-
-            /* 目标写入同样过 admission gate；thief 在途中退役时把任务
-             * 可靠送回全局，绝不写入已关闭接纳的本地队列。notify=false：
-             * 目的端 worker 正在运行，无需自唤醒。 */
-            if (!thief->_EnqueueAdmitted(p, item, /*notify*/false)) {
-                while (!g_scheduler->_EnqueueGlobal(p, item))
-                    std::this_thread::yield();
-                item = nullptr;
-                break;
-            }
+        item = entity->Task();
+        const auto priority = static_cast<CoroutinePriority>(entity->Priority());
+        // Take 已释放 victim 锁；目标接纳失败仍由当前线程保有 item。
+        if (!thief->_EnqueueAdmitted(priority, item, /*notify*/false)) {
+            while (!g_scheduler->_EnqueueGlobal(priority, item))
+                std::this_thread::yield();
             item = nullptr;
-            ++count;
+            break;
         }
-
-        steal_num += count;
+        item = nullptr;
+        ++steal_num;
     }
 
 #ifdef BBT_COROUTINE_PROFILE
@@ -782,18 +716,13 @@ void Processer::_DrainLocalToGlobal()
      * 不可能再有人写入本地队列。近似队长不作排空证明。 */
     _WaitEnqueueQuiescent();
 
-    for (auto && priority : {CO_PRIORITY_CRITICAL, CO_PRIORITY_HIGH, CO_PRIORITY_NORMAL, CO_PRIORITY_LOW})
+    while (auto* entity = m_coroutine_queue.Take())
     {
-        Coroutine::Ptr item = nullptr;
-        while (m_coroutine_queue[priority].try_dequeue(item))
-        {
-            /* 每次实际出队都必须有成功/失败结果：失败不静默丢弃，重试
-             * 直到全局接受（仅分配失败时可能长时间 yield，任务所有权
-             * 仍在本 worker，不丢、不重复）。 */
-            while (!g_scheduler->_EnqueueGlobal(priority, item))
-                std::this_thread::yield();
-            item = nullptr;
-        }
+        auto* item = entity->Task();
+        const auto priority = static_cast<CoroutinePriority>(entity->Priority());
+        while (!g_scheduler->_EnqueueGlobal(priority, item))
+            std::this_thread::yield();
+        // item 及 entity 均已发布，不再访问。
     }
 }
 

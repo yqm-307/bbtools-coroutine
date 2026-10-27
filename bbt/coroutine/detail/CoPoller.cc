@@ -1,7 +1,9 @@
 #include <atomic>
+#include <chrono>
 #include <thread>
 #include <new>
 
+#include <boost/asio/executor_work_guard.hpp>
 #include <bbt/core/util/Assert.hpp>
 #include <bbt/coroutine/detail/CoPoller.hpp>
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
@@ -23,7 +25,7 @@ CoPoller::UPtr& CoPoller::GetInstance()
 {
     /* 进程寿命：持 epoll fd 且被 worker 线程使用，不在静态退出期析构 */
     static UPtr* _holder = new UPtr{new CoPoller()};
-    
+
     return *_holder;
 }
 
@@ -34,7 +36,7 @@ CoPoller::CoPoller()
     auto* base = new bbt::pollevent::detail::EventBase(
         bbt::pollevent::detail::EventBaseConfigFlag::NO_CACHE_TIME |
         bbt::pollevent::detail::EventBaseConfigFlag::PRECISE_TIMER);
-    
+
     Assert(base != nullptr);
 
     m_event_loop = std::make_shared<bbt::pollevent::EventLoop>(base, true);
@@ -51,16 +53,14 @@ std::shared_ptr<bbt::pollevent::Event> CoPoller::CreateEvent(int fd, short event
     return m_event_loop->CreateEvent(fd, events, onevent_cb);
 }
 
-bool CoPoller::PollOnce()
+void CoPoller::_BeginDrive()
 {
-    errno = 0;
-
     /* 谁首次驱动谁拥有析构权；已写入不覆盖（驱动线程唯一，Scheduler 单入口）。 */
     std::thread::id no_driver{};
     m_driver_tid.compare_exchange_strong(no_driver, std::this_thread::get_id(),
                                          std::memory_order_acq_rel);
 
-    /* 兑现顺序：先兑现积压 Event，再 StartLoop 驱动。
+    /* 兑现顺序：先兑现积压 Event，再驱动。
        积压必须先于下一拍注册释放，否则同一 FD 会在 ASIO 重复注册。 */
     {
         std::vector<std::shared_ptr<bbt::pollevent::Event>> deferred;
@@ -70,9 +70,46 @@ bool CoPoller::PollOnce()
         }
         /* 锁外析构，避免 Event::CancelListen 回调路径反向获取本锁。 */
     }
+}
+
+bool CoPoller::PollOnce()
+{
+    errno = 0;
+
+    _BeginDrive();
 
     InPollGuard in_poll_guard{m_in_poll};
     return (m_event_loop->StartLoop(bbt::pollevent::EventLoopOpt::LOOP_NONBLOCK) == 0);
+}
+
+bool CoPoller::PollOnceUntil(std::chrono::steady_clock::time_point deadline)
+{
+    _BeginDrive();
+
+    InPollGuard in_poll_guard{m_in_poll};
+
+    /* 已到点：不驱动 context，交给调用方下一次 PollOnce 的非阻塞 poll 兑现。
+       停拍后若已经落后于扫描节拍，这里必须立刻返回而不是补一次阻塞等待。 */
+    if (std::chrono::steady_clock::now() >= deadline)
+        return false;
+
+    /* 没有已注册事件：保持旧路径的定时休眠。无超时的 custom Chan 等纯协程
+       等待不经过 Asio，也就不会为「本就没有事件」多付一次事件循环开销。
+       GetEventNum() 是已注册对象数，不是 pending 数，故它只用来判断「值不值
+       得进入等待」，不作为安全或空队列证明。 */
+    if (m_event_loop->GetEventNum() <= 0)
+    {
+        std::this_thread::sleep_until(deadline);
+        return false;
+    }
+
+    /* Event 对象数不代表 outstanding work：未监听或已完成的对象仍可能存活。
+       guard 防止这种情况下反复立即返回；等待上界由 run_one_until 自身保证，
+       不依赖另一线程可能消费掉的截止 handler。 */
+    auto& ctx = m_event_loop->GetEventBase()->GetContext();
+    const auto work = boost::asio::make_work_guard(ctx);
+    ctx.restart();
+    return ctx.run_one_until(deadline) > 0;
 }
 
 int CoPoller::NotifyCustomEvent(std::shared_ptr<CoPollEvent> event)
