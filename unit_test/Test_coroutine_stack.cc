@@ -543,6 +543,36 @@ BOOST_AUTO_TEST_CASE(t_pool_reuses_exact_bucket_and_isolates_attributes)
     BOOST_CHECK_EQUAL(pool.AllocSize(), 0u);
 }
 
+// 热缓存按 LIFO 复用刚归还的栈；同桶多个对象借还后仍保持唯一所有权和准确计数。
+BOOST_AUTO_TEST_CASE(t_pool_reuses_recently_returned_stack)
+{
+    using bbt::coroutine::detail::StackPool;
+
+    ConfigGuard guard;
+    g_bbt_coroutine_config->m_cfg_static_coroutine = 0;
+    StackPool pool;
+    auto* first = pool.Apply(4096, false);
+    auto* second = pool.Apply(4096, false);
+    BOOST_REQUIRE(first != nullptr);
+    BOOST_REQUIRE(second != nullptr);
+    BOOST_REQUIRE(first != second);
+    pool.Release(first);
+    pool.Release(second);
+
+    auto* recent = pool.Apply(4096, false);
+    auto* older = pool.Apply(4096, false);
+    BOOST_CHECK(recent == second);
+    BOOST_CHECK(older == first);
+    BOOST_CHECK_EQUAL(pool.AllocSize(), 2u);
+    BOOST_CHECK_EQUAL(pool.GetCurCoNum(), 2u);
+    BOOST_CHECK_EQUAL(pool.ReleaseUnused(), 0u);
+    pool.Release(recent);
+    pool.Release(older);
+    BOOST_CHECK_EQUAL(pool.GetCurCoNum(), 0u);
+    BOOST_CHECK_EQUAL(pool.ReleaseUnused(), 2u);
+    BOOST_CHECK_EQUAL(pool.AllocSize(), 0u);
+}
+
 // S7：容量约束是跨桶的「同时借出 + 已预留」，检查与预留原子完成；没有单桶乘法放大。
 BOOST_AUTO_TEST_CASE(t_pool_capacity_is_cross_bucket_and_atomic)
 {

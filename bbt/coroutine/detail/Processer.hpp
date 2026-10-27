@@ -163,7 +163,7 @@ private:
     std::condition_variable         m_enqueue_wait_cv;
 
     /* 调度相关 */
-    CoPriorityQueue                 m_coroutine_queue;
+    CfsRunQueue                     m_coroutine_queue;
     std::condition_variable         m_run_cond;
     std::atomic_bool                m_run_cond_notify{false}; // 是否需要唤醒
     std::mutex                      m_run_cond_mutex;
@@ -189,6 +189,7 @@ private:
     uint64_t                        m_last_stall_report_begin{0};   // 调度线程专用（去重）
     static constexpr int            kGlobalCheckInterval = 4;       // 每N轮无条件检查全局队列
     int                             m_global_check_counter{0};
+    int                             m_global_pull_priority{CO_PRIORITY_CRITICAL}; // worker 独占的轮转游标
 
     /* driver 单槽：m_driver_slot_mutex 只保护槽位本身；binding 内部状态
      * 由 binding->m_mutex 保护。锁序：slot → binding，均不反向依赖

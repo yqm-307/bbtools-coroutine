@@ -120,8 +120,8 @@ int Chan<TItem, Max>::Read(ItemType& item)
         lock.unlock();
         /* 注册后复查：unlock 与事件登记之间若有 push/Close 到达，其
          * _OnEnableRead 会因 waiter 尚未可 Notify 而落空；回调内持锁复查
-         * 谓词，已可读/已关闭则自唤醒，避免丢唤醒退化为 500ms 假超时。 */
-        int ret = _WaitUntilEnableReadOrTimeout(500, [this]() {
+         * 谓词，已可读/已关闭则自唤醒，使无超时等待也不会漏掉早到通知。 */
+        int ret = _WaitUntilEnableRead([this]() {
             _RecheckEnableRead([this]() { return !m_item_queue.empty() || IsClosed(); });
             return true;
         });
@@ -161,8 +161,8 @@ int Chan<TItem, Max>::ReadAll(std::vector<ItemType>& items)
         lock.unlock();
         /* 注册后复查：unlock 与事件登记之间若有 push/Close 到达，其
          * _OnEnableRead 会因 waiter 尚未可 Notify 而落空；回调内持锁复查
-         * 谓词，已可读/已关闭则自唤醒，避免丢唤醒退化为 500ms 假超时。 */
-        int ret = _WaitUntilEnableReadOrTimeout(500, [this]() {
+         * 谓词，已可读/已关闭则自唤醒，使无超时等待也不会漏掉早到通知。 */
+        int ret = _WaitUntilEnableRead([this]() {
             _RecheckEnableRead([this]() { return !m_item_queue.empty() || IsClosed(); });
             return true;
         });

@@ -1,12 +1,11 @@
 #pragma once
 #include <atomic>
 #include <cstddef>
-#include <deque>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <utility>
-#include <bbt/core/thread/sync/Queue.hpp>
+#include <vector>
 #include <bbt/core/clock/Clock.hpp>
 #include <bbt/core/thread/Lock.hpp>
 #include <bbt/coroutine/detail/Define.hpp>
@@ -78,42 +77,38 @@ protected:
     ItemType* _AllocItem(size_t stack_size, bool stack_protect);
     static void _FreeItem(ItemType* item);
 private:
-#ifdef BBT_COROUTINE_VALGRIND
-    /* boost::lockfree::queue 的 freelist 使用 tagged pointer，Valgrind 无法从进程级
-     * 单例追踪其节点；诊断构建改用同语义的可追踪容器。生产构建仍保留 lock-free 队列。 */
-    class ValgrindPool
-    {
-    public:
-        /* 参数仅用于与生产 Queue 的构造签名对齐；诊断容器按需增长。 */
-        explicit ValgrindPool(size_t) {}
-
-        bool Push(ItemType* item) noexcept;
-        bool Pop(ItemType*& item) noexcept;
-        size_t Size() const noexcept;
-
-    private:
-        mutable std::mutex  m_mutex;
-        std::deque<ItemType*> m_items;
-    };
-    using PoolType = ValgrindPool;
-#else
-    using PoolType = bbt::core::thread::Queue<ItemType*>;
-#endif
-
     /* 单个尺寸/属性桶；pool 生命周期由 Bucket 自己兜底排空（含构造中途抛出） */
     struct Bucket
     {
-        explicit Bucket(size_t capacity): pool(capacity) {}
+        explicit Bucket(size_t capacity) { pool.reserve(capacity); }
         ~Bucket()
         {
-            ItemType* item = nullptr;
-            while (pool.Pop(item))
+            for (auto* item : pool)
                 StackPool::_FreeItem(item);
+        }
+        /* 发布后的桶访问均由池级 m_mutex 串行化，无需再维护并发队列和原子计数。
+         * LIFO 优先复用刚归还的栈；capacity 只是预留，不是缓存数量上限。 */
+        bool Push(ItemType* item) noexcept
+        {
+            try {
+                pool.push_back(item);
+                return true;
+            } catch (...) {
+                return false;   // 沿用归还失败分支：扣 live 后锁外释放栈
+            }
+        }
+        bool Pop(ItemType*& item) noexcept
+        {
+            if (pool.empty())
+                return false;
+            item = pool.back();
+            pool.pop_back();
+            return true;
         }
         Bucket(const Bucket&) = delete;
         Bucket& operator=(const Bucket&) = delete;
 
-        PoolType pool;
+        std::vector<ItemType*> pool;
         size_t live{0};
         size_t idle{0};
         size_t borrowed{0};
@@ -127,7 +122,7 @@ private:
     /* 摘一个空闲对象并更新计数；调用方须持锁，成功返回对象（锁外销毁） */
     ItemType* _TakeIdleLocked();
 
-    static constexpr size_t kBucketQueueCapacity{1024};
+    static constexpr size_t kBucketInitialCapacity{1024};
 
     std::map<BucketKey, std::unique_ptr<Bucket>> m_buckets;
     mutable std::mutex m_mutex;

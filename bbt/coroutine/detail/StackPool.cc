@@ -10,38 +10,6 @@
 namespace bbt::coroutine::detail
 {
 
-#ifdef BBT_COROUTINE_VALGRIND
-
-bool StackPool::ValgrindPool::Push(ItemType* item) noexcept
-{
-    try {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        m_items.push_back(item);
-        return true;
-    } catch (...) {
-        return false;
-    }
-}
-
-bool StackPool::ValgrindPool::Pop(ItemType*& item) noexcept
-{
-    std::lock_guard<std::mutex> lock(m_mutex);
-    if (m_items.empty())
-        return false;
-
-    item = m_items.front();
-    m_items.pop_front();
-    return true;
-}
-
-size_t StackPool::ValgrindPool::Size() const noexcept
-{
-    std::lock_guard<std::mutex> lock(m_mutex);
-    return m_items.size();
-}
-
-#endif
-
 #ifdef BBT_COROUTINE_STACK_TESTING
 std::atomic_bool StackPool::s_test_fail_push{false};
 
@@ -78,7 +46,7 @@ StackPool::Bucket* StackPool::_GetBucketLocked(const BucketKey& key)
         return it->second.get();
 
     auto inserted = m_buckets.emplace(
-        key, std::unique_ptr<Bucket>(new Bucket(kBucketQueueCapacity)));
+        key, std::unique_ptr<Bucket>(new Bucket(kBucketInitialCapacity)));
     return inserted.first->second.get();
 }
 
@@ -98,7 +66,7 @@ StackPool::ItemType* StackPool::_TakeIdleLocked()
             continue;
 
         ItemType* item = nullptr;
-        if (!bucket->pool.Pop(item))
+        if (!bucket->Pop(item))
         {
             /* 计数与队列不一致（正常路径不该发生）：以队列为准，避免同一条目反复扫描 */
             bucket->idle = 0;
@@ -141,7 +109,7 @@ StackPool::ItemType* StackPool::Apply(size_t stack_size, bool stack_protect)
             return nullptr;
 
         Bucket* bucket = _GetBucketLocked(key);
-        if (bucket->pool.Pop(item))
+        if (bucket->Pop(item))
         {
             bucket->idle--;
             bucket->borrowed++;
@@ -205,7 +173,7 @@ void StackPool::Release(ItemType* item)
                 cached = false;     /* 注入穿过真实 Push 结果检查分支 */
             else
 #endif
-                cached = bucket->pool.Push(item);
+                cached = bucket->Push(item);
         }
 
         if (bucket == nullptr || bucket->borrowed == 0)
@@ -382,7 +350,7 @@ size_t StackPool::_Preload(size_t preload_size)
             if (s_test_fail_push.exchange(false, std::memory_order_acq_rel))
                 break;
 #endif
-            if (!bucket->pool.Push(item.get()))
+            if (!bucket->Push(item.get()))
                 break;
 
             bucket->idle++;

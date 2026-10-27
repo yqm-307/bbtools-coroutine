@@ -83,10 +83,12 @@ void Coroutine::Resume()
     /* 日志装配不分配：本函数在 worker 原生栈执行，std::to_string 拼接的
      * bad_alloc 会逃出 Resume 直达 Processer 调度循环，不在协程侧任何
      * catch 可达域内。栈缓冲 snprintf 保持同一日志语义、消除逃逸点。 */
+#ifdef BBT_COROUTINE_DEBUG_PRINT
     char resume_log[64];
     std::snprintf(resume_log, sizeof(resume_log), "[Coroutine::Resume] co=%llu",
                   static_cast<unsigned long long>(GetId()));
     g_bbt_dbgp_full(resume_log);
+#endif
     m_context.Resume();
 }
 
@@ -176,11 +178,13 @@ void Coroutine::YieldAndPushGCoQueue()
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
     g_bbt_dbgmgr->OnEvent_YieldCo(this);
 #endif
+#ifdef BBT_COROUTINE_DEBUG_PRINT
     char yieldpush_log[80];
     std::snprintf(yieldpush_log, sizeof(yieldpush_log),
                   "[Coroutine::YieldAndPushGCoQueue] co=%llu",
                   static_cast<unsigned long long>(GetId()));
     g_bbt_dbgp_full(yieldpush_log);
+#endif
     m_context.Yield();
 }
 

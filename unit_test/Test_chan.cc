@@ -37,22 +37,31 @@ BOOST_AUTO_TEST_CASE(t_begin)
 BOOST_AUTO_TEST_CASE(t_chan_block)
 {
     BOOST_TEST_MESSAGE("enter t_chan_block");
-    bbtco [](){
+    /* 时序约束：每个子 writer 按值持有 Chan 的 shared_ptr 并在写完时 Down
+     * latch；外层读协程读完三次后也 Down；主测试线程 l.Wait() 之后才对
+     * results 断言——不在 worker 协程上执行 BOOST_CHECK，也不以 sleep
+     * 冒充完成；results 活在 main 栈上，失败路径不会遗留野引用。 */
+    bbt::core::thread::CountDownLatch l{4};
+    int results[3] = {0, 0, 0};
+    bbtco [l = &l, &results](){
         auto c = Chan<int, 1>();
-        bbtco [&c](){ c << 12; };
-
         int val;
-        c >> val;
-        BOOST_CHECK_EQUAL(val, 12);
 
-        bbtco [&c](){ c << 14; };
-        c >> val;
-        BOOST_CHECK_EQUAL(val, 14);
+        bbtco [c, l](){ c << 12; l->Down(); };
+        c >> val; results[0] = val;
 
-            bbtco [&c](){ c << 42; };
-        c >> val;
-        BOOST_CHECK_EQUAL(val, 42);
+        bbtco [c, l](){ c << 14; l->Down(); };
+        c >> val; results[1] = val;
+
+        bbtco [c, l](){ c << 42; l->Down(); };
+        c >> val; results[2] = val;
+
+        l->Down();
     };
+    l.Wait();
+    BOOST_CHECK_EQUAL(results[0], 12);
+    BOOST_CHECK_EQUAL(results[1], 14);
+    BOOST_CHECK_EQUAL(results[2], 42);
 }
 
 /* 单读单写 */

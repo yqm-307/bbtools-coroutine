@@ -437,6 +437,7 @@ int idx = sync::CoSelect()
 | `m_cfg_stackpool_min_alloc_size` | `128` | 定时回收的全池最低保留数（不是每桶下限）；显式清缓存不受它限制 |
 | `m_cfg_stackpool_max_alloc_size` | 同 `m_cfg_max_coroutine` | 跨桶「同时借出 + 申请中」的总上限，不是每桶上限或内存字节预算 |
 | `m_cfg_static_thread_num` | 构造时 `hardware_concurrency()`，不可用时 `1` | initial worker 数；Start 前显式改成 `0` 非法，不识别用户是否显式设置 |
+| `m_cfg_processer_priority_runtime_budget_us` | `{50, 150, 200, 600}` | CFS 的 LOW/NORMAL/HIGH/CRITICAL 相对服务权重；沿用旧字段名，已不再是每轮微秒预算。记账除以 `max(1, weight)`，零值不会禁用该优先级；Start 前设置 |
 | `m_cfg_processer_auto_scale` | `false` | 初始自动策略开关；运行期不能并发改配置字段 |
 | `m_cfg_processer_min_num` / `m_cfg_processer_max_num` | `0` / `0` | 各自回退 initial；解析后 `1 <= min <= initial <= max <= INT_MAX` |
 | `m_cfg_processer_scale_interval_ms` | `100` | `[1, chrono::milliseconds::rep 最大值]` ms |

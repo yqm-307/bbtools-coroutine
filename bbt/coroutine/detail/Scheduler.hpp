@@ -172,10 +172,9 @@ public:
     }
 
 protected:
-    /* 从全局队列中取一定数量的协程；owner 非空时逐项通过其 admission
+    /* 从全局队列中取一定数量的协程；逐项通过目标 worker 的 admission
      * gate（关闭则把该项送回全局并停止），避免 global pull 写入 retired P。 */
-    size_t                                      GetCoroutineFromGlobal(CoroutinePriority priority, CoroutineQueue& queue, size_t size,
-                                                    Processer* owner = nullptr);
+    size_t                                      GetCoroutineFromGlobal(CoroutinePriority priority, size_t size, Processer& owner);
     /**
      * @brief 尝试窃取任务（线程安全）
      *

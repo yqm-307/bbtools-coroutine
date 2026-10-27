@@ -665,8 +665,8 @@ void CaseApiBoundaries()
 void CaseTickSequence()
 {
     auto& sche = *Scheduler::GetInstance();
-    /* 测试启动前压预算 1us：批量投递必然走 any_dequeued&&local>0 的
-     * continue 公平轮次；每 task yield 回 global，覆盖真实恢复路径。 */
+    /* 同权重任务持续跨越 CFS 的 64 次 Resume 轮次边界，强制覆盖真实
+     * any_dequeued&&local>0 的 continue；断言不能只靠结束后空闲 Tick。 */
     g_bbt_coroutine_config->m_cfg_processer_priority_runtime_budget_us = {1, 1, 1, 1};
     EnsureRuntime(1);
     auto ids = sche.GetWorkerProcesserIds();
@@ -687,9 +687,9 @@ void CaseTickSequence()
             for (int i = 0; i < 3; ++i) {
                 outstanding++;
                 PostOn(sche, ids[0], [&]{
-                    /* 每轮 yield 回全局队列：未完成前始终 runnable；
+                    /* 每个任务超过一个调度轮次，READY 回本地仍始终 runnable；
                      * 此刻 worker 不应进入 driver Wait。 */
-                    for (int j = 0; j < 3; ++j) {
+                    for (int j = 0; j < 65; ++j) {
                         { std::lock_guard<std::mutex> l(st->phase_m); st->phases.push_back(3); }
                         bbtco_yield;
                     }
@@ -786,7 +786,7 @@ void CaseTickSequence()
         }
     }
     BOOST_TEST(pairs >= 3);
-    BOOST_TEST(tasks == 12);
+    BOOST_TEST(tasks == 3 * 66);
 #ifdef BBT_PD_CONTROLLED_PROBE
     PDSetProbe(false, {});
     BOOST_TEST(continues > 0);

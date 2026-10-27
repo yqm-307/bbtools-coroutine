@@ -99,8 +99,8 @@ scaling_probe_replace(
     "    m_enqueue_inflight.fetch_add(1, std::memory_order_seq_cst);"
     "    ::ScalingAdmissionProbe(this, 1);\n    m_enqueue_inflight.fetch_add(1, std::memory_order_seq_cst);")
 scaling_probe_replace(
-    "    const bool enqueued = m_coroutine_queue[priority].enqueue(coroutine);"
-    "    ::ScalingAdmissionProbe(this, 2);\n    const bool enqueued = m_coroutine_queue[priority].enqueue(coroutine);")
+    "    const bool enqueued = m_coroutine_queue.Enqueue(coroutine->m_cfs, coroutine, priority,"
+    "    ::ScalingAdmissionProbe(this, 2);\n    const bool enqueued = m_coroutine_queue.Enqueue(coroutine->m_cfs, coroutine, priority,")
 scaling_probe_replace("    _WaitEnqueueQuiescent();"
     "    ::ScalingAdmissionProbe(this, 3);\n    _WaitEnqueueQuiescent();")
 scaling_probe_replace("\n}\n\nbool Processer::_HasDriverOwnership()"
@@ -145,6 +145,15 @@ add_executable(Test_scheduler_exec Test_scheduler_exec.cc)
 target_link_libraries(Test_scheduler_exec ${MY_LIBS})
 add_test(NAME Test_scheduler_exec COMMAND Test_scheduler_exec)
 set_tests_properties(Test_scheduler_exec PROPERTIES TIMEOUT 15)
+
+add_executable(Test_cfs Test_cfs.cc)
+target_link_libraries(Test_cfs ${MY_LIBS})
+foreach(mode algorithm_migration_global_debt algorithm_stable_wake_account_and_weight
+        algorithm_wait_preserves_debt_without_old_credit
+        single_p_external_progress_before_hot_release multi_p_steal_preserves_running_progress)
+    add_test(NAME Test_cfs_${mode} COMMAND Test_cfs --run_test=${mode})
+    set_tests_properties(Test_cfs_${mode} PROPERTIES TIMEOUT 15)
+endforeach()
 
 add_executable(Test_ready_wakeup Test_ready_wakeup.cc)
 target_link_libraries(Test_ready_wakeup ${MY_LIBS})
