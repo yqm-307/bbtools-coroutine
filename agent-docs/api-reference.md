@@ -177,6 +177,7 @@ bbtco [] { bbt_co_await Handle(); };
 - 优先级沿用 `->*`，并非原生关键字。例如取结果成员应写 `(bbt_co_await ReadPair()).first`，取反写 `!(bbt_co_await Ready())`；需要括号时括住整个 await 表达式。`decltype` 中按普通 C++ 非求值上下文处理。
 - 类型约束：未 await 的返回值不能隐式转换为 `T`，普通值不能 await；丢弃包装结果产生 `nodiscard` 警告（是否阻断由编译选项决定）。仅接受临时/右值包装，保存的包装需要显式 `std::move` 后解包。
 - 限制：`auto result = f();` 仍能绕过 await 并执行函数体，声明本身不插入环境检查；编译器也不强制调用者声明 async。此版本不含完整静态检查插件，不保证“没有 await 就不会挂起”（透明 Hook 仍保留）。建议依赖协程专用调用的业务函数也使用 async 标记。
+- 编译选项要求：`bbt_co_async(void)` 函数走到末尾不写 `return {};` 是未定义行为，漏写 `bbt_co_await` 只有 `nodiscard` 警告，二者默认都不会让编译失败。使用本库的仓库必须开启 `-Werror=return-type -Werror=unused-result`（本库顶层 `CMakeLists.txt` 已开启；infra、framework 在各自顶层 CMake 开启）。这两个选项在 GCC/Clang 下对所有本仓代码生效，同时会拦住忽略 glibc `warn_unused_result` 函数返回值（如 `write`、`read`，`-O2` 下生效）的写法。
 
 ### `bbtco`
 
