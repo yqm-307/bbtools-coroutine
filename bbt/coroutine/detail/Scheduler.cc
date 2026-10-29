@@ -429,6 +429,13 @@ void Scheduler::OnActiveCoroutine(CoroutinePriority priority, Coroutine::Ptr cor
 #endif
     AssertWithInfo(priority >= CO_PRIORITY_LOW && priority < CO_PRIORITY_COUNT, "invalid priority!");
     AssertWithInfo(coroutine != nullptr, "coroutine is nullptr!");
+    /* 当前 worker 的 admission 成功时就地入队，避免唤醒任务绕行 global；
+     * notify=false 保持当前 worker 的通知语义，关闭 admission 仍回退 global。 */
+    auto local_processer = Processer::TryGetLocalProcesser();
+    if (local_processer != nullptr &&
+        local_processer->_EnqueueAdmitted(priority, coroutine, false))
+        return;
+
     /* 无停机、无代际：激活的协程一律回全局队列；没有需要 reclaim 的
      * “已停止/旧代际”路径，也不再有 Stop 排空的所有权交接。 */
     // 唤醒已接纳的任务不能因一次队列扩容失败而失去所有权。
