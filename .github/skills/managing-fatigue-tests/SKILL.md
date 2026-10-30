@@ -7,9 +7,9 @@ description: Use when creating new fatigue tests, registering them in CMakeLists
 
 ## Overview
 
-Fatigue tests are long-running stress binaries for individual coroutine primitives (chan, mutex, copool, etc.). Each test lives in `benchmark_test/` as `fatigue_<name>.cc`, is built via CMake, and monitored through a Python web dashboard.
+Fatigue tests are long-running stress binaries for individual coroutine primitives (chan, mutex, copool, etc.). Each test lives in `benchmarks/` as `fatigue_<name>.cc`, is built via CMake, and monitored through a Python web dashboard.
 
-**Scope:** 本 skill 只覆盖 `fatigue_<name>` 的本地构建与监控路径，不自动纳入 CI。发布/CI 门禁的压测走 `unified_stress` 模块集合；需变更门禁覆盖时先按现行授权确认，入口见 `docs/ci-guide.md` §8.2。
+**Scope:** 本 skill 只覆盖 `fatigue_<name>` 的本地构建与监控路径，不自动纳入 CI。发布/CI 门禁的压测走 `unified_stress` 模块集合；需变更门禁覆盖时先按现行授权确认，入口见 `docs/guides/ci.md` §9。
 
 **Announce at start:** "I'm using the managing-fatigue-tests skill."
 
@@ -28,7 +28,7 @@ write .cc  →  register in CMakeLists.txt  →  build  →  register in config 
 
 ## Step 1: Write the Fatigue Test
 
-**File:** `benchmark_test/fatigue_<name>.cc`
+**File:** `benchmarks/fatigue_<name>.cc`
 
 **Template:**
 
@@ -64,7 +64,7 @@ int main()
 
 ## Step 2: Register in CMakeLists.txt
 
-**File:** `benchmark_test/CMakeLists.txt`
+**File:** `benchmarks/CMakeLists.txt`
 
 Add two lines per fatigue test:
 
@@ -77,7 +77,7 @@ target_link_libraries(fatigue_<name> ${MY_LIBS})
 
 ## Step 3: Build
 
-`./build.sh` 不开启 benchmark（且会继续执行 `shell/install.sh`），不要用它构建 fatigue。显式 configure 一次，再按 target 增量构建：
+`./build.sh` 不开启 benchmark（且会继续执行 `scripts/install/install.sh`），不要用它构建 fatigue。显式 configure 一次，再按 target 增量构建：
 
 ```bash
 # From project root；JOBS 取 max(2, nproc/4)，同机多 agent 并行时不要全量并行
@@ -86,7 +86,7 @@ cmake -S . -B build -DNEED_BENCHMARK=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 cmake --build build --target fatigue_<name> --parallel "$JOBS"   # <name> 填实际模块名，如 comutex
 ```
 
-Binaries output to: `build/bin/benchmark_test/fatigue_<name>`
+Binaries output to: `build/bin/benchmarks/fatigue_<name>`
 
 ## Step 4: Register in Monitor Config
 

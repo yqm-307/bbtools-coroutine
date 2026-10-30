@@ -27,7 +27,7 @@ Issue / 里程碑计划
 
 ### Agent 必须遵守
 
-- 核心运行时任务先读取 `agent-docs/2026-09-07-core-runtime-contract.md`。
+- 核心运行时任务先读取 `docs/architecture/core-runtime-contract.md`。
 - 需求、决策和验收依据先读取对应 GitHub Issue/PR。
 - 不直接推送 `main`。
 - 不把本地结果说成远端 CI 结果。
@@ -62,7 +62,7 @@ PR 快速反馈，main 快速集成，Release 严格发布。普通改动先自�
 - `编译 & 单元测试`（hosted `ubuntu-24.04`：Boost 1.90 context 私有前缀、全量 CTest、Test_smoke、Test_reliability；docs-only 变更时该 job 由分类器判为 optional 显式 skip，不伪造 success）
 - `性能回归检查`（同 runner 顺序构建 base+head 的 `unified_stress`，六模块 45s×2 threads 严格比较；缺证据、`errors>0`、zero ops、NaN/inf 一律 `exit 2` fail-closed，不以 skipped 或空成功置绿）
 
-两个 check 的语义与边界以 `agent-docs/formal-ci.md` 与 `agent-docs/perf-check-wiring.md` 为准，本文不复制细节。
+两个 check 的语义与边界以 `docs/guides/ci.md` 为准，本文不复制细节。
 
 `真实客户端验收` 与长时疲劳压测不在普通合并路径执行，只在发布 Gate 执行（见 §5）。发布 Gate 的 `真实客户端验收` 必须在明确的 Redis 环境中执行。Redis 不可用时，发布 Gate 失败；本地脚本允许用 CTest skip code 77 表示环境缺失，但不能把 skip 当作发布通过。
 
@@ -166,7 +166,7 @@ GitHub tag ruleset 的“限制创建”按 bypass actor 授权，不能直接�
 
 当前边界（2026-09-09 回读）：仓库公开；两个 Environment 均有唯一审核者 `yqm-307`，允许同账号触发后审核（`prevent_self_review=false`）。发布仍需用户授权，不要求另设账号。Environment 的 `can_admins_bypass=true`，管理员仍可旁路 Environment 审核；`v*` 规则的创建已收紧到发布 deploy key（见上），管理员凭据无法创建、更新或删除版本 tag。
 
-公开仓库的 `pull_request` 执行的是 PR head 中的 workflow 文件，YAML 内的 `if` 无法阻止 fork 替换 workflow。普通 CI（`unit_test.yml`、`docs-check.yml`）已迁到 hosted `ubuntu-24.04`，不再依赖常驻 self-hosted runner；发布 Gate（`release.yml` 的 `gate` job）仍运行在 `arc-s4`，内存检测在专用 `arc-s4-memcheck`。仓库 Actions `approval_policy` 已设为 `all_external_contributors`（API 回读），`GITHUB_TOKEN` 默认 `read` 且禁止用它批准 PR review。外部 fork workflow 必须由有写权限的人批准才会跑；Agent 和用户都不得批准未审查的 fork workflow。有写权限的人一旦批准，fork 代码仍会在所选 runner 上执行，隔离仍不成立——对仍用 self-hosted 的 release/memcheck 链路，完整隔离只能改为私有仓库或撤销对应 runner。上述配置不等于发布闭环完成。
+公开仓库的 `pull_request` 执行的是 PR head 中的 workflow 文件，YAML 内的 `if` 无法阻止 fork 替换 workflow。普通 CI（`ci.yml`）已迁到 hosted `ubuntu-24.04`，不再依赖常驻 self-hosted runner；发布 Gate（`release.yml` 的 `gate` job）仍运行在 `arc-s4`，内存检测在专用 `arc-s4-memcheck`。仓库 Actions `approval_policy` 已设为 `all_external_contributors`（API 回读），`GITHUB_TOKEN` 默认 `read` 且禁止用它批准 PR review。外部 fork workflow 必须由有写权限的人批准才会跑；Agent 和用户都不得批准未审查的 fork workflow。有写权限的人一旦批准，fork 代码仍会在所选 runner 上执行，隔离仍不成立——对仍用 self-hosted 的 release/memcheck 链路，完整隔离只能改为私有仓库或撤销对应 runner。上述配置不等于发布闭环完成。
 
 ## 8. 证据与失败处理
 
@@ -190,15 +190,15 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 JOBS=$(( $(nproc) / 4 )); JOBS=$(( JOBS < 2 ? 2 : JOBS ))
 # 按验证阶梯做聚焦增量构建：<target> 填本次改动涉及的测试可执行名（如 Test_smoke，
-# 用 `ctest -N` 或 unit_test/CMakeLists.txt 查）；不跑裸全量 ctest——全量单测由 PR CI 执行，
+# 用 `ctest -N` 或 tests/CMakeLists.txt 查）；不跑裸全量 ctest——全量单测由 PR CI 执行，
 # 发布 Gate 另行全量。
 cmake --build build --target <target> --parallel "$JOBS"
 ctest --test-dir build -R <test-regex> --output-on-failure   # <test-regex> 填对应套件名正则
 
 # 真实客户端验收
 python3 scripts/acceptance_real_clients.py \
-  --echo-server ./build/bin/example/echo_server \
-  --hiredis ./build/bin/example/co_with_hiredis
+  --echo-server ./build/bin/examples/echo_server \
+  --hiredis ./build/bin/examples/co_with_hiredis
 
 # 发布前本地模拟（不创建远端 tag/Release）；<rc 版本号> 填用户确认的目标版本。
 # validate-version 只验格式合法性，不证明该版本可发布或 tag 尚不存在。
@@ -206,3 +206,26 @@ python3 scripts/release_gate.py validate-version --version <rc 版本号>
 ```
 
 本地验证不能替代 GitHub required checks；远端 release workflow 是版本发布唯一入口。
+
+## 10. 测试、冒烟与压测入口
+
+```shell
+# 构建并运行全部单元测试
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DNEED_TEST=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+JOBS=$(( $(nproc) / 4 )); JOBS=$(( JOBS < 2 ? 2 : JOBS ))
+cmake --build build --parallel "$JOBS"
+ctest --test-dir build --output-on-failure        # 套件数以 `ctest -N` 输出为准
+
+# 冒烟（独立构建 + 报告）
+python3 scripts/ci/run_smoke.py --build-dir build-ci-smoke
+
+# 长时 soak（默认 6 小时；先构建 unified_stress）
+cmake -S . -B build-soak -G Ninja -DCMAKE_BUILD_TYPE=Release -DNEED_BENCHMARK=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+cmake --build build-soak --target unified_stress --parallel "$JOBS"
+python3 scripts/ci/run_soak.py --build-dir build-soak
+```
+
+- 单元测试覆盖：协程状态机、调度与进程寿命、取消、异常、hook 契约、同步原语、eventloop 契约、profiler 等；注册数以构建目录 `ctest -N` 输出为准，CI 说明见 `docs/guides/ci.md`。
+- 真实客户端验收：`NEED_EXAMPLE=ON` 且 `NEED_TEST=ON` 时注册 `Test_real_clients_echo`（无条件、必须 PASS）；`co_with_hiredis` target 存在（系统装有 hiredis 库）时再注册 `Test_real_clients_hiredis`，运行时本机无 Redis 以 skip 77 跳过，不伪造通过。场景细节见 `docs/guides/real-client-acceptance.md`。
+- 压测：`benchmarks/unified_stress.cc` 提供六模块长时压测入口，由 `run_soak.py` 驱动。
+- 报告输出：`scripts/ci/run_smoke.py` → `tests/reports/smoke/<UTC 时间戳>/`（`summary.json`、`commands.json`、`ctest.xml`）；`scripts/ci/run_soak.py` → `tests/reports/soak/`。`tests/reports/` 与 `tests/ci-reports/` 下的原始日志/采样不入仓（D2：结论级归档已移出 main，perf 基线在 `perf-baseline` 分支）。
