@@ -116,8 +116,8 @@ int Coroutine::YieldWithCallback(const CoroutineOnYieldCallback& cb)
     /* R2-01：日志装配不分配——snprintf 进栈缓冲，OOM 无处抛出，原 R2-01
      * 故障点（to_string 动态拼接）已整体移除。armed 注入的首个真实分配
      * 因此落在 Context::YieldWithCallback 的 m_onyield_callback 存储上，
-     * 由下方统一 catch 回滚。宏关闭时 snprintf 语句仍执行但为零成本诊断，
-     * 保持与既有 g_bbt_dbgp_full 调用点一一对应。 */
+     * 由下方统一 catch 回滚。宏开启时才执行 snprintf 和完整日志调用；宏关闭
+     * 时整个格式化与日志装配路径均被编译掉。 */
 #ifdef BBT_COROUTINE_DEBUG_PRINT
     char yieldcb_log[80];
     std::snprintf(yieldcb_log, sizeof(yieldcb_log),
