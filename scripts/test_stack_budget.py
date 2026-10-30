@@ -14,7 +14,7 @@ import stack_budget as sb
 
 
 ROOT = Path(__file__).resolve().parents[1]
-FIXTURES = ROOT / "unit_test" / "stack_budget_fixtures"
+FIXTURES = ROOT / "tests" / "stack_budget_fixtures"
 
 
 class StackBudgetTests(unittest.TestCase):

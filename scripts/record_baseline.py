@@ -42,8 +42,8 @@ import perf_contract  # noqa: E402
 PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BUILD_DIR = os.path.join(PROJECT_DIR, "build")
 BASELINE_DIR = os.path.join(PROJECT_DIR, "tests", "baselines")
-UNIFIED_STRESS = os.path.join(BUILD_DIR, "bin", "benchmark_test", "unified_stress")
-MICRO_CO_SWITCH = os.path.join(BUILD_DIR, "bin", "benchmark_test", "micro_co_switch")
+UNIFIED_STRESS = os.path.join(BUILD_DIR, "bin", "benchmarks", "unified_stress")
+MICRO_CO_SWITCH = os.path.join(BUILD_DIR, "bin", "benchmarks", "micro_co_switch")
 
 MODULES = ["comutex", "corwmutex", "cocond", "chan", "copool", "coroutine"]
 REPOSITORY = "bbtools-coroutine"
@@ -375,7 +375,7 @@ def cmd_trend(n):
     print("连续退化趋势（逐次下降且累计超阈值）:")
     for module, info in sorted(flags.items()):
         print(f"  ❌ {module}: {info['steps']} 连降，累计 {info['total_pct']:+.1f}%")
-    print("要求：创建专项性能修复 Issue（见 docs/ci-guide.md 门禁策略）。")
+    print("要求：创建专项性能修复 Issue（见 docs/guides/ci.md 门禁策略）。")
     return 1
 
 

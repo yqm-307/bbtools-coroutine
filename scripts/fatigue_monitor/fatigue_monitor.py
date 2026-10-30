@@ -130,7 +130,7 @@ async def save_sample(name: str, pid: int, ts: float, cpu: float, mem: float):
 
 
 async def launch_processes(cfg: MonitorConfig) -> List[ProcessInfo]:
-    bin_dir = PROJECT_ROOT / cfg.build_dir / "bin" / "benchmark_test"
+    bin_dir = PROJECT_ROOT / cfg.build_dir / "bin" / "benchmarks"
     infos: List[ProcessInfo] = []
 
     for pc in cfg.processes:
@@ -430,7 +430,7 @@ async def api_process_start(request: web.Request) -> web.Response:
     if existing and existing.alive:
         return web.json_response({"ok": False, "error": f"{name} is already running"}, status=409)
 
-    bin_dir = PROJECT_ROOT / CONFIG.build_dir / "bin" / "benchmark_test"
+    bin_dir = PROJECT_ROOT / CONFIG.build_dir / "bin" / "benchmarks"
     pi = await start_single_process(name, bin_dir)
     if not pi:
         return web.json_response({"ok": False, "error": "process config not found or binary missing"}, status=404)
@@ -466,7 +466,7 @@ async def api_process_restart(request: web.Request) -> web.Response:
     if existing.alive:
         await stop_single_process(existing)
 
-    bin_dir = PROJECT_ROOT / CONFIG.build_dir / "bin" / "benchmark_test"
+    bin_dir = PROJECT_ROOT / CONFIG.build_dir / "bin" / "benchmarks"
     pi = await start_single_process(name, bin_dir)
     if not pi:
         return web.json_response({"ok": False, "error": "failed to restart"}, status=500)
@@ -479,7 +479,7 @@ async def api_process_restart(request: web.Request) -> web.Response:
 
 
 async def api_start_all(request: web.Request) -> web.Response:
-    bin_dir = PROJECT_ROOT / CONFIG.build_dir / "bin" / "benchmark_test"
+    bin_dir = PROJECT_ROOT / CONFIG.build_dir / "bin" / "benchmarks"
     started = []
     for pi in INFOS_LIST:
         if not pi.alive:

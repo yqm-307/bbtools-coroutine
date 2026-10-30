@@ -1,0 +1,46 @@
+{
+  "provenance": "user_asserted",
+  "source": "Example author premise, not a measured or compiler-proven bound. See docs/guides/stack-budget.md, manual conditions.",
+  "dependency_versions": {
+    "bbtools_coroutine": "Caller-supplied build; exact shared-library bytes are bound below",
+    "boost_context": "@Boost_VERSION_STRING@",
+    "libstdcxx_and_libgcc": "GCC @CMAKE_CXX_COMPILER_VERSION@; exact resolved binary files are bound below",
+    "glibc": "@STACK_BUDGET_GLIBC@"
+  },
+  "configuration": "This example only: C++17 -O2, non-LTO, diagnostic OFF, ordinary SysV x86_64 ABI; exact object receipts are bound on explicit analysis.",
+  "compiler_version": "@CMAKE_CXX_COMPILER_VERSION@",
+  "machine": "x86_64-linux-gnu",
+  "required_flags": ["-O2"],
+  "binding_files": [
+    "@STACK_BUDGET_RUNTIME_FILE@",
+    "$<TARGET_FILE:Boost::context>",
+    "@STACK_BUDGET_STDCXX@",
+    "@STACK_BUDGET_GCC@",
+    "@STACK_BUDGET_LIBC@",
+    "@STACK_BUDGET_LOADER@"
+  ],
+  "covers": [
+    "coroutine_wrapper", "std_function", "fcontext", "exception_unwind",
+    "destructors", "stack_chk", "red_zone", "return_address", "alignment",
+    "runtime_callbacks", "no_interposition", "dynamic_loader"
+  ],
+  "runtime_extra_bytes": 32768,
+  "runtime_symbols": [
+    {"object": "registration", "symbol": "_ZNSt17_Function_handlerIFvvEPS0_E9_M_invokeERKSt9_Any_data"},
+    {"object": "registration", "symbol": "_ZNSt17_Function_handlerIFvvEPS0_E10_M_managerERSt9_Any_dataRKS3_St18_Manager_operation"}
+  ],
+  "abi_extra_per_frame_bytes": 256,
+  "external": {
+    "_ZN3bbt9coroutine26GetLocalCoroutineStackSizeEv": 4096,
+    "__stack_chk_fail": 8192
+  },
+  "assumptions": [
+    "DEMONSTRATION PREMISES ONLY: the following byte envelopes are unverified user assertions, not reusable production limits or observed peaks.",
+    "Assume the exact bound Context/Coroutine/std::function/fcontext wrapper and its EH/destructor/runtime-callback/dynamic-loader PLT resolver paths fit the 32768-byte additional envelope.",
+    "The registration object's emitted std::function invoker/manager are upstream runtime wrapper frames covered by that same user_asserted envelope, not compiler-proven bounds; their final selected bytes and all dependencies are frozen in F. The immutable callback is exactly StackBudgetEntry.",
+    "Assume each modeled frame needs at most 256 extra ABI bytes beyond .su, covering red zone, alignment, return-address and measurement-stage differences.",
+    "Assume the exact bound GetLocalCoroutineStackSize path fits 4096 bytes, and stack-check-failure/abort/EH paths fit the stated external and wrapper envelopes.",
+    "Only this named entry, no extra callbacks, no user signal/terminate/new handlers, no blocking Hook calls, no runtime instrumentation, no LD_PRELOAD/symbol interposition or replacement shared libraries.",
+    "These conditions deliberately expose the missing runtime proof. A real application must replace them with its own reviewed, version/configuration-bound summaries or retain UNKNOWN."
+  ]
+}
