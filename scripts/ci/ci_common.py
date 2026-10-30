@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Jenkins 测试公共契约：进程结果分类、原子 JSON 写入、命令执行、时间戳、
+"""CI 测试公共契约：进程结果分类、原子 JSON 写入、命令执行、时间戳、
 目录初始化和脱敏环境摘要。
 
 后续 Smoke / PR 性能 / Soak Harness 共享本模块。只依赖标准库，
@@ -22,7 +22,7 @@ _SECRET_KEYWORDS = ("TOKEN", "SECRET", "PASSWORD", "PASSWD", "AUTH", "KEY")
 
 
 def classify_process_result(returncode: int | None, timed_out: bool) -> str:
-    """把进程退出信息归类为稳定字符串，供 Jenkins 阶段分类与报告使用。
+    """把进程退出信息归类为稳定字符串，供 CI 阶段分类与报告使用。
 
     分类优先级：timeout > unknown_exit > crash > failure > pass。
     - timed_out=True 时忽略 returncode，统一为 "timeout"；
@@ -162,11 +162,11 @@ def failure_fingerprint(
     """统一故障指纹：sha256("|".join([job, stage, test_name, str(returncode),
     category])) 的前 16 位小写 hex。
 
-    供三个 Jenkins Pipeline 的告警去重与恢复邮件使用：同一 (job, stage,
+    供定时流水线的告警去重与恢复邮件使用：同一 (job, stage,
     test_name, returncode, category) 组合稳定映射同一指纹，去重窗口内
     不重复轰炸，恢复邮件回引原指纹。returncode 统一 str() 归一化，
-    数字 2 与字符串 "2" 得到同一指纹（Jenkinsfile 固定 python 行以
-    argv 字符串拼接，与本实现保持同构）。纯函数，无副作用。
+    数字 2 与字符串 "2" 得到同一指纹（调用方若以 argv 字符串拼接，
+    与本实现保持同构）。纯函数，无副作用。
     """
     raw = "|".join([job, stage, test_name, str(returncode), category])
     return hashlib.sha256(raw.encode()).hexdigest()[:16]

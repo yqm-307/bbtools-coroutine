@@ -258,7 +258,7 @@ def collect_environment_fingerprint(threads, modules, durations,
                                     compiler=None) -> dict:
     """采集环境指纹，返回比较键齐全的 dict。
 
-    - agent/node：Jenkins AGENT_NAME / NODE_NAME，缺失时回退主机名；
+    - agent/node：CI runner 的 AGENT_NAME / NODE_NAME，缺失时回退主机名；
     - cpu_model / logical_cores / mem_total_kb：/proc 与 os.cpu_count；
     - compiler / cmake_version / ninja_version：版本命令首行（探测失败为空串）。
     """
