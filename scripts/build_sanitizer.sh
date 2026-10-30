@@ -7,13 +7,13 @@
 #   bash scripts/build_sanitizer.sh run-module <module> [dur]  # 运行单模块
 #   bash scripts/build_sanitizer.sh clean        # 清理 build_san/
 #
-# 契约参考: docs/ci-guide.md
+# 契约参考: docs/guides/ci.md
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 BUILD_DIR="$PROJECT_DIR/build_san"
-BINARY="$BUILD_DIR/bin/benchmark_test/unified_stress"
+BINARY="$BUILD_DIR/bin/benchmarks/unified_stress"
 
 MODULES=(comutex corwmutex cocond chan copool coroutine)
 
