@@ -116,13 +116,15 @@ int Coroutine::YieldWithCallback(const CoroutineOnYieldCallback& cb)
     /* R2-01：日志装配不分配——snprintf 进栈缓冲，OOM 无处抛出，原 R2-01
      * 故障点（to_string 动态拼接）已整体移除。armed 注入的首个真实分配
      * 因此落在 Context::YieldWithCallback 的 m_onyield_callback 存储上，
-     * 由下方统一 catch 回滚。宏关闭时 snprintf 语句仍执行但为零成本诊断，
-     * 保持与既有 g_bbt_dbgp_full 调用点一一对应。 */
+     * 由下方统一 catch 回滚。宏开启时才执行 snprintf 和完整日志调用；宏关闭
+     * 时整个格式化与日志装配路径均被编译掉。 */
+#ifdef BBT_COROUTINE_DEBUG_PRINT
     char yieldcb_log[80];
     std::snprintf(yieldcb_log, sizeof(yieldcb_log),
                   "[Coroutine::YieldWithCallback] co=%llu",
                   static_cast<unsigned long long>(GetId()));
     g_bbt_dbgp_full(yieldcb_log);
+#endif
     /* #368-R2/F3：callback 装配链上可分配的失败点为本层入参拷贝与
      * Context::YieldWithCallback 内同一 `m_onyield_callback = cb` 存储赋值。
      * 任一抛出时协程仍在 CO_RUNNING、尚未让出；归还 await 事件（INITED
@@ -512,6 +514,7 @@ void Coroutine::OnCoPollEvent(int event, int custom_key)
     /* 日志装配不分配：本函数经 _Complete 的 callback 在 Processer 原生栈
      * 执行，to_string 拼接的 bad_alloc 会中断唤醒回调（_SetAwaitEvent 与
      * 入队被跳过）致协程悬挂。栈缓冲 snprintf 同型消除该逃逸点。 */
+#ifdef BBT_COROUTINE_DEBUG_PRINT
     char trigger_log[160];
     std::snprintf(trigger_log, sizeof(trigger_log),
                   "[CoEvent:Trigger] co=%llu trigger_event=%d id=%llu customkey=%d",
@@ -520,6 +523,7 @@ void Coroutine::OnCoPollEvent(int event, int custom_key)
                   static_cast<unsigned long long>(ev->GetId()),
                   custom_key);
     g_bbt_dbgp_full(trigger_log);
+#endif
     _SetAwaitEvent(nullptr);
     m_yield_disposition = CoroutineYieldDisposition::MANUAL;
 

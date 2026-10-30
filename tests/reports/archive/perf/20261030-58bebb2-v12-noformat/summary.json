@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-30",
+  "run": "sync-opt-loop-v12",
+  "title": "v12 同步原语细节优化与 noformat 基线采纳",
+  "baseline": {
+    "previous_commit": "83cefa341c29329b28656756f44395cbb33688b3",
+    "commit": "58bebb20a21b9c44e9f40f47d9bf18bce1f27d1c",
+    "branch": "perf/sync-opt-v9-fair-baseline",
+    "reference_runtime": "go1.27.3",
+    "library_sha256": "428a6b3cfa635cefcccf31327dca834447fd3dc9471f0c5eea0015ffc8470a2f",
+    "noformat_diff_sha256": "c45872be07733097d5de939647c650273d1a5c7e3c2e2638224821e29d194b4e"
+  },
+  "policy_decision": {
+    "benefit_threshold": "20% is a soft strong-benefit reference, not an automatic rejection threshold",
+    "adoption_rule": "Stable positive results beyond measurement noise may be adopted when correctness and risk guards pass; assess workload relevance and implementation cost",
+    "hard_guards_retained": ["correctness", "zero-progress", "fairness", "P99/CPU regression guards"],
+    "user_adopted_candidate": "noformat",
+    "formal_gate": "NO_CLAIM because the main scenario was not frozen before the first candidate sample; user adoption is recorded separately from formal gate passage"
+  },
+  "history": [
+    {"stage": "v9", "decision": "KEEP_SCOPED", "result": "Fair-F1 local wake enqueue accepted as baseline 83cefa3"},
+    {"stage": "v10", "decision": "NO_SHIP", "result": "No candidate had sufficient reachability or attributable gain evidence; zero runtime changes"},
+    {"stage": "v11", "decision": "STOP", "result": "pairs8/w2 showed no sustained cross-worker handoff, steal, drain, or global fallback evidence"},
+    {"stage": "v12", "decision": "noformat adopted; timing HOLD; callback REJECT; one-shot STOP", "result": "Two implementation candidates compared; independent raw verification completed"}
+  ],
+  "measurement": {
+    "matrix_per_candidate": "4 cases × 2 worker counts × 3 arms × 3 rounds = 72 cells",
+    "duration_ms_per_cell": 1500,
+    "baseline_samples": 72,
+    "noformat_samples": 72,
+    "timing_samples": 72,
+    "independently_recomputed_samples": 216,
+    "verified_stdout_stderr_sha_count": 432,
+    "go_version": "go1.27.3 linux/amd64",
+    "valid_cells": 216,
+    "invalid_cells": 0,
+    "failed_cells": 0,
+    "zero_progress": 0,
+    "guard_triggers": 0
+  },
+  "candidates": {
+    "noformat": {
+      "decision": "KEEP_BY_USER",
+      "waiter_shapes": 4,
+      "ops_median_change_pct_range": [11.914, 14.457],
+      "all_three_rounds_same_direction": true,
+      "cpu_us_per_op_median_change_pct_range": [-12.626, -10.735],
+      "p99_bucket_upper_bound_median_change_pct_range": [-28.428, -14.862],
+      "mutex_chan_guard_ops_change_pct_range": [-0.8, 0.8],
+      "fairness": "Jain/min-mean did not trigger guards; zero-progress=0",
+      "focused_ctest": "12/12 each with DEBUG_INFO OFF and ON; post-merge focused suite 12/12",
+      "implementation": "Coroutine.cc: guard two snprintf formatting blocks with BBT_COROUTINE_DEBUG_PRINT"
+    },
+    "timing": {
+      "decision": "HOLD_NOT_MERGED",
+      "waiter_ops_median_change_pct_range": [-0.768, 0.979],
+      "waiter_cpu_us_per_op_median_change_pct_range": [-1.079, 0.800],
+      "waiter_p99_bucket_upper_bound_median_change_pct_range": [-9.032, 3.646],
+      "three_round_same_direction_shapes": 0,
+      "focused_ctest": "14/14",
+      "implementation": "Processer.cc: keep Resume begin time in local run_begin_us; preserve exchange and Steal semantics; remove two atomic loads"
+    },
+    "callback_assembly": {
+      "decision": "REJECT_NO_SHIP",
+      "observed_per_WaitWithCallback": {
+        "CoPollEvent_and_control_block_heap_allocations": 1,
+        "callback_slot_store": 1,
+        "user_callable_deep_copies": 3,
+        "moves": 0
+      },
+      "reason": "Minimum safe saving was one copy; callback exception boundary remains unresolved; no candidate performance matrix"
+    },
+    "one_shot_rendezvous": {
+      "decision": "STOP_NO_IMPLEMENTATION",
+      "reason": "No state-machine interleaving proof or implementation evidence"
+    }
+  },
+  "limitations": [
+    "Formal primary-gain gate is NO_CLAIM because the main scenario was not pre-frozen, despite subsequent user adoption of noformat.",
+    "Coroutine::Yield third similar formatting site was not changed or measured.",
+    "No full CTest, CI, combined candidate regression, or soak was run.",
+    "P99 values are log2-128-v1 histogram bucket upper bounds, not exact unbucketed percentiles.",
+    "Timing effects below about one percent were not resolved by this matrix."
+  ],
+  "artifacts": {
+    "summary_md": "tests/reports/archive/perf/20261030-58bebb2-v12-noformat/summary.md",
+    "summary_json": "tests/reports/archive/perf/20261030-58bebb2-v12-noformat/summary.json",
+    "performance_guide": "agent-docs/performance-optimization.md"
+  },
+  "push_status": "not pushed; documentation changes remain uncommitted"
+}
