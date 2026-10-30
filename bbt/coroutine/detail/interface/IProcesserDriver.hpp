@@ -9,7 +9,7 @@ namespace bbt::coroutine::detail
 
 /**
  * @brief Processer driver 通用 adapter（B1，契约见
- *  agent-docs/2026-09-07-core-runtime-contract.md §11）。
+ *  docs/architecture/core-runtime-contract.md）。
  *
  * driver 由上层（如 infra reactor owner）实现，在绑定 Processer 的
  * worker 线程、非业务协程上下文被 Tick/Wait 推进；Wake 允许任意

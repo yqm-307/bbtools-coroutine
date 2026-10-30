@@ -58,7 +58,7 @@ int CoWaiter::Wait()
      * 检查 IsCancelRequested（预取消立即自唤醒），成功后把协程纳入登记，
      * 事件状态机回收才有落点。直接 event->Regist() 会绕过两者：
      * 预取消协程无限挂起。 */
-    /* #368-R2/F3：临时 std::function 包装与 Coroutine 入参拷贝都可能抛
+    /* 临时 std::function 包装与 Coroutine 入参拷贝都可能抛
      * bad_alloc；此时协程未挂起、挂起回调未执行，须把已占的等待位与
      * await 登记完整回滚，否则下一次 Wait 被拒且等待位泄漏。 */
     try {
@@ -113,7 +113,7 @@ int CoWaiter::WaitWithCallback(const detail::CoroutineOnYieldCallback& cb)
     }
 
     /* 同 Wait()，走公共登记路径；cb 保持"挂起后、唤醒前"的既有语义 */
-    /* #368-R2/F3：同 Wait() 的回滚约定——装配抛异常时协程未挂起、回调
+    /* 同 Wait() 的回滚约定——装配抛异常时协程未挂起、回调
      * 未执行，清 await 与等待位后原样上抛。 */
     try {
         ret = coroutine->YieldWithCallback([coroutine, cb](){
@@ -168,7 +168,7 @@ int CoWaiter::WaitWithTimeout(int ms)
         m_run_status = COND_WAIT;
     }
 
-    /* #368-R2/F3：同 Wait() 的回滚约定。 */
+    /* 同 Wait() 的回滚约定。 */
     try {
         ret = coroutine->YieldWithCallback([coroutine](){
             return coroutine->_RegistAwaitEvent();
@@ -185,9 +185,9 @@ int CoWaiter::WaitWithTimeout(int ms)
         throw;
     }
 
-    /* #369：登记失败（ret != 0）时本协程未真正挂起，
+    /* 登记失败（ret != 0）时本协程未真正挂起，
      * 唤醒掩码仍是上一次等待的旧值，不得参与超时/取消映射。
-     * #347② 兼容映射：协程级取消现以独立取消位唤醒，旧超时族入口对取消
+     * 兼容映射：协程级取消现以独立取消位唤醒，旧超时族入口对取消
      * 仍上报 1，与取消借用超时位时期的可观察行为逐条一致。 */
     if (ret == 0 && coroutine->GetLastResumeEvent() & (POLL_EVENT_TIMEOUT | POLL_EVENT_CANCELLED))
         ret = 1;
@@ -227,7 +227,7 @@ int CoWaiter::WaitWithTimeoutAndCallback(int ms, const detail::CoroutineOnYieldC
         m_run_status = COND_WAIT;
     }
 
-    /* #368-R2/F3：同 Wait() 的回滚约定。 */
+    /* 同 Wait() 的回滚约定。 */
     try {
         ret = coroutine->YieldWithCallback([coroutine, cb](){
             if (!coroutine->_RegistAwaitEvent())
@@ -272,7 +272,7 @@ WaitStatus CoWaiter::WaitWithCallback(
     const detail::CoroutineOnYieldCallback& on_registered,
     CoEventValue* value)
 {
-    /* 环境检查先于一切（对齐 §C1）：非协程上下文一律拒绝 */
+    /* 环境检查先于一切（对齐运行时契约）：非协程上下文一律拒绝 */
     if (!g_bbt_tls_helper->EnableUseCo())
         return WaitStatus::InvalidContext;
     auto* coroutine = g_bbt_tls_coroutine_co;
@@ -283,13 +283,13 @@ WaitStatus CoWaiter::WaitWithCallback(
     std::shared_ptr<detail::CoPollEvent> wait_event;
     {
         std::lock_guard<std::mutex> lock(m_notify_mutex);
-        /* 入口校验顺序对齐 §C1：已有取消先于 deadline 与等待位占用检查。
+        /* 入口校验顺序对齐运行时契约：已有取消先于 deadline 与等待位占用检查。
          * 预取消在此直接返回，不进入挂起；挂起中到达的取消则全部由下方
          * 唤醒掩码仲裁，两条路径产出同一 WaitStatus::Cancelled。 */
         if (coroutine->IsCancelRequested())
             return WaitStatus::Cancelled;
         if (options.deadline <= std::chrono::steady_clock::now())
-            return WaitStatus::TimedOut;    /* 已过期：不注册事件（对齐 §C1） */
+            return WaitStatus::TimedOut;    /* 已过期：不注册事件（对齐运行时契约） */
         if (m_co_event != nullptr) {
             /* 终态残留不占等待位：前一等待的结果已在事件状态机定死，
              * 但等待者可能尚未恢复出账——若认占位，单 worker 下自旋
@@ -323,7 +323,7 @@ WaitStatus CoWaiter::WaitWithCallback(
         m_run_status = COND_WAIT;
     }
 
-    /* #368-R2/F3：装配失败的同一回滚约定——协程未挂起、on_registered
+    /* 装配失败的同一回滚约定——协程未挂起、on_registered
      * 未执行（登记失败本就不投递），清 await 与等待位后原样上抛。 */
     int yield_ret = 0;
     try {
@@ -471,7 +471,7 @@ CombinedWaitStatus CoWaiter::Wait(
         m_run_status = COND_WAIT;
     }
 
-    /* #368-R2/F3：同一回滚约定。 */
+    /* 同一回滚约定。 */
     int yield_ret = 0;
     try {
         yield_ret = coroutine->YieldWithCallback([coroutine, on_registered]() {

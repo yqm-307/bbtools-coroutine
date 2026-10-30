@@ -1,3 +1,4 @@
+/* 条件编译调试打印（BBT_COROUTINE_DEBUG_PRINT 开启时生效）。 */
 #pragma once
 #include <iostream>
 

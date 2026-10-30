@@ -459,7 +459,7 @@ void Scheduler::OnActiveCoroutine(CoroutinePriority priority, Coroutine::Ptr cor
 
 void Scheduler::_FixTimingScan()
 {
-    /* worker 无进展检测（#277）：调度线程独立于 worker，每拍扫描各 worker
+    /* worker 无进展检测：调度线程独立于 worker，每拍扫描各 worker
      * 的锁存快照。阈值=0 时整段跳过（零开销）。 */
     const size_t warn_ms = g_bbt_coroutine_config->m_cfg_worker_stall_warn_ms;
     if (warn_ms == 0)

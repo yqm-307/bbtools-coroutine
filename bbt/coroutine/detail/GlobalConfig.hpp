@@ -102,7 +102,7 @@ public:
     /* 未设置异常回调时被吞掉的协程异常计数（默认隔离策略的可观测值） */
     std::atomic_uint64_t                       m_unhandled_exception_count{0};
 
-    /* worker 无进展检测（#277）：>0 启用，协程单次执行超过该毫秒数即告警；
+    /* worker 无进展检测：>0 启用，协程单次执行超过该毫秒数即告警；
      * 0=关闭诊断采集（默认）；自动扩缩容的轻量 busy 信号独立维护。
      * 检测在调度线程 _FixTimingScan 内，每拍扫描。 */
     size_t                                      m_cfg_worker_stall_warn_ms{0};

@@ -91,7 +91,7 @@ int Chan<TItem, Max>::Write(const ItemType& item)
     {
         std::unique_lock<std::mutex> tail_lock(std::move(lock));
         m_item_queue.push(item);
-        // 读 watcher 不受 m_is_reading 门控：CoSelect 等待者不置该标志（#314）
+        // 读 watcher 不受 m_is_reading 门控：CoSelect 等待者不置该标志
         if (m_is_reading || !m_read_watchers.empty())
             _OnEnableRead();
     }
@@ -202,7 +202,7 @@ int Chan<TItem, Max>::TryWrite(const ItemType& item)
         return -2;
 
     m_item_queue.push(item);
-    // 读 watcher 不受 m_is_reading 门控（#314）
+    // 读 watcher 不受 m_is_reading 门控
     if (m_is_reading || !m_read_watchers.empty())
         _OnEnableRead();
 
@@ -259,7 +259,7 @@ int Chan<TItem, Max>::TryWrite(const ItemType& item, int timeout)
     {
         std::unique_lock<std::mutex> tail_lock(std::move(lock));
         m_item_queue.push(item);
-        // 读 watcher 不受 m_is_reading 门控（#314）
+        // 读 watcher 不受 m_is_reading 门控
         if (m_is_reading || !m_read_watchers.empty())
             _OnEnableRead();
     }

@@ -1,3 +1,4 @@
+/* bbtco_defer 宏的运算符帮手 _DeferHelper。 */
 #pragma once
 #include <bbt/coroutine/detail/Defer.hpp>
 

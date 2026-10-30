@@ -36,7 +36,7 @@ void CoMutex::Lock()
 #if defined(BBT_COROUTINE_PROFILE)
         detail::Profiler::GetInstance()->OnEvent_CoMutexLockYield();
 #endif
-        /* #368：登记失败（ret<0）时挂起回调未执行、锁仍在手，不返回、
+        /* 登记失败（ret<0）时挂起回调未执行、锁仍在手，不返回、
          * 不重入已持有的锁；释放 m_mutex 后经全局就绪队列让权——持锁
          * 方的 UnLock 需要同一把 m_mutex，且单 worker 下只有本协程让出
          * 处理器它才能运行——再重取锁复查 m_status，保持"返回即获锁"
@@ -95,7 +95,7 @@ int CoMutex::TryLock(int ms)
     if (m_status == CoMutexStatus::COMUTEX_LOCKED) {
         ret = _WaitUnLockUnitlTimeout(ms, [this](){ _SysUnLock(); return true; });
 
-        /* #368：失败路径挂起回调未执行，锁仍在手不得重入；
+        /* 失败路径挂起回调未执行，锁仍在手不得重入；
          * 成功/超时路径回调已释放锁，必须重取后再看 m_status。 */
         if (bbt_unlikely(ret == -1)) {
             _SysUnLock();
@@ -134,7 +134,7 @@ int CoMutex::_WaitUnLockUnitlTimeout(int timeout, const detail::CoroutineOnYield
 {
     auto* coroutine = g_bbt_tls_coroutine_co;
     AssertWithInfo(coroutine != nullptr, "current coroutine is nullptr!");
-    /* #368-R1/F3：进入本函数时调用方仍持有 m_mutex，挂起回调（内含
+    /* 进入本函数时调用方仍持有 m_mutex，挂起回调（内含
      * _SysUnLock）负责在协程挂起后释放。等待准备阶段的一次分配失败
      * （RegistCustom 的 CoPollEvent 构造、队列 push、回调装配）会把异常
      * 抛出本函数——此时回调未执行、锁仍持有，catch 必须释放后重抛；
@@ -147,9 +147,9 @@ int CoMutex::_WaitUnLockUnitlTimeout(int timeout, const detail::CoroutineOnYield
         event = coroutine->RegistCustom(detail::POLL_EVENT_CUSTOM_COMUTEX, timeout);
         if (event == nullptr)
             return -1;
-        /* #368：事件入队前须保证唤醒可达——TryLock(-1) 语义是"等待至获锁或出错"，
+        /* 事件入队前须保证唤醒可达——TryLock(-1) 语义是"等待至获锁或出错"，
          * 负 timeout 经 RegistCustom→InitFdEvent 拒收后若仍入队等待，协程将
-         * 永久悬挂（无定时器），等价于 #198 式冻结；按无效期限立即报错。
+         * 永久悬挂（无定时器），等价于无唤醒源的冻结；按无效期限立即报错。
          * 此时 await 登记已落在协程上，先清账再返回，避免下一次等待被拒。 */
         if (event->GetTimeout() < 0) {
             coroutine->_SetAwaitEvent(nullptr);
@@ -165,7 +165,7 @@ int CoMutex::_WaitUnLockUnitlTimeout(int timeout, const detail::CoroutineOnYield
             return cb();
         });
     } catch (...) {
-        /* #368-R2/F3：callback 装配或 Context 存储分配失败时协程未挂起、
+        /* callback 装配或 Context 存储分配失败时协程未挂起、
          * 事件从未注册。std::queue 无 pop_back——只清本事件自身槽位为
          * tombstone（不移动其它节点），_NotifyOne 消费时跳过 nullptr。
          * 直接 pop() 会误删队首的健康等待者；该事件此刻必在队尾（本
@@ -181,9 +181,9 @@ int CoMutex::_WaitUnLockUnitlTimeout(int timeout, const detail::CoroutineOnYield
         throw;
     }
 
-    /* #369：登记失败（ret != 0）时本协程未真正挂起，唤醒掩码仍是上一次
+    /* 登记失败（ret != 0）时本协程未真正挂起，唤醒掩码仍是上一次
      * 等待的旧值，不得参与超时/取消映射——否则失败会被误报为超时 1。
-     * #347② 兼容映射：协程级取消现以独立取消位唤醒（原借用超时位），
+     * 兼容映射：协程级取消现以独立取消位唤醒（原借用超时位），
      * 本处把取消仍按超时上报 1，保持 TryLock(ms) 既有可观察行为不变。 */
     if (ret == 0 &&
         coroutine->GetLastResumeEvent() & (detail::POLL_EVENT_TIMEOUT | detail::POLL_EVENT_CANCELLED))
@@ -196,7 +196,7 @@ int CoMutex::_WaitUnLock(const detail::CoroutineOnYieldCallback& cb)
 {
     auto* coroutine = g_bbt_tls_coroutine_co;
     AssertWithInfo(coroutine != nullptr, "current coroutine is nullptr!");
-    /* #368-R1/F3：与 _WaitUnLockUnitlTimeout 同一异常协议——等待准备的
+    /* 与 _WaitUnLockUnitlTimeout 同一异常协议——等待准备的
      * 分配失败抛出时回调未执行、锁仍在手，释放后重抛并清 await 登记。 */
     bool cb_ran = false;
     std::shared_ptr<detail::CoPollEvent> event;
@@ -213,7 +213,7 @@ int CoMutex::_WaitUnLock(const detail::CoroutineOnYieldCallback& cb)
             return cb();
         });
     } catch (...) {
-        /* #368-R2/F3：同 _WaitUnLockUnitlTimeout——未挂起的 stale 事件
+        /* 同 _WaitUnLockUnitlTimeout——未挂起的 stale 事件
          * 置 tombstone 由 _NotifyOne 跳过；pop() 会误删队首健康节点。 */
         if (!cb_ran) {
             coroutine->_SetAwaitEvent(nullptr);

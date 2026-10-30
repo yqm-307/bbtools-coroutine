@@ -34,7 +34,7 @@ Event::Event(detail::EventBase* base, evutil_socket_t fd, short listen_events,
 {
     Assert(base != nullptr);
 
-    /* #370 round-3：先完成全部可能失败的资源创建，再注册 callback——构造
+    /* 先完成全部可能失败的资源创建，再注册 callback——构造
      * 失败时既无 callback_map 残留条目，也无内部 dup fd 泄漏，无需逐个
      * 异常出口回滚（此前 AddEventCallback 在 dup 之前，dup/timer 抛异常会
      * 留下孤儿回调条目）。 */
@@ -44,7 +44,7 @@ Event::Event(detail::EventBase* base, evutil_socket_t fd, short listen_events,
 
     if (is_fd_event) {
         Assert(fd >= 0);
-        /* #370：asio stream_descriptor 是 adopt 语义（不 dup，直接持有 fd
+        /* asio stream_descriptor 是 adopt 语义（不 dup，直接持有 fd
          * 号），epoll_reactor 内部以 fd 号为 key 管理注册项。用户侧
          * close+dup2 复用同一 fd 号后，本 Event 的延迟析构（DeferDestroy）
          * 会按 fd 号 deregister——误删同号新 Event 刚注册的 epoll 项，
