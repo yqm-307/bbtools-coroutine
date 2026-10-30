@@ -136,7 +136,7 @@ public:
     {
         AssertWithInfo(m_mutex != nullptr, "CoUniqueLock::try_lock_for(): no associated mutex");
         AssertWithInfo(!m_owns, "CoUniqueLock::try_lock_for(): already owns the lock");
-        /* #368-R1/F3：TryLock(ms) 的等待准备可能抛出（如一次分配失败）；
+        /* TryLock(ms) 的等待准备可能抛出（如一次分配失败）；
          * noexcept 边界内收敛为未获锁，不 terminate。 */
         try {
             m_owns = (m_mutex->TryLock(ms) == 0);
@@ -190,7 +190,7 @@ public:
         : m_mutex(m)
         , m_owns(false)
     {
-        /* #368-R1/F1：RLock 登记失败返回 -1，不得静默置 owns 让调用者
+        /* RLock 登记失败返回 -1，不得静默置 owns 让调用者
          * 无锁进入临界区、也不得让析构归还别人持有的锁。按 std::unique_lock
          * 惯例以 system_error 抛出，使失败对调用者可观察。 */
         if (m_mutex->RLock() != 0)
@@ -247,7 +247,7 @@ public:
     {
         AssertWithInfo(m_mutex != nullptr, "CoReadLock::lock(): no associated mutex");
         AssertWithInfo(!m_owns, "CoReadLock::lock(): already owns the read lock");
-        /* #368-R1/F1：同构造路径——登记失败以 system_error 抛出，不置 owns。 */
+        /* 同构造路径——登记失败以 system_error 抛出，不置 owns。 */
         if (m_mutex->RLock() != 0)
             throw std::system_error(
                 std::make_error_code(std::errc::resource_unavailable_try_again),
@@ -267,7 +267,7 @@ public:
     {
         AssertWithInfo(m_mutex != nullptr, "CoReadLock::try_lock_for(): no associated mutex");
         AssertWithInfo(!m_owns, "CoReadLock::try_lock_for(): already owns the read lock");
-        /* #368-R1/F3：TryRLock(ms) 的等待准备可能抛出（如一次分配失败）；
+        /* TryRLock(ms) 的等待准备可能抛出（如一次分配失败）；
          * noexcept 边界内收敛为未获锁，不 terminate。错误与超时不区分——
          * bool 通道无法分辨，与 try_* 语义一致。 */
         try {
@@ -318,7 +318,7 @@ public:
         : m_mutex(m)
         , m_owns(false)
     {
-        /* #368-R1/F1：同 CoReadLock——WLock 返回 -1 时抛 system_error，
+        /* 同 CoReadLock——WLock 返回 -1 时抛 system_error，
          * 不置 owns，避免无声进入临界区与误归还别人的写锁。 */
         if (m_mutex->WLock() != 0)
             throw std::system_error(
@@ -393,7 +393,7 @@ public:
     {
         AssertWithInfo(m_mutex != nullptr, "CoWriteLock::try_lock_for(): no associated mutex");
         AssertWithInfo(!m_owns, "CoWriteLock::try_lock_for(): already owns the write lock");
-        /* #368-R1/F3：同读锁——等待准备可能抛异常，noexcept 内收敛为 false。 */
+        /* 同读锁——等待准备可能抛异常，noexcept 内收敛为 false。 */
         try {
             m_owns = (m_mutex->TryWLock(ms) == 0);
         } catch (...) {

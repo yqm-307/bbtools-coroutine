@@ -55,7 +55,7 @@ public:
     int                                 WaitWithTimeoutAndCallback(int ms, const detail::CoroutineOnYieldCallback& cb);
 
     /**
-     * @brief 窄接口（#347②）：一次等待返回可区分的 WaitStatus，
+     * @brief 窄接口：一次等待返回可区分的 WaitStatus，
      *  结果由仲裁点（本次唤醒原因掩码）直接决定，恢复后不做第二遍优先级重判：
      *    Completed          —— Notify() 到达（POLL_EVENT_CUSTOM）
      *    TimedOut           —— 真实定时器超时（POLL_EVENT_TIMEOUT），或进入时已过期
@@ -90,7 +90,7 @@ public:
         CoEventValue* value = nullptr);
 
     /**
-     * @brief #346 组合等待（最小稳定切片）：FD interests、绝对 deadline、
+     * @brief 组合等待（最小稳定切片）：FD interests、绝对 deadline、
      *  既有 Notify()（custom）与协程级 RequestCancel 的首胜等待，恢复后
      *  返回可区分结果，不做第二遍优先级重判：
      *    FdReadable / FdWriteable —— fd interest 就绪首胜（底层 EV_READ/EV_WRITE 位）

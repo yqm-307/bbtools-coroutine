@@ -13,7 +13,7 @@ namespace bbt::coroutine::detail
 {
 
 /**
- * @brief DNS 阻塞解析的单线程任务池（#231）
+ * @brief DNS 阻塞解析的单线程任务池
  *
  * getaddrinfo/getnameinfo/gethostbyname/gethostbyaddr 会走真实网络或 NSS 查询，
  * 在协程内直接执行会占死 Processer 线程。本类把这类调用投递到唯一的 worker 线程

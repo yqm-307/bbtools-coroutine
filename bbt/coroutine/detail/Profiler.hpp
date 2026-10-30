@@ -1,3 +1,4 @@
+/* 协程事件计数/剖析 Profiler。 */
 #pragma once
 #include <atomic>
 #include <memory>

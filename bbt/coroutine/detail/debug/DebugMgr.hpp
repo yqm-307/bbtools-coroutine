@@ -37,7 +37,7 @@ private:
      * 不静默丢失。可由 worker 原生栈调用，自身不得抛出。 */
     void ReportAllocFailed(const char* what, unsigned long long id,
                            const char* detail) noexcept;
-    /* F-R3-04：m_co_map 登记的内部实现，只承担「find 判重 + insert 登记」
+    /* m_co_map 登记的内部实现，只承担「find 判重 + insert 登记」
      * 本身；bad_alloc 时 std::map 提供强保证、map 无残留，调用方据此有界
      * 重试。不在此计数/报告——策略由唯一调用点 OnEvent_ResumeCo 决定。 */
     void RegistResumeCo(Coroutine* co);

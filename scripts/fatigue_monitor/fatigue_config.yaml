@@ -5,7 +5,7 @@ build_dir: build
 
 # List of fatigue test processes to launch & monitor
 #   name:    display name (used in dashboard chart legend)
-#   binary:  executable filename (relative to build_dir/bin/benchmark_test/)
+#   binary:  executable filename (relative to build_dir/bin/benchmarks/)
 #   args:    optional extra CLI arguments (default: none)
 #   enabled: whether to launch this process (default: true)
 processes:

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Jenkins 测试公共契约的最小测试骨架。
+"""CI 公共契约的最小测试骨架。
 
 覆盖 classify_process_result / write_json_atomic（任务 1 核心契约）、
 run_command / utc_timestamp / ensure_dir / sanitized_env_summary
@@ -384,7 +384,7 @@ class FailureFingerprintTest(unittest.TestCase):
 
     规格：sha256("|".join([job, stage, test_name, str(returncode), category]))
     的前 16 位小写 hex。要求确定性、输入任一维变化即变化、与规格逐字节一致
-    （Jenkinsfile 固定 python 指纹行依赖本实现保持同构）。
+    （调用方固定 python 指纹行依赖本实现保持同构）。
     """
 
     def test_matches_spec_sha256_prefix(self):
@@ -429,7 +429,7 @@ class FailureFingerprintTest(unittest.TestCase):
 
     def test_int_and_str_returncode_equivalent(self):
         # 指纹拼接前统一 str(returncode)：数字 2 与字符串 "2" 必须同指纹，
-        # 与 Jenkinsfile 固定 python 行（argv 全为字符串）保持一致。
+        # 与调用方固定 python 行（argv 全为字符串）保持一致。
         self.assertEqual(
             failure_fingerprint("job", "stage", "test", 2, "failure"),
             failure_fingerprint("job", "stage", "test", "2", "failure"),

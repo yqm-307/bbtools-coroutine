@@ -1,3 +1,4 @@
+/* 调度器 Scheduler：Processer 管理、任务投递与扩缩容。 */
 #pragma once
 #include <atomic>
 #include <chrono>
@@ -47,7 +48,7 @@ struct ProcesserScalingBounds;
  * EventLoop 只通过 CoPoller::PollOnce 驱动。不直接依赖 Poller/epoll/ASIO。
  * 换 backend 改 CoPoller，不改本头。
  *
- * ---- 动态扩缩容的字段/所有权/锁序总表（实现说明，契约 §6）----
+ * ---- 动态扩缩容的字段/所有权/锁序总表（实现说明，运行时契约）----
  * 字段                                所有者/写者                 读者                      发布点
  * m_active_snapshot (shared_ptr<const vector>)  扩缩容提交（m_processer_map_mutex 下）  投递/steal/广播/诊断  提交时整体 swap
  * m_processer_map                    扩缩容提交（map 锁下）      定向查找/绑定/查询       同一次提交
@@ -133,7 +134,7 @@ public:
     void                                        RegistCoroutineTaskOn(ProcesserId target, const CoroutineCallback& handle, const char* desc = nullptr);
     void                                        RegistCoroutineTaskOn(ProcesserId target, size_t stack_size, const CoroutineCallback& handle, const char* desc = nullptr);
 
-    /* ---- processer driver adapter（契约 §11，见 IProcesserDriver.hpp）----
+    /* ---- processer driver adapter（运行时契约，见 IProcesserDriver.hpp）----
      * 注册失败不改 out_token；查询失败不改 out_snapshot。 */
     std::vector<ProcesserId>                    GetWorkerProcesserIds();
     ProcesserDriverStatus                       RegisterProcesserDriver(ProcesserId target,
@@ -143,7 +144,7 @@ public:
                                                     ProcesserDriverSnapshot& out_snapshot);
     ProcesserDriverStatus                       UnregisterProcesserDriver(const ProcesserDriverToken& token);
 
-    /* ---- Processer 动态扩缩容控制/观察（契约 §6.1–§6.3）----
+    /* ---- Processer 动态扩缩容控制/观察（运行时契约）----
      * 返回值只表示“目标是否已提交”；Ok/Pending 都不是物理线程已 join 的收据。
      * 合法手动请求（含 same-target）切 Manual 并复位双向样本；未初始化、
      * 越界、driver 约束、创建失败、SelfRetire、Busy 不改变 target/mode/样本。

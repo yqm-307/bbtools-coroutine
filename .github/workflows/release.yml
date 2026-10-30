@@ -106,8 +106,8 @@ jobs:
         timeout-minutes: 10
         run: |
           python3 source/scripts/acceptance_real_clients.py \
-            --echo-server ./source/build/bin/example/echo_server \
-            --hiredis ./source/build/bin/example/co_with_hiredis
+            --echo-server ./source/build/bin/examples/echo_server \
+            --hiredis ./source/build/bin/examples/co_with_hiredis
 
       - name: "性能发布 Gate"
         run: |
@@ -143,7 +143,7 @@ jobs:
         working-directory: source
         run: |
           if ! python3 scripts/record_baseline.py trend; then
-            echo "::warning::检测到连续性能退化趋势，请创建专项修复 Issue（见 docs/ci-guide.md）"
+            echo "::warning::检测到连续性能退化趋势，请创建专项修复 Issue（见 docs/guides/ci.md）"
           fi
 
       - name: "推送基线到 perf-baseline 分支（长期记录）"
@@ -201,8 +201,8 @@ jobs:
     name: "Publish GitHub Release"
     needs: [gate]
     if: github.ref == 'refs/heads/main'
-    # 独立一次性 runner；候选构建不接触发布凭据。
-    runs-on: ubuntu-latest
+    # 独立一次性 runner；候选构建不接触发布凭据。统一固定 ubuntu-24.04（方案 §2.7）。
+    runs-on: ubuntu-24.04
     environment:
       name: ${{ inputs.release_kind == 'stable' && 'release-stable' || 'release-rc' }}
     permissions:

@@ -1,0 +1,299 @@
+# bbtools-coroutine 正式普通 CI（唯一权威普通入口）。骨架（方案 §2.7）：
+# changes → docs-check → build-test（Release + ctest）→ perf-regression（仅
+# changes 的 perf 位为真，D4 语义不变）→ result（唯一汇聚判定点，result.py）。
+# 分类与结果判定本仓内联（scripts/ci/{changed_files,result}.py），callee 链已删（D3）。
+# docs-check.yml 全部检查（空白 diff/密钥扫描/check_docs.py）已迁入 docs-check job；
+# 纯文档 PR 只跑 changes + docs-check + result。判据见 out/co-p3a/gate-inventory.md。
+# 安全：ubuntu-24.04；顶层 permissions: {}；uses 全 40-hex SHA pin；
+# persist-credentials: false。fork PR 执行 PR head 的 workflow 文件。
+name: CI
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  # 手动重跑普通 build→test；发布 Gate 在 release.yml，memcheck 在 memcheck.yml。
+  workflow_dispatch:
+
+permissions: {}
+concurrency:
+  # push/main：group 含 run_id → 逐提交独立、互不取消（保住每个 SHA 的 main 结果，
+  # release_gate 按 head_sha 精确读取）；PR：group 用 github.ref → 只取消同一 PR 旧 run。
+  group: CI-${{ github.event_name == 'pull_request' && github.ref || format('run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+env:
+  BUILD_DIR: ${{ github.workspace }}/build
+  BOOST_PREFIX: ${{ github.workspace }}/boost-prefix
+  # hosted 4 vCPU：固定 3，与三仓统一并发口径一致，不按 nproc 抢占。
+  JOBS: 3
+jobs:
+  # 变更集 + 本仓内联分类与 perf 触发位；无法确定保守回退 unknown（执行全部）。
+  # job 名沿用现役 `变更类型检测`，required context 不悬空。
+  changes:
+    name: "变更类型检测"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      classification: ${{ steps.diff.outputs.classification }}
+      perf: ${{ steps.diff.outputs.perf }}
+    steps:
+      - name: "拉取代码库（含历史，供三点 diff）"
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: "从真实 diff 计算受限变更集 + 分类 + perf 位（未知保守全部）"
+        id: diff
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          SHA: ${{ github.sha }}
+          BEFORE: ${{ github.event.before }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/changed_files.py
+      # clang-format 改动行检查：先非必需（continue-on-error，只告警不阻断，D5 第一步）；
+      # 工具不在 PATH 时 check_format_diff.sh 报 error 退出 1，同样被 continue-on-error 吸收。
+      - name: "clang-format 改动行检查（非必需，告警不阻断）"
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: bash scripts/ci/check_format_diff.sh "origin/${{ github.base_ref }}"
+  # docs-check：空白 diff + 密钥扫描 + 链接/文件名/README（原 docs-check.yml 全量迁入）。
+  # 恒跑（required）：docs-only PR 只跑本 job 与 changes。
+  docs-check:
+    name: "文档检查（空格/链接/密钥）"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: "拉取代码库"
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: "空白错误检查（真实范围，SHA 格式校验 fail-closed）"
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          is_sha40() { printf '%s' "$1" | grep -Eq '^[0-9a-f]{40}$'; }
+          case "${EVENT_NAME:-}" in
+            pull_request)
+              is_sha40 "${BASE_SHA:-}" || { echo "FATAL: PR base sha 缺失或非法" >&2; exit 2; }
+              range="${BASE_SHA}...HEAD" ;;
+            push)
+              is_sha40 "${BEFORE:-}" || { echo "FATAL: push before sha 缺失或非法" >&2; exit 2; }
+              is_sha40 "${SHA:-}" || { echo "FATAL: push head sha 缺失或非法" >&2; exit 2; }
+              range="${BEFORE}..${SHA}" ;;
+            *) echo "FATAL: 不支持的事件: ${EVENT_NAME:-<empty>}" >&2; exit 2 ;;
+          esac
+          git diff --check "$range"
+      - name: "密钥扫描（已跟踪源码，rc>1 fail-closed）"
+        run: |
+          set -euo pipefail
+          pattern='BEGIN (RSA|OPENSSH|EC|DSA) PRIVATE KEY|gh[pousr]_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{20,}|xox[baprs]-[A-Za-z0-9-]{20,}'
+          set +e
+          git grep -qEI "$pattern" -- ':!build*' ':!tests/reports/archive'
+          rc=$?
+          set -e
+          case "$rc" in
+            0) echo 'secret-like material found' >&2; exit 1 ;;
+            1) echo 'secret scan clean' ;;
+            *) echo "FATAL: 密钥扫描未完成（git grep rc=$rc），fail-closed" >&2; exit 2 ;;
+          esac
+      - name: "docs-check（链接/文件名/README 上限）"
+        run: python3 -I scripts/ci/check_docs.py --root . --readme-max 200
+  # 重型构建 + 全量 ctest（含 integration label）：code/unknown 才跑，docs-only 显式跳过。
+  # job 名沿用现役 required check 名 `编译 & 单元测试`（release_gate 按名读取）。
+  build-test:
+    name: "编译 & 单元测试"
+    needs: [changes]
+    if: ${{ needs.changes.result == 'success' && needs.changes.outputs.classification != 'docs-only' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    permissions:
+      contents: read
+    steps:
+      - name: "拉取代码库"
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: "复现工具链（Boost 1.90 context 源码前缀）并导出到后续步骤"
+        run: |
+          bash scripts/ci/prepare_boost.sh "$BOOST_PREFIX" --jobs "$JOBS"
+          echo "BOOST_ROOT=$BOOST_PREFIX" >> "$GITHUB_ENV"
+          echo "CMAKE_PREFIX_PATH=$BOOST_PREFIX" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$BOOST_PREFIX/lib:$BUILD_DIR/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+      - name: "采集 runner 调度与工具链日志（证据）"
+        run: printf 'runner=%s\n' "$RUNNER_NAME"; nproc; ulimit -r || true; grep -E 'Cap(Prm|Eff|Bnd)' /proc/self/status || true; cmake --version | head -1; g++ --version | head -1; ninja --version || true; python3 --version
+      - name: "编译"
+        run: |
+          rm -rf build && mkdir build && cd build
+          # NEED_EXAMPLE=ON：普通 PR 编译全部 examples；依赖外部服务（hiredis/mysql）
+          # 缺失时 CMake 自动跳过对应 target，只编译不运行。
+          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DNEED_TEST=ON -DNEED_BENCHMARK=ON -DNEED_EXAMPLE=ON
+          cmake --build . --parallel "$JOBS"
+      - name: "CI 与发布工具自测"
+        run: |
+          python3 scripts/test_release_gate.py
+          python3 -m unittest discover -s scripts/ci -p 'test_*.py'
+      - name: "ctest（全部单元测试）"
+        run: |
+          cd build
+          # 有界重试最多 3 次，应对间歇性 flaky 测试；每次 attempt 独立进程，失败证据留在 job 日志中。
+          # 总时长由 step 级 timeout-minutes 界定，不过度限制单次 ctest。
+          for i in 1 2 3; do
+            ctest --timeout 60 --output-on-failure && exit 0
+            echo "ctest attempt $i failed, retrying..."
+          done
+          exit 1
+        timeout-minutes: 10
+      - name: "冒烟/可靠性测试（Test_smoke 90s / Test_reliability 120s，各 3 次有界重试）"
+        run: |
+          cd build
+          for bin in 90s:Test_smoke 120s:Test_reliability; do
+            limit="${bin%%:*}"; name="${bin##*:}"
+            for i in 1 2 3; do
+              timeout --signal=TERM --kill-after=10s "$limit" "bin/tests/$name" --log_level=test_suite && break
+              echo "$name attempt $i failed, retrying..."
+              [ "$i" -lt 3 ] || exit 1
+            done
+          done
+        timeout-minutes: 12
+  # ── 性能回归检查：仅 changes 的 perf 位为真时跑（D4），阈值与阻断语义不变 ──
+  # 同 runner 顺序构建/测量 base+head 真实对比（fail-closed）；结果进 result 汇聚，
+  # 触发后 skipped/失败一律判红。判定链与阈值见 docs/guides/ci.md §5，与现役逐项一致。
+  perf-regression:
+    name: "性能回归检查"
+    needs: [changes]
+    # always()：changes 失败时 outputs 为空 → != 'false' → 保守执行（等价 perf=true 规则）。
+    if: ${{ always() && (github.event_name == 'pull_request' || github.event_name == 'push') && needs.changes.outputs.perf != 'false' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      PERF_JOBS: 3
+      PERF_SUBJECT_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      PERF_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+    steps:
+      - name: "拉取 subject(head) 源码树（完整历史，显式 SHA）"
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: perf-src-head
+      - name: "拉取 base 源码树（完整历史，显式 SHA）"
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: perf-src-base
+      - name: "校验 subject/base SHA 并核验源码树绑定（40-hex、非零、可达、HEAD 对账）"
+        run: |
+          set -euo pipefail
+          require_sha() {
+            name="$1"; value="$2"
+            case "$value" in
+              ''|*[!0-9a-f]*) echo "FATAL: $name 不是完整小写 40-hex SHA: '$value'" >&2; exit 2 ;;
+            esac
+            [ "${#value}" -eq 40 ] || { echo "FATAL: $name 长度非 40: '$value'" >&2; exit 2; }
+            [ "$value" != "0000000000000000000000000000000000000000" ] \
+              || { echo "FATAL: $name 为零 SHA（无对应提交，如首次推送）" >&2; exit 2; }
+          }
+          require_sha subject "$PERF_SUBJECT_SHA"
+          require_sha base "$PERF_BASE_SHA"
+          echo "subject=$PERF_SUBJECT_SHA"
+          echo "base=$PERF_BASE_SHA"
+          for pair in "perf-src-head:$PERF_SUBJECT_SHA" "perf-src-base:$PERF_BASE_SHA"; do
+            dir="${pair%%:*}"; want="${pair##*:}"
+            git -C "$dir" cat-file -e "$want^{commit}" \
+              || { echo "FATAL: $want 在 $dir 中不可达" >&2; exit 2; }
+            got="$(git -C "$dir" rev-parse HEAD)"
+            [ "$got" = "$want" ] \
+              || { echo "FATAL: $dir HEAD=$got 与期望 $want 不符" >&2; exit 2; }
+          done
+      - name: "复现工具链（Boost 1.90 context 源码前缀）并导出到后续步骤"
+        run: |
+          bash perf-src-head/scripts/ci/prepare_boost.sh "$BOOST_PREFIX" --jobs "$PERF_JOBS"
+          echo "BOOST_ROOT=$BOOST_PREFIX" >> "$GITHUB_ENV"
+          echo "CMAKE_PREFIX_PATH=$BOOST_PREFIX" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$BOOST_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+      - name: "顺序构建 base/head 的 unified_stress（仅该目标，不跑全量 CTest）"
+        run: |
+          set -euo pipefail
+          cmake -S perf-src-base -B perf-build-base -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DNEED_BENCHMARK=ON -DNEED_TEST=OFF
+          cmake --build perf-build-base --target unified_stress --parallel "$PERF_JOBS"
+          cmake -S perf-src-head -B perf-build-head -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DNEED_BENCHMARK=ON -DNEED_TEST=OFF
+          cmake --build perf-build-head --target unified_stress --parallel "$PERF_JOBS"
+      - name: "base 无基线测量（runner 临时基线；NO_COMPARABLE_BASELINE 不是 PASS）"
+        run: |
+          set -euo pipefail
+          python3 perf-src-head/scripts/ci_perf_check.py \
+            --build-dir perf-build-base \
+            --commit-sha "$PERF_BASE_SHA" \
+            --no-baseline-compare --dur 45 --threads 2 \
+            --output perf-base-report.json
+      - name: "head 严格同 runner 对比（缺证据/errors>0/环境不可比 → exit 2）"
+        run: |
+          set -euo pipefail
+          python3 perf-src-head/scripts/ci_perf_check.py \
+            --build-dir perf-build-head \
+            --commit-sha "$PERF_SUBJECT_SHA" \
+            --baseline perf-base-report.json \
+            --strict-comparable --gate-enabled --dur 45 --threads 2 \
+            --output perf-head-report.json
+  # 结果汇聚（唯一汇聚 check，context=CI/result；远端 required 以 ruleset 回读为准）：always 运行，
+  # needs.*.result → scripts/ci/result.py，fail-closed。预期跳过由 payload 的
+  # expected_skips 显式放行：build-test 仅 docs-only；perf-regression 仅
+  # perf=false（D4 未触发）或 workflow_dispatch（perf job 限 pull_request/push）。
+  result:
+    needs: [changes, docs-check, build-test, perf-regression]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    env:
+      RESULTS_JSON: ${{ format('{{"changes":"{0}","docs-check":"{1}","build-test":"{2}","perf-regression":"{3}"}}', needs.changes.result, needs.docs-check.result, needs.build-test.result, needs.perf-regression.result) }}
+      # changes 失败时 outputs 为空，回退 unknown/'true' → 按「执行全部」判。
+      CLASSIFICATION: ${{ needs.changes.outputs.classification || 'unknown' }}
+      PERF: ${{ needs.changes.outputs.perf || 'true' }}
+      EVENT_NAME: ${{ github.event_name }}
+    steps:
+      - name: "拉取代码库（result.py 在仓内）"
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: "汇聚 needs.*.result → verdict（fail-closed，非零即红）"
+        run: |
+          set -euo pipefail
+          payload="$RUNNER_TEMP/result-input.json"
+          python3 - "$payload" <<'PY'
+          import json, os, sys
+          skips = []
+          if os.environ["CLASSIFICATION"] == "docs-only": skips.append("build-test")
+          if os.environ["PERF"] == "false" or os.environ["EVENT_NAME"] == "workflow_dispatch":
+              skips.append("perf-regression")
+          payload = {"results": json.loads(os.environ["RESULTS_JSON"]),
+                     "required": ["changes", "docs-check"],
+                     "optional": ["build-test", "perf-regression"],
+                     "expected_skips": skips}
+          with open(sys.argv[1], "w", encoding="utf-8") as handle:
+              json.dump(payload, handle)
+          PY
+          cat "$payload"; echo
+          python3 scripts/ci/result.py --file "$payload"

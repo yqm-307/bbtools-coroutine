@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Jenkins 低资源持续疲劳测试（Soak）Harness。
+"""低资源持续疲劳测试（Soak）Harness。
 
 单进程覆盖六个模块。脚本仅采集和判定，不修改主机资源限制。
 正式 CLI 以 build 目录、测试时长、采样间隔和报告根目录为输入；
@@ -227,7 +227,7 @@ def validate_args(args: argparse.Namespace, repository_root: Path) -> Path:
         if args.memory_high_mib > args.memory_max_mib:
             raise ValueError("MemoryHigh 不得大于 MemoryMax")
     build_dir = args.build_dir.resolve()
-    binary = build_dir / "bin/benchmark_test/unified_stress"
+    binary = build_dir / "bin/benchmarks/unified_stress"
     if not build_dir.is_dir() or not binary.is_file():
         raise ValueError(f"Soak 二进制不存在: {binary}")
     allowed = (repository_root / "tests/reports/soak").resolve()

@@ -1,3 +1,4 @@
+/* 协程库对外入口：汇总公共头，提供当前协程只读查询与 Chan 便捷构造。 */
 #pragma once
 
 #include <bbt/coroutine/detail/GlobalConfig.hpp>

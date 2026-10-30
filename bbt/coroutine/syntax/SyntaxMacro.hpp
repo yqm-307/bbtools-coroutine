@@ -14,7 +14,7 @@
  *   bbtco_wait_for                                   → Coroutine::YieldUntilFdEx
  *   bbtco_defer                                      → detail::Defer
  *
- * bbtco_desc(desc) 当前丢掉 desc，只当 bbtco。描述落库留给 #276。
+ * bbtco_desc(desc) 当前丢掉 desc，只当 bbtco。描述落库留给后续工作。
  */
 
 /* 辅助宏 */
@@ -37,7 +37,7 @@
 #define bbtco_noexcept(succ) bbt::coroutine::_CoHelper(succ)+ 
 
 /**
- * @brief 注册一个带描述的协程任务（#276 起 desc 落库，诊断现场可读回）。
+ * @brief 注册一个带描述的协程任务（desc 落库，诊断现场可读回）。
  * 其余语义与 bbtco 一致。
  */
 #define bbtco_desc(desc) bbt::coroutine::_CoHelper(desc)-

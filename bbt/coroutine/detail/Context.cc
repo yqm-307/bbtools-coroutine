@@ -50,7 +50,7 @@ void Context::_CoroutineMain(boost::context::detail::transfer_t transfer)
         if (co != nullptr)
             co->OnException(eptr);
 
-        /* #275：异常文本提取一份，日志与回调共用 */
+        /* 异常文本提取一份，日志与回调共用 */
         std::string what{"unknown exception"};
         try {
             if (eptr)
@@ -67,12 +67,12 @@ void Context::_CoroutineMain(boost::context::detail::transfer_t transfer)
                 /* 回调异常不得逃出 fcontext */
             }
         } else {
-            /* 契约 §5：detached 无人接收的异常必须日志 + 计数，禁止静默丢失。
+            /* 运行时契约：detached 无人接收的异常必须日志 + 计数，禁止静默丢失。
              * re-throw 会逃出 fcontext 导致 terminate，故交付 = 日志+计数。
              * WHY 不用 WarnPrint：本 catch 运行在协程自身栈上，而
              * DebugPrint 族内部各带 char[4096] 栈缓冲（vformat+VPrint≈8KB），
              * 会打爆默认 4KB 协程栈；直接 fprintf 到 stderr，栈占用有界。
-             * 日志带 co id：与 parked 现场（#276）串联定位是哪个协程。 */
+             * 日志带 co id：与 parked 现场串联定位是哪个协程。 */
             const CoroutineId co_id = (co != nullptr) ? co->GetId() : BBT_COROUTINE_INVALID_COROUTINE_ID;
             std::fprintf(stderr, "[bbtco] unhandled exception co=%u: %.200s\n",
                          static_cast<unsigned>(co_id), what.c_str());
@@ -166,7 +166,7 @@ int Context::YieldWithCallback(const CoroutineOnYieldCallback& cb)
     try {
         m_onyield_callback = cb;
     } catch (...) {
-        /* #368-R2/F3：target 非 SBO 时存储复制可抛 bad_alloc。此时协程
+        /* target 非 SBO 时存储复制可抛 bad_alloc。此时协程
          * 尚未让出，回调槽按「未登记」收口——恢复空槽与 NO_CHECK，由
          * Coroutine::YieldWithCallback 负责 await/运行态回滚。本 catch
          * 只做成员复位，不产生新分配。 */
@@ -195,7 +195,7 @@ void Context::Resume()
      * 可能再次 YieldWithCallback 挂出新的 onyield 回调——必须循环处理
      * 直到没有待执行回调。只重入一次的旧实现会丢掉新回调：协程带着未
      * 注册的 await 事件停在 EVENT_WAIT，CommitYield 的 CommitPark 失败
-     * 后被 Processer 丢弃引用，协程永久悬挂且无回收点。（#369）
+     * 后被 Processer 丢弃引用，协程永久悬挂且无回收点。
      * 注：协程侧 YieldWithCallback 在 _Yield 返回后自行清空
      * m_onyield_callback，本循环每次读到的是协程最新挂出的回调。 */
     while (m_onyield_callback) {

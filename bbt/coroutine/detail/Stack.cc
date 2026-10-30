@@ -184,7 +184,7 @@ void Stack::_Release()
         std::terminate();
     }
 
-    /* #279：释放必须是实际执行语句，不能塞进 assert——NDEBUG 下 assert 整个被
+    /* 释放必须是实际执行语句，不能塞进 assert——NDEBUG 下 assert 整个被
      * 编译掉，Release 构建会泄漏每块栈内存。先释放并置空回收到空态，保证
      * Clear/析构幂等且不二次 free。
      * ret 只作保留（Free 当前恒返回 0），用本仓 BBTATTR_COMM_UNUSED 标记

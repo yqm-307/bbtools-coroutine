@@ -1,3 +1,4 @@
+/* 协程作用域退出执行器 Defer（bbtco_defer 底层）。 */
 #pragma once
 #include <boost/noncopyable.hpp>
 #include <bbt/coroutine/detail/Define.hpp>

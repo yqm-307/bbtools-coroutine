@@ -1,3 +1,4 @@
+/* 把 ICoLock 适配为 std 锁概念的 StdLockWapper。 */
 #pragma once
 #include <memory>
 #include <bbt/coroutine/sync/interface/ICoLock.hpp>
