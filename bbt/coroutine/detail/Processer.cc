@@ -283,7 +283,7 @@ void Processer::_WaitForWork()
         g_bbt_coroutine_config->m_cfg_processer_proc_interval_us);
 
     /* lease 在 run_cond 锁外获取，不建立 binding→run_cond 嵌套锁序；
-     * 没有 binding 或 lease 被 Failed/Detaching 拒绝时走原 #393 分支，
+     * 没有 binding 或 lease 被 Failed/Detaching 拒绝时走原有分支，
      * 不加新的本地 approx 门控（避免 size_approx 假阳性忙等）。 */
     auto binding = _GetDriverBinding();
     if (binding != nullptr) {
@@ -322,7 +322,7 @@ void Processer::_WaitForWork()
         }
     }
 
-    /* 无 driver（或 Failed/Detaching 拒绝普通 lease）：保留 #393 原路径，
+    /* 无 driver（或 Failed/Detaching 拒绝普通 lease）：保留原有路径，
      * 睡前 global/实际本地队列复查 + 锁内 latch 等待。 */
     std::unique_lock<std::mutex> lock(m_run_cond_mutex);
     if (_TryGetCoroutineFromGlobal() == 0 && GetExecutableNum() == 0)
@@ -446,7 +446,7 @@ void Processer::_Run()
             // 执行前设置当前协程缓存（预算单位为微秒，计时必须显式 us）
             m_running_coroutine_begin.exchange(bbt::core::clock::gettime_mono<bbt::core::clock::us>());
 
-            /* worker 无进展快照（#277/#367）：每 Resume 刷新一次。spin/parked
+            /* worker 无进展快照：每 Resume 刷新一次。spin/parked
              * 都只执行一次 Resume——区分"执行停顿"靠 executing 标志：
              * 调度线程读到 true 且 begin_ts 超阈值 = 用户代码占死 worker；
              * 读到 false = 协程已让出，不算停顿。整组字段在

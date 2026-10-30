@@ -1,3 +1,4 @@
+/* 单个 fd/定时器事件 Event（asio 封装）。 */
 #pragma once
 #include <bbt/pollevent/detail/Define.hpp>
 #include <bbt/pollevent/detail/EventBase.hpp>
@@ -44,7 +45,7 @@ private:
     EventId                     m_id{0};
     detail::EventBase*          m_ref_base{nullptr};
     evutil_socket_t             m_fd{-1};
-    /* #370：fd 事件实际交给 asio 的内部 dup fd（构造函数 ::dup(m_fd)），
+    /* fd 事件实际交给 asio 的内部 dup fd（构造函数 ::dup(m_fd)），
      * 与用户 fd 号生命周期解耦。构造成功后由 m_sd adopt 持有，析构/取消
      * 走 release()+::close 单一收口；构造中失败时同口径只关一次。
      * 非 fd 事件为 -1。 */

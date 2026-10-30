@@ -1,3 +1,4 @@
+/* Errcode 错误码实现与常用别名（ErrOpt/ErrTuple/ErrRlt）。 */
 #pragma once
 
 #include "IErrcode.hpp"

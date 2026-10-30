@@ -7,7 +7,7 @@
 namespace bbt::core::clock
 {
 
-/* 时间值常量（Issue #12：原 bbt::core::clock::def 子命名空间压平至本层；
+/* 时间值常量（原 bbt::core::clock::def 子命名空间压平至本层；
  * 其中 HourOfDay/DayOfWeek 与同名函数冲突，更名为 HoursPerDay/DaysPerWeek） */
 BBT_TIME_CONVERT_TYPE MinOfHour = 60;
 BBT_TIME_CONVERT_TYPE HoursPerDay = 24;

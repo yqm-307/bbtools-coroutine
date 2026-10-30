@@ -1,3 +1,4 @@
+/* 基于 boost::lockfree::queue 的线程安全队列包装。 */
 #pragma once
 #include <boost/lockfree/queue.hpp>
 #include <boost/noncopyable.hpp>

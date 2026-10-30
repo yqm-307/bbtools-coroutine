@@ -283,14 +283,14 @@ enum PollEventType
     POLL_EVENT_WRITEABLE    = 1 << 1,
     POLL_EVENT_READABLE     = 1 << 2,
     POLL_EVENT_CUSTOM       = 1 << 3,
-    /* #347②：本次唤醒原因是取消（协程级 RequestCancel，或等待者订阅的取消令牌
+    /* 本次唤醒原因是取消（协程级 RequestCancel，或等待者订阅的取消令牌
      * 经 CoPoller::NotifyCancelEvent 触发），与 POLL_EVENT_TIMEOUT 分离，使
      * 「本次等待为何结束」可在仲裁点（唤醒原因掩码）直接读出。
      * 取 bit8 以上：core 的 EventOpt 沿用 libevent 数值（0x01~0x80，含 core
      * 尚未定义的 EV_ET 0x20），取高位与之彻底错开，不必依赖「某些位绝不会到达
      * 触发掩码」这类边界不变量。 */
     POLL_EVENT_CANCELLED    = 1 << 8,
-    /* #370：本次唤醒原因是 fd 被 Hook_Close 摘除（close+代际推进的
+    /* 本次唤醒原因是 fd 被 Hook_Close 摘除（close+代际推进的
      * 线性化点内完成）。与 CANCELLED 同取高位区，与 core EventOpt
      * 0x01~0x80 错开；恢复方据此把挂起等待映射为 EBADF，禁止在
      * close 后已复用的同号新对象上重试 syscall。 */
@@ -298,10 +298,10 @@ enum PollEventType
 };
 
 /**
- * @brief 协程挂起现场快照（#276 诊断契约）
+ * @brief 协程挂起现场快照（诊断契约）
  *
  * 只在协程自身线程（同 Processer）读取，成员来自 parked 时的 await_event，
- * 无并发写者；跨线程统一快照属 #277 范围。
+ * 无并发写者；跨线程统一快照由 WorkerStallInfo 承载。
  */
 struct CoroutineWaitInfo
 {
@@ -312,7 +312,7 @@ struct CoroutineWaitInfo
 };
 
 /**
- * @brief Worker 无进展快照（#277 停顿检测契约）
+ * @brief Worker 无进展快照（停顿检测契约）
  *
  * 由调度线程（_FixTimingScan）读取 worker 的锁存快照构造，与 worker 执行
  * 路径无锁竞争：快照是"最后一次已完成的 Resume"的副本，协程每次被调度
@@ -328,7 +328,7 @@ struct WorkerStallInfo
 };
 
 /**
- * @brief worker 无进展告警回调（#277）。非线程安全要求：由调度线程调用，
+ * @brief worker 无进展告警回调。非线程安全要求：由调度线程调用，
  * 实现必须不阻塞、不抛出（抛出会被调度线程吞掉并计数）。
  */
 typedef std::function<void(const WorkerStallInfo& info)> WorkerStallCallback;

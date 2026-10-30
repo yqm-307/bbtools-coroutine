@@ -52,7 +52,7 @@ void ReportCoPollEventException(CoroutineId co_id, CoPollEventId event_id,
     report("unknown exception");
 }
 
-/* #284：重试等待必须直达内核。std::this_thread::sleep_for 经 libc nanosleep，
+/* 重试等待必须直达内核。std::this_thread::sleep_for 经 libc nanosleep，
  * 而本进程 nanosleep 已被 Hook 拦截——协程上下文会重入 YieldUntilTimeout，
  * 造成 double-wait 断言与等待状态错乱；syscall(2) 绕过全部 userspace hook。 */
 void RawSleepMs(long ms) noexcept
@@ -154,7 +154,7 @@ CoPollEventId CoPollEvent::_GenerateId()
     return ++_id;
 }
 
-/* fd → {代际, closing, 活跃等待事件}（#262 唤醒 + #370 代际线性化）
+/* fd → {代际, closing, 活跃等待事件}（唤醒 + 代际线性化）
  *
  * 进程寿命持有：本表与互斥量被 worker / poller 在进程寿命内持续可达
  * （worker 活到进程结束，没有 Stop/join 可等待）。若它们参与静态析构，
@@ -181,7 +181,7 @@ bool CoPollEvent::_TrackWaiter()
 
     std::lock_guard<std::mutex> lock(_WaitersMtx());
     auto& slot = _Slots()[m_fd];
-    /* #370 建立窗口闭合：登记与采样虽然仍在同一临界区，但判定基线是
+    /* 建立窗口闭合：登记与采样虽然仍在同一临界区，但判定基线是
      * InitFdEvent 时锁内采样的 establish-epoch（m_wait_epoch），而非
      * 此刻的 slot.epoch。两种失败形态：
      *   - slot.closing：close 已声明（BeginFdClose 摘表、bump 完成），
@@ -197,8 +197,7 @@ bool CoPollEvent::_TrackWaiter()
     vec.push_back(weak_from_this());
     /* 惰性清理仅在「从未发生过 close」的槽位上进行：epoch>0 的槽位携带
      * close 历史，必须由 FdEpoch 永久可查——否则「触发后未恢复」窗口内
-     * 的 close 会把 epoch 抹回 0，与首代 establish-epoch 别名（#370
-     * round-2 复审发现）。closing 槽位由 EndFdClose 收尾统一清理。 */
+     * 的 close 会把 epoch 抹回 0，与首代 establish-epoch 别名。closing 槽位由 EndFdClose 收尾统一清理。 */
     if (vec.size() > 16) {
         vec.erase(std::remove_if(vec.begin(), vec.end(),
                                  [](const std::weak_ptr<CoPollEvent>& w) { return w.expired(); }),
@@ -228,7 +227,7 @@ void CoPollEvent::_UntrackWaiter()
               vec.end());
     /* epoch>0 的槽位携带 close 历史不得擦除：FdEpoch 对缺席槽位返回 0，
      * 会与「从未等待过该 fd」的首代 establish-epoch 0 别名，使恢复路径
-     * FdWaitEpochValid 误判合法（#370 round-2 复审发现）。closing 槽位
+     * FdWaitEpochValid 误判合法。closing 槽位
      * 由 EndFdClose 收尾；仅 epoch==0（从未 close）且无 waiter 才摘除。 */
     if (vec.empty() && !it->second.closing && it->second.epoch == 0)
         _Slots().erase(it);
@@ -259,7 +258,7 @@ bool CoPollEvent::BeginFdClose(int fd)
     std::vector<SPtr> snapshot;
     {
         std::lock_guard<std::mutex> lock(_WaitersMtx());
-        /* #370 线性化点：在底层 close 之前，于同一临界区内完成
+        /* 线性化点：在底层 close 之前，于同一临界区内完成
          * 代际推进 + closing 置位 + 摘走全部旧 waiter。此后到达的同号
          * waiter 采样新 epoch 或看到 closing，均不会被本批误摘/误醒。 */
         auto& slot = _Slots()[fd];
@@ -291,7 +290,7 @@ void CoPollEvent::EndFdClose(int fd)
         return;
     it->second.closing = false;
     /* epoch>0 的槽位必须保留：FdEpoch 缺席返回 0 会与首代 establish-epoch
-     * 别名，使「触发后未恢复」窗口内的 close 无法被识别（#370 round-2）。 */
+     * 别名，使「触发后未恢复」窗口内的 close 无法被识别。 */
     if (it->second.waiters.empty() && it->second.epoch == 0)
         _Slots().erase(it);
 }
@@ -330,7 +329,7 @@ int CoPollEvent::InitFdEvent(int fd, short events, int timeout)
     m_fd = fd;
     m_listen_events = events;
     m_timeout = timeout;
-    /* #370 establish-epoch + #402 establish-closing：在绑 fd 建立等待的起点
+    /* establish-epoch + establish-closing：在绑 fd 建立等待的起点
      * 于同一临界区采样 fd 代际与 closing。
      *   - m_wait_epoch 作为本次等待的代际基线：_TrackWaiter 登记时若发现
      *     epoch 已推进（InitFdEvent→Regist 窗口内发生过 close），即拒绝
@@ -367,7 +366,7 @@ int CoPollEvent::InitFdEvent(int fd, short events, int timeout)
         return 0;
     }
     auto weakthis = weak_from_this();
-    /* #284：asio 侧旧监听的析构延迟到驱动线程下一次 PollOnce 兑现；本协程
+    /* asio 侧旧监听的析构延迟到驱动线程下一次 PollOnce 兑现；本协程
      * 被唤醒后若抢在兑现前为同一 fd 建新监听，epoll ADD 报 EEXIST，异常曾
      * 一路逃出杀死连接协程（客户端超时）。此处有界重试：驱动约 1ms 一拍，
      * 旧监听很快释放；仍失败则返回 -1 不抛异常，调用方按等待建立失败处理，
@@ -414,7 +413,7 @@ int CoPollEvent::InitCustomEvent(int key, void* args)
 int CoPollEvent::Regist()
 {
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
-    /* R2-02：诊断登记经 TryRegistEvent 收口——map 节点单次分配失败返回
+    /* 诊断登记经 TryRegistEvent 收口——map 节点单次分配失败返回
      * false（内部已报告 + 计数，不抛出——本函数可运行在 Context::Resume
      * 原生 worker 栈，协程侧 catch 不可达，出逃即 terminate）。
      * 失败语义统一为「登记未完成」：PENDING 分支返回 -1 由挂起回调按
@@ -422,7 +421,7 @@ int CoPollEvent::Regist()
      * 无 map 配对需求）；ARMED 主线先 UnRegist 收敛终态再 -1。
      * 登记点仍在原分支内：失败不提前登记，保证同一事件的多次 Regist
      * 调用与「repeat regist」断言语义不变。
-     * F-01：std::map::insert 单次分配失败无副作用（强保证 map 无残留），
+     * std::map::insert 单次分配失败无副作用（强保证 map 无残留），
      * 同一无副作用登记可有界重试一次——与 co 侧 OnEvent_ResumeCo 同一
      * 策略，保住已接纳的 PENDING 首胜（触发位与 Notify 载荷）。连续 OOM
      * 第二次失败仍按「登记未完成」返回 false（TryRegistEvent 内部已各自
@@ -506,7 +505,7 @@ int CoPollEvent::Regist()
 
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
     /* 登记拒绝也会进入 CLOSED 完成路径，必须先记账再允许它触发。
-     * R2-02：诊断记账失败时事件绝不允许走向 _Complete——PENDING/完成
+     * 诊断记账失败时事件绝不允许走向 _Complete——PENDING/完成
      * 路径的 TriggerEvent 配对断言依赖 map 条目，缺失即断言中止。
      * 按「登记未完成」闭环：ARMED→CANCELLED 终态 + 底层事件移交回收
      * （与既有 UnRegist 同一回收路径），返回 -1 使挂起回调以
@@ -517,8 +516,8 @@ int CoPollEvent::Regist()
         return -1;
     }
 #endif
-    // ARMED 起进入监听态，纳入 fd 唤醒注册表（#262）
-    /* #370：登记时若 fd 正在 closing，或自 InitFdEvent 采样 establish-epoch
+    // ARMED 起进入监听态，纳入 fd 唤醒注册表
+    /* 登记时若 fd 正在 closing，或自 InitFdEvent 采样 establish-epoch
      * 以来代际已推进（close 完整落在建立窗口内，asio wait 绑在死 fd 上），
      * _TrackWaiter 拒绝登记。此处以 POLL_EVENT_CLOSED 自触使协程恢复后走
      * EBADF，而不是等一个永远不会到达的就绪事件。 */

@@ -15,9 +15,9 @@ int CoRWMutex::RLock()
     _SysLock();
     // 如果获取不到锁则持续挂起，直到获取到锁
     while (m_status == CORWMUTEX_WLOCKED || m_has_wait_wlock) {
-        /* #368：等待失败时挂起回调未执行，m_mutex 仍由本线程持有，
+        /* 等待失败时挂起回调未执行，m_mutex 仍由本线程持有，
          * 直接由下方唯一出口解锁并返回 -1；不得重入 _SysLock。
-         * #368-R1/F3：等待准备（CoWaiter 构造/排队/RegistCustom/回调装配）
+         * 等待准备（CoWaiter 构造/排队/RegistCustom/回调装配）
          * 的一次分配失败会把异常抛出本函数——此时 m_mutex 仍持有，catch 里
          * 由 cb_ran 严格区分「回调已解锁」与「回调未执行」，不得双解锁
          * 或把锁残留带走。 */
@@ -67,12 +67,12 @@ int CoRWMutex::WLock()
 {
     _SysLock();
     while (m_status != CORWMUTEX_FREE) {
-        /* #368：失败补偿与 RLock 同——等待未挂起时锁仍在手，
-         * 统一解锁返回 -1。#368-R1/F2：写者责任改为计数——
+        /* 失败补偿与 RLock 同——等待未挂起时锁仍在手，
+         * 统一解锁返回 -1。写者责任改为计数——
          * 挂起回调在持锁临界区 +1，等待返回后由本写者 -1 并按
          * 计数重建 m_has_wait_wlock；先挂起再登记失败的写者不残留
          * 责任，也不掩盖其它仍存活排队写者。
-         * #368-R1/F3：等待准备抛异常时 cb_ran 区分锁归属；回调已
+         * 等待准备抛异常时 cb_ran 区分锁归属；回调已
          * 完整执行（含解锁与计数）的极端路径重取锁结清计数再抛出。 */
         bool cb_ran = false;
         int wait_ret = -1;
@@ -193,13 +193,13 @@ int CoRWMutex::TryRLock(int ms)
             return true;
         });
     } catch (...) {
-        /* #368-R1/F3：同 RLock——异常按回调是否已解锁区分。 */
+        /* 同 RLock——异常按回调是否已解锁区分。 */
         if (!cb_ran)
             _SysUnLock();
         throw;
     }
 
-    /* #368：失败路径挂起回调未执行，锁仍在手不得重入；
+    /* 失败路径挂起回调未执行，锁仍在手不得重入；
      * 成功/超时路径回调已释放锁，必须重取后再看 m_status。 */
     if (bbt_unlikely(ret == -1)) {
         _SysUnLock();
@@ -277,7 +277,7 @@ int CoRWMutex::TryWLock(int ms)
         throw;
     }
 
-    /* #368：失败路径锁仍在手不得重入；同 RLock 失败补偿。 */
+    /* 失败路径锁仍在手不得重入；同 RLock 失败补偿。 */
     if (bbt_unlikely(ret == -1)) {
         _SysUnLock();
         return -1;
@@ -346,7 +346,7 @@ int CoRWMutex::_WaitRLock(detail::CoroutineOnYieldCallback&& cb)
 {
     auto waiter = CoWaiter::Create();
     m_wait_readlock_queue.push(waiter);
-    /* #368-R2/F3：writer 优先在 _NotifyOne/_NotifyAll 的消费顺序里维持，
+    /* writer 优先在 _NotifyOne/_NotifyAll 的消费顺序里维持，
      * 不在持锁路径反复扫描队列；装配失败回滚以 tombstone 表达。 */
     try {
         return waiter->WaitWithCallback(std::forward<detail::CoroutineOnYieldCallback>(cb));
@@ -372,7 +372,7 @@ int CoRWMutex::_WaitWLock(detail::CoroutineOnYieldCallback&& cb)
 
 int CoRWMutex::_WaitRLockWithTimeout(int ms, detail::CoroutineOnYieldCallback&& cb)
 {
-    /* #368：负期限的定时事件无法建立（RegistCustom→InitFdEvent 拒收），
+    /* 负期限的定时事件无法建立（RegistCustom→InitFdEvent 拒收），
      * 入队等待会永久悬挂且无唤醒源；按无效期限立即报错。 */
     if (ms < 0)
         return -1;

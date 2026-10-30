@@ -11,4 +11,4 @@ cd ${workpath}/build
 cmake -DRELEASE=ON -DNEED_EXAMPLE=ON ..
 make
 
-cd ${workpath}/shell && ./install.sh
+cd ${workpath}/scripts/install && ./install.sh

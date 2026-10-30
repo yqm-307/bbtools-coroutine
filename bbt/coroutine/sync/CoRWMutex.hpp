@@ -1,3 +1,4 @@
+/* 协程读写锁 CoRWMutex（写者优先）。 */
 #pragma once
 #include <functional>
 #include <bbt/coroutine/sync/CoWaiter.hpp>
@@ -51,7 +52,7 @@ private:
 
     int                         m_rlock_hold_num{0};
     bool                        m_has_wait_wlock{false};
-    /* #368-R1/F2：仍存活的等待写者计数。由挂起回调在持锁临界区内 +1，
+    /* 仍存活的等待写者计数。由挂起回调在持锁临界区内 +1，
      * 等待返回（唤醒/超时）后由本写者 -1；m_has_wait_wlock 按
      * (num>0) 重建——登记失败不等价于写者责任结束，不得无条件清旗
      * 掩盖其它真实排队写者。 */

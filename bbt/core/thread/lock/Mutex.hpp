@@ -1,3 +1,4 @@
+/* 互斥锁 Mutex（IBasicLockable 实现）。 */
 #pragma once
 #include <bbt/core/thread/lock/ILock.hpp>
 #include <boost/noncopyable.hpp>

@@ -34,9 +34,9 @@ void DebugMgr::RegistResumeCo(Coroutine* co)
 
 void DebugMgr::OnEvent_ResumeCo(Coroutine* co) noexcept
 {
-    /* R2-02 同链：登记在 worker 原生栈（Processer::Resume）执行，异常出逃
+    /* 登记在 worker 原生栈（Processer::Resume）执行，异常出逃
      * 即 terminate，协程侧 catch 不可达——本函数必须完全吞住。
-     * F-R3-04：insert 失败时 std::map 强保证 map 无残留，而登记操作本身
+     * insert 失败时 std::map 强保证 map 无残留，而登记操作本身
      * 无副作用，单次分配失败后有界重试一次真实登记即可恢复按 id 的精确
      * 条目；连续失败不承诺自愈（报告+计数后返回，协程继续），但不允许
      * 无界循环/跳诊断/抛出跨 worker。 */
@@ -113,9 +113,9 @@ bool DebugMgr::TryRegistEvent(const std::shared_ptr<CoPollEvent>& event) noexcep
     }
     catch (const std::exception& e)
     {
-        /* R2-02：map 节点的单次分配失败不得逃出本函数——调用点可位于
+        /* map 节点的单次分配失败不得逃出本函数——调用点可位于
          * Context::Resume 的原生 worker 栈（挂起后注册回调），协程侧 catch
-         * 不可达，出逃即 terminate。诊断清账按契约 §5 日志 + 计数交付，
+         * 不可达，出逃即 terminate。诊断清账按运行时契约的日志 + 计数口径交付，
          * 不静默丢失；登记语义由调用方按「建立失败」回收，map 无任何残留。 */
         std::fprintf(stderr, "[bbtco] stringent-debug regist-event alloc failed event=%llu: %.200s\n",
                      static_cast<unsigned long long>(event->GetId()), e.what());
