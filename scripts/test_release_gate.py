@@ -135,7 +135,7 @@ sys.exit(1 if mode == 'crash' else 0)
             root = Path(tmp)
             (root / 'scripts').mkdir()
             shutil.copytree(ROOT / 'scripts' / 'ci', root / 'scripts' / 'ci')
-            binary = root / 'build/bin/benchmark_test/unified_stress'
+            binary = root / 'build/bin/benchmarks/unified_stress'
             binary.parent.mkdir(parents=True)
             binary.write_text(fixture)
             binary.chmod(0o755)

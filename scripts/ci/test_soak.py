@@ -80,7 +80,7 @@ class SoakIntegrationTest(unittest.TestCase):
         ])
 
     def _write_binary(self, root: Path, body: str) -> Path:
-        binary = root / "bin/benchmark_test/unified_stress"
+        binary = root / "bin/benchmarks/unified_stress"
         binary.parent.mkdir(parents=True)
         binary.write_text("#!/usr/bin/env python3\n" + body, encoding="utf-8")
         binary.chmod(0o755)

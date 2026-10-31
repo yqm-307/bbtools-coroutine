@@ -38,7 +38,7 @@ from collections import defaultdict
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 REPORTS_DIR = PROJECT_ROOT / "tests" / "reports"
 BUILD_DIR = PROJECT_ROOT / "build_cov"
-BIN_DIR = BUILD_DIR / "bin" / "benchmark_test"
+BIN_DIR = BUILD_DIR / "bin" / "benchmarks"
 LATEST_LINK = REPORTS_DIR / "latest"
 
 # 所有可用的疲劳测试模块

@@ -1,0 +1,27 @@
+# examples 目录索引
+
+每个子目录一个示例，仅演示库的用法；断言与验收放在 `tests/`，真实客户端验收由 `scripts/acceptance_real_clients.py` 覆盖（`ctest` 名 `Test_real_clients_echo`，与 `NEED_TEST=ON` 同开时注册，必须 PASS）。
+
+默认构建：`-DNEED_EXAMPLE=ON`。`examples/CMakeLists.txt` 对 `hiredis` 与 `mysqlclient` 用 `find_path/find_library` 守门，开发包缺失时仅打印 `STATUS` 并跳过对应示例，不阻塞核心库与其余示例构建。本机缺两者开发包，故 `mysqlpp`、`redis` 默认跳过（保留理由见 co-p2c handoff）。
+
+| 示例 | 演示内容 | 运行方式 |
+|------|----------|----------|
+| `coroutine.cc` | `bbtco` 协程创建、`bbtco_defer`、协程内 `sleep` 不阻塞调度线程 | `./bin/examples/coroutine` |
+| `chan.cc` | `sync::Chan` 固定容量读写挂起、多写竞争、关闭通知、无缓冲 Chan | `./bin/examples/chan` |
+| `cocond.cc` | `Cocond` `NotifyOne` 与 `NotifyAll` 唤醒挂起协程 | `./bin/examples/cocond` |
+| `comutex.cc` | `CoMutex` 多读者/写者共享资源互斥 | `./bin/examples/comutex` |
+| `copool.cc` | 协程池 `Submit` 与 `Release`，池满后后续任务排队 | `./bin/examples/copool` |
+| `consumer_productor.cc` | 协程池 + `Chan` 的生产者-消费者 | `./bin/examples/consumer_productor` |
+| `echoserver/` | `EchoServer`/`EchoClient` 本地 TCP 回执（无外部服务） | `./bin/examples/echo_server` 与 `./bin/examples/echo_client` |
+| `socketpair_adapter.cc` | fd 事件/回调类库协程适配（`socketpair` 模拟，不依赖真外部服务） | `./bin/examples/socketpair_adapter` |
+| `stack_budget/` | 协程入口栈预算示例，需 `-DBBT_COROUTINE_STACK_BUDGET_EXAMPLE=ON` | `cmake` 显式开启后 `./bin/examples/stack_budget/...` |
+| `waitfor.cc` | `bbtco_wait_for` fd 可读与超时等待 | `./bin/examples/waitfor` |
+| `mysqlpp/` | MySQL 客户端示例，需 `libmysqlclient-dev`，缺失时默认跳过 | `./bin/examples/co_with_mysql` |
+| `redis/` | hiredis 客户端示例，需 `libhiredis-dev`，缺失时默认跳过 | `./bin/examples/co_with_hiredis` |
+
+构建命令（仓库根目录）：
+
+```shell
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DNEED_EXAMPLE=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+cmake --build build --parallel 2
+```

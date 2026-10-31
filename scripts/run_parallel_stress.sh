@@ -7,7 +7,7 @@ DUR=${1:-3600}
 THREADS=${2:-$(nproc)}
 [[ "$DUR" =~ ^[1-9][0-9]*$ && "$THREADS" =~ ^[1-9][0-9]*$ ]] || exit 2
 ROOT="${PROJECT_ROOT:-$PWD}"
-BIN="$ROOT/build/bin/benchmark_test/unified_stress"
+BIN="$ROOT/build/bin/benchmarks/unified_stress"
 OUTDIR=${OUTDIR:-"$ROOT/tests/reports/$(date +%Y-%m-%d_%H-%M-%S)-$$"}
 MODULES=(comutex corwmutex cocond chan copool coroutine)
 [[ -x "$BIN" && ! -e "$OUTDIR" ]] || { printf 'missing binary or existing output directory\n' >&2; exit 2; }

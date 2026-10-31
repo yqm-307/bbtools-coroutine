@@ -182,15 +182,15 @@ endfunction()
 
 if (NEED_TEST)
     enable_testing()
-    add_subdirectory_with_build_type(unit_test "Debug")
+    add_subdirectory_with_build_type(tests "Debug")
 endif()
 
 if (NEED_BENCHMARK)
-    add_subdirectory_with_build_type(benchmark_test "Debug")
+    add_subdirectory_with_build_type(benchmarks "Debug")
 endif()
 
 if (NEED_EXAMPLE)
-    add_subdirectory_with_build_type(example "Debug")
+    add_subdirectory_with_build_type(examples "Debug")
 endif()
 
 if (NEED_DEBUG)

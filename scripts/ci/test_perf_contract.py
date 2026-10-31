@@ -719,7 +719,7 @@ def _fake_build_tree(root):
     不 mock os.path.exists —— 在 3.12+ 里 pathlib.Path.exists() 也会走
     os.path.exists，mock 它会让"报告是否写出"的断言失真。
     """
-    binary = Path(root) / "bin" / "benchmark_test" / "unified_stress"
+    binary = Path(root) / "bin" / "benchmarks" / "unified_stress"
     binary.parent.mkdir(parents=True, exist_ok=True)
     binary.write_text("")
     return str(root)
