@@ -229,6 +229,61 @@ class RecipeGuardTests(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------- #
+# 构建入口 ↔ 子目录一致性守卫（回归：debug/ 曾被删除而 NEED_DEBUG 入口仍注册，
+# NEED_DEBUG=ON configure 直接失败——目录与 CMake 入口必须同生同灭）
+# --------------------------------------------------------------------------- #
+ROOT_CMAKELISTS = os.path.join(WORKTREE, "CMakeLists.txt")
+
+
+def _gated_subdir_block(root_text: str, option: str) -> str:
+    """取根 CMakeLists 中 `if (<OPTION>) ... endif()` 的实际块文本（不允许入口漂出守卫）。"""
+    match = re.search(
+        rf"(?ms)^\s*if\s*\(\s*{re.escape(option)}\s*\)(.*?)^\s*endif\s*\(",
+        root_text,
+    )
+    if not match:
+        raise AssertionError(f"根 CMakeLists.txt 缺少 if ({option}) 块")
+    return match.group(1)
+
+
+class NeedDebugWiringContractTests(unittest.TestCase):
+    """NEED_DEBUG 入口与 debug/ 目录的一致性：任一缺失即 NEED_DEBUG=ON 配置失败。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.root = raw(ROOT_CMAKELISTS)
+        cls.debug_dir = os.path.join(WORKTREE, "debug")
+        cls.debug_cmake = os.path.join(cls.debug_dir, "CMakeLists.txt")
+
+    def test_option_and_gated_subdirectory_both_registered(self):
+        self.assertIn("option(NEED_DEBUG", self.root, "NEED_DEBUG option 必须存在")
+        block = _gated_subdir_block(self.root, "NEED_DEBUG")
+        self.assertIn('add_subdirectory_with_build_type(debug "Debug")', block,
+                      "debug 子目录必须注册在 NEED_DEBUG 守卫内，不得漂出或删除")
+
+    def test_debug_dir_and_its_cmakelists_exist(self):
+        self.assertTrue(os.path.isdir(self.debug_dir),
+                        "根 CMakeLists 注册了 debug 子目录，debug/ 不得缺失")
+        self.assertTrue(os.path.isfile(self.debug_cmake),
+                        "debug/CMakeLists.txt 必须存在，否则 NEED_DEBUG=ON configure 失败")
+
+    def test_every_declared_debug_source_exists(self):
+        # debug/CMakeLists.txt 里每个 add_executable(<名> <源>.cc) 的源文件必须在盘上；
+        # 历史上整目录被删时本断言与 dir 存在性一起失败，源文件单删时单独失败。
+        text = raw(self.debug_cmake)
+        declared = re.findall(
+            r"add_executable\s*\(\s*\S+\s+(\S+\.cc)\s*\)", text
+        )
+        self.assertTrue(declared, "debug/CMakeLists.txt 至少声明一个调试可执行目标")
+        for source in declared:
+            with self.subTest(source=source):
+                self.assertTrue(
+                    os.path.isfile(os.path.join(self.debug_dir, source)),
+                    f"debug/{source} 被 add_executable 引用但文件缺失",
+                )
+
+
+# --------------------------------------------------------------------------- #
 # changed_files 路由
 # --------------------------------------------------------------------------- #
 def _git(repo, *args):
