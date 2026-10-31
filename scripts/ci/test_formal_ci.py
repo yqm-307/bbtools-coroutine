@@ -974,10 +974,9 @@ class DocsCheckTextContractTests(unittest.TestCase):
         self.assertIn("git diff --check", self.job)
         self.assertIn("git grep -qEI", self.job)
         self.assertIn("fail-closed", self.job)
-        # 迁入的 check_docs.py（链接/文件名/README 上限）必须真的接线；
-        # 上限值按本层 README 实况校准，docs PR 瘦身后收紧到 200。
+        # 迁入的 check_docs.py（链接/文件名/README 上限）必须真的接线。
         self.assertIn("scripts/ci/check_docs.py", self.job)
-        self.assertIn("--readme-max 900", self.job)
+        self.assertIn("--readme-max 200", self.job)
 
 
 # --------------------------------------------------------------------------- #
