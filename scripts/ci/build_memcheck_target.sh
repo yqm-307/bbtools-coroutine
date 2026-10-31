@@ -38,7 +38,7 @@ fi
 cmake "${cmake_args[@]}"
 cmake --build "${build_dir}" --target mem_check_test --parallel "${jobs}"
 
-exec_path="${build_dir}/bin/benchmark_test/mem_check_test"
+exec_path="${build_dir}/bin/benchmarks/mem_check_test"
 if [ ! -x "${exec_path}" ]; then
     echo "内存检测目标未生成：${exec_path}" >&2
     exit 1

@@ -10,7 +10,7 @@ on:
 env:
     # 专用构建目录：与普通 build/ 隔离，不覆盖其他 job 的产物
     MEMCHECK_BUILD_DIR: build-memcheck
-    MEMCHECK_EXEC_PATH: build-memcheck/bin/benchmark_test/mem_check_test
+    MEMCHECK_EXEC_PATH: build-memcheck/bin/benchmarks/mem_check_test
     MEMCHECK_REPORT_DIR: tests/ci-reports/memcheck
 
 jobs:

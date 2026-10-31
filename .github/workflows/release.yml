@@ -106,8 +106,8 @@ jobs:
         timeout-minutes: 10
         run: |
           python3 source/scripts/acceptance_real_clients.py \
-            --echo-server ./source/build/bin/example/echo_server \
-            --hiredis ./source/build/bin/example/co_with_hiredis
+            --echo-server ./source/build/bin/examples/echo_server \
+            --hiredis ./source/build/bin/examples/co_with_hiredis
 
       - name: "性能发布 Gate"
         run: |

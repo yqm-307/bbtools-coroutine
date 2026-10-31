@@ -4,7 +4,7 @@
 用法：
     python3 scripts/ci/run_memcheck.py --check-env
     python3 scripts/ci/run_memcheck.py \\
-        --binary build-memcheck/bin/benchmark_test/mem_check_test \\
+        --binary build-memcheck/bin/benchmarks/mem_check_test \\
         --report-dir tests/ci-reports/memcheck --timeout 1800
 
 判定口径（任一条不满足即 FAIL，绝不因“看起来像误报”放行）：
@@ -63,7 +63,7 @@ STILL_REACHABLE_RE = re.compile(r"still reachable:\s*([\d,]+)\s*bytes")
 FATAL_MARKERS = ("valgrind:  Fatal error", "valgrind: Fatal error", "Cannot continue")
 COUNTER_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)=(\d+)/(\d+)")
 
-# 完成协议的必需计数键与固定期望值：必须与 benchmark_test/mem_check_test.cc 的
+# 完成协议的必需计数键与固定期望值：必须与 benchmarks/mem_check_test.cc 的
 # BBT_MEMCHECK_DONE 打印一致。只要求“每个键 num == total”不够——键齐全但整体缩水
 # （如 inner=1/1）同样会被判 PASS，故这里固定期望值。
 # runtime_drained=1 的语义边界：代表“所有借出的栈已归还（~Context 已进入 FINAL 释放

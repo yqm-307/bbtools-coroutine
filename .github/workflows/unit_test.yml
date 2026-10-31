@@ -183,7 +183,7 @@ jobs:
           cd build
           # flaky 卡死：最多重试 3 次（每次全新进程）。
           for i in 1 2 3; do
-            timeout --signal=TERM --kill-after=10s 90s bin/unit_test/Test_smoke --log_level=test_suite && exit 0
+            timeout --signal=TERM --kill-after=10s 90s bin/tests/Test_smoke --log_level=test_suite && exit 0
             echo "Test_smoke attempt $i failed, retrying..."
           done
           exit 1
@@ -194,7 +194,7 @@ jobs:
           cd build
           # flaky 卡死/段错误：最多重试 3 次（每次全新进程）。
           for i in 1 2 3; do
-            timeout --signal=TERM --kill-after=10s 120s bin/unit_test/Test_reliability --log_level=test_suite && exit 0
+            timeout --signal=TERM --kill-after=10s 120s bin/tests/Test_reliability --log_level=test_suite && exit 0
             echo "Test_reliability attempt $i failed, retrying..."
           done
           exit 1
