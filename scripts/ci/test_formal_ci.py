@@ -39,6 +39,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -280,13 +281,41 @@ class NeedDebugWiringContractTests(unittest.TestCase):
         # 回归契约：NEED_DEBUG=ON 且 debug/CMakeLists.txt 缺失时必须以明确的
         # FATAL_ERROR 在 add_subdirectory 之前终止，而不是靠 CMake 默认报错碰运气。
         block = _gated_subdir_block(self.root, "NEED_DEBUG")
-        self.assertIn('EXISTS "${PROJECT_SOURCE_DIR}/debug/CMakeLists.txt"', block,
-                      "NEED_DEBUG 块必须先显式检查 debug/CMakeLists.txt 存在")
+        self.assertIn('if (NOT EXISTS "${PROJECT_SOURCE_DIR}/debug/CMakeLists.txt")',
+                      block,
+                      "fail-closed 条件必须是 NOT EXISTS：反转成 EXISTS 属于假绿，不得通过")
         self.assertIn("FATAL_ERROR", block,
                       "debug/CMakeLists.txt 缺失时必须 message(FATAL_ERROR ...) 终止")
         self.assertLess(block.index("FATAL_ERROR"),
                         block.index('add_subdirectory_with_build_type(debug "Debug")'),
                         "fail-closed 检查必须位于 add_subdirectory 之前")
+
+    @unittest.skipIf(shutil.which("cmake") is None,
+                     "cmake 不可用：真实 configure fail-closed 冒烟显式 SKIP（不等于通过）")
+    def test_needs_debug_configure_fails_closed_when_debug_cmakelists_missing(self):
+        # 行为验证（非文本断言）：在隔离临时副本中删除 debug/CMakeLists.txt 后跑真实
+        # cmake configure —— NEED_DEBUG=ON 必须非零退出且输出新增的 fail-closed 诊断。
+        # 只复制 configure 期实际消费的内容（根 CMakeLists 经 GLOB 读取 bbt/*.cc，
+        # 头文件与子目录结构不参与 configure，无需复制）；真实工作树不被修改，
+        # TemporaryDirectory 负责清理。
+        with tempfile.TemporaryDirectory() as td:
+            src = os.path.join(td, "src")
+            os.makedirs(os.path.join(src, "bbt"))
+            shutil.copy2(ROOT_CMAKELISTS, src)
+            with open(os.path.join(src, "bbt", "placeholder.cc"), "w",
+                      encoding="utf-8") as handle:
+                handle.write("// 占位：让 bbt_coroutine 的 GLOB_RECURSE 非空\n")
+            shutil.copytree(self.debug_dir, os.path.join(src, "debug"))
+            os.remove(os.path.join(src, "debug", "CMakeLists.txt"))
+            proc = run(["cmake", "-S", src, "-B", os.path.join(td, "build"),
+                        "-DNEED_DEBUG=ON"], env=ENV)
+            output = proc.stdout + proc.stderr
+            self.assertNotEqual(proc.returncode, 0,
+                                "debug/CMakeLists.txt 缺失时 NEED_DEBUG=ON configure "
+                                f"必须以非零退出终止\n{output}")
+            self.assertIn("NEED_DEBUG=ON 但 debug/CMakeLists.txt 缺失", output,
+                          "必须输出新增的 fail-closed 诊断（CMake 默认报错不含 "
+                          f"NEED_DEBUG=ON 字样，可区分守卫被删/反转的假绿）\n{output}")
 
     def test_debug_dir_and_its_cmakelists_exist(self):
         self.assertTrue(os.path.isdir(self.debug_dir),
