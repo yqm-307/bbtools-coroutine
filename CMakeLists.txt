@@ -21,6 +21,9 @@ option(NEED_EXAMPLE
 option(NEED_TEST
     "编译unit test文件" OFF)
 
+option(NEED_DEBUG
+    "编译debug文件" OFF)
+
 option(PROFILE
     "开启将启用profile" OFF)
 
@@ -40,8 +43,9 @@ message(
     "RELEASE: "         ${BUILD_TYPE_UPPER}
     "\nNEED_BENCHMARK: "  ${NEED_BENCHMARK}
     "\nNEED_EXAMPLE: "    ${NEED_EXAMPLE}
-    "\\nNEED_TEST: "       ${NEED_TEST}
-    "\\nPROFILE: "         ${PROFILE}
+    "\nNEED_TEST: "       ${NEED_TEST}
+    "\nNEED_DEBUG: "      ${NEED_DEBUG}
+    "\nPROFILE: "         ${PROFILE}
     "\nDEBUG_INFO: "      ${DEBUG_INFO}
     "\nNEED_VALGRIND: "   ${NEED_VALGRIND}
     "\nSTACK_DIAGNOSTICS: " ${BBT_COROUTINE_STACK_DIAGNOSTICS}
@@ -187,4 +191,8 @@ endif()
 
 if (NEED_EXAMPLE)
     add_subdirectory_with_build_type(examples "Debug")
+endif()
+
+if (NEED_DEBUG)
+    add_subdirectory_with_build_type(debug "Debug")
 endif()
