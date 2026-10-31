@@ -24,7 +24,7 @@
 
 ## 本文不覆盖
 
-`CoWaiter`、`StdLockWapper`、`DnsResolver`、`Profiler`、`DebugMgr`、`CoPoller`、`Processer`、`IChan` / `ICoLock`、`bbtco_ev_*_with_copool` 逐项说明、Hook 每个 syscall 的 errno 矩阵（见 `unit_test/hook_contract.hpp`）。
+`CoWaiter`、`StdLockWapper`、`DnsResolver`、`Profiler`、`DebugMgr`、`CoPoller`、`Processer`、`IChan` / `ICoLock`、`bbtco_ev_*_with_copool` 逐项说明、Hook 每个 syscall 的 errno 矩阵（见 `tests/coroutine/hook_contract.hpp`）。
 
 ---
 
@@ -133,7 +133,7 @@
 - `void RegistCoroutineTaskOn(ProcesserId, const CoroutineCallback&, const char* desc = nullptr)` 与带 `stack_size` 重载 — 定向首投：仅入目标 worker 初始队列的偏好，无硬亲和；stealing 与挂起恢复路径不变。未初始化抛 `std::logic_error`，非法目标抛 `std::invalid_argument`。
 - 上述可能分配/持锁的入口均非 `noexcept`；全部 driver 回调在整条调用链的 runtime 锁之外执行。
 
-> **infra 消费者目标与已实现 API 分开：** 核心契约 [§11.5](2026-09-07-core-runtime-contract.md#115-infra-消费者责任r2-已确认目标尚未实现联调) 按已确认 R2 区分 owner 短原始回调、可挂起业务协程和受保护共享接收 ring；这些是 infra 待实现的网络职责，不新增本节 runtime 函数。`IsInitialized()` 不证明内部 EventLoop 持续推进；宿主须让 net Run 与唯一 runtime loop 驱动执行流分开。driver `Failed` 可通过现有查询观察，解绑无 deadline，成功只确认 runtime callback 已退出。本文列出的 runtime API 签名与行为不因消费者文档修订改变。
+> **infra 消费者目标与已实现 API 分开：** 核心契约 [§11.5](../architecture/core-runtime-contract.md#115-infra-消费者责任r2-已确认目标尚未实现联调) 按已确认 R2 区分 owner 短原始回调、可挂起业务协程和受保护共享接收 ring；这些是 infra 待实现的网络职责，不新增本节 runtime 函数。`IsInitialized()` 不证明内部 EventLoop 持续推进；宿主须让 net Run 与唯一 runtime loop 驱动执行流分开。driver `Failed` 可通过现有查询观察，解绑无 deadline，成功只确认 runtime callback 已退出。本文列出的 runtime API 签名与行为不因消费者文档修订改变。
 
 ---
 
@@ -468,3 +468,51 @@ int idx = sync::CoSelect()
 - 说明：返回 CoPoller 全局 EventLoop 所持同一 io_context 的 executor（`any_io_executor` 投递句柄），供上层适配层把 Asio 异步操作接入既有协程事件循环。投递的 handler 只由 Scheduler 现有 `PollOnce` 在驱动线程兑现：默认后台模式即 Scheduler 调度线程（S）；`NO_LOOP` 模式即调用 `LoopOnce` 的驱动线程（首个调用 `PollOnce` 的线程）；`SCHE_LOOP` 模式即执行调度循环的当前线程。
 - 约束（仅限定共享 executor 的使用方式）：不得为它创建新线程或独立 io_context 驱动；句柄不暴露原始 io_context，无法 stop/restart/run。生命周期由 CoPoller 单例保证，随 runtime 进程寿命存在。
 - 边界：上层网络域使用自有 context，不经本句柄投递；当前已确认的消费者目标通过 Processer driver 在 P 的非业务协程边界推进，不额外创建网络 I/O 线程。详见契约 §11.3–§11.6；目标说明不是消费者实现或联调证据。
+
+---
+
+## 附录 A. 速查表
+
+详细语义以正文各节为准。
+
+### 基础 API
+
+| 宏/函数 | 描述 | 示例 |
+|---------|------|------|
+| `bbtco` | 创建协程 | `bbtco [](){}` |
+| `bbtco_desc(name)` | 创建带描述的协程（描述可被诊断现场读回） | `bbtco_desc("worker") [](){}` |
+| `bbtco_ref` | 创建引用捕获的协程 | `bbtco_ref {}` |
+| `bbtco_noexcept(&succ)` | 注册协程，失败时置 `succ=false` 而不抛异常 | `bool succ; bbtco_noexcept(&succ) [](){};` |
+| `bbtco_yield` | 协程让出 CPU | `bbtco_yield;` |
+| `bbtco_sleep(ms)` | 协程睡眠指定毫秒 | `bbtco_sleep(1000);` |
+| `bbtco_defer` | 延迟执行语句 | `bbtco_defer { cleanup(); };` |
+| `GetLocalCoroutineId()` | 获取当前协程 ID | `auto id = GetLocalCoroutineId();` |
+
+### 同步原语
+
+| 类型 | 创建方式 | 主要方法 | 描述 |
+|------|----------|----------|------|
+| `Chan<T, Size>` | `sync::Chan<int, 100>{}` | `Write()`, `Read()`, `TryWrite()`, `TryRead()`, `Close()`, `IsClosed()`, `<<` / `>>` | 协程间通信通道（`Size=0` 为无缓冲，写阻塞至读端取走） |
+| `CoSelect` | `sync::CoSelect()` | `CaseRead()`, `CaseWrite()`, `CaseTimeout()`, `Default()`, `Run()` | 多 Chan 复用，返回命中下标（-1 = 未命中） |
+| `CoMutex` | `bbtco_make_comutex()` | `Lock()`, `UnLock()`, `TryLock()` | 协程互斥锁；RAII 用 `CoLockGuard<CoMutex>` |
+| `CoRWMutex` | `bbtco_make_corwmutex()` | `RLock()`, `WLock()`, `RUnLock()`, `WUnLock()`, `TryRLock()`, `TryWLock()` | 协程读写锁；RAII 用 `CoReadLock` / `CoWriteLock` |
+| `CoLockGuard<Mutex>` | `sync::CoLockGuard<CoMutex> g(lock)` | 构造加锁，析构解锁 | 通用 RAII 守卫（另有 `CoUniqueLock`） |
+| `CoCond` | `bbtco_make_cocond()` | `Wait()`, `NotifyOne()`, `NotifyAll()` | 协程条件变量 |
+| `CoPool` | `bbtco_make_copool(size)` | `Submit()`, `SubmitWithFuture()`, `Release()` | 协程池（`Release` 取消式停机：等运行中退出、排空未执行） |
+
+### 事件等待
+
+| 宏 | 描述 | 示例 |
+|----|------|------|
+| `bbtco_wait_for(fd, event, timeout)` | 等待文件描述符事件 | `bbtco_wait_for(fd, bbtco_emev_readable, 1000)` |
+| `bbtco_emev_readable` | 可读事件 | 等待 fd 可读 |
+| `bbtco_emev_writeable` | 可写事件 | 等待 fd 可写 |
+| `bbtco_emev_timeout` | 超时事件 | 纯超时等待 |
+
+### 调度器控制
+
+| 方法 | 描述 | 示例 |
+|------|------|------|
+| `g_scheduler->Start(opt)` | 启动调度器（默认后台线程模式）；成功后重复调用抛 `std::logic_error` | 程序开始时调用一次 |
+| `g_scheduler->LoopOnce()` | 单次调度循环（仅 `NO_LOOP` 模式，用于手动驱动/测试） | 手动模式循环调用 |
+| `g_scheduler->IsInitialized()` | 运行时是否已完成初始化（进程寿命内恒为 true） | 注册任务前检查 |

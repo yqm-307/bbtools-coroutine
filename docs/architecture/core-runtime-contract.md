@@ -222,6 +222,6 @@ Hook 属于核心适配层，目标是参考 libco 的方式，尽可能将其�
 ## 相关文档
 
 - 任务与验收：[GitHub Issue](https://github.com/yqm-307/bbtools-coroutine/issues)
-- 当前调用说明：`agent-docs/user-guide.md`、`agent-docs/api-reference.md`
+- 当前调用说明：`docs/guides/user-guide.md`、`docs/guides/api-reference.md`
 - 仓库通用 Agent 规范：`AGENTS.md`
 - 网络域的 infra 侧文档（B2 须核对并更新，B1 未修改或验证）：bbtools-infra 仓 `docs/architecture/gnet-network-execution.md`、`docs/decisions/0010-gnet-network-foundation.md`

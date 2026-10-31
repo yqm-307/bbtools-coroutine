@@ -1,6 +1,6 @@
 # 用法
 
-签名与返回码见 `agent-docs/api-reference.md`。对照可编译示例：`example/`。
+签名与返回码见 `docs/guides/api-reference.md`。对照可编译示例：`examples/`。
 
 入口：`#include <bbt/coroutine/coroutine.hpp>`。Linux，C++17。
 
@@ -30,7 +30,7 @@ int main()
 }
 ```
 
-对照：`example/coroutine.cc`。
+对照：`examples/coroutine.cc`。
 
 - 默认 `Start()` = 后台调度线程。返回后即可 `bbtco`。
 - `bbtco` 是 detached，注册后不保证执行顺序。
@@ -71,7 +71,7 @@ chan.Close();
 - `Write`/`Read` 返回 `0` / `-1`（关闭）/ `-2`（错误）。`<<`/`>>` 只表示是否成功。
 - 带超时：`TryRead(item, ms)` / `TryWrite(item, ms)`，超时返回 `1`。
 
-对照：`example/chan.cc`。
+对照：`examples/chan.cc`。
 
 ### 锁与条件变量
 
@@ -106,7 +106,7 @@ int idx = sync::CoSelect()
 bbtco_wait_for(fd, bbtco_emev_readable, 1000);
 ```
 
-必须在协程内。失败抛 `std::runtime_error`。纯超时可用 `bbtco_emev_timeout`。对照：`example/waitfor.cc`。
+必须在协程内。失败抛 `std::runtime_error`。纯超时可用 `bbtco_emev_timeout`。对照：`examples/waitfor.cc`。
 
 `bbtco_ev_r(fd)` 等：事件就绪后再注册一个协程处理。见 `SyntaxMacro.hpp`。
 
@@ -132,7 +132,7 @@ bbtco_defer { cleanup(); };
 
 ### 生产 / 消费
 
-一个（或一组）协程 `Write`，另一组 `Read`，结束时 `Close()`，读端以失败返回退出。对照：`example/consumer_productor.cc`、`example/chan.cc`。
+一个（或一组）协程 `Write`，另一组 `Read`，结束时 `Close()`，读端以失败返回退出。对照：`examples/consumer_productor.cc`、`examples/chan.cc`。
 
 ### 锁 + 条件变量
 
@@ -153,8 +153,8 @@ if (fut.valid()) {
 }
 ```
 
-任务里长时间 `sleep`/IO 会占住那条池协程。对照：`example/copool.cc`。
+任务里长时间 `sleep`/IO 会占住那条池协程。对照：`examples/copool.cc`。
 
 ### 事件驱动 IO
 
-协程内 `accept`/`read` 即可；或 `bbtco_wait_for` 明确等 fd。需要「事件到了再起协程」时用 `bbtco_ev_*`。对照：`example/echoserver/`、`example/waitfor.cc`。
+协程内 `accept`/`read` 即可；或 `bbtco_wait_for` 明确等 fd。需要「事件到了再起协程」时用 `bbtco_ev_*`。对照：`examples/echoserver/`、`examples/waitfor.cc`。

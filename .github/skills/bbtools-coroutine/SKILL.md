@@ -8,9 +8,9 @@ description: >
 
 # bbtools-coroutine
 
-写**调用本库**的代码时用本 skill。改运行时实现改读 `AGENTS.md` 和 `agent-docs/2026-09-07-core-runtime-contract.md`。
+写**调用本库**的代码时用本 skill。改运行时实现改读 `AGENTS.md` 和 `docs/architecture/core-runtime-contract.md`。
 
-签名冲突：头文件 + 测试 > `agent-docs/api-reference.md` > README 速查表。不要凭速查表补重载。
+签名冲突：头文件 + 测试 > `docs/guides/api-reference.md` > README 速查表。不要凭速查表补重载。
 
 ## 1. 架构简介
 
@@ -38,7 +38,7 @@ description: >
 
 只引用，不在 skill 里复制签名：
 
-- `agent-docs/api-reference.md` — 当前用户 API（签名、返回码、挂起、前置条件）
+- `docs/guides/api-reference.md` — 当前用户 API（签名、返回码、挂起、前置条件）
 - 对应 `.hpp` — 签名真源
 
 未出现在 API 参考里的符号：打开头文件，不要猜。

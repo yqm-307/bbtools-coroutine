@@ -29,7 +29,7 @@ labels: []
 
 ## 建议验证
 
-对照 `agent-docs/development-and-release-process.md` 验证阶梯勾选，不发明新命令。
+对照 `docs/guides/development.md` 验证阶梯勾选，不发明新命令。
 
 - [ ] 仅文档 / 模板 / gitignore：`git diff --check`；抽查链接
 - [ ] `scripts/` 或 release_gate：对应 python 测试 / 离线校验

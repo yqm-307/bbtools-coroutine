@@ -56,14 +56,10 @@ build*/
 /tests/ci-reports/
 # 性能基线长期记录在 perf-baseline orphan 分支，main 工作区不跟踪
 /tests/baselines/
-/benchmark_test/compare/bin/
+/benchmarks/compare/bin/
 
 # Local worktrees
 .worktrees/
-
-# agent-docs 本地构建与临时物；不忽略 references/（以后可提交参考）
-/agent-docs/build-readiness/
-/agent-docs/.tmp/
 
 # Runtime logs and temporary files
 /tmp/
@@ -71,7 +67,6 @@ build*/
 /nohup.out
 
 # Local documentation
-/docs/
 
 # Python
 __pycache__/

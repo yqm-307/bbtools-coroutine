@@ -4,7 +4,7 @@
 
 先减少必须做的事和必须等的时间，再让剩下的事更便宜。流程与工具服务于快速验证，不取代核心契约、项目授权和开发发布门禁。本文后半部分保留既有测试配方与测量协议阈值；候选收益门是软门禁，不用本次规则更新改写历史实验结论。
 
-> 工具交付边界：本 PR 只交付方法指南、AGENTS 阅读入口和案例结论摘要。下文 `scripts/perf-tools/`、`scripts/perf_check.py` 与 `benchmark_test/compare/spotcheck/` 对应本地已有但尚未随本 PR 入库的工具／驱动，命令是该工具版本的参考，不是从本分支新检出即可执行的入口。后续工具交付并验证前，不据本指南声称已完成工具集成。
+> 工具交付边界：本 PR 只交付方法指南、AGENTS 阅读入口和案例结论摘要。下文 `scripts/perf-tools/`、`scripts/perf_check.py` 与 `benchmarks/compare/spotcheck/` 对应本地已有但尚未随本 PR 入库的工具／驱动，命令是该工具版本的参考，不是从本分支新检出即可执行的入口。后续工具交付并验证前，不据本指南声称已完成工具集成。
 
 ## 总体流程
 
@@ -77,7 +77,7 @@ flowchart TD
 
 **怎么做：** 两种分析互相补充，不机械要求每轮把所有工具跑一遍。
 
-- **热点路径分析：** 使用 CPU 采样、火焰图等工具，查看 CPU 花在什么调用路径。本次 [CPU 短采样](../tests/reports/archive/perf/20261027-411-cfs-cpu-profile/summary.md)给出了锁、callable／分配、时钟和 global 路径的线索，同时明确保留调用链缺失与采样范围限制。热点占比不是可直接回收的收益，也不能单凭占比变化判断绝对成本变化。
+- **热点路径分析：** 使用 CPU 采样、火焰图等工具，查看 CPU 花在什么调用路径。本次 CPU 短采样（perf 归档运行 20261027-411-cfs-cpu-profile，摘要见 perf-baseline 分支）给出了锁、callable／分配、时钟和 global 路径的线索，同时明确保留调用链缺失与采样范围限制。热点占比不是可直接回收的收益，也不能单凭占比变化判断绝对成本变化。
 - **调用时序与对标review：** 对照 Go 的调度机制和本库实际调用链，画出提交、入队、执行、yield／park、唤醒、恢复的时序，查找额外等待、共享交接和重复步骤。Go 的不同路径不是天然正确答案，要核对语义与适用前提。
 
 分析时优先沿以下方向检查：
@@ -90,7 +90,7 @@ flowchart TD
 | 单次成本 | 日志关闭后是否仍格式化？是否有多余复制、分配或时钟读取？ |
 | 同步结构 | 是否真的竞争或昂贵？减少交接和调用次数后，仍需要更复杂的锁或容器吗？ |
 
-时序判别示例，来自 [R4 收益与代价核对](../tests/reports/archive/perf/20261026-411-benefit-cost/summary.md)：
+时序判别示例，来自 R4 收益与代价核对（perf 归档运行 20261026-411-benefit-cost，摘要见 perf-baseline 分支）：
 
 ```text
 原路径：事件就绪 → 调度线程仍在定时休眠 → 下一拍发现 → 唤醒协程
@@ -160,7 +160,7 @@ CPU/op 与吞吐并非两份独立证据：同窗定义下，`CPU秒/op = 平均
 - 记录基线与候选身份、改了什么、逐轮指标、错误与未覆盖项，并给出“值得组合验证／不采纳／尚未决定”的结论。复用现有结果文件，重要结论按仓库规范归档，不另造台账。
 - 对其余值得验证的方向重复这一过程；预算内可以逐项跑完本轮选定方向，不要求穷尽所有想法。未通过、无收益或无效证据分别保留原因，不反复补测凑绿。
 
-**本次例子：** [格式化与直接交接判别](../tests/reports/archive/perf/20261027-411-yield-diagnosis/summary.md)分别测试关闭日志时跳过格式化与单项 refill 直接接手，没有把两者捆在一起解释。前者建立了部分场景的收益，后者未建立双 worker 稳定收益。[查询与批量锁实验](../tests/reports/archive/perf/20261027-411-cfs-lock-experiment/summary.md)同样分别比较候选，未因“少一次锁”就自动采纳。[owner-local 第一版](../tests/reports/archive/perf/20261027-411-owner-local-r1/summary.md)因正确性与接线缺口没有进入性能采样；它否定该原型，不等于否定整个方向。
+**本次例子：** 格式化与直接交接判别（perf 归档运行 20261027-411-yield-diagnosis，摘要见 perf-baseline 分支）分别测试关闭日志时跳过格式化与单项 refill 直接接手，没有把两者捆在一起解释。前者建立了部分场景的收益，后者未建立双 worker 稳定收益。查询与批量锁实验（perf 归档运行 20261027-411-cfs-lock-experiment，摘要见 perf-baseline 分支）同样分别比较候选，未因“少一次锁”就自动采纳。owner-local 第一版（perf 归档运行 20261027-411-owner-local-r1，摘要见 perf-baseline 分支）因正确性与接线缺口没有进入性能采样；它否定该原型，不等于否定整个方向。
 
 **何时进入下一步：** 本轮选定候选已有可复核结论，或预算已到、需要收口。未测项明确留空，不强行让每个方向都有成功结果。
 
@@ -178,7 +178,7 @@ CPU/op 与吞吐并非两份独立证据：同窗定义下，`CPU秒/op = 平均
 - 消融得到的是该组合条件下的边际影响，不是每项固定可相加的贡献，也不证明唯一最优。只有会改变采纳决定时才做，并另列入既定实验预算；不要求每个组合都展开全排列。
 
 
-**本次例子：** [CFS 真实接线对比](../tests/reports/archive/perf/20261027-411-cfs-runtime/summary.md)同时包含排序、READY 本地回队、轮次与同步调整。历史双 worker yield 吞吐改善明显，但短任务吞吐与 P99 有代价；不能把收益全部归给 CFS 树，也不能宣称全面优于 Go。各阶段精确数字留在原报告，不跨基线累加。
+**本次例子：** CFS 真实接线对比（perf 归档运行 20261027-411-cfs-runtime，摘要见 perf-baseline 分支）同时包含排序、READY 本地回队、轮次与同步调整。历史双 worker yield 吞吐改善明显，但短任务吞吐与 P99 有代价；不能把收益全部归给 CFS 树，也不能宣称全面优于 Go。各阶段精确数字留在原报告，不跨基线累加。
 
 **何时进入下一步：** 组合性能已测，值得保留，所需取舍已明确接受。否则在预算内缩减或调整组合，或以不采纳／未决结论结束本轮。
 
@@ -191,7 +191,7 @@ CPU/op 与吞吐并非两份独立证据：同窗定义下，`CPU秒/op = 平均
 - 在最终组合源码上集中运行冒烟、本次功能及直接耦合单测；完整 CTest 走 PR CI，不在本地重复全量验证。
 - 按改动风险和已确认计划做稳定性压测，检查错误、超时、崩溃、进展及必要资源趋势。固定源码、命令、负载、时长与通过标准；短压测不能冒充长期无泄漏或无饥饿证明，长 soak 不能自动追加。
 - 证据绑定最终组合，不用单项旧版本结果冒充最终树。出现失败则定位、修复并重验受影响项；失败保留，不能只报后一次绿。
-- 独立审查、提交、PR、CI、main 集成与发布遵循[开发与发布流程](development-and-release-process.md)和授权，不在本文复制或放宽门禁。
+- 独立审查、提交、PR、CI、main 集成与发布遵循[开发与发布流程](development.md)和授权，不在本文复制或放宽门禁。
 
 **何时完成：** 计划内验证具有真实完整结果，未覆盖范围与剩余风险写清；开发完成、已提交、已合并、可发布分别陈述，不混为一个“通过”。
 
@@ -246,7 +246,7 @@ python3 "$VERIFY_QUEUE" --label cpu-baseline-smoke --run-timeout 180 --wait-time
 python3 scripts/perf-tools/perf_check.py replay --run-dir "$NEW_RUN_DIR" --output "$NEW_REPORT_DIR"
 ```
 
-`--smoke` 只验证工具链路；CPU 双臂预检应有 10 个有效样本，三轮短窗应有 26 个。正式采样须另行按既定范围执行，不能只删去 `--smoke` 并保留联调的外层 180 秒超时。应先为整个命令设置足够的执行上限：覆盖正式阶段最多 600 秒，以及实际预检、启动和收口余量；有构建时还要计入构建。外层终端／队列的运行上限须一致容纳这些阶段，排队等待上限另算。超过工具前台等待能力时用宿主受管后台执行，不缩短采样也不自动续跑。旧的[基线中断记录](../tests/reports/archive/perf/20261026-cpu-baseline-interrupted/summary.md)就是外层超时早于计划完成的反例。本节联调命令不代表已建立正式基线。`--baseline-only` 与 `--candidate-source`、`--include-untracked` 冲突并明确拒绝；`--case` 仍表示局部覆盖。
+`--smoke` 只验证工具链路；CPU 双臂预检应有 10 个有效样本，三轮短窗应有 26 个。正式采样须另行按既定范围执行，不能只删去 `--smoke` 并保留联调的外层 180 秒超时。应先为整个命令设置足够的执行上限：覆盖正式阶段最多 600 秒，以及实际预检、启动和收口余量；有构建时还要计入构建。外层终端／队列的运行上限须一致容纳这些阶段，排队等待上限另算。超过工具前台等待能力时用宿主受管后台执行，不缩短采样也不自动续跑。旧的基线中断记录（perf 归档运行 20261026-cpu-baseline-interrupted，摘要见 perf-baseline 分支）就是外层超时早于计划完成的反例。本节联调命令不代表已建立正式基线。`--baseline-only` 与 `--candidate-source`、`--include-untracked` 冲突并明确拒绝；`--case` 仍表示局部覆盖。
 
 ### 有限量正确性入口
 
@@ -287,7 +287,7 @@ python3 "$VERIFY_QUEUE" --label perf-run --run-timeout "$RUN_TIMEOUT_SECONDS" --
 
 - 基线固定为 prepare 时冻结的源码；不猜 `HEAD^`、不跟随 main、不用旧性能数字替代当轮实测。
 - candidate 默认当前仓库；独立 worktree 用 `--candidate-source <路径>`。同时冻结 tracked dirty 的实际字节，暂存内容和 HEAD 不能冒充当前源码。
-- 未跟踪的被测源码必须显式纳入。例如本批驱动未提交时，run 加 `--include-untracked benchmark_test/compare/spotcheck`；源码遗漏直接拒绝。
+- 未跟踪的被测源码必须显式纳入。例如本批驱动未提交时，run 加 `--include-untracked benchmarks/compare/spotcheck`；源码遗漏直接拒绝。
 - 默认状态与缓存为 `build-perf-spotcheck/`。开始另一轮基线请指定全新的 `--build-root build-perf-<名称>`，不覆盖原基线；prepare 和 run 都要指定同一个目录。
 - 两臂分别构建对应头文件与库，固定同一份测量 driver 源码；模板优化也会重编实际调用方。缓存按完整身份复用，不复用不匹配的二进制。
 - run 自动完成候选构建、小规模正确性预检和测量。准备耗时、正式测量耗时、命令总耗时分别显示；冷构建不计入 10 分钟承诺。
@@ -348,7 +348,7 @@ CPU 使用时间成本，不是 cycles、instructions 或上下文切换等 perf
 
 收益取舍是软门禁：20% 是明显收益的参考线，不是低于它就自动淘汰。完整有效的候选若主场景提升稳定、超过本轮测量噪声，且正确性与风险守卫通过，可结合适用负载、CPU／P99、公平性和实现代价决定保留；收益方向不稳定或落在噪声内时仍应判为未决，不为凑一个正数而采纳。`zero-progress` 是硬拒绝条件，不得用吞吐、CPU、P99 或公平性改善抵消。主场景须在首个候选样本前冻结，缺失时仍标记 `NO_CLAIM`，不能把用户采纳决定写成门禁已通过。
 
-v12 的 noformat 是一个例子：[归档报告](../tests/reports/archive/perf/20261030-58bebb2-v12-noformat/summary.md)记录了 waiter 四个形状三轮同向提升 `+11.9%～+14.5%`，CPU/op 与 P99 同向改善，守卫零触发。主场景未预先冻结，因此正式收益门为 `NO_CLAIM`；用户仍基于稳定正向证据明确采纳，并将其并入新基线。该例不改变历史报告结论，也不放宽正确性、公平、P99／CPU 风险守卫或预冻结要求。
+v12 的 noformat 是一个例子：[归档报告](../../tests/reports/archive/perf/20261030-58bebb2-v12-noformat/summary.md)记录了 waiter 四个形状三轮同向提升 `+11.9%～+14.5%`，CPU/op 与 P99 同向改善，守卫零触发。主场景未预先冻结，因此正式收益门为 `NO_CLAIM`；用户仍基于稳定正向证据明确采纳，并将其并入新基线。该例不改变历史报告结论，也不放宽正确性、公平、P99／CPU 风险守卫或预冻结要求。
 
 局部覆盖另行标明，不能输出默认完整 BENEFIT；风险提示从已覆盖且同轮 base/candidate 均有效的行计算，有提示时仍保留 `PARTIAL_OBSERVATION` 身份并退出 1。缺臂、错误或缺样本仍为 INVALID/未完成，不补零、不因 partial 放松账目。进程退出码为 0＝有效观察（包含无明显收益或无风险提示的局部观察），1＝退化风险，2＝无效／未完成；不能把 exit 0 当作性能验收通过。
 
@@ -400,7 +400,7 @@ replay 不重新构建、采样或读取分析机当前环境冒充历史信息�
 | scripts/perf-tools/runner.py | 串行执行、总截止、原始证据与清单 |
 | scripts/perf-tools/results.py | 校验、比较、汇总、报告重生成 |
 | scripts/perf-tools/suites/coroutine.json | 本仓配方、case、参数和阈值 |
-| benchmark_test/compare/spotcheck/ | C++ / Go 对等驱动与独立 CMake 入口 |
+| benchmarks/compare/spotcheck/ | C++ / Go 对等驱动与独立 CMake 入口 |
 | scripts/perf-tools/ci_perf_check.py | 既有 CI 性能回归检查，保留原协议与阈值 |
 | scripts/perf-tools/record_baseline.py | 既有正式基线 record / compare / trend |
 | scripts/perf-tools/run_fatigue.py | 既有长时疲劳运行、汇总、比较 |
@@ -428,3 +428,103 @@ python3 "$VERIFY_QUEUE" --label release-gate-tests --run-timeout "$CHECK_TIMEOUT
 合成 fixture 只验证判定逻辑与失败处理，不是性能证据。驱动须有真实小规模执行，完整快速矩阵须核对唯一维度、全部三方指标和总耗时。修改报告逻辑优先 replay，不为匹配脚本新哈希擅自重采。
 
 `AGENTS.md` 的“性能优化”章节仅保留本规范入口与基本执行要求；阈值、矩阵、命令和结果口径以本文及其引用的套件配置为准，不在 AGENTS 复制。
+
+## 附录 B：历史性能对照记录（迁自 benchmarks/，原名 benchmark_test/）
+
+以下记录迁自已删除的 `benchmarks/chan_go_align_bench.md` 与 `benchmarks/cocond_lockfree_vs_mutex_bench.md`（改名前为 `benchmark_test/`），内容逐字保留，仅作为历史对照；原始数字、历史判断与阶段 SHA 保持原文，不作为当前基线，也不作当前性能决策依据。perf 原始归档在 `perf-baseline` 分支。
+
+### B.1 Chan Go 对齐 — 性能对照
+
+> 2026-06-29 | #207 (原 #188) | Chan 异常安全 + Close 语义修正 + Notify race fix
+
+> **后续核验注**：测试条件中的三个阶段短 SHA（`b0ae2c8`、`44542e3`、`1809187`）在本地对象库不可检索，不能据此断言远端已永久丢失（`10594ed` 可检索）；阶段归因需以远端为准另行核验。「无永久阻塞」收益仅指当时的缓冲 Chan 兜底，无缓冲 `Chan<T,0>` 的缺口由 #210 修复。本文为历史记录，非当前基线；以下数字与结论保持原文。
+
+## 改动
+
+1. **RAII 重构**: `_Lock()/_UnLock()` → `std::unique_lock`, `m_is_reading` ChanReadGuard
+2. **Close 语义**: 不再丢弃缓冲数据，读空后才返回 -1
+3. **返回值区分**: 0=成功, -1=关闭+空, -2=错误, 1=超时
+4. **新增**: `size()/capacity()`, `WriteChan<T>/ReadChan<T>`
+5. **YieldWithCallback 修复** (b0ae2c8): callback 在 Resume() 中执行导致 `unique_lock` 拥有权冲突 → 改为手动 unlock
+6. **Notify 丢失安全网** (500ms): CAS 后 Notify 可能丢失 → `_WaitUntilEnableReadOrTimeout(500)` 兜底
+7. **Review 修复**: `size()` 加锁, `TryRead` 超时递减, 文档补全
+
+## 测试条件
+
+- `unified_stress --module=chan --threads=2, FATIGUE_INTERVAL=10, timeout -s KILL 25`
+- PRE: `10594ed` (origin/main before #188)
+- MID: `44542e3` (纯 RAII, 不含 b0ae2c8 和安全网)
+- POST: `1809187+` (最终版本: CAS-before-lock + 500ms 网 + b0ae2c8 fix)
+
+## 结果 (各 3 轮快测)
+
+| 版本 | R1 | R2 | R3 | **平均** |
+|------|-----|-----|-----|----------|
+| PRE | 839 | 847 | 854 | **846/s** |
+| MID | 855 | 827 | 859 | **847/s** (+0.0%) |
+| POST | 745 | 757 | 784 | **762/s** (-10.0%) |
+
+### 代价拆解
+
+- RAII + Close drain: **+0.0%**（零开销）
+- b0ae2c8 lock fix + 500ms 安全网 + TryRead fix + size lock: **-10.0%**
+
+## 1h 疲劳测试
+
+- 6/6 模块线性增长，零冻结，零 crash
+- chan: 2,465,475 ops @ 679/s (2T)
+- 全通道 16.4M ops, exit=0
+
+## Close 语义验证
+
+```
+--module=chan_close: 400 条填充 → Close → 读完 400 条 → Read 返回 -1 ✅
+```
+
+## 结论
+
+-10% 来自两个不可省略的竞态修复 (b0ae2c8 + 安全网)，不是 RAII 本身。换来的收益：
+
+- 全路径异常安全（不会锁泄露）
+- `m_is_reading` 异常自动恢复
+- Close 后仍可读缓冲数据（对齐 Go）
+- 编译期方向性约束
+- 无死锁（Resource deadlock avoided）
+- 无永久阻塞（Notify 丢失兜底）
+
+### B.2 CoCond lockfree → std::queue+mutex 性能对照
+
+> 2026-06-18 | PR #205 | CoCond 异常安全改造
+
+## 背景
+
+PR #205 为修复 CoCond::Wait() 异常安全问题，将 waiter 队列从 `boost::lockfree::queue<CoWaiter*>` 改为 `std::queue<std::shared_ptr<CoWaiter>>` + `std::mutex`。
+
+为评估 lockfree → mutex 的性能代价，编写了独立压测 `cocond_queue_stress.cc`，去除了 `unified_stress` 中 `bbtco_sleep(500)` 的限流瓶颈。
+
+## 测试条件
+
+- 二进制: `cocond_queue_stress`
+- 200 waiter 协程, 1 notifier
+- notifier 用 `bbtco_yield` 极限频率 `NotifyAll()`
+- waiter 无 yield/sleep, `Wait()` → ops++ → 立即重入 `Wait()`
+- `CO_PROC_THREADS=8`, dur=10s, 各 3 轮
+
+## 结果
+
+| 版本 | R1 | R2 | R3 | **平均** |
+|------|-----|-----|-----|----------|
+| PRE lockfree (28a8f3c) | 8,723 | 8,518 | 8,666 | **8,636 ops/s** |
+| POST mutex (50dd685)  | 8,350 | 8,194 | 8,310 | **8,285 ops/s** |
+
+**Delta: -4.1%**
+
+## 为什么 unified_stress 测不出
+
+`stress_cocond()` 中 notifier 每 500ms 一次 `NotifyAll()`，理论天花板 400 ops/s。队列操作（微秒级）在 500ms 间隔中占比可忽略，两个版本都 ~388 ops/s（噪声级别）。去掉限流后，200 waiter 同时 `Wait()` push + `NotifyAll()` pop 时的 mutex 竞争才暴露真实差距。
+
+## 结论
+
+-4.1% 可接受。CoCond 是通知型同步，Wait/NotifyAll 间有协程调度间隙，mutex 开销温和（对比 MLFQ 的 -8.6% 纯锁热路径）。换来的异常安全（消除悬空指针 UB）值得。
+
+> **后续核验注**：MLFQ -8.6% 对照未附文内可检索来源，本轮未验证，不作为当前性能决策依据；上文原数字与历史判断保持原文。

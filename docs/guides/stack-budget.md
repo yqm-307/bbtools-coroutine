@@ -2,7 +2,7 @@
 
 本工具提供**带条件和缺口的编译器模型**，不是 C++ 栈安全证明器，不输出 SAFE。
 不改变默认 12 KiB、保护页、栈池、调度、取消或异常契约，不自动修改业务容量。
-核心语义仍以 `2026-09-07-core-runtime-contract.md` 为准。
+核心语义仍以 `core-runtime-contract.md`（`docs/architecture/`） 为准。
 
 ## 支持边界
 
@@ -132,7 +132,7 @@ strong 符号、实际 map 输入段归属及函数字节共同核实；首版�
 模板内容及依赖二进制摘要。`manifest.assertion` 指向该产物。
 旧摘要不能跨对象、依赖、版本或配置复用，不能只改一个指纹字符串继续用。
 
-`example/stack_budget/assertion.json.in` **只是一组未验证的示例作者前提**：
+`examples/stack_budget/assertion.json.in` **只是一组未验证的示例作者前提**：
 它把 wrapper、fcontext、std::function、EH/析构/回调、stack_chk/abort、
 查询函数以及 red-zone/ABI 开销列为独立、显式的条件预算。
 这些数值不是测量、上游承诺或生产容量建议，不应直接照搬。
@@ -157,12 +157,12 @@ export CCACHE_DIR="$PWD/build-stack-budget-cache"
 export CCACHE_TEMPDIR="$TMPDIR"
 JOBS=$(( $(nproc) / 4 )); [ "$JOBS" -ge 2 ] || JOBS=2
 
-cmake -S example/stack_budget -B build-budget-analysis -G Ninja \
+cmake -S examples/stack_budget -B build-budget-analysis -G Ninja \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
   -DBBT_COROUTINE_LIBRARY="$PWD/build-stack-budget-off/lib/libbbt_coroutine.so"
 cmake --build build-budget-analysis --target stack_budget_analysis --parallel "$JOBS"
 
-cmake -S example/stack_budget -B build-budget-consume -G Ninja \
+cmake -S examples/stack_budget -B build-budget-consume -G Ninja \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
   -DBBT_COROUTINE_LIBRARY="$PWD/build-stack-budget-off/lib/libbbt_coroutine.so" \
   -DSTACK_BUDGET_STAGE=CONSUME -DSTACK_BUDGET_ANALYSIS_DIR="$PWD/build-budget-analysis"

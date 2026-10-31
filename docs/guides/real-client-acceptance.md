@@ -10,7 +10,7 @@
 
 ## Echo 场景
 
-由仓内 `example/echoserver/EchoServer.cc` 提供 TCP 服务，Python 标准库
+由仓内 `examples/echoserver/EchoServer.cc` 提供 TCP 服务，Python 标准库
 socket 作为阻塞式客户端，覆盖：
 
 - 多客户端并发连接、重复重连；
@@ -27,7 +27,7 @@ socket 作为阻塞式客户端，覆盖：
 
 ## hiredis 场景
 
-由 `example/redis/co_with_hiredis.cc` 使用 hiredis（1.1.0 是历史记录时的版本，本仓不 pin 依赖版本、亦未复验其当时环境）连接本机 Redis，覆盖：
+由 `examples/redis/co_with_hiredis.cc` 使用 hiredis（1.1.0 是历史记录时的版本，本仓不 pin 依赖版本、亦未复验其当时环境）连接本机 Redis，覆盖：
 
 - 10 个协程池任务，每个任务复用一个独占 `redisContext`；
 - 每个任务执行 1,000 次混合操作，总计 10,000 次写入/读取校验；
@@ -43,8 +43,8 @@ socket 作为阻塞式客户端，覆盖：
 
 ```bash
 python3 scripts/acceptance_real_clients.py \
-  --echo-server ./build/bin/example/echo_server \
-  --hiredis ./build/bin/example/co_with_hiredis
+  --echo-server ./build/bin/examples/echo_server \
+  --hiredis ./build/bin/examples/co_with_hiredis
 ```
 
 构建同时启用 `NEED_TEST=ON` 和 `NEED_EXAMPLE=ON` 时，CTest 注册

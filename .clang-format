@@ -1,0 +1,259 @@
+# bbt 三仓统一代码风格（hygiene 2026-10-30）。
+# 基准：以 infra/framework 主导风格反推（4 空格、行尾大括号、指针贴左）。
+# coroutine 存量为 Allman 风格，不追平；新行/改动行按本文件执行（D5）。
+# 工具：clang-format 23.1.3（uv tool install clang-format==23.1.3）。
+
+Language: Cpp
+Standard: Latest
+
+AccessModifierOffset: -4
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+# 0 = 不自动折行：存量代码人工折行风格多样（~90–120 列），任何有限列宽都会
+# 把手写折行重新拼接，无谓扩大改动面。行长指导由 docs/conventions.md 承担
+# （建议 ≤120），本文件只管空格/缩进/大括号。
+ColumnLimit: 0
+
+# --- 大括号：全部行尾 ---
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterCaseLabel: false
+  AfterClass: false
+  AfterControlStatement: Never
+  AfterEnum: false
+  AfterExternBlock: false
+  AfterFunction: false
+  AfterNamespace: false
+  AfterStruct: false
+  AfterUnion: false
+  BeforeCatch: false
+  BeforeElse: false
+  BeforeLambdaBody: false
+  IndentBraces: false
+  SplitEmptyFunction: true
+  SplitEmptyNamespace: true
+  SplitEmptyRecord: false
+
+# --- 空行 ---
+KeepEmptyLines:
+  AtEndOfFile: false
+  AtStartOfBlock: false
+  AtStartOfFile: true
+MaxEmptyLinesToKeep: 1
+SeparateDefinitionBlocks: Leave
+
+# --- 短语句 ---
+AllowShortBlocksOnASingleLine: Always
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortEnumsOnASingleLine: false
+AllowShortFunctionsOnASingleLine:
+  Empty: true
+  Inline: true
+  Other: false
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLambdasOnASingleLine: All
+AllowShortLoopsOnASingleLine: false
+AllowShortNamespacesOnASingleLine: false
+AllowShortRecordOnASingleLine: EmptyAndAttached
+
+# --- 缩进 ---
+NamespaceIndentation: None
+CompactNamespaces: false
+ContinuationIndentWidth: 4
+ConstructorInitializerIndentWidth: 4
+IndentAccessModifiers: false
+IndentCaseBlocks: false
+IndentCaseLabels: false
+IndentExportBlock: true
+IndentExternBlock: AfterExternBlock
+IndentGotoLabels: OuterIndent
+IndentPPDirectives: None
+IndentRequiresClause: true
+IndentWrappedFunctionNames: false
+PPIndentWidth: -1
+
+# --- 指针/引用：贴左 ---
+PointerAlignment: Left
+ReferenceAlignment: Pointer
+DerivePointerAlignment: false
+SpaceAroundPointerQualifiers: Default
+
+# --- 空格 ---
+BitFieldColonSpacing: Both
+SpaceAfterCStyleCast: false
+SpaceAfterLogicalNot: false
+SpaceAfterOperatorKeyword: false
+SpaceAfterTemplateKeyword: true
+SpaceBeforeAssignmentOperators: true
+SpaceBeforeCaseColon: false
+SpaceBeforeCpp11BracedList: false
+SpaceBeforeCtorInitializerColon: true
+SpaceBeforeEnumUnderlyingTypeColon: true
+SpaceBeforeInheritanceColon: true
+SpaceBeforeJsonColon: false
+SpaceBeforeParens: ControlStatements
+SpaceBeforeParensOptions:
+  AfterControlStatements: true
+  AfterForeachMacros: true
+  AfterFunctionDeclarationName: false
+  AfterFunctionDefinitionName: false
+  AfterIfMacros: true
+  AfterOverloadedOperator: false
+  AfterPlacementOperator: true
+  AfterRequiresInClause: false
+  AfterRequiresInExpression: false
+  BeforeNonEmptyParentheses: false
+SpaceBeforeRangeBasedForLoopColon: true
+SpaceBeforeSquareBrackets: false
+SpaceInEmptyBraces: Never
+SpacesBeforeTrailingComments: 1
+SpacesInAngles: Never
+SpacesInContainerLiterals: false
+SpacesInParens: Never
+SpacesInParensOptions:
+  InCStyleCasts: false
+  InConditionalStatements: false
+  InEmptyParentheses: false
+  Other: false
+SpacesInSquareBrackets: false
+
+# --- 换行/装箱 ---
+AlwaysBreakAfterDefinitionReturnType: None
+AlwaysBreakBeforeMultilineStrings: false
+BreakAfterAttributes: Leave
+BreakAfterJavaFieldAnnotations: false
+BreakBeforeBinaryOperators: None
+BreakBeforeConceptDeclarations: Always
+BreakBeforeInlineASMColon: OnlyMultiline
+BreakBeforeReturnType: None
+BreakBeforeTernaryOperators: true
+BreakConstructorInitializers: BeforeColon
+BreakFunctionDeclarationParameters: false
+BreakFunctionDefinitionParameters: false
+BreakInheritanceList: BeforeColon
+BreakStringLiterals: true
+BreakTemplateDeclarations: Leave
+BinPackLongBracedList: true
+PackArguments:
+  BinPack: BinPack
+  BreakAfter: 0
+PackParameters:
+  BinPack: BinPack
+  BreakAfter: 0
+PackConstructorInitializers: CurrentLine
+PenaltyBreakAssignment: 20
+PenaltyBreakBeforeFirstCallParameter: 30
+PenaltyBreakBeforeMemberAccess: 150
+PenaltyBreakComment: 50
+PenaltyBreakFirstLessLess: 40
+PenaltyBreakOpenParenthesis: 10
+PenaltyBreakScopeResolution: 500
+PenaltyBreakString: 60
+PenaltyBreakTemplateDeclaration: 10
+PenaltyExcessCharacter: 10000
+PenaltyReturnTypeOnItsOwnLine: 200
+
+# --- 对齐：全部关闭，避免改动既有列对齐 ---
+AlignAfterOpenBracket: Align
+AlignArrayOfStructures: None
+AlignConsecutiveAssignments:
+  Enabled: false
+AlignConsecutiveBitFields:
+  Enabled: false
+AlignConsecutiveDeclarations:
+  Enabled: false
+AlignConsecutiveMacros:
+  Enabled: false
+AlignConsecutiveShortCaseStatements:
+  Enabled: false
+AlignEscapedNewlines: Right
+AlignOperands: Align
+AlignTrailingComments:
+  Kind: Always
+  OverEmptyLines: 0
+
+# --- 注释 ---
+FixNamespaceComments: true
+ReflowComments: Never
+SpacesInLineCommentPrefix:
+  Minimum: 1
+  Maximum: -1
+CommentPragmas: '^ IWYU pragma:'
+
+# --- include：不排序、不重排（保留手写顺序）---
+SortIncludes:
+  Enabled: false
+SortUsingDeclarations: LexicographicNumeric
+IncludeBlocks: Preserve
+IncludeCategories:
+  - Regex: '^<bbt/'
+    Priority: 3
+    SortPriority: 3
+    CaseSensitive: false
+  - Regex: '^"'
+    Priority: 4
+    SortPriority: 4
+    CaseSensitive: false
+  - Regex: '^<'
+    Priority: 2
+    SortPriority: 2
+    CaseSensitive: false
+IncludeIsMainRegex: '(Test)?$'
+IncludeIsMainSourceRegex: ''
+
+# --- 其它 ---
+AllowAllArgumentsOnNextLine: true
+AllowAllParametersOfDeclarationOnNextLine: true
+AllowBreakBeforeNoexceptSpecifier: Never
+AllowBreakBeforeQtProperty: false
+BreakAdjacentStringLiterals: true
+BreakArrays: true
+BreakBeforeTemplateCloser: false
+BreakBinaryOperations:
+  Default: Never
+Cpp11BracedListStyle: AlignFirstComment
+DisableFormat: false
+EmptyLineAfterAccessModifier: Never
+EmptyLineBeforeAccessModifier: LogicalBlock
+EnumTrailingComma: Leave
+ExperimentalAutoDetectBinPacking: false
+InsertBraces: false
+InsertNewlineAtEOF: false
+InsertTrailingCommas: None
+IntegerLiteralSeparator:
+  Binary: 0
+  Decimal: 0
+  Hex: 0
+LambdaBodyIndentation: Signature
+LineEnding: LF
+MacroBlockBegin: ''
+MacroBlockEnd: ''
+MainIncludeChar: Quote
+NumericLiteralCase:
+  ExponentLetter: Leave
+  HexDigit: Leave
+  Prefix: Leave
+  Suffix: Leave
+OneLineFormatOffRegex: ''
+QualifierAlignment: Leave
+RemoveBracesLLVM: false
+RemoveEmptyLinesInUnwrappedLines: false
+RemoveParentheses: Leave
+RemoveSemicolon: false
+RequiresClausePosition: OwnLine
+RequiresExpressionIndentation: OuterScope
+ShortNamespaceLines: 1
+SkipMacroDefinitionBody: false
+StatementAttributeLikeMacros: []
+StatementMacros: []
+WhitespaceSensitiveMacros:
+  - bbtco
+  - bbtco_ev_r
+  - bbtco_ev_rt
+  - bbtco_ev_w
+  - bbtco_wait_for
+  - BBTATTR_FUNC_CTOR_HIDDEN
+  - BOOST_PP_STRINGIZE
+  - STRINGIZE
+WrapNamespaceBodyWithEmptyLines: Leave

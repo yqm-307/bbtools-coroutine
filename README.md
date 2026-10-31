@@ -17,13 +17,13 @@
 
 | 文档 | 内容 |
 |------|------|
-| [agent-docs/user-guide.md](agent-docs/user-guide.md) | 使用手册：基础用法、综合示例、注意事项 |
-| [agent-docs/api-reference.md](agent-docs/api-reference.md) | API 参考：签名、返回码、挂起条件与生命周期 |
-| [agent-docs/2026-09-07-core-runtime-contract.md](agent-docs/2026-09-07-core-runtime-contract.md) | 核心运行时契约（唯一契约真源）：进程寿命、线程模型、Hook 边界、driver 分层 |
-| [agent-docs/development-and-release-process.md](agent-docs/development-and-release-process.md) | 开发与发布流程：验证阶梯、本地入口、发布 Gate |
-| [agent-docs/performance-optimization.md](agent-docs/performance-optimization.md) | 性能问题分析与优化流程、测量协议 |
-| [agent-docs/stack-budget-guide.md](agent-docs/stack-budget-guide.md) | 协程入口栈预算工具与可选运行诊断 |
-| [agent-docs/2026-09-09-real-client-acceptance.md](agent-docs/2026-09-09-real-client-acceptance.md) | 真实客户端验收场景说明（发布 Gate） |
+| [docs/guides/user-guide.md](docs/guides/user-guide.md) | 使用手册：基础用法、综合示例、注意事项 |
+| [docs/guides/api-reference.md](docs/guides/api-reference.md) | API 参考：签名、返回码、挂起条件与生命周期 |
+| [docs/architecture/core-runtime-contract.md](docs/architecture/core-runtime-contract.md) | 核心运行时契约（唯一契约真源）：进程寿命、线程模型、Hook 边界、driver 分层 |
+| [docs/guides/development.md](docs/guides/development.md) | 开发与发布流程：验证阶梯、本地入口、发布 Gate |
+| [docs/guides/performance.md](docs/guides/performance.md) | 性能问题分析与优化流程、测量协议 |
+| [docs/guides/stack-budget.md](docs/guides/stack-budget.md) | 协程入口栈预算工具与可选运行诊断 |
+| [docs/guides/real-client-acceptance.md](docs/guides/real-client-acceptance.md) | 真实客户端验收场景说明（发布 Gate） |
 | [docs/guides/ci.md](docs/guides/ci.md) | CI 流水线使用指南（唯一 CI 落点） |
 | [.github/skills/bbtools-coroutine/SKILL.md](.github/skills/bbtools-coroutine/SKILL.md) | Agent 写调用代码的入口 |
 
@@ -87,9 +87,9 @@ int main()
 }
 ```
 
-Chan、CoCond、CoMutex、CoPool、CoSelect、CoRWMutex、WaitFor、defer、Hook 等完整示例见[使用手册](agent-docs/user-guide.md)；完整签名与返回码见 [API 参考](agent-docs/api-reference.md)。
+Chan、CoCond、CoMutex、CoPool、CoSelect、CoRWMutex、WaitFor、defer、Hook 等完整示例见[使用手册](docs/guides/user-guide.md)；完整签名与返回码见 [API 参考](docs/guides/api-reference.md)。
 
-进程寿命与生命周期契约（`Scheduler::Stop` 已删除、运行时为进程寿命对象、worker 扩缩容、静态退出期不析构等）与线程模型 / 网络 I/O 域边界，以[核心运行时契约](agent-docs/2026-09-07-core-runtime-contract.md) §6、§11 为唯一真源，README 不再复述。
+进程寿命与生命周期契约（`Scheduler::Stop` 已删除、运行时为进程寿命对象、worker 扩缩容、静态退出期不析构等）与线程模型 / 网络 I/O 域边界，以[核心运行时契约](docs/architecture/core-runtime-contract.md) §6、§11 为唯一真源，README 不再复述。
 
 ## 测试
 
@@ -100,4 +100,4 @@ cmake --build build --parallel "$JOBS"
 ctest --test-dir build --output-on-failure        # 套件数以 `ctest -N` 输出为准
 ```
 
-冒烟、长时 soak、真实客户端验收与本地验证阶梯见[开发与发布流程](agent-docs/development-and-release-process.md)。
+冒烟、长时 soak、真实客户端验收与本地验证阶梯见[开发与发布流程](docs/guides/development.md)。

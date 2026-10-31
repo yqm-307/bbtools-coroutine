@@ -39,6 +39,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -226,6 +227,116 @@ class RecipeGuardTests(unittest.TestCase):
                 ["bash", PREPARE_BOOST, os.path.join(td, "p"), "--nope"], env=ENV
             )
             self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
+
+
+# --------------------------------------------------------------------------- #
+# 构建入口 ↔ 子目录一致性守卫（回归：debug/ 曾被删除而 NEED_DEBUG 入口仍注册，
+# NEED_DEBUG=ON configure 直接失败——目录与 CMake 入口必须同生同灭）
+# --------------------------------------------------------------------------- #
+ROOT_CMAKELISTS = os.path.join(WORKTREE, "CMakeLists.txt")
+
+
+def _gated_subdir_block(root_text: str, option: str) -> str:
+    """取根 CMakeLists 中 `if (<OPTION>) ... endif()` 的实际块文本（不允许入口漂出守卫）。
+
+    按行扫描并跟踪 if/endif 嵌套深度：守卫块内部允许再嵌套条件
+    （如 fail-closed 的 NOT EXISTS 检查），只在深度回到 0 的 endif 处收尾。
+    """
+    lines = root_text.splitlines()
+    start = None
+    depth = 0
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if re.match(rf"^if\s*\(\s*{re.escape(option)}\s*\)", stripped) and start is None:
+            start = i
+            depth = 1
+            continue
+        if start is None:
+            continue
+        if re.match(r"^if\s*\(", stripped):
+            depth += 1
+        elif re.match(r"^endif\s*\(", stripped) or stripped == "endif()":
+            depth -= 1
+            if depth == 0:
+                return "\n".join(lines[start + 1:i])
+    raise AssertionError(f"根 CMakeLists.txt 缺少 if ({option}) 块")
+
+
+class NeedDebugWiringContractTests(unittest.TestCase):
+    """NEED_DEBUG 入口与 debug/ 目录的一致性：任一缺失即 NEED_DEBUG=ON 配置失败。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.root = raw(ROOT_CMAKELISTS)
+        cls.debug_dir = os.path.join(WORKTREE, "debug")
+        cls.debug_cmake = os.path.join(cls.debug_dir, "CMakeLists.txt")
+
+    def test_option_and_gated_subdirectory_both_registered(self):
+        self.assertIn("option(NEED_DEBUG", self.root, "NEED_DEBUG option 必须存在")
+        block = _gated_subdir_block(self.root, "NEED_DEBUG")
+        self.assertIn('add_subdirectory_with_build_type(debug "Debug")', block,
+                      "debug 子目录必须注册在 NEED_DEBUG 守卫内，不得漂出或删除")
+
+    def test_needs_debug_guard_fails_closed_before_add_subdirectory(self):
+        # 回归契约：NEED_DEBUG=ON 且 debug/CMakeLists.txt 缺失时必须以明确的
+        # FATAL_ERROR 在 add_subdirectory 之前终止，而不是靠 CMake 默认报错碰运气。
+        block = _gated_subdir_block(self.root, "NEED_DEBUG")
+        self.assertIn('if (NOT EXISTS "${PROJECT_SOURCE_DIR}/debug/CMakeLists.txt")',
+                      block,
+                      "fail-closed 条件必须是 NOT EXISTS：反转成 EXISTS 属于假绿，不得通过")
+        self.assertIn("FATAL_ERROR", block,
+                      "debug/CMakeLists.txt 缺失时必须 message(FATAL_ERROR ...) 终止")
+        self.assertLess(block.index("FATAL_ERROR"),
+                        block.index('add_subdirectory_with_build_type(debug "Debug")'),
+                        "fail-closed 检查必须位于 add_subdirectory 之前")
+
+    @unittest.skipIf(shutil.which("cmake") is None,
+                     "cmake 不可用：真实 configure fail-closed 冒烟显式 SKIP（不等于通过）")
+    def test_needs_debug_configure_fails_closed_when_debug_cmakelists_missing(self):
+        # 行为验证（非文本断言）：在隔离临时副本中删除 debug/CMakeLists.txt 后跑真实
+        # cmake configure —— NEED_DEBUG=ON 必须非零退出且输出新增的 fail-closed 诊断。
+        # 只复制 configure 期实际消费的内容（根 CMakeLists 经 GLOB 读取 bbt/*.cc，
+        # 头文件与子目录结构不参与 configure，无需复制）；真实工作树不被修改，
+        # TemporaryDirectory 负责清理。
+        with tempfile.TemporaryDirectory() as td:
+            src = os.path.join(td, "src")
+            os.makedirs(os.path.join(src, "bbt"))
+            shutil.copy2(ROOT_CMAKELISTS, src)
+            with open(os.path.join(src, "bbt", "placeholder.cc"), "w",
+                      encoding="utf-8") as handle:
+                handle.write("// 占位：让 bbt_coroutine 的 GLOB_RECURSE 非空\n")
+            shutil.copytree(self.debug_dir, os.path.join(src, "debug"))
+            os.remove(os.path.join(src, "debug", "CMakeLists.txt"))
+            proc = run(["cmake", "-S", src, "-B", os.path.join(td, "build"),
+                        "-DNEED_DEBUG=ON"], env=ENV)
+            output = proc.stdout + proc.stderr
+            self.assertNotEqual(proc.returncode, 0,
+                                "debug/CMakeLists.txt 缺失时 NEED_DEBUG=ON configure "
+                                f"必须以非零退出终止\n{output}")
+            self.assertIn("NEED_DEBUG=ON 但 debug/CMakeLists.txt 缺失", output,
+                          "必须输出新增的 fail-closed 诊断（CMake 默认报错不含 "
+                          f"NEED_DEBUG=ON 字样，可区分守卫被删/反转的假绿）\n{output}")
+
+    def test_debug_dir_and_its_cmakelists_exist(self):
+        self.assertTrue(os.path.isdir(self.debug_dir),
+                        "根 CMakeLists 注册了 debug 子目录，debug/ 不得缺失")
+        self.assertTrue(os.path.isfile(self.debug_cmake),
+                        "debug/CMakeLists.txt 必须存在，否则 NEED_DEBUG=ON configure 失败")
+
+    def test_every_declared_debug_source_exists(self):
+        # debug/CMakeLists.txt 里每个 add_executable(<名> <源>.cc) 的源文件必须在盘上；
+        # 历史上整目录被删时本断言与 dir 存在性一起失败，源文件单删时单独失败。
+        text = raw(self.debug_cmake)
+        declared = re.findall(
+            r"add_executable\s*\(\s*\S+\s+(\S+\.cc)\s*\)", text
+        )
+        self.assertTrue(declared, "debug/CMakeLists.txt 至少声明一个调试可执行目标")
+        for source in declared:
+            with self.subTest(source=source):
+                self.assertTrue(
+                    os.path.isfile(os.path.join(self.debug_dir, source)),
+                    f"debug/{source} 被 add_executable 引用但文件缺失",
+                )
 
 
 # --------------------------------------------------------------------------- #
