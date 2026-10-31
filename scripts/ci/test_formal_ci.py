@@ -236,14 +236,29 @@ ROOT_CMAKELISTS = os.path.join(WORKTREE, "CMakeLists.txt")
 
 
 def _gated_subdir_block(root_text: str, option: str) -> str:
-    """取根 CMakeLists 中 `if (<OPTION>) ... endif()` 的实际块文本（不允许入口漂出守卫）。"""
-    match = re.search(
-        rf"(?ms)^\s*if\s*\(\s*{re.escape(option)}\s*\)(.*?)^\s*endif\s*\(",
-        root_text,
-    )
-    if not match:
-        raise AssertionError(f"根 CMakeLists.txt 缺少 if ({option}) 块")
-    return match.group(1)
+    """取根 CMakeLists 中 `if (<OPTION>) ... endif()` 的实际块文本（不允许入口漂出守卫）。
+
+    按行扫描并跟踪 if/endif 嵌套深度：守卫块内部允许再嵌套条件
+    （如 fail-closed 的 NOT EXISTS 检查），只在深度回到 0 的 endif 处收尾。
+    """
+    lines = root_text.splitlines()
+    start = None
+    depth = 0
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if re.match(rf"^if\s*\(\s*{re.escape(option)}\s*\)", stripped) and start is None:
+            start = i
+            depth = 1
+            continue
+        if start is None:
+            continue
+        if re.match(r"^if\s*\(", stripped):
+            depth += 1
+        elif re.match(r"^endif\s*\(", stripped) or stripped == "endif()":
+            depth -= 1
+            if depth == 0:
+                return "\n".join(lines[start + 1:i])
+    raise AssertionError(f"根 CMakeLists.txt 缺少 if ({option}) 块")
 
 
 class NeedDebugWiringContractTests(unittest.TestCase):
@@ -260,6 +275,18 @@ class NeedDebugWiringContractTests(unittest.TestCase):
         block = _gated_subdir_block(self.root, "NEED_DEBUG")
         self.assertIn('add_subdirectory_with_build_type(debug "Debug")', block,
                       "debug 子目录必须注册在 NEED_DEBUG 守卫内，不得漂出或删除")
+
+    def test_needs_debug_guard_fails_closed_before_add_subdirectory(self):
+        # 回归契约：NEED_DEBUG=ON 且 debug/CMakeLists.txt 缺失时必须以明确的
+        # FATAL_ERROR 在 add_subdirectory 之前终止，而不是靠 CMake 默认报错碰运气。
+        block = _gated_subdir_block(self.root, "NEED_DEBUG")
+        self.assertIn('EXISTS "${PROJECT_SOURCE_DIR}/debug/CMakeLists.txt"', block,
+                      "NEED_DEBUG 块必须先显式检查 debug/CMakeLists.txt 存在")
+        self.assertIn("FATAL_ERROR", block,
+                      "debug/CMakeLists.txt 缺失时必须 message(FATAL_ERROR ...) 终止")
+        self.assertLess(block.index("FATAL_ERROR"),
+                        block.index('add_subdirectory_with_build_type(debug "Debug")'),
+                        "fail-closed 检查必须位于 add_subdirectory 之前")
 
     def test_debug_dir_and_its_cmakelists_exist(self):
         self.assertTrue(os.path.isdir(self.debug_dir),

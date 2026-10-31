@@ -194,5 +194,12 @@ if (NEED_EXAMPLE)
 endif()
 
 if (NEED_DEBUG)
+    # fail-closed：debug/ 曾整目录缺失而本入口仍注册，add_subdirectory 仅报
+    # "not an existing directory"；先显式检查并给出可读诊断。
+    if (NOT EXISTS "${PROJECT_SOURCE_DIR}/debug/CMakeLists.txt")
+        message(FATAL_ERROR
+            "NEED_DEBUG=ON 但 debug/CMakeLists.txt 缺失；"
+            "请恢复 debug/ 目录，或置 NEED_DEBUG=OFF")
+    endif()
     add_subdirectory_with_build_type(debug "Debug")
 endif()
