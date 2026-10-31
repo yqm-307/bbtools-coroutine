@@ -323,6 +323,20 @@ def load_baseline(args):
     return baseline, path
 
 
+def _resolve_unified_stress(build_dir):
+    """定位被测构建树里的 unified_stress。
+
+    benchmarks/ 优先（目录改名后的布局）；benchmark_test/ 兼容改名前的旧布局
+    （同 runner base/head 对比时 base 树可能仍是旧布局）。都不存在时返回
+    benchmarks/ 路径，由调用方的存在性检查给出统一报错。
+    """
+    for sub in ("benchmarks", "benchmark_test"):
+        candidate = os.path.join(build_dir, "bin", sub, "unified_stress")
+        if os.path.exists(candidate):
+            return candidate
+    return os.path.join(build_dir, "bin", "benchmarks", "unified_stress")
+
+
 def main():
     global BUILD_DIR, UNIFIED_STRESS
     parser = argparse.ArgumentParser(description="CI performance regression check")
@@ -354,8 +368,7 @@ def main():
 
     if args.build_dir:
         BUILD_DIR = os.path.abspath(args.build_dir)
-        UNIFIED_STRESS = os.path.join(BUILD_DIR, "bin", "benchmarks",
-                                      "unified_stress")
+    UNIFIED_STRESS = _resolve_unified_stress(BUILD_DIR)
 
     if not os.path.exists(UNIFIED_STRESS):
         print(f"ERROR: unified_stress not found at {UNIFIED_STRESS}")
