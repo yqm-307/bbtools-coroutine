@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Jenkins 低资源持续疲劳测试（Soak）Harness。
+"""低资源持续疲劳测试（Soak）Harness。
 
 单进程覆盖六个模块。脚本仅采集和判定，不修改主机资源限制。
 正式 CLI 以 build 目录、测试时长、采样间隔和报告根目录为输入；

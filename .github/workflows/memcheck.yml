@@ -1,5 +1,9 @@
 name: 内存检测
 
+# 原 memery_test_info.yml（拼写错误名）改名；arc-s4-memcheck 专用 scale set、
+# workflow_dispatch + 每周五 17:30（UTC+8）调度、镜像画像校验、ulimit/pipefail、
+# 判定入口 run_memcheck.py、artifact 语义逐项不变（gate-inventory §7）。
+
 on:
     workflow_dispatch:
     # schedule 默认在默认分支工作

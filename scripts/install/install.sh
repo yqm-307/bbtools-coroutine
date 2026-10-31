@@ -13,7 +13,31 @@ set -euo pipefail
 installpath="/usr/local/include"
 libpath="/usr/local/lib"
 
-repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+# 脚本位于 scripts/install/，仓库根向上两级；以脚本真实路径解析，
+# 不依赖调用方 cwd（README 的用法是 `cd scripts/install && sudo ./install.sh`）。
+repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+
+# 源路径预检：在任何 sudo/安装动作之前确认全部输入存在，
+# 避免装到一半才发现缺源、留下半成品安装。库文件来自构建目录
+# （README 的先 `cmake --build build` 再安装）。
+_missing=0
+for rel in \
+    bbt/coroutine bbt/pollevent \
+    bbt/core/clock bbt/core/errcode bbt/core/thread \
+    bbt/core/Attribute.hpp bbt/core/Define.hpp \
+    bbt/core/util/Assert.hpp bbt/core/util/Result.hpp \
+    bbt/core/log/DebugPrint.hpp \
+    build/lib/libbbt_coroutine.so
+do
+    if [ ! -e "${repo_root}/${rel}" ]; then
+        echo "install.sh: 源路径缺失: ${repo_root}/${rel}" >&2
+        _missing=1
+    fi
+done
+if [ "${_missing}" -ne 0 ]; then
+    echo "install.sh: 安装中止；先在仓库根完成构建（cmake --build build），再从 scripts/install 运行" >&2
+    exit 1
+fi
 
 # mktemp 暂存目录统一登记，任何失败/中断路径都经 EXIT trap 清理；
 # 配合 set -e，暂存或复制失败即退出，不会继续走到 rm -rf 目标目录。

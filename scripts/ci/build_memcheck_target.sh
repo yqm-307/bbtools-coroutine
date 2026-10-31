@@ -1,7 +1,7 @@
 #!/bin/bash
 # 内存检测专用构建入口：只配置并构建 mem_check_test 目标。
 #
-# 与普通 CI 的差异（本文件只服务 memery_test_info.yml，不动 unit_test.yml / build.sh）：
+# 与普通 CI 的差异（本文件只服务 memcheck.yml，不动 ci.yml / build.sh）：
 # - 只构建一个目标，避免整仓编译；RelWithDebInfo 提供调试符号，便于 memcheck 反查分配栈；
 # - NEED_VALGRIND=ON 把协程可用栈区间接入 Valgrind（默认生产构建不依赖 Valgrind，
 #   头文件缺失时 CMake 直接 FATAL_ERROR，不静默降级）；

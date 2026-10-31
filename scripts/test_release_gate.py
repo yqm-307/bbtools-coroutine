@@ -56,16 +56,31 @@ class ReleaseGateTest(unittest.TestCase):
 
     def test_main_ci_requires_successful_exact_sha_and_all_jobs(self):
         run = {'id': 1, 'head_sha': SHA, 'head_branch': 'main', 'event': 'push', 'conclusion': 'success'}
-        names = ['编译 & 单元测试', '性能回归检查']
-        for conclusion in ('success', 'skipped', 'failure'):
+        names = ['编译 & 单元测试', '性能回归检查', 'result']
+        for conclusion in ('success', 'skipped', 'failure', 'cancelled'):
             jobs = [{'name': name, 'conclusion': 'success'} for name in names]
-            jobs[-1]['conclusion'] = conclusion
+            jobs[1]['conclusion'] = conclusion  # 性能回归检查 结论
             with mock.patch.object(gate, 'api', side_effect=[{'workflow_runs': [run]}, {'jobs': jobs, 'total_count': len(jobs)}]):
-                if conclusion == 'success':
+                if conclusion in ('success', 'skipped'):
+                    # skipped 只在汇聚 result 成功时成立（D4 预期跳过由 result 认证）。
                     gate.validate_main_ci(SHA)
                 else:
                     with self.assertRaises(SystemExit):
                         gate.validate_main_ci(SHA)
+        # 汇聚 result 非 success：其余 job 即使 skipped/success 也一律拒绝。
+        for result_conclusion in ('failure', 'cancelled', 'skipped'):
+            jobs = [{'name': '编译 & 单元测试', 'conclusion': 'skipped'},
+                    {'name': '性能回归检查', 'conclusion': 'skipped'},
+                    {'name': 'result', 'conclusion': result_conclusion}]
+            with self.subTest(result=result_conclusion), \
+                    mock.patch.object(gate, 'api', side_effect=[{'workflow_runs': [run]}, {'jobs': jobs, 'total_count': len(jobs)}]), \
+                    self.assertRaises(SystemExit):
+                gate.validate_main_ci(SHA)
+        # 关键 job 缺失（未出现在 jobs 列表）一律拒绝。
+        jobs = [{'name': 'result', 'conclusion': 'success'}]
+        with mock.patch.object(gate, 'api', side_effect=[{'workflow_runs': [run]}, {'jobs': jobs, 'total_count': len(jobs)}]), \
+                self.assertRaises(SystemExit):
+            gate.validate_main_ci(SHA)
         with mock.patch.object(gate, 'api', return_value={'workflow_runs': [{**run, 'head_sha': 'b' * 40}]}), self.assertRaises(SystemExit):
             gate.validate_main_ci(SHA)
 
@@ -191,7 +206,7 @@ sys.exit(1 if mode == 'crash' else 0)
         # 目标（不跑全量 ctest）、六模块 45s×2threads、job timeout 60min；发布级重型 Gate
         # （soak / real-client / run_parallel_stress）仍只留在 release.yml。
         import re
-        text = (ROOT / '.github/workflows/unit_test.yml').read_text()
+        text = (ROOT / '.github/workflows/ci.yml').read_text()
         for gone in ('real-client-acceptance', 'stress-test', 'run_parallel_stress.sh'):
             self.assertNotIn(gone, text, '发布级检查不得留在普通 CI')
         # 按去注释正文判定（注释允许提及被禁写法）。
@@ -209,13 +224,20 @@ sys.exit(1 if mode == 'crash' else 0)
                 self.assertNotIn(banned, perf_block)
         run = {'id': 1, 'head_sha': SHA, 'head_branch': 'main', 'event': 'push', 'conclusion': 'success'}
         for conclusion in (None, 'skipped', 'cancelled', 'failure'):
-            jobs = [{'name': '编译 & 单元测试', 'conclusion': 'success'}]
+            jobs = [{'name': '编译 & 单元测试', 'conclusion': 'success'},
+                    {'name': 'result', 'conclusion': 'success'}]
             if conclusion is not None:
                 jobs.append({'name': '性能回归检查', 'conclusion': conclusion})
             with self.subTest(performance=conclusion), mock.patch.object(gate, 'api', side_effect=[
                 {'workflow_runs': [run]}, {'jobs': jobs, 'total_count': len(jobs)}
-            ]), self.assertRaises(SystemExit):
-                gate.validate_main_ci(SHA)
+            ]):
+                if conclusion == 'skipped':
+                    # D4 预期跳过：perf=false 的 main push 不产生 perf job success；
+                    # 汇聚 result success 证明该跳过合法，发布 Gate 放行。
+                    gate.validate_main_ci(SHA)
+                else:
+                    with self.assertRaises(SystemExit):
+                        gate.validate_main_ci(SHA)
         release = (ROOT / '.github/workflows/release.yml').read_text()
         self.assertIn('soak_seconds', release)
         self.assertIn('run_parallel_stress.sh "$SOAK_SECONDS"', release)

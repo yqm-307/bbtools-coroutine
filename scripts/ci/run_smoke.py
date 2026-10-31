@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Jenkins 定时 Smoke Harness：增量/干净构建 + CTest smoke 测试 + 报告生成。
+"""定时 Smoke Harness：增量/干净构建 + CTest smoke 测试 + 报告生成。
 
 依次执行：可选清空构建目录（默认干净构建；--no-clean 保留旧产物走
 CMake/Ninja 增量）-> CMake 配置（Ninja）-> 并行构建 ->
@@ -50,7 +50,7 @@ _CACHE_SUMMARY_KEYS = (
 )
 
 # CTest label 作为 argv 单项传递；仍限制 grammar，避免空表达式、控制字符和
-# shell 元字符进入 Jenkins 日志/报告，也让可调参数保持单一 label 语义。
+# shell 元字符进入 CI 日志/报告，也让可调参数保持单一 label 语义。
 _TEST_LABEL_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 # ANSI 转义序列：CSI（\x1b[31m）、OSC（\x1b]0;title\x07）、字符集选择
@@ -63,7 +63,7 @@ _ANSI_ESCAPE_RE = re.compile(
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Jenkins 定时 Smoke Harness")
+    parser = argparse.ArgumentParser(description="定时 Smoke Harness")
     parser.add_argument("--source-dir", type=Path, default=Path("."),
                         help="仓库根目录（默认当前目录）")
     parser.add_argument("--build-dir", type=Path, default=Path("build-ci-smoke"),

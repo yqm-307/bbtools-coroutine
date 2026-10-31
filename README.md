@@ -1,36 +1,40 @@
 # bbtools-coroutine
 
+基于 boost.context 实现的有栈 C++ 协程库，Go 风格语法，仅支持 Linux 平台。
 
-## 简介
+特点：
 
-bbtools-coroutine 基于 boost.context 实现的有栈 C++ 协程库，Go 风格语法，仅支持 Linux 平台，性能极高。
+1. 有栈协程，支持协程间的高效切换
+2. 丰富的协程同步原语（Chan、CoSelect、CoMutex、CoRWMutex、CoCond、CoPool 等）
+3. 支持协程池，方便管理和复用协程
+4. 类似 Go 语言的协程语法和使用体验
+5. 事件驱动 I/O，Poller 后端可替换
+6. syscall hook：协程内 socket / sleep / poll / DNS 等阻塞调用转为协程等待，不阻塞调度线程；非协程上下文直通原生
+7. 按已获得服务量排序的 P 本地 CFS 队列，保留跨 worker 迁移账目
+8. 支持协程间的 defer 语义和异常处理
 
-bbtools-coroutine 有以下特点：
+## 文档地图
 
-1、有栈协程，支持协程间的高效切换
-2、丰富的协程同步原语（Chan、CoSelect、CoMutex、CoRWMutex、CoCond、CoPool 等）
-3、支持协程池，方便管理和复用协程
-4、类似 Go 语言的协程语法和使用体验
-5、事件驱动 I/O，Poller 后端可替换
-6、syscall hook：协程内 socket / sleep / poll / DNS 等阻塞调用转为协程等待，不阻塞调度线程；非协程上下文直通原生
-7、按已获得服务量排序的 P 本地 CFS 队列，保留跨 worker 迁移账目
-8、支持协程间的 defer 语义和异常处理
+| 文档 | 内容 |
+|------|------|
+| [agent-docs/user-guide.md](agent-docs/user-guide.md) | 使用手册：基础用法、综合示例、注意事项 |
+| [agent-docs/api-reference.md](agent-docs/api-reference.md) | API 参考：签名、返回码、挂起条件与生命周期 |
+| [agent-docs/2026-09-07-core-runtime-contract.md](agent-docs/2026-09-07-core-runtime-contract.md) | 核心运行时契约（唯一契约真源）：进程寿命、线程模型、Hook 边界、driver 分层 |
+| [agent-docs/development-and-release-process.md](agent-docs/development-and-release-process.md) | 开发与发布流程：验证阶梯、本地入口、发布 Gate |
+| [agent-docs/performance-optimization.md](agent-docs/performance-optimization.md) | 性能问题分析与优化流程、测量协议 |
+| [agent-docs/stack-budget-guide.md](agent-docs/stack-budget-guide.md) | 协程入口栈预算工具与可选运行诊断 |
+| [agent-docs/2026-09-09-real-client-acceptance.md](agent-docs/2026-09-09-real-client-acceptance.md) | 真实客户端验收场景说明（发布 Gate） |
+| [docs/guides/ci.md](docs/guides/ci.md) | CI 流水线使用指南（唯一 CI 落点） |
+| [.github/skills/bbtools-coroutine/SKILL.md](.github/skills/bbtools-coroutine/SKILL.md) | Agent 写调用代码的入口 |
 
-按符号查阅与组合用法（不要只靠本节速查表）：
+## 安装
 
-- 使用手册：`agent-docs/user-guide.md`
-- API 参考：`agent-docs/api-reference.md`
-- Agent 写调用代码：`.github/skills/bbtools-coroutine/SKILL.md`
-
-## 一、安装
-
-### 依赖
+依赖：
 
 - Boost >= 1.90（本库仅用 `boost.context`；CMake 以 `find_package(Boost 1.90 REQUIRED COMPONENTS context)` 强制校验，版本不足会在 configure 阶段直接报错）。发行版仓库的 `apt install libboost-all-dev` 通常不提供足够新的版本，请以实际安装的 Boost 版本为准。
+- bbtools-core 不再需要：本仓已内置所需的 `bbt/core` 子集与 `bbt/pollevent`。
 
-- ~~bbtools-core~~（Issue #12 P2 起不再需要）：本仓已内置所需的 `bbt/core` 子集与 `bbt/pollevent`，无需预先安装独立 core 库。
-
-### 构建与安装
+构建与安装：
 
 ```shell
 git clone https://github.com/yqm-307/bbtools-coroutine.git
@@ -38,29 +42,23 @@ cd bbtools-coroutine
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 JOBS=$(( $(nproc) / 4 )); JOBS=$(( JOBS < 2 ? 2 : JOBS ))
 cmake --build build --parallel "$JOBS"
-cd shell && sudo ./install.sh    # 头文件装到 /usr/local/include，库装到 /usr/local/lib
+cd scripts/install && sudo ./install.sh    # 头文件装到 /usr/local/include，库装到 /usr/local/lib
 ```
 
-CMake 常用开关（布尔项默认全部 `OFF`；构建类型由 `CMAKE_BUILD_TYPE` 单独控制，完整选项以 `CMakeLists.txt` 为准）：
+CMake 常用开关（布尔项默认全部 `OFF`，完整选项以 `CMakeLists.txt` 为准）：
 
 | 开关 | 作用 |
 |------|------|
-| `CMAKE_BUILD_TYPE=Release` | 优化构建；不指定时为无优化构建（本库不强制 Release） |
-| `NEED_TEST=ON` | 编译单元测试（CTest 注册的套件数以构建目录中 `ctest -N` 输出为准） |
-| `NEED_BENCHMARK=ON` | 编译 `benchmark_test/`（含 `unified_stress`） |
-| `NEED_EXAMPLE=ON` | 编译 `example/`；与 `NEED_TEST=ON` 同开时额外注册无条件的 `Test_real_clients_echo`（必须 PASS），`co_with_hiredis` target 存在时再注册 `Test_real_clients_hiredis` |
-| `NEED_DEBUG=ON` | 编译 `debug/` |
+| `NEED_TEST=ON` | 编译单元测试 |
+| `NEED_BENCHMARK=ON` | 编译 `benchmarks/`（含 `unified_stress`） |
+| `NEED_EXAMPLE=ON` | 编译 `examples/`；与 `NEED_TEST=ON` 同开时额外注册 `Test_real_clients_echo`（必须 PASS） |
 | `PROFILE=ON` | 启用 Profiler |
 | `DEBUG_INFO=ON` | 输出库 debug 信息 |
 | `STRINGENT_DEBUG=ON` | 严格 debug 模式，性能开销极大 |
 
-> `build.sh` 等价于 `cmake -DRELEASE=ON -DNEED_EXAMPLE=ON ..` + `make` + `shell/install.sh`；其中 `-DRELEASE=ON` 当前未被 CMake 使用，构建类型以 `CMAKE_BUILD_TYPE` 为准。未安装 Ninja 时可去掉 `-G Ninja`。
+## 基础使用
 
-## 二、基础使用
-
-### 1. 协程基础语法
-
-首先以后台线程模式启动调度器，注册协程并运行：
+以后台线程模式启动调度器，注册协程并运行：
 
 ```cpp
 #include <bbt/coroutine/coroutine.hpp>
@@ -80,742 +78,26 @@ int main()
 
     // 创建协程 - 带描述
     bbtco_desc("worker") [](){
-        printf("i am worker coroutine\n");
         bbtco_sleep(100);  // 协程睡眠100ms
-        printf("worker coroutine wake up\n");
     };
 
     sleep(1);
-    
     // 无停机入口：进程寿命模型下调度器随进程退出，不需要 Stop
     return 0;
 }
 ```
 
-### 2. 协程通道（Chan）
+Chan、CoCond、CoMutex、CoPool、CoSelect、CoRWMutex、WaitFor、defer、Hook 等完整示例见[使用手册](agent-docs/user-guide.md)；完整签名与返回码见 [API 参考](agent-docs/api-reference.md)。
 
-Chan 是协程间通信的重要工具，支持阻塞读写：`Write`/`Read` 返回 0 成功、-1 关闭（`Close()` 后须读空缓冲才返回 -1）、-2 错误；`TryWrite`/`TryRead` 立即返回，带毫秒参数的版本等待至超时（超时返回码以 API 参考为准）；`Close()` 后仍可读尽缓冲数据；`IsClosed()` 查询关闭状态：
+进程寿命与生命周期契约（`Scheduler::Stop` 已删除、运行时为进程寿命对象、worker 扩缩容、静态退出期不析构等）与线程模型 / 网络 I/O 域边界，以[核心运行时契约](agent-docs/2026-09-07-core-runtime-contract.md) §6、§11 为唯一真源，README 不再复述。
 
-```cpp
-#include <bbt/coroutine/coroutine.hpp>
-#include <bbt/coroutine/sync/Chan.hpp>
-using namespace bbt::coroutine;
-
-void ChanExample()
-{
-    // 创建一个容量为1的整型通道
-    auto chan = sync::Chan<int, 1>{};
-
-    // 写入协程
-    bbtco [&](){
-        printf("writing to chan...\n");
-        chan << 42;  // 写入数据
-        printf("write success\n");
-    };
-
-    // 读取协程
-    bbtco [&](){
-        int value = 0;
-        printf("reading from chan...\n");
-        chan >> value;  // 读取数据
-        printf("read value: %d\n", value);
-    };
-
-    sleep(1);
-}
-
-// 多写者示例
-void MultiWriterExample()
-{
-    auto chan = sync::Chan<int, 10>{};
-
-    // 创建多个写者协程
-    for (int i = 0; i < 5; ++i) {
-        bbtco [&, i](){
-            chan << i;
-            printf("writer %d wrote %d\n", i, i);
-        };
-    }
-
-    // 创建读者协程
-    bbtco [&](){
-        for (int i = 0; i < 5; ++i) {
-            int value = 0;
-            chan >> value;
-            printf("read value: %d\n", value);
-        }
-    };
-
-    sleep(1);
-}
-
-int main()
-{
-    g_scheduler->Start();
-    
-    printf("=== Chan Example ===\n");
-    ChanExample();
-    
-    printf("=== Multi Writer Example ===\n");
-    MultiWriterExample();
-    
-    return 0;
-}
-```
-
-### 3. 协程条件变量（CoCond）
-
-CoCond提供了协程间的等待和唤醒机制：
-
-```cpp
-#include <bbt/coroutine/coroutine.hpp>
-using namespace bbt::coroutine;
-
-void CoCondExample()
-{
-    auto cocond = bbtco_make_cocond();
-
-    // 等待者协程
-    bbtco [&](){
-        printf("coroutine %lu waiting...\n", GetLocalCoroutineId());
-        cocond->Wait();  // 挂起当前协程
-        printf("coroutine %lu awakened!\n", GetLocalCoroutineId());
-    };
-
-    // 唤醒者协程
-    bbtco [&](){
-        bbtco_sleep(500);  // 等待500ms
-        printf("notify one coroutine\n");
-        cocond->NotifyOne();  // 唤醒一个等待的协程
-    };
-
-    sleep(1);
-}
-
-void NotifyAllExample()
-{
-    auto cocond = bbtco_make_cocond();
-
-    // 创建多个等待者
-    for (int i = 0; i < 3; ++i) {
-        bbtco [&, i](){
-            printf("coroutine %d waiting...\n", i);
-            cocond->Wait();
-            printf("coroutine %d awakened!\n", i);
-        };
-    }
-
-    // 唤醒所有等待者
-    bbtco [&](){
-        bbtco_sleep(500);
-        printf("notify all coroutines\n");
-        cocond->NotifyAll();  // 唤醒所有等待的协程
-    };
-
-    sleep(1);
-}
-
-int main()
-{
-    g_scheduler->Start();
-    
-    printf("=== CoCond Example ===\n");
-    CoCondExample();
-    
-    printf("=== NotifyAll Example ===\n");
-    NotifyAllExample();
-    
-    return 0;
-}
-```
-
-### 4. 协程互斥锁（CoMutex）
-
-CoMutex提供了协程间的互斥访问：
-
-```cpp
-#include <bbt/coroutine/coroutine.hpp>
-#include <bbt/coroutine/sync/CoLockGuard.hpp>
-using namespace bbt::coroutine;
-
-void CoMutexExample()
-{
-    auto comutex = bbtco_make_comutex();
-    int shared_data = 0;
-
-    // 创建多个协程竞争访问共享资源
-    for (int i = 0; i < 5; ++i) {
-        bbtco [&, i](){
-            // RAII 守卫：构造加锁、析构解锁（Lock() 返回 void，不能接返回值）
-            sync::CoLockGuard<sync::CoMutex> lock(comutex);
-            printf("coroutine %d got lock\n", i);
-            
-            // 模拟临界区操作
-            int old_value = shared_data;
-            bbtco_sleep(100);  // 模拟耗时操作
-            shared_data = old_value + 1;
-            
-            printf("coroutine %d: %d -> %d\n", i, old_value, shared_data);
-            // lock 在作用域结束时自动释放
-        };
-    }
-
-    sleep(1);
-    printf("final shared_data: %d\n", shared_data);
-}
-
-int main()
-{
-    g_scheduler->Start();
-    
-    printf("=== CoMutex Example ===\n");
-    CoMutexExample();
-    
-    return 0;
-}
-```
-
-### 5. 协程池（CoPool）
-
-CoPool提供了协程的池化管理：
-
-```cpp
-#include <bbt/coroutine/coroutine.hpp>
-using namespace bbt::coroutine;
-
-void CoPoolExample()
-{
-    // 创建一个最大协程数为2的协程池
-    auto co_pool = bbtco_make_copool(2);
-
-    // 提交任务到协程池
-    co_pool->Submit([]() {
-        bbtco_sleep(500);
-        printf("Task 1 completed at %s\n", bbt::core::clock::getnow_str().c_str());
-    });
-
-    // 提交多个任务
-    for (int i = 0; i < 4; ++i) {
-        co_pool->Submit([i]() {
-            bbtco_sleep(300);
-            printf("Task %d completed at %s\n", i + 2, bbt::core::clock::getnow_str().c_str());
-        });
-    }
-
-    // 等待运行中的任务退出；队列中未执行的任务被取消式排空
-    //（不执行；带future的任务以broken_promise兑现，见下）
-    co_pool->Release();
-    printf("All running tasks exited\n");
-}
-
-int main()
-{
-    g_scheduler->Start();
-    
-    printf("=== CoPool Example ===\n");
-    CoPoolExample();
-    
-    return 0;
-}
-```
-
-### 6. 事件等待（WaitFor）
-
-支持基于文件描述符的异步I/O操作：
-
-```cpp
-#include <bbt/coroutine/coroutine.hpp>
-#include <unistd.h>
-using namespace bbt::coroutine;
-
-void WaitForExample()
-{
-    int pipefd[2];
-    if (pipe(pipefd) < 0) {
-        return;
-    }
-
-    // 读取协程
-    bbtco [&](){
-        printf("waiting for data on fd %d\n", pipefd[0]);
-        
-        // 等待文件描述符可读
-        bbtco_wait_for(pipefd[0], bbtco_emev_readable, 0);
-        
-        char buffer[64] = {0};
-        read(pipefd[0], buffer, sizeof(buffer));
-        printf("received: %s\n", buffer);
-    };
-
-    // 写入协程
-    bbtco [&](){
-        bbtco_sleep(1000);  // 等待1秒
-        printf("writing data to fd %d\n", pipefd[1]);
-        write(pipefd[1], "Hello from pipe!", 16);
-    };
-
-    sleep(2);
-    close(pipefd[0]);
-    close(pipefd[1]);
-}
-
-void TimeoutExample()
-{
-    bbtco [](){
-        printf("timeout test start\n");
-        bbtco_wait_for(0, bbtco_emev_timeout, 500);  // 等待500ms超时
-        printf("timeout after 500ms\n");
-    };
-
-    sleep(1);
-}
-
-int main()
-{
-    g_scheduler->Start();
-    
-    printf("=== WaitFor Example ===\n");
-    WaitForExample();
-    
-    printf("=== Timeout Example ===\n");
-    TimeoutExample();
-    
-    return 0;
-}
-```
-
-### 7. Defer语义
-
-支持类似Go语言的defer语义：
-
-```cpp
-#include <bbt/coroutine/coroutine.hpp>
-using namespace bbt::coroutine;
-
-void DeferExample()
-{
-    bbtco [](){
-        printf("coroutine start\n");
-        
-        // defer按照逆序执行
-        bbtco_defer { printf("defer 1\n"); };
-        bbtco_defer { printf("defer 2\n"); };
-        bbtco_defer { printf("defer 3\n"); };
-        
-        printf("coroutine body\n");
-        
-        // 协程结束时，defer按照逆序执行：defer 3, defer 2, defer 1
-    };
-
-    sleep(1);
-}
-
-void DeferWithResourceExample()
-{
-    bbtco [](){
-        // 使用defer进行资源管理
-        FILE* file = fopen("test.txt", "w");
-        if (file) {
-            bbtco_defer { 
-                fclose(file); 
-                printf("file closed\n");
-            };
-            
-            fprintf(file, "Hello World\n");
-            printf("file written\n");
-        }
-        
-        // 文件会在协程结束时自动关闭
-    };
-
-    sleep(1);
-}
-
-int main()
-{
-    g_scheduler->Start();
-    
-    printf("=== Defer Example ===\n");
-    DeferExample();
-    
-    printf("=== Defer Resource Example ===\n");
-    DeferWithResourceExample();
-    
-    return 0;
-}
-```
-
-### 8. 多路复用（CoSelect）
-
-CoSelect 提供 Go select 风格的多 Chan 复用，返回命中 Case 的注册序下标（-1 = 超时 / Default / 唤醒后均未就绪）：
-
-```cpp
-#include <bbt/coroutine/coroutine.hpp>
-#include <bbt/coroutine/sync/CoSelect.hpp>
-using namespace bbt::coroutine;
-using namespace bbt::coroutine::sync;
-
-void CoSelectExample()
-{
-    auto ch1 = sync::Chan<int, 4>{};
-    auto ch2 = sync::Chan<int, 4>{};
-
-    // 先写入数据，Run 立即命中注册序最靠前的就绪 Case（这里 idx=0）
-    ch1.TryWrite(1);
-
-    int a = 0;
-    int b = 0;
-    int idx = CoSelect().CaseRead(ch1, a).CaseRead(ch2, b).CaseTimeout(1000).Run();
-    printf("select idx=%d a=%d b=%d\n", idx, a, b);
-}
-
-int main()
-{
-    g_scheduler->Start();
-    CoSelectExample();
-    return 0;
-}
-```
-
-支持 `CaseRead` / `CaseWrite` / `CaseTimeout` / `Default`；只支持缓冲 Chan（`Chan<T, 0>` 编译期拦截）。
-
-### 9. 读写锁（CoRWMutex）
-
-CoRWMutex 提供协程读写锁：`RLock`/`WLock` 阻塞加锁，`TryRLock`/`TryWLock` 非阻塞或带毫秒超时，配合 RAII 守卫 `CoReadLock`/`CoWriteLock` 使用：
-
-```cpp
-#include <bbt/coroutine/coroutine.hpp>
-#include <bbt/coroutine/sync/CoLockGuard.hpp>
-using namespace bbt::coroutine;
-using namespace bbt::coroutine::sync;
-
-void CoRWMutexExample()
-{
-    auto rwmutex = bbtco_make_corwmutex();
-
-    // 读协程：共享读锁，可多个读者并存
-    bbtco [&](){
-        CoReadLock guard(rwmutex);
-        printf("reader holds read lock\n");
-        bbtco_sleep(100);
-    };
-
-    // 写协程：独占写锁
-    bbtco [&](){
-        CoWriteLock guard(rwmutex);
-        printf("writer holds write lock\n");
-    };
-
-    sleep(1);
-}
-
-int main()
-{
-    g_scheduler->Start();
-    CoRWMutexExample();
-    return 0;
-}
-```
-
-### 10. Hook / I/O
-
-协程内调用常见阻塞 syscall 时，Hook 将其转为协程等待，不占死调度线程；非协程上下文直通原生实现，第三方同步客户端（如 hiredis）可原样复用。
-
-已拦截：`socket`、`connect`、`accept`/`accept4`、`send`/`sendto`/`sendmsg`、`recv`/`recvfrom`/`recvmsg`、`read`/`readv`、`write`/`writev`、`close`、`poll`/`select`/`pselect`、`sleep`/`usleep`/`nanosleep`/`clock_nanosleep`、`getaddrinfo`/`getnameinfo`/`gethostbyname`/`gethostbyaddr`。
-
-- 传入 blocking FD 无需自行改造：协程 IO 期间临时 `O_NONBLOCK`，返回时恢复原 flags；
-- `MSG_DONTWAIT` 直通原生；`SO_RCVTIMEO`/`SO_SNDTIMEO` 保持有界返回 `-1/EAGAIN`；
-- 等待中的 FD 被 `close` 时唤醒等待协程并返回 `EBADF`，不会永久挂起；
-- 语义边界与迁移注意见「三之二、进程寿命与生命周期契约」。
-
-调用矩阵与契约测试：`Test_hook_contract`、`Test_hook_blocking_fd`、`Test_hook_timeout_flags`、`Test_hook_error_matrix`。
-
-## 三、API参考
-
-完整签名、返回码、挂起条件和生命周期见 `agent-docs/api-reference.md`。下表只作速查。
-
-### 基础API
-
-| 宏/函数 | 描述 | 示例 |
-|---------|------|------|
-| `bbtco` | 创建协程 | `bbtco [](){}` |
-| `bbtco_desc(name)` | 创建带描述的协程（描述可被诊断现场读回） | `bbtco_desc("worker") [](){}` |
-| `bbtco_ref` | 创建引用捕获的协程 | `bbtco_ref {}` |
-| `bbtco_noexcept(&succ)` | 注册协程，失败时置 `succ=false` 而不抛异常 | `bool succ; bbtco_noexcept(&succ) [](){};` |
-| `bbtco_yield` | 协程让出 CPU | `bbtco_yield;` |
-| `bbtco_sleep(ms)` | 协程睡眠指定毫秒 | `bbtco_sleep(1000);` |
-| `bbtco_defer` | 延迟执行语句 | `bbtco_defer { cleanup(); };` |
-| `GetLocalCoroutineId()` | 获取当前协程 ID | `auto id = GetLocalCoroutineId();` |
-
-### 同步原语
-
-| 类型 | 创建方式 | 主要方法 | 描述 |
-|------|----------|----------|------|
-| `Chan<T, Size>` | `sync::Chan<int, 100>{}` | `Write()`, `Read()`, `TryWrite()`, `TryRead()`, `Close()`, `IsClosed()`, `<<` / `>>` | 协程间通信通道（`Size=0` 为无缓冲，写阻塞至读端取走） |
-| `CoSelect` | `sync::CoSelect()` | `CaseRead()`, `CaseWrite()`, `CaseTimeout()`, `Default()`, `Run()` | 多 Chan 复用，返回命中下标（-1 = 未命中） |
-| `CoMutex` | `bbtco_make_comutex()` | `Lock()`, `UnLock()`, `TryLock()` | 协程互斥锁；RAII 用 `CoLockGuard<CoMutex>` |
-| `CoRWMutex` | `bbtco_make_corwmutex()` | `RLock()`, `WLock()`, `RUnLock()`, `WUnLock()`, `TryRLock()`, `TryWLock()` | 协程读写锁；RAII 用 `CoReadLock` / `CoWriteLock` |
-| `CoLockGuard<Mutex>` | `sync::CoLockGuard<CoMutex> g(lock)` | 构造加锁，析构解锁 | 通用 RAII 守卫（另有 `CoUniqueLock`） |
-| `CoCond` | `bbtco_make_cocond()` | `Wait()`, `NotifyOne()`, `NotifyAll()` | 协程条件变量 |
-| `CoPool` | `bbtco_make_copool(size)` | `Submit()`, `SubmitWithFuture()`, `Release()` | 协程池（`Release` 取消式停机：等运行中退出、排空未执行） |
-
-### 事件等待
-
-| 宏 | 描述 | 示例 |
-|----|------|------|
-| `bbtco_wait_for(fd, event, timeout)` | 等待文件描述符事件 | `bbtco_wait_for(fd, bbtco_emev_readable, 1000)` |
-| `bbtco_emev_readable` | 可读事件 | 等待fd可读 |
-| `bbtco_emev_writeable` | 可写事件 | 等待fd可写 |
-| `bbtco_emev_timeout` | 超时事件 | 纯超时等待 |
-
-### 调度器控制
-
-| 方法 | 描述 | 示例 |
-|------|------|------|
-| `g_scheduler->Start(opt)` | 启动调度器（默认后台线程模式）；成功后重复调用抛 `std::logic_error` | 程序开始时调用一次 |
-| `g_scheduler->LoopOnce()` | 单次调度循环（仅 `NO_LOOP` 模式，用于手动驱动/测试） | 手动模式循环调用 |
-| `g_scheduler->IsInitialized()` | 运行时是否已完成初始化（进程寿命内恒为 true） | 注册任务前检查 |
-
-## 三之二、进程寿命与生命周期契约（v3 进程寿命）
-
-与旧文档/旧行为的关键差异，迁移时必读：
-
-| 变更 | 新契约 | 迁移动作 |
-|------|--------|----------|
-| `Scheduler::Stop()` / 重启 | 已删除，不留兼容壳；运行时是进程寿命对象：不做取消式停机、不排空任务、不 unload、不做全局 teardown。worker 缩容时由 runtime reaper 在锁外 join 退役线程（契约 §6.1），不等于关闭运行时。旧「取消式停机：不强杀运行中协程；parked 协程被唤醒销毁；未执行任务真回收；Stop 有界可重复调用」的说明 **superseded** | 删除 `Stop()` 调用与停机后重启逻辑；进程退出即结束 runtime，但业务完成等待（latch/Chan）与资源 owner 收口仍由应用自行负责，不随退出自动完成 |
-| `Scheduler::IsRunning()` | 已删除，改为 `Scheduler::IsInitialized()`：初始化完成后恒为 true，不因业务关闭归零 | 把 `IsRunning()` 判断改为 `IsInitialized()`；不再有「已停止」分支 |
-| 运行时代际 | `RuntimeGeneration` / `CurrentRuntimeGeneration()` / `Scheduler::GetRunGeneration()` / `CoObjectInfo::generation` 全部删除；`CreateObjectInfo` 前置条件改为「运行时已初始化」 | 删除代际字段与代际查询调用；对象身份只保留进程内递增、不复用的 `id` |
-| 静态退出期析构 | 运行时及其依赖（poller/config/DNS worker/Scheduler 单例）按进程寿命策略不在静态退出期析构（实例持有者刻意泄漏，不 detach 线程） | 不要依赖运行时析构做收尾清理 |
-| `CoPool::Release()` | 取消式：停止接收新任务、等待运行中协程退出、排空未执行任务；带 future 的被排任务以 `broken_promise` 兑现，不会永挂 | `SubmitAndWait` 的 future 增加 `broken_promise` catch；不要指望 Release 后 future 全部有效 |
-| Hook IO 与 FD | 支持传入 blocking FD，无需调用方为协程等待手动设置 `O_NONBLOCK`：协程 IO 期间临时设置并在返回时恢复原 flags（#260）；`MSG_DONTWAIT` 直通原生（#261）；`SO_RCVTIMEO/SNDTIMEO` 由协程 deadline 实现有界返回 `-1/EAGAIN`（#261） | 多线程共享同一 fd 并发做 IO 的旧代码需自查 flags 竞态（契约排除项） |
-| 等待中 fd 被 close | 唤醒等待协程，重试 syscall 返回 `EBADF`（#262，不再永久挂起） | 依赖"close 后等待者自醒"的代码语义已可正常工作 |
-| detached 协程抛异常 | 保存 `exception_ptr` 可取回（#267）；无回调时日志+计数（`m_unhandled_exception_count`），不静默吞、不 terminate（#275） | 设置 `m_ext_coevent_exception_callback` 收口生产环境异常 |
-| Release 构建栈释放 | `Stack::Clear/~Stack` 真正 free（#279，旧版 assert 吞副作用致每栈泄漏） | 无需动作；升级后 Release RSS 应下降 |
-| 诊断现场 | `bbtco_desc` 的描述现在真正落库，协程内 `GetDescription()`/`GetWaitInfo()` 可读回（#276） | 给关键协程起名字 |
-| worker 停顿告警 | 死循环/外部阻塞占住 worker 超 `m_cfg_worker_stall_warn_ms`（默认 0=关闭）时，调度线程上报 `WorkerStallInfo`（#277） | 生产建议设 500–1000ms 并接回调 |
-| 栈溢出边界 | 默认开栈底保护页，溢出 = SIGSEGV fail-fast（#278） | 关保护页（`m_cfg_stack_protect=false`）前确认接受未定义行为 |
-| 显式栈大小 | 注册/创建入口的显式字节数**真正生效**（原先被忽略、实际总是借全局默认）；向上按实测系统页对齐得到可用大小 U，保护页不计入 U 且额外分配；栈池按 `(U, 保护属性)` 精确分桶，不同尺寸在同一 runtime 共存，不取更大桶、不向二次幂归档；省略大小仍取 `m_cfg_stack_size`（出厂 12 KiB） | 显式写 `RegistCoroutineTask(64 * 1024, cb, "desc")` 表示 64 KiB；在极小栈上跑日志/断言/第三方库的协程要显式给足栈，否则会栈溢出（原来"4096 被忽略"的代码行为已修复） |
-| `detail` 尺寸类型 | `Coroutine` 构造/`Create`、`StackPool` 计数与 `AllocSize/GetCurCoNum/GetCoAvgCount` 由 `int` 改为 `size_t`（内部 ABI 变化） | 升级后**必须重新编译**依赖本库的调用方，不要混用旧二进制 |
-| 固定栈语义 | 栈大小在创建后固定：不支持运行中扩栈/换栈，也没有按任务换栈的接口；`CoPool` 的栈仍属于 worker 协程自身，多尺寸是"不同协程各用各的固定栈" | 需要大栈的任务用显式注册入口创建独立协程；不要指望 CoPool 任务换栈 |
-| 协作式取消 | `Coroutine::RequestCancel()` 置标志，协程在检查点/唤醒处自行退出（#266），不强杀 | 长循环协程定期检查 `IsCancelRequested()` |
-
-### 线程模型与网络 I/O 域边界
-
-- 默认 `SCHE_START_OPT_SCHE_THREAD`：Scheduler 专属调度线程驱动内部 CoPoller/EventLoop（FD/Timer/Wakeup、共享 executor 上投递的 handler）与运行时维护；每个 Processer 绑定各自 worker 线程，只 Resume 受管协程，并可在非业务协程调度边界推进一个已绑定的通用 driver（`OnTick`/`Wait`/`Wake`，契约 §11.3）。`SCHE_LOOP` 在调用者当前线程跑调度循环（`Start` 不返回）；`NO_LOOP` 由调用方 `LoopOnce` 手动 tick——并非所有启动模式都有独立调度线程。
-- `io::GetExecutor()` 只是共享 io_context 的投递句柄，handler 仅在调度驱动线程兑现，不得为它另启线程。runtime 线程与 bbtools-infra 网络 Engine 的控制域彼此分离：按契约 §11.5 的目标（R2），infra 自有 main/sub context 与网络资源，每个 Reactor owner 占一个已登记 P 的 driver 槽、由该 P 的非业务协程 Tick/Wait 推进，不额外创建网络 I/O 线程——该网络域是已确认的目标分层，当前尚未实现或两仓联调。边界与架构图见契约 §11：`agent-docs/2026-09-07-core-runtime-contract.md`。
-
-## 三之三、测试、冒烟与压测
+## 测试
 
 ```shell
-# 构建并运行全部单元测试
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DNEED_TEST=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 JOBS=$(( $(nproc) / 4 )); JOBS=$(( JOBS < 2 ? 2 : JOBS ))
 cmake --build build --parallel "$JOBS"
 ctest --test-dir build --output-on-failure        # 套件数以 `ctest -N` 输出为准
-
-# 冒烟（独立构建 + 报告）
-python3 scripts/ci/run_smoke.py --build-dir build-ci-smoke
-
-# 长时 soak（默认 6 小时；先构建 unified_stress）
-cmake -S . -B build-soak -G Ninja -DCMAKE_BUILD_TYPE=Release -DNEED_BENCHMARK=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-cmake --build build-soak --target unified_stress --parallel "$JOBS"
-python3 scripts/ci/run_soak.py --build-dir build-soak
 ```
 
-- 单元测试覆盖：协程状态机、调度与进程寿命、取消、异常、hook 契约、同步原语、eventloop 契约、profiler 等；注册数以构建目录 `ctest -N` 输出为准，CI 说明见 `docs/ci-guide.md`。
-- 真实客户端验收：`NEED_EXAMPLE=ON` 且 `NEED_TEST=ON` 时注册 `Test_real_clients_echo`（无条件、必须 PASS）；`co_with_hiredis` target 存在（系统装有 hiredis 库）时再注册 `Test_real_clients_hiredis`，运行时本机无 Redis 以 skip 77 跳过，不伪造通过。
-- 压测：`benchmark_test/unified_stress.cc` 提供六模块长时压测入口，由 `run_soak.py` 驱动。
-- 报告目录：
-  - `scripts/ci/run_smoke.py` → `tests/reports/smoke/<UTC 时间戳>/`（`summary.json`、`commands.json`、`ctest.xml`）
-  - `scripts/ci/run_soak.py` → `tests/reports/soak/`
-  - `tests/reports/` 与 `tests/ci-reports/` 下的原始日志/采样已被 `.gitignore` 忽略，不提交。
-
-## 四、注意事项
-
-### 1. 协程生命周期管理
-- 协程创建后立即被调度执行
-- 协程函数结束时自动销毁
-- 避免协程函数中使用栈上的引用，除非能确保生命周期
-
-### 2. 内存管理
-- 协程栈大小可按协程指定：省略时取 `m_cfg_stack_size`（出厂 **12 KiB**，不是 2 MB），显式值向上按系统页对齐后生效
-- 不同大小的固定栈可同时共存（分桶键 = 对齐后可用字节数 + 保护属性）；栈大小创建后固定，不支持扩栈/换栈
-- 显式申请 0 或超出可表示范围会被拒绝（`invalid_argument` / `length_error`），内存不足是 `bad_alloc`，建立保护页失败是带 `errno` 的 `system_error`；用 `bbtco_noexcept(succ)` / `bool& succ` 入口可拿到不抛的失败返回
-- 避免在协程中分配大量栈空间；在极小栈上跑日志/断言/第三方库这类重活要先给足栈
-- 使用智能指针管理堆内存
-
-### 3. 异常处理
-- 协程内异常不会传播到主线程：detached 协程保存 `exception_ptr` 可取回；无异常回调时记日志并计数，不静默吞、不 terminate
-- 生产环境建议设置异常回调（`m_ext_coevent_exception_callback`）统一收口
-- 使用 defer 进行资源清理
-
-### 4. 性能优化
-- 避免在协程池中提交大量长时间 CPU 计算任务（会占住 worker）
-- 合理设置 Chan 的缓冲区大小
-- 使用引用捕获避免不必要的拷贝
-
-### 5. 调试技巧
-- 使用 `bbtco_desc` 为协程添加描述信息（诊断现场可读回）
-- 通过 `GetLocalCoroutineId()` 追踪协程执行
-- 阻塞 syscall 会被 Hook 转成协程等待，无需刻意规避；纯 CPU 长任务会占住 worker，可开启 worker stall 告警（`m_cfg_worker_stall_warn_ms`）发现
-
-## 五、性能对比，libgo，go
-
-> 历史样本：以下数值绑定表内日期、机器与 `main@63de06a`/编译环境，不代表当前源码可复现的结果
-> （`benchmark_coroutine.cc` 现为 100w 协程，与更早的三 CPU 1000w 口径也不同），不与其他负载直接比较。
-> 更新的性能归档见 `tests/reports/archive/perf/20261022-a4d52c2-attribution/`（负载与下表不同，同样不能直接比较）。
-
-**bbtco 协程调度基准（100w 协程，`benchmark_test/benchmark_coroutine.cc`，nsum_co=1000000）：**
-
-| 日期 | 机器 | 编译 | 耗时 |
-|------|------|------|------|
-| 2026-09-08 | ubuntu-persion, i7-13790F 4核, g++ 13.3, Release, main@63de06a | `ninja benchmark_coroutine` | 1229 / 1282 / 1354 ms（3 次） |
-
-**CoPool 1000w 任务提交（`benchmark_test/benchmark_copool.cc`，nsum_co=10000000）：**
-
-| 日期 | 机器 | 编译 | 耗时 |
-|------|------|------|------|
-| 2026-09-08 | 同上 | `ninja benchmark_copool` | 1468 ms |
-
-复现命令：`cmake -S . -B build -G Ninja -DNEED_BENCHMARK=ON && cmake --build build --parallel "$JOBS" && ./build/bin/benchmark_test/benchmark_coroutine`（`JOBS` 取 `max(2, nproc/4)`）。CPU/内存频率不同会带来误差，仅供参考；bbtco 内部使用无锁队列，CPU/内存频率越高调度效率越高。原始报告：`tests/ci-reports/`（runner 本地，不提交）。
-
-## 六、综合示例
-
-下面是一个综合示例，展示了生产者-消费者模式的完整实现：
-
-```cpp
-#include <bbt/coroutine/coroutine.hpp>
-#include <bbt/coroutine/sync/Chan.hpp>
-#include <atomic>
-#include <memory>
-
-using namespace bbt::coroutine;
-
-// 任务结构
-struct Task {
-    int id;
-    std::string data;
-    
-    Task(int i, const std::string& d) : id(i), data(d) {}
-};
-
-// 生产者-消费者示例
-void ProducerConsumerExample()
-{
-    // 创建任务通道
-    auto task_chan = sync::Chan<Task, 10>();
-    
-    // 创建协程池处理任务
-    auto worker_pool = bbtco_make_copool(3);
-    
-    // 统计变量
-    std::atomic<int> produced{0};
-    std::atomic<int> consumed{0};
-    
-    // 创建生产者协程
-    for (int i = 0; i < 2; ++i) {
-        bbtco_desc("producer") [&, i](){
-            for (int j = 0; j < 5; ++j) {
-                Task task(i * 100 + j, "data_" + std::to_string(i) + "_" + std::to_string(j));
-                
-                printf("Producer %d: creating task %d\n", i, task.id);
-                task_chan << task;
-                
-                produced++;
-                printf("Producer %d: task %d sent, total produced: %d\n", 
-                       i, task.id, produced.load());
-                
-                // 模拟生产间隔
-                bbtco_sleep(10);
-            }
-            printf("Producer %d: finished producing tasks\n", i);
-        };
-    }
-    
-    // 创建消费者协程
-    for (int i = 0; i < 3; ++i) {
-        bbtco_desc("consumer") [&, i](){
-            while (true) {
-                Task task(0, "");
-                
-                // 尝试从通道读取任务
-                if (!(task_chan >> task)) {
-                    printf("Consumer %d: channel closed, exiting\n", i);
-                    break;
-                }
-                
-                printf("Consumer %d: processing task %d (%s)\n", 
-                       i, task.id, task.data.c_str());
-                
-                // 提交任务到协程池处理
-                worker_pool->Submit([task, i, &consumed]() {
-                    // 使用defer确保计数器更新
-                    bbtco_defer {
-                        consumed++;
-                        printf("Task %d processed by consumer %d, total consumed: %d\n", 
-                               task.id, i, consumed.load());
-                    };
-                    
-                    // 模拟处理时间
-                    bbtco_sleep(10);
-                    
-                    printf("Task %d completed successfully\n", task.id);
-                });
-            }
-        };
-    }
-    
-    // 监控协程
-    bbtco_desc("monitor") [&](){
-        while (produced < 10 || consumed < produced) {
-            printf("=== Status: Produced=%d, Consumed=%d ===\n", 
-                   produced.load(), consumed.load());
-            bbtco_sleep(500);
-        }
-    };
-    
-    // 等待生产完成
-    bbtco_desc("closer") [&](){
-        // 等待所有生产者完成
-        while (produced < 10) {
-            bbtco_sleep(100);
-        }
-        
-        printf("All production completed, closing channel\n");
-        task_chan.Close();
-    };
-    
-    // 等待所有任务完成
-    sleep(3);
-    
-    // 等待协程池完成所有任务
-    worker_pool->Release();
-    
-    printf("Final status: Produced=%d, Consumed=%d\n", 
-           produced.load(), consumed.load());
-}
-
-int main()
-{
-    printf("=== bbtools-coroutine Comprehensive Example ===\n");
-    
-    // 启动调度器
-    g_scheduler->Start();
-    
-    // 运行示例
-    ProducerConsumerExample();
-    
-    printf("Example completed successfully!\n");
-    return 0;
-}
-```
-
-这个综合示例展示了：
-- 多个生产者协程并发产生任务
-- 多个消费者协程并发消费任务
-- 使用协程池处理计算密集型任务
-- 使用Chan进行协程间通信
-- 使用defer确保资源清理
-- 使用原子变量进行状态统计
-- 协程的生命周期管理
-
+冒烟、长时 soak、真实客户端验收与本地验证阶梯见[开发与发布流程](agent-docs/development-and-release-process.md)。

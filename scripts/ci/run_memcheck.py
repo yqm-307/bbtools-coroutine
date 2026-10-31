@@ -69,8 +69,8 @@ COUNTER_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)=(\d+)/(\d+)")
 # runtime_drained=1 的语义边界：代表“所有借出的栈已归还（~Context 已进入 FINAL 释放
 # 路径）”，且按 #379 采用的 A —— ~Context 函数体先清空 m_onyield_callback / m_user_main
 # 再 Release(m_stack) —— 蕴含“这两个 callable 及其最后持有的捕获对象已同步析构”；但不
-# 证明外部其它 owner 的资源、worker 侧异步物理清理与 delete 已返回（见 docs/ci-guide.md
-# §4），此处只做如实记录，不据此宣称“完整释放”。
+# 证明外部其它 owner 的资源、worker 侧异步物理清理与 delete 已返回（见 docs/guides/ci.md
+# §6），此处只做如实记录，不据此宣称“完整释放”。
 EXPECTED_COUNTERS = {
     "inner": (10000, 10000),
     "lock": (4000, 4000),
@@ -152,7 +152,7 @@ def preflight(args: argparse.Namespace, verdict: Verdict) -> str | None:
         verdict.add(
             "valgrind-present", False,
             "未找到 valgrind 可执行文件；内存检测 runner 必须预装 valgrind"
-            "（含 libc6-dbg，见 docs/ci-guide.md §4 跨仓镜像依赖）",
+            "（含 libc6-dbg，见 docs/guides/ci.md §6）",
         )
         return None
     verdict.add("valgrind-present", True, valgrind)

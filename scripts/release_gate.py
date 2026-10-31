@@ -109,7 +109,7 @@ def ensure_absent(version: str) -> None:
 
 def validate_main_ci(source_sha: str) -> None:
     repo = repository()
-    runs = api(f"repos/{repo}/actions/workflows/unit_test.yml/runs?event=push&branch=main&head_sha={source_sha}&per_page=100")
+    runs = api(f"repos/{repo}/actions/workflows/ci.yml/runs?event=push&branch=main&head_sha={source_sha}&per_page=100")
     candidates = [r for r in runs.get("workflow_runs", []) if r.get("head_sha") == source_sha
                   and r.get("event") == "push" and r.get("head_branch") == "main"]
     if not candidates:
@@ -120,9 +120,17 @@ def validate_main_ci(source_sha: str) -> None:
     jobs = api(f"repos/{repo}/actions/runs/{run['id']}/jobs?per_page=100")
     if jobs.get("total_count", 0) > len(jobs.get("jobs", [])):
         fail("incomplete CI jobs response")
-    passed = {j["name"] for j in jobs.get("jobs", []) if j.get("conclusion") == "success"}
-    if not {"编译 & 单元测试", "性能回归检查"} <= passed:
-        fail("required main CI jobs missing, skipped or failed")
+    passed = {j["name"]: j.get("conclusion") for j in jobs.get("jobs", [])}
+    # CI/result 是唯一汇聚 context（fail-closed）：它把 changes 的 classification/
+    # perf 位与各 job needs.*.result 汇总判定，docs-only 对 build-test、perf=false
+    # 对 perf-regression 的「预期跳过」只有 result=success 时才成立。因此这里要求
+    # result success，同时两个现役 check 各为 success 或（经验证的预期）skipped；
+    # 缺失/failure/cancelled 一律拒绝。
+    if passed.get("result") != "success":
+        fail("CI result job is not successful for source_sha")
+    for name in ("编译 & 单元测试", "性能回归检查"):
+        if passed.get(name) not in ("success", "skipped"):
+            fail("required main CI jobs missing, skipped or failed")
 
 
 def validate_candidate(kind: str, version: str, source_sha: str, rc_tag: str | None,
