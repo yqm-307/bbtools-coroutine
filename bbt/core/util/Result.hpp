@@ -1,3 +1,4 @@
+/* Result<T,E> 值/错误二态返回类型。 */
 #pragma once
 #include <variant>
 #include <type_traits>

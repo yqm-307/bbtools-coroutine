@@ -42,7 +42,7 @@ public:
     bool                            PollOnce();
 
     /**
-     * @brief 有界事件等待：停拍期间不空等，也不无限阻塞（#411）。
+     * @brief 有界事件等待：停拍期间不空等，也不无限阻塞。
      *
      * 驱动语义与 PollOnce 相同（driver-tid 所有权、进入驱动前兑现延迟析构、
      * m_in_poll 保护、锁外析构 Event），区别只在「没有就绪事件时怎么办」：
@@ -69,7 +69,7 @@ public:
     /* 线程安全，多次调用仅第一次有效 */
     int                             NotifyCustomEvent(std::shared_ptr<CoPollEvent> event);
 
-    /* 取消语义的唤醒入口（#347②）：以独立取消位触发，供等待者向取消令牌
+    /* 取消语义的唤醒入口：以独立取消位触发，供等待者向取消令牌
      * 登记的唤醒回调使用；与 NotifyCustomEvent（完成语义）走不同位，
      * 恢复侧可凭唤醒掩码直接区分。线程安全，多次调用仅第一次有效。 */
     int                             NotifyCancelEvent(std::shared_ptr<CoPollEvent> event);

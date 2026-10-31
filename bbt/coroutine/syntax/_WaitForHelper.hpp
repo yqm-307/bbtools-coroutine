@@ -1,3 +1,4 @@
+/* bbtco_wait_for 宏的等待帮手 _WaitForHelper。 */
 #pragma once
 #include <bbt/coroutine/detail/Coroutine.hpp>
 

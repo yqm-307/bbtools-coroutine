@@ -21,7 +21,7 @@ namespace bbt::coroutine::pool
  *   导致池子中可用协程数变少
  * 3. 协程池中的协程会一直存在，直到协程池被销毁
  *
- * 异常语义（见 #189）：
+ * 异常语义：
  * - worker 协程执行任务抛出的异常被池捕获，不传播到协程运行时，池继续工作；
  * - 未设置回调时异常被记录（GetUnhandledExceptionCount），设置回调后交付回调；
  * - SubmitWithFuture 提交的任务异常通过返回的 std::future 交付；

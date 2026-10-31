@@ -173,7 +173,7 @@ private:
     Coroutine::Ptr                  m_running_coroutine{nullptr};   // processer当前运行中的协程
     std::atomic_uint64_t            m_running_coroutine_begin{0};   // 当前运行协程开始执行的时间
 
-    /* ---- worker 无进展快照（#277/#367）----
+    /* ---- worker 无进展快照----
      * 单写者=worker 线程（协程每次进入 Resume 前），读者=调度线程。
      * 同步依据：全部字段受 m_exec_mutex 保护，写者在临界区内一次性提交，
      * 读者在临界区内整组复制——快照一致性直接由互斥锁的 happens-before

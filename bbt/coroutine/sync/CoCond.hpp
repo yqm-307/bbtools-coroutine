@@ -1,3 +1,4 @@
+/* 协程条件变量 CoCond（等待/唤醒，支持超时与载荷）。 */
 #pragma once
 #include <queue>
 #include <mutex>

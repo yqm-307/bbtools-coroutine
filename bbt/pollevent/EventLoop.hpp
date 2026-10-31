@@ -1,3 +1,4 @@
+/* 事件循环 EventLoop：驱动 Event 注册与触发。 */
 #pragma once
 #include <bbt/pollevent/detail/EventBase.hpp>
 #include <bbt/pollevent/detail/Define.hpp>

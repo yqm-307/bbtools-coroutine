@@ -1,3 +1,4 @@
+/* 协程对象 Coroutine：创建/恢复/让出/取消与诊断现场。 */
 #pragma once
 #include <atomic>
 #include <bbt/coroutine/detail/CfsRunQueue.hpp>
@@ -51,7 +52,7 @@ enum class CoroutineYieldDisposition
  *
  * 稳定方法：Create / Resume / Yield / GetId / GetStatus。
  * YieldWithCallback、YieldAndPushGCoQueue、CommitYield 属调度内部。
- * RequestCancel / GetException 分别由 #266 / #267 补齐。
+ * RequestCancel / GetException 分别由后续工作补齐。
  */
 class Coroutine:
     public ICoroutine
@@ -59,7 +60,7 @@ class Coroutine:
 public:
     typedef Coroutine* Ptr;
 
-    /* #339：sync 层 Wait 族与 CoMutex 等待路径均经同一登记路径挂起，必须能访问
+    /* sync 层 Wait 族与 CoMutex 等待路径均经同一登记路径挂起，必须能访问
      * _RegistAwaitEvent（取消预检），否则 custom 等待不响应预取消。
      * 仅开放给工具层等待原语，不扩大为公共 API。 */
     friend class bbt::coroutine::sync::CoWaiter;
@@ -70,7 +71,7 @@ public:
     Coroutine(size_t stack_size, const CoroutineCallback& co_func, bool need_protect);
     virtual ~Coroutine();
     
-    /* 注册时携带描述（#276）：bbtco_desc 落库真源；空 desc 与不带参数等价 */
+    /* 注册时携带描述：bbtco_desc 落库真源；空 desc 与不带参数等价 */
     static Ptr Create(size_t stack_size, const CoroutineCallback& co_func, bool need_protect = true,
                                            const char* desc = nullptr);
     /**
@@ -122,7 +123,7 @@ public:
 #endif
 
     /**
-     * @brief #370：本次事件等待恢复后校验 fd 代际是否仍与登记时一致。
+     * @brief 本次事件等待恢复后校验 fd 代际是否仍与登记时一致。
      *
      * 返回 true 表示安全可重试 syscall；false 表示 fd 在挂起期间被
      * close（epoch 已推进或事件以 POLL_EVENT_CLOSED 唤醒）——
@@ -132,11 +133,11 @@ public:
     bool                            FdWaitEpochValid(int fd) const noexcept;
 
     /**
-     * @brief 诊断现场（#276，契约 §5 观测性）
+     * @brief 诊断现场（运行时契约观测性要求）
      *
      * GetDescription：注册时 bbtco_desc 携带的任务描述，未命名为空串。
      * GetWaitInfo：仅协程**自身**（同 Processer 线程）可安全读取——parked
-     * 现场成员无锁，跨线程快照属 #277。未处于事件等待时返回 -1。
+     * 现场成员无锁，跨线程统一快照由 WorkerStallInfo 承载。未处于事件等待时返回 -1。
      */
     const std::string&              GetDescription() const noexcept { return m_desc; }
     int                             GetWaitInfo(CoroutineWaitInfo& out) const noexcept;
@@ -195,7 +196,7 @@ public:
     int                             YieldUntilFdEx(int fd, short events, int timeout_ms = 0);
 
     /**
-     * @brief #369 单测故障注入：置位后本进程下一次带 await 事件的
+     * @brief 单测故障注入：置位后本进程下一次带 await 事件的
      *  _RegistAwaitEvent 先把该事件 UnRegist 成 CANCELLED，再走真实
      *  Regist() → -1（事件注册阶段失败，非 RegistCustom 创建阶段），
      *  YieldWithCallback 因此返回 -1 且协程未真正挂起。用于复现"登记
@@ -217,7 +218,7 @@ private:
     std::shared_ptr<CoPollEvent>    _AwaitEvent() const;
     void                            _SetAwaitEvent(std::shared_ptr<CoPollEvent> ev);
 
-    /* #369 单测故障注入标志：见 _TestFailNextAwaitRegist 注释 */
+    /* 单测故障注入标志：见 _TestFailNextAwaitRegist 注释 */
     static std::atomic_bool                     s_test_fail_await_regist;
 
 private:
@@ -247,15 +248,15 @@ private:
     CoroutineYieldDisposition       m_yield_disposition{CoroutineYieldDisposition::MANUAL};
 
     int                             m_last_resume_event{-1};    // 最后一次导致此协程唤醒的事件
-    /* #370：恢复时由 OnCoPollEvent 从消费掉的 await_event 捕获，供
+    /* 恢复时由 OnCoPollEvent 从消费掉的 await_event 捕获，供
      * FdWaitEpochValid 在重试 syscall 前比对；仅协程自身线程读写。 */
     int                             m_last_wait_fd{-1};
     uint64_t                        m_last_wait_epoch{0};
     uint64_t                        m_last_run_us{0};           // 上次运行时长（微秒），用于 MLFQ
     int                             m_mlfq_demotions{0};        // MLFQ 连续降级次数
 
-    std::string                     m_desc{};                   // bbtco_desc 任务描述（#276）
-    uint64_t                        m_parked_us{0};             // 进入事件等待的时刻（monotonic us，#276）
+    std::string                     m_desc{};                   // bbtco_desc 任务描述
+    uint64_t                        m_parked_us{0};             // 进入事件等待的时刻
 };
 
 }

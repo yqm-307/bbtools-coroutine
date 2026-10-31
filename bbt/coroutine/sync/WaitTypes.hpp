@@ -8,7 +8,7 @@ namespace bbt::coroutine
  * @brief 等待截止时间：单调时钟（steady_clock）。
  *
  * WaitOptions 默认取 max() 表示不设截止；显式传入已过期的 deadline
- * 时 Wait 立即返回 TimedOut，不进行任何事件注册（契约 §C1）。
+ * 时 Wait 立即返回 TimedOut，不进行任何事件注册（运行时契约）。
  * 已知上限：剩余期限达到 INT_MAX 毫秒（约 24.8 天）即不挂定时器，
  * 与无期限等价；该上限来自定时器的 int 毫秒口径，不做钳制。
  */
@@ -47,7 +47,7 @@ namespace bbt::coroutine::sync
 {
 
 /**
- * @brief #346 组合等待结果：首胜原因可区分（同窄接口 WaitStatus 的扩展口径）
+ * @brief 组合等待结果：首胜原因可区分（同窄接口 WaitStatus 的扩展口径）
  */
 enum class CombinedWaitStatus
 {
@@ -63,7 +63,7 @@ enum class CombinedWaitStatus
 };
 
 /**
- * @brief #346 组合等待选项
+ * @brief 组合等待选项
  *
  * interest 可独立或同时申请 READABLE / WRITEABLE，二者皆空表示纯信号
  * 等待；fd 仅在申请 interest 时使用，其余调用者不得依赖其值。deadline

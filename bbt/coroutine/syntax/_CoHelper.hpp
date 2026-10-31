@@ -13,7 +13,7 @@ public:
     {
     }
 
-    /* bbtco_desc 携带任务描述（#276）：落库到协程，诊断现场可读回 */
+    /* bbtco_desc 携带任务描述：落库到协程，诊断现场可读回 */
     explicit _CoHelper(const char* desc):
         m_desc(desc)
     {

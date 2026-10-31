@@ -1,3 +1,4 @@
+/* 锁抽象接口 IBasicLockable（lock/unlock 最小约定）。 */
 #pragma once
 #include <pthread.h>
 #include <atomic>

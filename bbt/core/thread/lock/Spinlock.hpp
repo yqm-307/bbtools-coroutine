@@ -1,3 +1,4 @@
+/* 自旋锁 Spinlock（IBasicLockable 实现）。 */
 #pragma once
 #include <pthread.h>
 #include <bbt/core/thread/lock/ILock.hpp>

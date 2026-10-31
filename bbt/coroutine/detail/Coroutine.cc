@@ -15,7 +15,7 @@ namespace bbt::coroutine::detail
 
 typedef bbt::pollevent::EventOpt EventOpt;
 
-/* #369 单测故障注入标志（定义，声明见 Coroutine.hpp） */
+/* 单测故障注入标志（定义，声明见 Coroutine.hpp） */
 std::atomic_bool                Coroutine::s_test_fail_await_regist{false};
 
 CoroutineId Coroutine::_GenCoroutineId()
@@ -30,7 +30,7 @@ Coroutine::Ptr Coroutine::Create(size_t stack_size, const CoroutineCallback& co_
      * 不能让已借出的栈随裸指针泄漏。 */
     std::unique_ptr<Coroutine> co(new Coroutine(stack_size, co_func, need_protect));
     if (desc != nullptr && desc[0] != '\0')
-        co->m_desc = desc;    // #276：bbtco_desc 落库
+        co->m_desc = desc;    // bbtco_desc 落库
     return co.release();
 }
 
@@ -59,7 +59,7 @@ Coroutine::~Coroutine()
 {
     // Assert(m_bind_processer_id != BBT_COROUTINE_INVALID_PROCESSER_ID);
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
-    /* #404：销毁是所有驱动方式的共同出口。直接 Create/Resume/delete
+    /* 销毁是所有驱动方式的共同出口。直接 Create/Resume/delete
      * 的终态让出不经过 CommitYield，m_co_map 里可能仍挂着本协程的
      * 借用登记——对象一销毁即成悬空指针，必须在此按 id 幂等清账。
      * 受管路径的配对核销仍由 CommitYield FINAL 完成，本调用只兜底。 */
@@ -75,7 +75,7 @@ void Coroutine::Resume()
     Assert(m_run_status == CoroutineStatus::CO_RUNNABLE || m_run_status == CoroutineStatus::CO_SUSPEND);
     m_run_status = CoroutineStatus::CO_RUNNING;
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
-    /* #404：Coroutine 为裸指针借用对象（Create 返回 Ptr、不归 shared_ptr
+    /* Coroutine 为裸指针借用对象（Create 返回 Ptr、不归 shared_ptr
      * 所有），无 enable_shared_from_this；诊断表只登记借用的 this，
      * 与 DebugMgr 的 Coroutine* 签名及实际所有权一致。 */
     g_bbt_dbgmgr->OnEvent_ResumeCo(this);
@@ -113,7 +113,7 @@ int Coroutine::YieldWithCallback(const CoroutineOnYieldCallback& cb)
      * 确保协程挂起后，才可以触发事件
      */
     Assert(m_run_status == CoroutineStatus::CO_RUNNING);
-    /* R2-01：日志装配不分配——snprintf 进栈缓冲，OOM 无处抛出，原 R2-01
+    /* 日志装配不分配——snprintf 进栈缓冲，OOM 无处抛出，原
      * 故障点（to_string 动态拼接）已整体移除。armed 注入的首个真实分配
      * 因此落在 Context::YieldWithCallback 的 m_onyield_callback 存储上，
      * 由下方统一 catch 回滚。宏开启时才执行 snprintf 和完整日志调用；宏关闭
@@ -125,7 +125,7 @@ int Coroutine::YieldWithCallback(const CoroutineOnYieldCallback& cb)
                   static_cast<unsigned long long>(GetId()));
     g_bbt_dbgp_full(yieldcb_log);
 #endif
-    /* #368-R2/F3：callback 装配链上可分配的失败点为本层入参拷贝与
+    /* callback 装配链上可分配的失败点为本层入参拷贝与
      * Context::YieldWithCallback 内同一 `m_onyield_callback = cb` 存储赋值。
      * 任一抛出时协程仍在 CO_RUNNING、尚未让出；归还 await 事件（INITED
      * 事件由 shared_ptr 析构回收）后原样上抛。不做「先干跑一遍存储」的
@@ -153,7 +153,7 @@ int Coroutine::YieldWithCallback(const CoroutineOnYieldCallback& cb)
 #endif
         throw;
     }
-    /* #369：挂起回调失败（CHECK_FAILED）时协程被立刻重入、并未真正挂起，
+    /* 挂起回调失败（CHECK_FAILED）时协程被立刻重入、并未真正挂起，
      * 必须把运行态还原为 CO_RUNNING——否则 m_run_status 残留 CO_SUSPEND，
      * 本协程仍在运行却对外谎报挂起，下一次 Yield* 的 CO_RUNNING 断言会
      * 误触发（单测中表现为 SIGABRT）。仅失败路径补偿，正常唤醒路径的
@@ -162,7 +162,7 @@ int Coroutine::YieldWithCallback(const CoroutineOnYieldCallback& cb)
         m_yield_disposition = CoroutineYieldDisposition::MANUAL;
         m_run_status = CoroutineStatus::CO_RUNNING;
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
-        /* #404：CHECK_FAILED 重入走 Context::_Resume 直达协程，不经过
+        /* CHECK_FAILED 重入走 Context::_Resume 直达协程，不经过
          * Coroutine::Resume，m_co_map 不会产生新的 Resume 记账；但协程
          * 恢复运行后下一次 Yield* 仍会走 OnEvent_YieldCo 核销——此处按
          * 「重入即一次运行区间起点」补登记，保持 resume/yield 严格配对。 */
@@ -215,7 +215,7 @@ void Coroutine::OnException(std::exception_ptr eptr) noexcept
 void Coroutine::RequestCancel() noexcept
 {
     m_cancel_requested.store(true, std::memory_order_release);
-    /* #347②：取消唤醒使用独立取消位，不再借用超时位——恢复侧可凭
+    /* 取消唤醒使用独立取消位，不再借用超时位——恢复侧可凭
      * 唤醒掩码直接区分「被取消」与「真超时」。 */
     if (auto ev = _AwaitEvent())
         ev->Trigger(POLL_EVENT_CANCELLED);
@@ -414,7 +414,7 @@ void Coroutine::_TestFailNextAwaitRegist() noexcept
 bool Coroutine::_RegistAwaitEvent()
 {
     auto await_event = _AwaitEvent();
-    /* #369 单测故障注入：置位时先取消本次 await 事件，让下方 Regist() 走
+    /* 单测故障注入：置位时先取消本次 await 事件，让下方 Regist() 走
      * 真实失败分支（CANCELLED 态 CAS 失败），等价于生产上事件在挂起回调
      * 执行前已被反注册的时序；一次性消费，不影响后续等待。 */
     if (await_event != nullptr &&
@@ -430,7 +430,7 @@ bool Coroutine::_RegistAwaitEvent()
 
     if (await_event != nullptr && await_event->Regist() == 0)
     {
-        /* 现场时戳（#276）：parked 起点；唤醒时清零 */
+        /* 现场时戳：parked 起点；唤醒时清零 */
         m_parked_us = bbt::core::clock::gettime_mono<bbt::core::clock::microseconds>();
         return true;
     }
@@ -459,7 +459,7 @@ CoroutineYieldDisposition Coroutine::CommitYield()
     if (m_run_status == CoroutineStatus::CO_FINAL) {
         m_yield_disposition = CoroutineYieldDisposition::FINAL;
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
-        /* #404：FINAL 的最后一次让出发生在 Context::_CoroutineMain 尾部，
+        /* FINAL 的最后一次让出发生在 Context::_CoroutineMain 尾部，
          * 走 Context::Yield → _Yield 直达调度线程，不经过 Coroutine::Yield
          * ——m_co_map 里本协程的 Resume 记账没有对应核销点。此处是 Processer
          * 在协程终态上下文退出后、delete 之前的唯一收口位置（含正常与异常
@@ -502,13 +502,13 @@ void Coroutine::OnCoPollEvent(int event, int custom_key)
     Assert(ev != nullptr);
 
     m_last_resume_event = event;
-    /* #370：await_event 即将被消费清空，先把本次等待的 fd 与登记时采样的
+    /* await_event 即将被消费清空，先把本次等待的 fd 与登记时采样的
      * 代际捕获下来——恢复后的 syscall 重试边界据此识别 close+reuse，
      * 覆盖「正常事件已就绪但尚未恢复」的调度间隙（此时 waiter 已被摘除，
      * 仅 epoch 仍能证明 fd 是否已换代）。 */
     m_last_wait_fd = ev->GetFd();
     m_last_wait_epoch = ev->GetWaitEpoch();
-    m_parked_us = 0;  // 唤醒即清等待现场（#276）
+    m_parked_us = 0;  // 唤醒即清等待现场
 
     // 先取消事件，然后push到全局队列中
     /* 日志装配不分配：本函数经 _Complete 的 callback 在 Processer 原生栈
@@ -527,7 +527,7 @@ void Coroutine::OnCoPollEvent(int event, int custom_key)
     _SetAwaitEvent(nullptr);
     m_yield_disposition = CoroutineYieldDisposition::MANUAL;
 
-    // 超时任务优先级最高，覆盖 MLFQ 判定；#347② 取消改用独立位后，
+    // 超时任务优先级最高，覆盖 MLFQ 判定；取消改用独立位后，
     // 取消唤醒必须同样获得 CRITICAL 提升，否则是静默的调度行为回归。
     if ((event & EventOpt::TIMEOUT) || (event & POLL_EVENT_CANCELLED))
         priority = CO_PRIORITY_CRITICAL;
@@ -545,7 +545,7 @@ int Coroutine::GetLastResumeEvent() const noexcept
 
 bool Coroutine::FdWaitEpochValid(int fd) const noexcept
 {
-    /* #370：本次等待以 POLL_EVENT_CLOSED 结束，或 fd 代际在挂起期间被
+    /* 本次等待以 POLL_EVENT_CLOSED 结束，或 fd 代际在挂起期间被
      * BeginFdClose 推进，都说明 fd 数字可能已复用为新对象——重试 syscall
      * 会作用在错误对象上。等不到的 fd 事件（m_last_wait_fd<0 或 fd 不
      * 匹配）视为无代际信息，放行由原生 EBADF 兜底。 */
