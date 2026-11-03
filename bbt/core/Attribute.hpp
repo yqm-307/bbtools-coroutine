@@ -80,7 +80,7 @@
  *
  */
 #if __glibc_has_attribute(__deprecated__) >= 0
-#define BBTATTR_FUNC_CTOR_HIDDEN    BBTATTR_FUNC_DEPRECATEDMSG("此函数的构造函数被隐藏，不可以直接调用")
+#define BBTATTR_FUNC_CTOR_HIDDEN    BBTATTR_FUNC_DEPRECATEDMSG("this constructor is hidden and must not be called directly")
 #else
 #error "not exist attribute [BBTATTR_FUNC_DEPRECATEDMSG]"
 #endif

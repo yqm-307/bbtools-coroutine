@@ -354,6 +354,10 @@ BOOST_AUTO_TEST_CASE(concurrent_create_snapshot_and_destroy_preserve_totals_and_
         int ready{0};
         bool release{false};
         std::exception_ptr error;
+        // 每次快照都必须自洽：created-destroyed==alive 且 peak>=alive。
+        // 拆成四个独立 atomic 时读者会看到「alive 已加、created 未加」的
+        // 中间态，本计数就是它的反例证据。
+        std::atomic<int> inconsistent{0};
     };
     auto barrier = std::make_shared<Barrier>();
     std::vector<std::thread> workers;
@@ -366,7 +370,12 @@ BOOST_AUTO_TEST_CASE(concurrent_create_snapshot_and_destroy_preserve_totals_and_
                         return std::make_shared<Object>();
                     });
                     (void)manager->GetObjectInfo(object->GetMemberId());
-                    (void)GetCoObjectStats(kind);
+                    const auto snapshot = GetCoObjectStats(kind);
+                    if (snapshot.created_total - snapshot.destroyed_total !=
+                            snapshot.alive ||
+                        snapshot.peak_alive < snapshot.alive) {
+                        barrier->inconsistent.fetch_add(1);
+                    }
                     objects.push_back(std::move(object));
                 }
             } catch (...) {
@@ -395,9 +404,156 @@ BOOST_AUTO_TEST_CASE(concurrent_create_snapshot_and_destroy_preserve_totals_and_
     BOOST_REQUIRE(ready);
     if (barrier->error)
         std::rethrow_exception(barrier->error);
+    BOOST_CHECK_EQUAL(barrier->inconsistent.load(), 0);
     CheckStats(held, threads * batch, 0, threads * batch, threads * batch);
     CheckStats(manager->GetStats(), threads * batch, threads * batch, 0, threads * batch);
     CheckStats(GetCoObjectStats(kind), threads * batch, threads * batch, 0, threads * batch);
+}
+
+// Reader first acknowledges a nonzero snapshot from both query paths while the
+// initial object is held alive. Writers then churn until the reader has sampled
+// enough times during their active phase to check for torn independent atomics.
+BOOST_AUTO_TEST_CASE(concurrent_writers_and_readers_always_see_consistent_snapshot) {
+    constexpr int writers = 3;
+    constexpr int writer_iterations = 65536;
+    constexpr int required_writer_phase_snapshots = 4096;
+    constexpr int required_churn_creates = 4096;
+    constexpr auto timeout = std::chrono::seconds(5);
+    const std::string kind = "objects.snapshot-invariant";
+    auto manager = std::make_shared<CoObjectManager>();
+    std::mutex gate_mutex;
+    std::condition_variable gate_cv;
+    bool reader_ready = false;
+    bool writer_phase_ready = false;
+    bool observed_nonzero = false;
+    bool stop = false;
+    std::atomic<int> writers_active{0};
+    std::atomic<int> writer_phase_snapshots{0};
+    std::atomic<int> inconsistent{0};
+    std::atomic<int> churn_created{0};
+    std::atomic<bool> stop_writers{false};
+
+    std::thread reader([&] {
+        {
+            std::lock_guard<std::mutex> lock(gate_mutex);
+            reader_ready = true;
+        }
+        gate_cv.notify_all();
+        {
+            std::unique_lock<std::mutex> lock(gate_mutex);
+            gate_cv.wait(lock, [&]() { return writer_phase_ready || stop; });
+        }
+        while (true) {
+            {
+                std::lock_guard<std::mutex> lock(gate_mutex);
+                if (stop)
+                    break;
+            }
+            const auto by_manager = manager->GetStats();
+            const auto by_kind = GetCoObjectStats(kind);
+            if (by_kind.created_total - by_kind.destroyed_total != by_kind.alive ||
+                by_kind.peak_alive < by_kind.alive ||
+                by_manager.created_total - by_manager.destroyed_total != by_manager.alive ||
+                by_manager.peak_alive < by_manager.alive) {
+                inconsistent.fetch_add(1, std::memory_order_relaxed);
+            }
+            if (writers_active.load(std::memory_order_acquire) > 0) {
+                writer_phase_snapshots.fetch_add(1, std::memory_order_relaxed);
+            }
+            if (by_manager.alive > 0 && by_kind.alive > 0) {
+                {
+                    std::lock_guard<std::mutex> lock(gate_mutex);
+                    observed_nonzero = true;
+                }
+                gate_cv.notify_all();
+            }
+        }
+    });
+
+    bool ready = false;
+    {
+        std::unique_lock<std::mutex> lock(gate_mutex);
+        ready = gate_cv.wait_for(lock, timeout, [&]() { return reader_ready; });
+    }
+
+    std::shared_ptr<Object> held;
+    bool observed = false;
+    if (ready) {
+        held = manager->Create(kind, "held-during-reader-handshake", []() {
+            return std::make_shared<Object>();
+        });
+        {
+            std::lock_guard<std::mutex> lock(gate_mutex);
+            writer_phase_ready = true;
+        }
+        gate_cv.notify_all();
+        {
+            std::unique_lock<std::mutex> lock(gate_mutex);
+            observed = gate_cv.wait_for(lock, timeout, [&]() { return observed_nonzero; });
+        }
+    }
+
+    std::vector<std::thread> workers;
+    if (ready && observed) {
+        for (int writer = 0; writer < writers; ++writer) {
+            workers.emplace_back([manager, kind, &writers_active, &writer_phase_snapshots,
+                                  &churn_created, &stop_writers]() {
+                for (int i = 0; i < writer_iterations; ++i) {
+                    if (stop_writers.load(std::memory_order_acquire))
+                        break;
+                    writers_active.fetch_add(1, std::memory_order_release);
+                    auto object = manager->Create(kind, "churn", []() {
+                        return std::make_shared<Object>();
+                    });
+                    churn_created.fetch_add(1, std::memory_order_relaxed);
+                    object.reset();
+                    writers_active.fetch_sub(1, std::memory_order_release);
+                    if (writer_phase_snapshots.load(std::memory_order_acquire) >=
+                            required_writer_phase_snapshots &&
+                        churn_created.load(std::memory_order_acquire) >= required_churn_creates) {
+                        break;
+                    }
+                }
+            });
+        }
+        const auto deadline = std::chrono::steady_clock::now() + timeout;
+        while ((writer_phase_snapshots.load(std::memory_order_acquire) <
+                    required_writer_phase_snapshots ||
+                churn_created.load(std::memory_order_acquire) < required_churn_creates) &&
+               std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::yield();
+        }
+        stop_writers.store(true, std::memory_order_release);
+    }
+    for (auto& worker : workers)
+        worker.join();
+
+    held.reset();
+    {
+        std::lock_guard<std::mutex> lock(gate_mutex);
+        stop = true;
+    }
+    gate_cv.notify_all();
+    reader.join();
+
+    BOOST_CHECK(ready);
+    BOOST_CHECK(observed);
+    BOOST_CHECK_GE(writer_phase_snapshots.load(), required_writer_phase_snapshots);
+    BOOST_CHECK_GE(churn_created.load(), required_churn_creates);
+    BOOST_CHECK_EQUAL(inconsistent.load(), 0);
+    const auto expected_total = (ready ? 1 : 0) + churn_created.load();
+    const auto kind_stats = GetCoObjectStats(kind);
+    BOOST_CHECK_EQUAL(kind_stats.created_total, expected_total);
+    BOOST_CHECK_EQUAL(kind_stats.destroyed_total, expected_total);
+    BOOST_CHECK_EQUAL(kind_stats.alive, 0);
+    BOOST_CHECK_GE(kind_stats.peak_alive, 1);
+    BOOST_CHECK_LE(kind_stats.peak_alive, expected_total);
+    const auto manager_stats = manager->GetStats();
+    BOOST_CHECK_EQUAL(manager_stats.created_total, expected_total);
+    BOOST_CHECK_EQUAL(manager_stats.destroyed_total, expected_total);
+    BOOST_CHECK_EQUAL(manager_stats.alive, 0);
+    BOOST_CHECK_GE(manager_stats.peak_alive, 1);
+    BOOST_CHECK_LE(manager_stats.peak_alive, expected_total);
 }
 
 BOOST_AUTO_TEST_CASE(unknown_kind_has_an_empty_native_snapshot) {

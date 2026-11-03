@@ -526,7 +526,7 @@ auto MakeCoObject(std::string kind, std::string name, Creator&& creator)
 ```
 
 - 薄转发到进程级 `CoObjectManager`（`GetCoObjectManager()`）：不重新分配 ID、不重复登记，原 owner/deleter 原样返回。
-- 若 `T` 继承 `CoRuntimeOnly`，在 creator 调用前先 `RequireCoroutineContext()`，失败即拒绝、不调用 creator；其他类型不限域。
+- 若 creator 返回的对象类型继承 `CoRuntimeOnly`，在 creator 调用前先 `RequireCoroutineContext()`，失败即拒绝、不调用 creator；其他类型不限域。
 - creator 是零参闭包，返回非空 `unique_ptr<T,D>`、`shared_ptr<T>` 或可解引用的合法 owner；`unique_ptr` 类型成员索引不持所有权，`shared_ptr` 类型索引持 `weak_ptr`。
 
 ### `CoObjectStats` / `GetCoObjectStats`
@@ -541,8 +541,9 @@ struct CoObjectStats {
 CoObjectStats GetCoObjectStats(std::string_view kind) noexcept;
 ```
 
-- 成功创建计 `created_total`、实际析构计 `destroyed_total`；稳定期满足 `created_total - destroyed_total == alive`。
-- `Close`/句柄移动/Manager 先析构都不扣 `alive`；未知 kind 返回全零快照。查询 `noexcept`、不分配、不依赖 Co 上下文或静态析构次序。并发跨字段读取不承诺原子一致，不以瞬时不等式判泄漏。
+- 成功创建计 `created_total`、实际析构计 `destroyed_total`；任一快照满足 `created_total - destroyed_total == alive`。
+- 四个字段来自同一临界区，因此并发读到的每个快照都自洽（`created_total - destroyed_total == alive`、`peak_alive >= alive`）。锁在计数累加器内部，调用方不需要自行拼接锁协议；该保证来自一次快照的同步读取，不表示四个独立 atomic 也能提供同样结果。
+- `Close`/句柄移动/Manager 先析构都不扣 `alive`；未知 kind 返回全零快照。查询 `noexcept`、不分配、不依赖 Co 上下文或静态析构次序。
 
 ### 口径提醒
 

@@ -226,15 +226,15 @@ Hook 属于核心适配层，目标是参考 libco 的方式，尽可能将其�
 - 仓库通用 Agent 规范：`AGENTS.md`
 - 网络域的 infra 侧文档（B2 须核对并更新，B1 未修改或验证）：bbtools-infra 仓 `docs/architecture/gnet-network-execution.md`、`docs/decisions/0010-gnet-network-foundation.md`
 
-## 12. F17 R0：Co-only 入口、对象观测与三仓桥接边界
+## 12. Co-only 入口、对象观测与三仓桥接边界
 
-本节是 F17 对本文较早目标的最新补充：它保留 §6 的 process-lifetime、单次初始化、无 `Scheduler::Stop`/restart，且不把本节写入当作实现或测试通过。R1/R2 的新增入口先在 coroutine 候选实现并注册真实 CTest；R3 只让 framework/infra 消费这些入口，不把网络 owner、业务 registry 或物理 fd 责任下沉到 runtime。
+本节记录当前的 Co-only 入口、对象观测与跨仓责任边界。运行时保持 §6 所述的 process-lifetime、单次初始化、无 `Scheduler::Stop`/restart；主入口维持普通 `main` + `bbtco` 注册。`IsInCoroutineContext()`、`RequireCoroutineContext()`、对象管理与统计入口已实现，并注册对应 CTest。framework/infra 消费这些入口时，不把网络 owner、业务 registry 或物理 fd 责任下沉到 runtime。
 
-已实现面：`IsInCoroutineContext()`/`RequireCoroutineContext()`、`CoRuntimeOnly`、`CoObject`/`ManagerBase`/`MemberBase`/`MakeCoObject`/`GetCoObjectStats` 已落地并有对应测试目标 `runtime.context`、`runtime.objects`；主入口保持普通 `main` + `bbtco` 注册（§12.2），未引入 `RunMainTask`/`MainNativeControl`。
+当前实现包括 `IsInCoroutineContext()`/`RequireCoroutineContext()`、`CoRuntimeOnly`、`CoObject`/`ManagerBase`/`MemberBase`/`MakeCoObject`/`GetCoObjectStats`，对应测试目标为 `coroutine.runtime_context_no_create`、`coroutine.runtime_context_runtime`、`coroutine.runtime_objects`。主入口保持普通 `main` + `bbtco` 注册（§12.2），不提供 `RunMainTask`/`MainNativeControl`。
 
 ### 12.1 上下文真源与 `CoRuntimeOnly`
 
-当前源码的上下文真源仍是 `GetLocalCoroutineId()`：它是无创建查询，非受管上下文返回 `0`，不会惰性创建 `Processer`、启动 runtime 或改变状态。R1 公开的最小 API 固定为：
+当前源码的上下文真源仍是 `GetLocalCoroutineId()`：它是无创建查询，非受管上下文返回 `0`，不会惰性创建 `Processer`、启动 runtime 或改变状态。公开的最小 API 为：
 
 ```cpp
 bool IsInCoroutineContext();
@@ -273,9 +273,9 @@ int main() {
 - native 域等待的只是主任务完成通知（示例用 `future.get()`，换成 latch/CV 等价），等待谓词持久、可复查，不存在「先通知后等待」的丢唤醒窗口。
 - 没有活动的 runtime 托管主入口，因此也不存在「仅活动 RunMainTask 的 Co 域可登记控制槽」的需求；infra/framework 的 Engine 桥接若需要，属于 R3 各自仓的 API 与 pin 议题，不在 coroutine 公共面新增类型。
 
-### 12.2.1 已否决方案（保留作历史）
+### 12.2.1 启动接口边界
 
-`RunMainTask`/`MainNativeControl`/`Advance`/`TryUnregisterProcesserDriver(Pending)` 曾是候选草案，代码示例与测试均未落地；当前用户决定是普通 `main` + `bbtco` 注册。本文不再把这些签名当作实现契约，后续 Review 不以此为放行条件，也不据此要求 coroutine 提供 native 推进槽。若以后确需恢复，必须重走契约确认与独立审查，不视为已有授权。
+coroutine 使用普通 `main` + `bbtco` 注册主协程任务，不提供 `RunMainTask`、`MainNativeControl`、`Advance` 或 native 推进槽。需要 native 域与协程域桥接的 Engine 能力由 infra/framework 负责。
 
 ### 12.3 `ICoObject`、`CoObject` 与统计契约
 
@@ -304,23 +304,25 @@ auto MakeCoObject(std::string kind, std::string name, Creator&& creator)
 // creator 是立即调用的零参闭包，返回 T 已有的合法 owner/deleter。
 ```
 
-R2 实现口径：`ManagerBase<TKey,TMember>::Create(key, kind, name, creator)` 实施唯一构造/登记/提交，`MakeCoObject<T>` 只是绑定同一 CoObject manager 的薄转发；不保留第二个默认 `unique_ptr<T>` 工厂。creator 在调用者已有权限域形成，只在上下文 gate 之后调用一次；返回非空 `unique_ptr<T,D>`、`shared_ptr<T>` 或可解引用的合法既有 owner，失败抛既有构造/登记错误。工厂只借用对象做 Member 初始化，不接管 deleter、不缓存 creator 或 owner。framework 可在已有 `ConstructKey` 权限域捕获 key，闭包中以 `Registry::NewManaged<T>(key, ...)` 和 `Registry::DeleteManaged<T>` 建立类型化 owner，观测提交后再转入原有擦除 owner；Registry 的访问权限不转移给工厂或 `default_delete`。
+对象创建口径：`ManagerBase<TKey,TMember>::Create(key, kind, name, creator)` 实施唯一构造/登记/提交，`MakeCoObject<T>` 只是绑定同一 CoObject manager 的薄转发；不保留第二个默认 `unique_ptr<T>` 工厂。creator 在调用者已有权限域形成，只在上下文检查之后调用一次；返回非空 `unique_ptr<T,D>`、`shared_ptr<T>` 或可解引用的合法既有 owner，失败抛既有构造/登记错误。工厂只借用对象做 Member 初始化，不接管 deleter、不缓存 creator 或 owner。framework 可在已有 `ConstructKey` 权限域捕获 key，闭包中以 `Registry::NewManaged<T>(key, ...)` 和 `Registry::DeleteManaged<T>` 建立类型化 owner，观测提交后再转入原有擦除 owner；Registry 的访问权限不转移给工厂或 `default_delete`。
 
 creator 的唯一提交顺序是：先为 Co-only T 做上下文检查；调用合法 creator 完整构造 T；复用对象已有 `CoObjectInfo`（没有时才分配一次）；把 `MemberBase` 初始化为 `weak_ptr<Manager>`、key 和独立最小记账状态；完成观测登记后再提交一次创建计数并把原 owner 交付。受限 protected/private 析构不开放，`std::default_delete<T>` 不是统一前置条件；已有 `unique_ptr<T,D>`、Registry 的类型化擦除 owner 或其他合法 owner 形态都可保留。
 
 创建或观测登记在提交前失败时，原 owner 立即释放，Member 析构不得误发 `OnMemberDestroy`/destroy 记账。外部 framework/infra 安装、依赖绑定和业务发布是另一笔事务；发布前失败时释放已经成功创建的对象，实际析构形成一对 created/destroyed，`alive` 回到安装前基线，不撤销历史 created。已发布对象的 `OnInstall` 失败若按 framework 原语义保留为 `InstallFailed`，则继续计 alive，直到显式卸载及实际析构才计 destroyed；不能为了计数回基线暗改失败状态或提早释放。
 
-Manager 的共享对象索引只保存 `weak_ptr`；查询用一次 `if (auto owner = weak.lock())` 取得短暂局部强引用，立即完成快照后释放，不先 `expired()` 再 `lock()`，不缓存、不跨等待持有。独占对象只保存 ID/kind/name 与原子计数元数据，不为观测改成 `shared_ptr`。Manager 销毁先于成员时，Member 只依赖独立最小记账状态安全完成一次销毁计数；它不反向保活成员，也不要求调用已经失效的 Manager。失效索引沿既有查询/注销清理，不另起线程。成员析构路径必须 `noexcept`、不挂起、不调用业务虚回调、不访问派生对象；manager/Registry、在途任务和 native 物理回收 owner 的必要强引用仍由各自责任保留。
+Manager 的共享对象索引只保存 `weak_ptr`；查询用一次 `if (auto owner = weak.lock())` 取得短暂局部强引用，立即完成快照后释放，不先 `expired()` 再 `lock()`，不缓存、不跨等待持有。独占对象只保存 ID/kind/name 与计数元数据，不为观测改成 `shared_ptr`。Manager 销毁先于成员时，Member 只依赖独立最小记账状态安全完成一次销毁计数；它不反向保活成员，也不要求调用已经失效的 Manager。失效索引沿既有查询/注销清理，不另起线程。成员析构路径必须 `noexcept`、不挂起、不调用业务虚回调、不访问派生对象；manager/Registry、在途任务和 native 物理回收 owner 的必要强引用仍由各自责任保留。
 
-`Close`/`Stop` 不减 `alive`，句柄移动不重复登记；统计只保存原子计数/非 owning snapshot，不强持有对象，不依赖 Co 上下文，不抛异常。未知 kind 返回空快照，`noexcept` 查询不得懒分配、调用用户 hook 或依赖静态析构次序；已有类型桶与独立记账状态活到已登记成员完成析构。稳定期满足 `created_total - destroyed_total == alive`；并发跨字段读取不承诺原子一致，不以瞬时不等式判泄漏。`CreateObjectInfo` 保留为低层兼容入口，R2/R3 不能用裸身份分配绕过 creator 提交。
+`Close`/`Stop` 不减 `alive`，句柄移动不重复登记；统计只保存计数与非 owning snapshot，不强持有对象，不依赖 Co 上下文，不抛异常。未知 kind 返回空快照，`noexcept` 查询不得懒分配、调用用户 hook 或依赖静态析构次序；已有类型桶与独立记账状态活到已登记成员完成析构。任一快照满足 `created_total - destroyed_total == alive`。
 
-观测覆盖与 Co-only 是两个维度：R3 的 `CoApp`、`CoService`、`CoComponent`、`CoActor` 及 infra Client/Server、native `Engine` 都接同一 creator/Member 实际析构通知。Engine 不因 native 域免观测，也不因此继承 `CoRuntimeOnly`；Connection/CoTcpConnection/receipt 等无独立 owner 的值视图不强制工厂化。进程寿命 runtime 内核沿既有原生创建入口接观测，存活基线单列，不把它们改为 Co-only 或在 main 返回时销毁。
-### 12.4 R1/R2 文件、签名与测试映射
+计数累加器自带一把短临界区锁，一次创建在同一临界区内推进 `created_total`/`alive`/`peak_alive`，一次析构同时推进 `destroyed_total`/`alive`，快照也在同一临界区内取四字段——因此任意并发快照都自洽（`created_total - destroyed_total == alive` 且 `peak_alive >= alive`），不要求消费者自己拼装锁协议。临界区只做整数运算，不调用用户代码、不分配，也不发起协程等待；析构记账不依赖静态析构顺序。`CreateObjectInfo` 保留为低层兼容入口，R2/R3 不能用裸身份分配绕过 creator 提交。
+
+观测覆盖与 Co-only 是两个维度：framework 的 `CoApp`、`CoService`、`CoComponent`、`CoActor` 及 infra Client/Server、native `Engine` 都接同一 creator/Member 实际析构通知。Engine 不因 native 域免观测，也不因此继承 `CoRuntimeOnly`；Connection/CoTcpConnection/receipt 等无独立 owner 的值视图不强制工厂化。进程寿命 runtime 内核沿既有原生创建入口接观测，存活基线单列，不把它们改为 Co-only 或在 main 返回时销毁。
+### 12.4 接口、文件与测试映射
 
 | 节点 | 允许写入的文件 | 固定入口/结果 | 直接测试映射 |
 |---|---|---|---|
-| R1 上下文 | `bbt/coroutine/coroutine.hpp`、`bbt/coroutine/coroutine.cc`、`bbt/coroutine/object/CoRuntimeOnly.hpp`（新）、`bbt/coroutine/detail/LocalThread.{hpp,cc}`（新增 `TryGetTLSInst` 冷查询槽） | `IsInCoroutineContext()`、`RequireCoroutineContext()`、`CoRuntimeOnly`；`GetLocalCoroutineId`/`GetLocalCoroutineStackSize` 在 native 线程零分配 | `tests/coroutine/Test_runtime_context.cc`，ctest `runtime.context`（`no_create`/`runtime` 两 mode）已注册 |
-| R2 对象 | `bbt/coroutine/object/interface/ICoObject.hpp`（接口不变）、`bbt/coroutine/object/`（CoObject、ManagerBase/MemberBase、CoObjectStats、CoRuntimeOnly 公开头）、`tests/coroutine/`、`tests/CMakeLists.txt` | `MakeCoObject<T>(kind,name,creator)` 仅转同一 Manager creator；保留合法 owner/deleter；`GetCoObjectStats(kind)` | `tests/coroutine/Test_runtime_objects.cc`，ctest `runtime.objects` 已注册；负向编译经 BBT_NEGATIVE/TU 覆盖 |
-| R3 消费前提 | coroutine 只接收 framework/infra 的实际调用，不新增网络或业务类型 | 通过公开头和实际 pin 消费；R1/R2 未注册前不得把目标 CTest 当已有证据 | R4 另核候选源码、CMake 注册集与真实输出 |
+| 上下文 | `bbt/coroutine/coroutine.hpp`、`bbt/coroutine/coroutine.cc`、`bbt/coroutine/object/CoRuntimeOnly.hpp`、`bbt/coroutine/detail/LocalThread.{hpp,cc}` | `IsInCoroutineContext()`、`RequireCoroutineContext()`、`CoRuntimeOnly`；`GetLocalCoroutineId`/`GetLocalCoroutineStackSize` 在 native 线程零分配 | `tests/coroutine/Test_runtime_context.cc`，ctest `coroutine.runtime_context_no_create` / `coroutine.runtime_context_runtime` |
+| 对象观测 | `bbt/coroutine/object/interface/ICoObject.hpp`、`bbt/coroutine/object/`、`tests/coroutine/`、`tests/CMakeLists.txt` | `MakeCoObject<T>(kind,name,creator)` 转发到同一 Manager creator；保留合法 owner/deleter；`GetCoObjectStats(kind)` | `tests/coroutine/Test_runtime_objects.cc`，ctest `coroutine.runtime_objects`；负向编译由 BBT_NEGATIVE/TU 检查 |
+| 下游消费 | coroutine 不新增网络或业务类型；framework/infra 使用其公开入口 | 通过公开头和依赖 pin 消费，不把网络 owner、业务 registry 或物理 fd 责任下沉到 runtime | 下游构建与消费验证按对应发布检查执行 |
 
-上述文件是 R1/R2 的最小范围；不改 `AGENTS.md`、CI、配置、依赖 pin、共享安装目录或 Scheduler 停机模型。
+上述文件界定上下文与对象观测相关范围；不改 `AGENTS.md`、CI、配置、依赖 pin、共享安装目录或 Scheduler 停机模型。

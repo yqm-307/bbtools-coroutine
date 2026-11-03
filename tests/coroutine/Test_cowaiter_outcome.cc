@@ -465,8 +465,8 @@ BOOST_AUTO_TEST_CASE(t_narrow_wait_rejections)
     BOOST_CHECK(waiter->Wait(WaitOptions{}) == WaitStatus::InvalidContext);
 }
 
-/* P1-7：无有效等待者的 Notify 不再断言——fresh（COND_DEFAULT）、已取消、
- * 已决议的 Waiter 都返回 -1；先通知后等待的丢唤醒窗口由调用方持久谓词关闭。 */
+/* 无有效等待者的 Notify 不断言——fresh（COND_DEFAULT）、已取消、已决议的
+ * Waiter 都返回 -1；先通知后等待的丢唤醒窗口由调用方持久谓词关闭。 */
 BOOST_AUTO_TEST_CASE(t_notify_without_waiter_returns_failure)
 {
     auto fresh = sync::CoWaiter::Create();

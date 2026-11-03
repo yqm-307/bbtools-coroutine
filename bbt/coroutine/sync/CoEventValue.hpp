@@ -1,3 +1,6 @@
+/** @file CoEventValue.hpp
+ * @brief 协程唤醒载荷的类型安全内联存储。
+ */
 #pragma once
 #include <cstddef>
 #include <cstdint>
@@ -53,12 +56,13 @@ inline constexpr CoEventValueTypeId kCoEventValuePointerBegin  = 0x10000;
  *
  * 常用整数/浮点/void* 已由库登记；自定义 POD 由接口拥有者在公共头
  * 用 BBT_COEVENT_VALUE_REGISTER_TYPE 登记唯一 ID。
+ * @tparam T 载荷类型
  */
 template<class T>
 struct CoEventValueTraits
 {
     static_assert(!std::is_same<T, T>::value,
-        "CoEventValue: 类型未登记，请用 BBT_COEVENT_VALUE_REGISTER_TYPE 登记唯一 ID");
+        "CoEventValue: type is not registered; register a unique ID with BBT_COEVENT_VALUE_REGISTER_TYPE");
 };
 
 template<> struct CoEventValueTraits<bool>              { static constexpr CoEventValueTypeId id = kCoEventValueBool; };
@@ -79,11 +83,9 @@ template<> struct CoEventValueTraits<float>             { static constexpr CoEve
 template<> struct CoEventValueTraits<double>            { static constexpr CoEventValueTypeId id = kCoEventValueDouble; };
 /* void 只登记为「被指类型」，void* / cv void* 全部走下方 T* 通用公式。
  *
- * 历史实现给 void* 与 cv void* 写了独立全特化，数值恰好与通用公式
- * 「被指 cv + 一层指针」的派生结果重合（const void* 与 void* const* 同为
- * 65585，volatile / cv 两对同理，共 3 组），于是错型 Get 能按 sizeof 读回
- * 8 字节并改写 out。根因单一：void 与 void* 共用了同一个登记 ID（12），
- * 被指类型与指针类型混为一谈。此处分离二者即可，不需要第二套编号。
+ * 不给 void* 另写独立全特化：那会和通用公式「被指 cv + 一层指针」派生出的
+ * 编号共用同一段空间，错型 Get 便能按 sizeof 读回并改写 out。void 与 void*
+ * 是两类身份，分开编号即可，不需要第二套编号。
  */
 template<> struct CoEventValueTraits<void>              { static constexpr CoEventValueTypeId id = kCoEventValueVoid; };
 
@@ -110,9 +112,8 @@ struct CoEventValuePointerDepth<T*>
  * 容量推导：id(T*) = kPointerBegin + id(被指) * 4 + cv。被指 ID 最大为
  * kPointerBegin - 1 = 65535（自定义登记区间上界），故最坏情况第 7 层
  * 上界 1431633919 < 2^32（uint32 无回绕）；第 8 层最坏值超过 2^32，
- * 回绕后会与低层 ID 完全重合（历史缺陷：16/17 层 int 指针曾给出同一个
- * ID），类型身份不再单射。因此超过本上界的指针类型在编译期显式拒绝，
- * 不做静默回绕、也不用 sizeof 兜底。
+ * 回绕后会与低层 ID 完全重合，类型身份不再单射。因此超过本上界的指针
+ * 类型在编译期显式拒绝，不做静默回绕、也不用 sizeof 兜底。
  */
 inline constexpr unsigned kCoEventValueMaxPointerDepth = 7u;
 
@@ -129,7 +130,7 @@ template<class T>
 struct CoEventValueTraits<T*>
 {
     static_assert(CoEventValuePointerDepth<T>::value + 1u <= kCoEventValueMaxPointerDepth,
-        "CoEventValue: 指针层级超过 kCoEventValueMaxPointerDepth，ID 会回绕并与低位类型碰撞");
+        "CoEventValue: pointer depth exceeds kCoEventValueMaxPointerDepth; the derived ID would wrap and collide");
     static constexpr CoEventValueTypeId id =
         kCoEventValuePointerBegin +
         CoEventValueTraits<std::remove_cv_t<T>>::id * 4u +
@@ -161,7 +162,7 @@ inline constexpr CoEventValueTypeId kCoEventValueUInt64 = CoEventValueTraits<std
         static constexpr ::bbt::coroutine::CoEventValueTypeId id = (ID);                  \
         static_assert(id >= ::bbt::coroutine::kCoEventValueCustomBegin &&                 \
                       id <  ::bbt::coroutine::kCoEventValuePointerBegin,                  \
-                      "CoEventValue: 自定义类型 ID 必须落在自定义登记区间");               \
+                      "CoEventValue: custom type ID must fall inside the custom registration range");           \
     }
 
 /**
@@ -178,20 +179,29 @@ inline constexpr CoEventValueTypeId kCoEventValueUInt64 = CoEventValueTraits<std
 class CoEventValue
 {
 public:
+    /// @brief 固定内联缓冲容量，单位为字节。
     static constexpr std::size_t kInlineSize = 24;
 
+    /// @brief 创建空载荷。
     CoEventValue() noexcept = default;
 
+    /// @brief 判断载荷槽是否保存了值。
     bool HasValue() const noexcept { return m_type != kCoEventValueNone; }
 
+    /**
+     * @brief 将可平凡拷贝值编码到内联载荷。
+     * @tparam T 值类型；必须已登记、可平凡拷贝且不超过 kInlineSize。
+     * @param value 要复制的值
+     * @return 编码后的载荷
+     */
     template<class T>
     static CoEventValue From(const T& value) noexcept
     {
         using Type = std::remove_cv_t<T>;
         static_assert(std::is_trivially_copyable<Type>::value,
-            "CoEventValue: 仅支持可平凡拷贝类型");
+            "CoEventValue: only trivially copyable types are supported");
         static_assert(sizeof(Type) <= kInlineSize,
-            "CoEventValue: 载荷超过 24 字节内联容量");
+            "CoEventValue: payload exceeds the 24-byte inline capacity");
 
         CoEventValue out;
         out.m_type = CoEventValueTraits<Type>::id;
@@ -200,14 +210,20 @@ public:
         return out;
     }
 
+    /**
+     * @brief 若类型标识和尺寸匹配，将载荷复制到 out。
+     * @tparam T 目标类型；必须可平凡拷贝且不超过 kInlineSize。
+     * @param out 匹配时接收载荷；不匹配时保持不变
+     * @return 成功解码返回 true；空值或类型/尺寸不匹配返回 false
+     */
     template<class T>
     bool Get(T& out) const noexcept
     {
         using Type = std::remove_cv_t<T>;
         static_assert(std::is_trivially_copyable<Type>::value,
-            "CoEventValue: 仅支持可平凡拷贝类型");
+            "CoEventValue: only trivially copyable types are supported");
         static_assert(sizeof(Type) <= kInlineSize,
-            "CoEventValue: 载荷超过 24 字节内联容量");
+            "CoEventValue: payload exceeds the 24-byte inline capacity");
 
         if (m_type == kCoEventValueNone ||
             m_type != CoEventValueTraits<Type>::id ||

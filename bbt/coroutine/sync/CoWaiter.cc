@@ -112,7 +112,7 @@ int CoWaiter::WaitWithCallback(const detail::CoroutineOnYieldCallback& cb)
         m_run_status = COND_WAIT;
     }
 
-    /* 同 Wait()，走公共登记路径；cb 保持"挂起后、唤醒前"的既有语义 */
+    /* 同 Wait()，走公共登记路径；cb 在挂起成功后、恢复前调用一次。 */
     /* 同 Wait() 的回滚约定——装配抛异常时协程未挂起、回调
      * 未执行，清 await 与等待位后原样上抛。 */
     try {
@@ -354,8 +354,7 @@ WaitStatus CoWaiter::WaitWithCallback(
     {
         std::lock_guard<std::mutex> lock(m_notify_mutex);
         /* 只解绑本次登记：本事件若在恢复前已被判为终态残留清出，等待位
-         * 可能已被后到等待者占用，无条件清空会抹掉后者的登记使其丢唤醒
-         * （同 CompletionSignal Critical-1 修复模式）。 */
+         * 可能已被后到等待者占用；无条件清空会抹掉后者的登记并造成丢唤醒。 */
         if (m_co_event == wait_event) {
             m_co_event = nullptr;
             m_run_status = COND_FREE;
@@ -382,7 +381,7 @@ WaitStatus CoWaiter::WaitWithCallback(
         return WaitStatus::TimedOut;
     if (resume_event & detail::POLL_EVENT_CUSTOM)
         return WaitStatus::Completed;
-    /* 无明确决议位的异常唤醒按取消处理（沿用既有兜底先例） */
+    /* 无明确决议位的异常唤醒按取消处理（同窄接口口径） */
     return WaitStatus::Cancelled;
 }
 
@@ -527,15 +526,16 @@ CombinedWaitStatus CoWaiter::Wait(
         return CombinedWaitStatus::FdReadable;
     if (resume_event & pollevent::EventOpt::WRITEABLE)
         return CombinedWaitStatus::FdWriteable;
-    /* 无明确决议位的异常唤醒按取消处理（同窄接口兜底先例） */
+    /* 无明确决议位的异常唤醒按取消处理（同窄接口口径） */
     return CombinedWaitStatus::Cancelled;
 }
 
 int CoWaiter::Notify()
 {
-    /* 无有效等待者时返回 -1，不再断言：fresh（COND_DEFAULT）、FREE、ACTIVE
-     * 都没有可唤醒的登记。需要持久完成谓词的调用方先复查自己的完成状态再
-     * 唤醒；先通知后等待的丢唤醒窗口由调用方持有持久谓词关闭（P1-7）。 */
+    /* 没有可唤醒的登记就返回 -1，不断言：fresh（COND_DEFAULT）、FREE、
+     * ACTIVE 都没有等待位。唤醒是「尝试」而不是「必须命中」，因此调用方
+     * 不能把 Notify 的返回值当成完成凭据；先通知后等待的丢唤醒窗口由调用
+     * 方持有的持久完成谓词关闭（登记后复查一次）。 */
     /* Trigger→OnActiveCoroutine→广播的整条链都在 m_notify_mutex 内同步
      * 执行；driver Wake 必须推迟到本函数退出（全部锁已释放）之后。 */
     detail::DriverWakeDeferral _defer;
@@ -551,8 +551,9 @@ int CoWaiter::Notify()
 
 int CoWaiter::Notify(const CoEventValue& value)
 {
-    /* 新入口不带无参 Notify 的 COND_DEFAULT 断言前置条件：fresh / 无有效
-     * 等待 / 已决议时一律返回 -1，不保存载荷、不 assert。 */
+    /* 与无参 Notify 同语义：fresh / 无等待位 / 已决议都返回 -1，不保存
+     * 载荷。载荷只在本次等待确实被本事件唤醒时交付，因此不存在「把旧
+     * 载荷留给下一轮等待」的问题。 */
     detail::DriverWakeDeferral _defer;   // 同无参 Notify：外调推迟到锁外
     std::lock_guard<std::mutex> lock(m_notify_mutex);
 
