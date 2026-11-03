@@ -14,6 +14,9 @@
 
 #include <bbt/coroutine/pool/CoPool.hpp>
 
+#include <bbt/coroutine/object/CoRuntimeOnly.hpp>
+#include <bbt/coroutine/object/CoObject.hpp>
+
 #include <bbt/coroutine/syntax/SyntaxMacro.hpp>
 
 namespace bbt
@@ -26,6 +29,10 @@ namespace coroutine
 detail::CoroutineId GetLocalCoroutineId();
 /* 返回当前协程可用栈字节数；非协程上下文返回 0，同样不创建 Processer 或启动 runtime。 */
 size_t GetLocalCoroutineStackSize();
+
+/* 无副作用查询；Require 在非协程上下文抛 std::logic_error。 */
+bool IsInCoroutineContext();
+void RequireCoroutineContext();
 
 template<class TItem, int ItemMax>
 inline typename sync::Chan<TItem, ItemMax>::SPtr Chan()

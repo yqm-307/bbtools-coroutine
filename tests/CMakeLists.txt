@@ -168,6 +168,12 @@ bbt_unit_test(Test_coroutine_query
     TIMEOUT 20 LABELS "unit")
 
 bbt_unit_test(Test_coroutine_api LABELS "unit")
+bbt_unit_test(Test_runtime_context
+    MODES no_create runtime
+    MODE_ARGS "no_create:--run_test=context_no_create"
+              "runtime:--run_test=context_runtime"
+    TIMEOUT 20 LABELS "unit")
+bbt_unit_test(Test_runtime_objects TIMEOUT 30 LABELS "unit")
 bbt_unit_test(Test_async_syntax TIMEOUT 20 LABELS "unit")
 bbt_unit_test(Test_coroutine_exception LABELS "smoke;unit" TIMEOUT 60)
 bbt_unit_test(Test_coroutine_cancel TIMEOUT 10 LABELS "unit")
@@ -387,6 +393,10 @@ set(BBT_PUBLIC_HEADERS
     bbt/coroutine/sync/CoSelect.hpp
     bbt/coroutine/object/interface/ICoObject.hpp
     bbt/coroutine/object/CoObject.hpp
+    bbt/coroutine/object/CoRuntimeOnly.hpp
+    bbt/coroutine/object/CoObjectStats.hpp
+    bbt/coroutine/object/ManagerBase.hpp
+    bbt/coroutine/object/MemberBase.hpp
     bbt/coroutine/pool/CoPool.hpp
     bbt/coroutine/detail/Scheduler.hpp
     bbt/coroutine/coroutine.hpp

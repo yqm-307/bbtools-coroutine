@@ -15,6 +15,15 @@ std::atomic<CoObjectId> g_next_object_id{1};
 
 }
 
+CoObject::CoObject(std::string kind, std::string name)
+    : MemberBase(CreateObjectInfo(std::move(kind), std::move(name))) {
+}
+
+std::shared_ptr<CoObjectManager> GetCoObjectManager() {
+    static const auto manager = new std::shared_ptr<CoObjectManager>(std::make_shared<CoObjectManager>());
+    return *manager;
+}
+
 CoObjectInfo CreateObjectInfo(std::string kind, std::string name)
 {
     /* 前置条件不再是「有可归属的运行时代际」，而是「运行时已初始化」：

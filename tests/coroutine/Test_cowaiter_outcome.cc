@@ -465,6 +465,33 @@ BOOST_AUTO_TEST_CASE(t_narrow_wait_rejections)
     BOOST_CHECK(waiter->Wait(WaitOptions{}) == WaitStatus::InvalidContext);
 }
 
+/* P1-7：无有效等待者的 Notify 不再断言——fresh（COND_DEFAULT）、已取消、
+ * 已决议的 Waiter 都返回 -1；先通知后等待的丢唤醒窗口由调用方持久谓词关闭。 */
+BOOST_AUTO_TEST_CASE(t_notify_without_waiter_returns_failure)
+{
+    auto fresh = sync::CoWaiter::Create();
+    BOOST_CHECK_EQUAL(fresh->Notify(), -1);
+    BOOST_CHECK_EQUAL(fresh->Notify(CoEventValue{}), -1);
+
+    /* 已取消（Cancel 置 COND_FREE）同样安全返回 */
+    auto cancelled = sync::CoWaiter::Create();
+    cancelled->Cancel();
+    BOOST_CHECK_EQUAL(cancelled->Notify(), -1);
+
+    /* 已决议：先完成一轮真实等待，恢复后再次 Notify 仍返回 -1 */
+    auto resolved = sync::CoWaiter::Create();
+    bbt::core::thread::CountDownLatch done{1};
+    std::atomic<WaitStatus> st{};
+    bbtco [&]() {
+        st.store(resolved->Wait(WaitOptions{}));
+        done.Down();
+    };
+    BOOST_REQUIRE(NotifyUntilSuccess(resolved));
+    done.Wait();
+    BOOST_CHECK(st.load() == WaitStatus::Completed);
+    BOOST_CHECK_EQUAL(resolved->Notify(), -1);
+}
+
 BOOST_AUTO_TEST_CASE(t_end)
 {
     if (g_started.exchange(false))

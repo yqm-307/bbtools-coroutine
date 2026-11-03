@@ -533,7 +533,9 @@ CombinedWaitStatus CoWaiter::Wait(
 
 int CoWaiter::Notify()
 {
-    Assert(m_run_status != COND_DEFAULT);
+    /* 无有效等待者时返回 -1，不再断言：fresh（COND_DEFAULT）、FREE、ACTIVE
+     * 都没有可唤醒的登记。需要持久完成谓词的调用方先复查自己的完成状态再
+     * 唤醒；先通知后等待的丢唤醒窗口由调用方持有持久谓词关闭（P1-7）。 */
     /* Trigger→OnActiveCoroutine→广播的整条链都在 m_notify_mutex 内同步
      * 执行；driver Wake 必须推迟到本函数退出（全部锁已释放）之后。 */
     detail::DriverWakeDeferral _defer;
