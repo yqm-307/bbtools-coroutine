@@ -11,7 +11,7 @@
 - **运行时**：`g_scheduler`、`Start` / `LoopOnce` / `IsInitialized`、Processer 扩缩容控制与查询、`SchedulerStartOpt`
 - 注册：`bbtco` / `bbtco_desc` / `bbtco_ref` / `bbtco_noexcept`
 - 让出：`bbtco_yield`、`bbtco_sleep`
-- 查询：`GetLocalCoroutineId`、`GetLocalCoroutineStackSize`
+- 查询：`GetLocalCoroutineId`、`GetLocalCoroutineStackSize`、`IsInCoroutineContext`
 - 同步：`Chan`、`CoSelect`、`CoMutex`、`CoRWMutex`、`CoLockGuard`、`CoUniqueLock`、`CoReadLock`、`CoWriteLock`、`CoCond`
 - 池：`CoPool`
 - 事件：`bbtco_wait_for`、`bbtco_ev_*`
@@ -232,6 +232,35 @@ bbtco [] { bbt_co_await Handle(); };
 - 签名：`size_t GetLocalCoroutineStackSize();`
 - 返回：当前协程可用的栈字节数（页对齐后的 U，不含保护页）；非协程为 `0`。同一 runtime 内不同协程可返回不同值。
 - 与 ID 查询相同，不创建 Processer、不启动 runtime；TLS 未许可时返回 `0`，yield 后重新读取当前协程。
+
+### `IsInCoroutineContext`
+
+- 头文件：`bbt/coroutine/coroutine.hpp`
+- 签名：`bool IsInCoroutineContext();`
+- 返回：当前线程当前是否在受管协程上下文。等价于 `GetLocalCoroutineId() != 0`；native 线程上不分配 `LocalThread` 辅助对象（走 `TryGetTLSInst` 冷查询槽），不创建 Processer、不启动 runtime。
+- 两个查询都不缓存 worker 归属、不读已析构 TLS；线程退出/LocalThread 释放后自动回到 `false`/`0`。
+
+### `RequireCoroutineContext`
+
+- 头文件：`bbt/coroutine/coroutine.hpp`
+- 签名：`void RequireCoroutineContext();`
+- 非协程上下文抛 `std::logic_error`；协程内正常返回。只在「必须有协程上下文」的副作用前使用；普通 getter、值对象、native callback 短路径不机械调用。
+- 使用 `result` 的公共接口应直接读 `IsInCoroutineContext()` 并返回既有上下文错误码，不走 Require→throw→catch。
+
+### `CoRuntimeOnly`
+
+- 头文件：`bbt/coroutine/object/CoRuntimeOnly.hpp`
+- 无状态、无虚函数的 mixin 标记；静态成员只转调同名 namespace 函数：
+
+```cpp
+class CoRuntimeOnly {
+public:
+    static bool IsInCoroutineContext();
+    static void RequireCoroutineContext();
+};
+```
+
+- 不删除复制/移动，不在构造/析构自动检查，不保存 TLS、线程 id、对象 owner 或计数。继承它只是给类型贴上「方法应按 Co-only 约定使用」的可识别标记；真正拒绝在重要入口副作用前显式 gate。
 
 ### 取消
 
@@ -468,6 +497,57 @@ int idx = sync::CoSelect()
 - 说明：返回 CoPoller 全局 EventLoop 所持同一 io_context 的 executor（`any_io_executor` 投递句柄），供上层适配层把 Asio 异步操作接入既有协程事件循环。投递的 handler 只由 Scheduler 现有 `PollOnce` 在驱动线程兑现：默认后台模式即 Scheduler 调度线程（S）；`NO_LOOP` 模式即调用 `LoopOnce` 的驱动线程（首个调用 `PollOnce` 的线程）；`SCHE_LOOP` 模式即执行调度循环的当前线程。
 - 约束（仅限定共享 executor 的使用方式）：不得为它创建新线程或独立 io_context 驱动；句柄不暴露原始 io_context，无法 stop/restart/run。生命周期由 CoPoller 单例保证，随 runtime 进程寿命存在。
 - 边界：上层网络域使用自有 context，不经本句柄投递；当前已确认的消费者目标通过 Processer driver 在 P 的非业务协程边界推进，不额外创建网络 I/O 线程。详见契约 §11.3–§11.6；目标说明不是消费者实现或联调证据。
+
+## 14. 对象身份与创建观测
+
+对象观测与 Co-only 是两个维度：任何「有身份、有生命周期」的运行时实体都可以走这条路径，而是否只允许在协程域使用由 `CoRuntimeOnly` 各自决定。统计只记真实创建/实际析构，`Close`/`Stop` 不减 `alive`，也不是业务收口或物理资源释放的凭据。
+
+### `CoObject` / `CoObjectInfo`
+
+- 头文件：`bbt/coroutine/object/CoObject.hpp`、`bbt/coroutine/object/interface/ICoObject.hpp`
+- `CoObject` 继承 `ICoObject` 与 `MemberBase<CoObjectId, CoObject>`；`GetObjectInfo()` 返回身份快照，`GetMemberId()` 返回登记用的 key（默认即 `id`）。
+- `CoObjectInfo{id, kind, name}`：id 进程内严格递增、不复用；无代际字段。`CreateObjectInfo(kind, name)` 是低层分配入口，runtime 未初始化抛 `std::logic_error`，溢出抛 `std::overflow_error`。
+- 默认构造的 `CoObject()` 保护给 creator 用：出厂时还没有身份，由 `ManagerBase::Create` 在交付前统一补登，不要在外部直接依赖零身份。
+
+### `ManagerBase` / `MemberBase`
+
+- 头文件：`bbt/coroutine/object/ManagerBase.hpp`（`MemberBase.hpp` 只是同族薄入口）。
+- `ManagerBase<TKey,TMember>::Create(key, kind, name, creator)`：立即调用一次 creator，把返回 owner 的成员在锁内登记、提交统计并原样交回。key 冲突、creator 抛异常或返回空 owner 都不提交，不把未登记对象误析构扣减。
+- `Create(kind, name, creator)` 便捷入口仅对 `TKey == CoObjectId` 开放，用对象身份本身当 key。
+- `GetObjectInfo(key)` 返回 `std::optional<CoObjectInfo>` 快照；shared_ptr 成员索引只保存 `weak_ptr`，查询时只 lock 一次取短暂引用，不缓存、不跨锁外等待持有。Manager 早于成员销毁时 Member 靠独立记账状态安全完成一次销毁计数。
+- `MemberBase` 的构造/拷贝/移动均不可用于用户侧；析构 `noexcept`、不挂起、不调用业务虚回调、不访问已析构派生对象。
+
+### `MakeCoObject<T>`
+
+```cpp
+template<class T, class Creator>
+auto MakeCoObject(std::string kind, std::string name, Creator&& creator)
+    -> decltype(std::forward<Creator>(creator)());
+```
+
+- 薄转发到进程级 `CoObjectManager`（`GetCoObjectManager()`）：不重新分配 ID、不重复登记，原 owner/deleter 原样返回。
+- 若 creator 返回的对象类型继承 `CoRuntimeOnly`，在 creator 调用前先 `RequireCoroutineContext()`，失败即拒绝、不调用 creator；其他类型不限域。
+- creator 是零参闭包，返回非空 `unique_ptr<T,D>`、`shared_ptr<T>` 或可解引用的合法 owner；`unique_ptr` 类型成员索引不持所有权，`shared_ptr` 类型索引持 `weak_ptr`。
+
+### `CoObjectStats` / `GetCoObjectStats`
+
+```cpp
+struct CoObjectStats {
+    std::uint64_t created_total;
+    std::uint64_t destroyed_total;
+    std::uint64_t alive;
+    std::uint64_t peak_alive;
+};
+CoObjectStats GetCoObjectStats(std::string_view kind) noexcept;
+```
+
+- 成功创建计 `created_total`、实际析构计 `destroyed_total`；任一快照满足 `created_total - destroyed_total == alive`。
+- 四个字段来自同一临界区，因此并发读到的每个快照都自洽（`created_total - destroyed_total == alive`、`peak_alive >= alive`）。锁在计数累加器内部，调用方不需要自行拼接锁协议；该保证来自一次快照的同步读取，不表示四个独立 atomic 也能提供同样结果。
+- `Close`/句柄移动/Manager 先析构都不扣 `alive`；未知 kind 返回全零快照。查询 `noexcept`、不分配、不依赖 Co 上下文或静态析构次序。
+
+### 口径提醒
+
+工厂自身构造/登记失败不留下活记录；外部安装（framework `Registry`/infra 绑定）是另一笔事务，其失败只应释放已经成功创建的对象，形成一对 created/destroyed 后 `alive` 回基线，不撤销历史 `created_total`。进程寿命的 runtime 内核对象沿既有原生入口接观测，存活基线单列，不把它们改为 Co-only 或在 `main` 返回时销毁。
 
 ---
 

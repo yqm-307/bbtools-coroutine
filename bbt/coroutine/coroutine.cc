@@ -14,9 +14,19 @@ detail::AwaitHelper::AwaitHelper()
         throw std::logic_error("bbt_co_await requires a coroutine context");
 }
 
+bool IsInCoroutineContext() {
+    return GetLocalCoroutineId() != 0;
+}
+
+void RequireCoroutineContext() {
+    if (!IsInCoroutineContext())
+        throw std::logic_error("operation requires a coroutine context");
+}
+
 detail::CoroutineId GetLocalCoroutineId()
 {
-    if (!detail::LocalThread::GetTLSInst()->EnableUseCo())
+    auto local = detail::LocalThread::TryGetTLSInst();
+    if (local == nullptr || !local->EnableUseCo())
         return 0;
 
     auto tls_processer = detail::Processer::TryGetLocalProcesser();
@@ -32,7 +42,8 @@ detail::CoroutineId GetLocalCoroutineId()
 
 size_t GetLocalCoroutineStackSize()
 {
-    if (!detail::LocalThread::GetTLSInst()->EnableUseCo())
+    auto local = detail::LocalThread::TryGetTLSInst();
+    if (local == nullptr || !local->EnableUseCo())
         return 0;
 
     auto tls_processer = detail::Processer::TryGetLocalProcesser();

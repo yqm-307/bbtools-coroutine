@@ -14,7 +14,7 @@ namespace bbt::coroutine::sync
  *   idx 为命中的 Case 注册序下标；-1 = timeout / Default / 唤醒后全未就绪。
  *   命中 CaseRead 时值写入对应 out，CaseWrite 成功即值已入队。
  *
- * 时序约束（防丢唤醒，抄 DnsResolver/CoWaiter 既有约定）：
+ * 时序约束（防丢唤醒）：
  *   watcher 只在 WaitWithCallback 的回调里注册——回调在协程 Yield 之后
  *   （Processer::Resume 内）执行，唤醒方的 Notify 不可能早于挂起；注册后
  *   回调内立即再 Try 一遍，若恰好落在"Try 失败与注册之间"的窗口则
@@ -26,31 +26,55 @@ namespace bbt::coroutine::sync
  * SPtr 重载内部转 *ch，临时 shared_ptr 只在该语句内保活，跨语句使用需
  * 调用方自行持有。
  *
- * 仅支持 Max>0 的缓冲 Chan；Chan<T,0> 为 private 继承、watcher 接口不可见，
- * 本期不支持（Case* 对 Max==0 static_assert 编译期拦截）。
+ * 仅支持 Max>0 的缓冲 Chan：Chan<T,0> 为 private 继承、watcher 接口不可见，
+ * Case* 对 Max==0 在编译期 static_assert 拒绝。
  */
 class CoSelect
 {
 public:
+    /// @brief 添加一个缓冲 Chan 的读分支；命中时把值写入 out。
+    /// @tparam TItem Chan 中的元素类型
+    /// @tparam Max 缓冲容量，必须大于 0
+    /// @param ch 借用的 Chan，须存活至 Run() 返回
+    /// @param out 命中时接收读出的值
     template<class TItem, int Max>
     CoSelect& CaseRead(Chan<TItem, Max>& ch, TItem& out);
 
+    /// @brief 添加一个 shared_ptr 参数的缓冲 Chan 读分支；Chan 须由调用方保活至 Run() 返回。
+    /// @tparam TItem Chan 中的元素类型
+    /// @tparam Max 缓冲容量，必须大于 0
+    /// @param ch 指向需由调用方保活至 Run() 返回的 Chan
+    /// @param out 命中时接收读出的值
     template<class TItem, int Max>
     CoSelect& CaseRead(std::shared_ptr<Chan<TItem, Max>> ch, TItem& out);
 
+    /// @brief 添加一个缓冲 Chan 的写分支；命中表示 val 已入队。
+    /// @tparam TItem Chan 中的元素类型
+    /// @tparam Max 缓冲容量，必须大于 0
+    /// @param ch 借用的 Chan，须存活至 Run() 返回
+    /// @param val 待写入的值；注册时按值捕获
     template<class TItem, int Max>
     CoSelect& CaseWrite(Chan<TItem, Max>& ch, const TItem& val);
 
+    /// @brief 添加一个 shared_ptr 参数的缓冲 Chan 写分支；Chan 须由调用方保活至 Run() 返回。
+    /// @tparam TItem Chan 中的元素类型
+    /// @tparam Max 缓冲容量，必须大于 0
+    /// @param ch 指向需由调用方保活至 Run() 返回的 Chan
+    /// @param val 待写入的值；注册时按值捕获
     template<class TItem, int Max>
     CoSelect& CaseWrite(std::shared_ptr<Chan<TItem, Max>> ch, const TItem& val);
 
-    /// 挂起等待 ms 毫秒；与 Default 同时出现时 Default 优先（不挂起）
+    /// @brief 设置等待超时；与 Default 同时出现时 Default 优先（不挂起）。
+    /// @param ms 超时毫秒
+    /// @return 当前 CoSelect，供链式调用
     CoSelect& CaseTimeout(int ms);
 
-    /// 非阻塞：全部未就绪立即返回 -1
+    /// @brief 设置非阻塞默认分支；全部未就绪时立即返回 -1。
+    /// @return 当前 CoSelect，供链式调用
     CoSelect& Default();
 
-    /// 必须在协程内调用
+    /// @brief 在协程上下文中按分支注册顺序尝试各分支，必要时挂起等待。
+    /// @return 命中分支的下标；超时、默认分支或恢复后仍未就绪时返回 -1。
     int Run();
 
 private:
@@ -76,7 +100,7 @@ private:
 template<class TItem, int Max>
 CoSelect& CoSelect::CaseRead(Chan<TItem, Max>& ch, TItem& out)
 {
-    static_assert(Max > 0, "CoSelect 不支持 Chan<T,0>（无缓冲 Chan 本期不做）");
+    static_assert(Max > 0, "CoSelect: Chan<T, 0> has no watcher API and is not supported");
     m_cases.push_back(Case{
         [&ch](const CoWaiter::SPtr& w) { ch.AddReadWatcher(w); },
         [&ch](const CoWaiter::SPtr& w) { ch.RemoveReadWatcher(w); },
@@ -94,7 +118,7 @@ CoSelect& CoSelect::CaseRead(std::shared_ptr<Chan<TItem, Max>> ch, TItem& out)
 template<class TItem, int Max>
 CoSelect& CoSelect::CaseWrite(Chan<TItem, Max>& ch, const TItem& val)
 {
-    static_assert(Max > 0, "CoSelect 不支持 Chan<T,0>（无缓冲 Chan 本期不做）");
+    static_assert(Max > 0, "CoSelect: Chan<T, 0> has no watcher API and is not supported");
     m_cases.push_back(Case{
         [&ch](const CoWaiter::SPtr& w) { ch.AddWriteWatcher(w); },
         [&ch](const CoWaiter::SPtr& w) { ch.RemoveWriteWatcher(w); },

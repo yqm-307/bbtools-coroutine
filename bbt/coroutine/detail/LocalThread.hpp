@@ -11,6 +11,7 @@ class LocalThread
 {
 public:
     typedef std::unique_ptr<LocalThread> UPtr;
+    ~LocalThread() noexcept;
 
     /**
      * @brief 获取当前线程局部存储实例
@@ -18,6 +19,9 @@ public:
      * @return UPtr& 
      */
     static UPtr& GetTLSInst();
+
+    /* 只读执行域查询不得为 native 线程分配 TLS 辅助对象。 */
+    static LocalThread* TryGetTLSInst() noexcept;
 
     /**
      * @brief 获取当前线程的Processer

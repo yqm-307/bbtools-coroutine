@@ -168,6 +168,12 @@ bbt_unit_test(Test_coroutine_query
     TIMEOUT 20 LABELS "unit")
 
 bbt_unit_test(Test_coroutine_api LABELS "unit")
+bbt_unit_test(Test_runtime_context
+    MODES no_create runtime
+    MODE_ARGS "no_create:--run_test=context_no_create"
+              "runtime:--run_test=context_runtime"
+    TIMEOUT 20 LABELS "unit")
+bbt_unit_test(Test_runtime_objects TIMEOUT 30 LABELS "unit")
 bbt_unit_test(Test_async_syntax TIMEOUT 20 LABELS "unit")
 bbt_unit_test(Test_coroutine_exception LABELS "smoke;unit" TIMEOUT 60)
 bbt_unit_test(Test_coroutine_cancel TIMEOUT 10 LABELS "unit")
@@ -387,6 +393,10 @@ set(BBT_PUBLIC_HEADERS
     bbt/coroutine/sync/CoSelect.hpp
     bbt/coroutine/object/interface/ICoObject.hpp
     bbt/coroutine/object/CoObject.hpp
+    bbt/coroutine/object/CoRuntimeOnly.hpp
+    bbt/coroutine/object/CoObjectStats.hpp
+    bbt/coroutine/object/ManagerBase.hpp
+    bbt/coroutine/object/MemberBase.hpp
     bbt/coroutine/pool/CoPool.hpp
     bbt/coroutine/detail/Scheduler.hpp
     bbt/coroutine/coroutine.hpp
@@ -448,13 +458,13 @@ foreach(_neg too_large bad_id too_deep)
     set(_bbt_neg_out_${_neg} "${_bbt_neg_out}")
 endforeach()
 
-if(NOT _bbt_neg_out_too_large MATCHES "载荷超过 24 字节内联容量")
+if(NOT _bbt_neg_out_too_large MATCHES "payload exceeds the 24-byte inline capacity")
     message(FATAL_ERROR "too_large.cc 的失败原因不是容量断言：\n${_bbt_neg_out_too_large}")
 endif()
-if(NOT _bbt_neg_out_bad_id MATCHES "自定义类型 ID 必须落在自定义登记区间")
+if(NOT _bbt_neg_out_bad_id MATCHES "custom type ID must fall inside the custom registration range")
     message(FATAL_ERROR "bad_id.cc 的失败原因不是 ID 区间断言：\n${_bbt_neg_out_bad_id}")
 endif()
-if(NOT _bbt_neg_out_too_deep MATCHES "指针层级超过 kCoEventValueMaxPointerDepth")
+if(NOT _bbt_neg_out_too_deep MATCHES "pointer depth exceeds kCoEventValueMaxPointerDepth")
     message(FATAL_ERROR "too_deep.cc 的失败原因不是层级容量断言：\n${_bbt_neg_out_too_deep}")
 endif()
 
