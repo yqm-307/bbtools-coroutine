@@ -39,10 +39,17 @@
 ```shell
 git clone https://github.com/yqm-307/bbtools-coroutine.git
 cd bbtools-coroutine
+./scripts/install/install.sh    # 构建到 build-install 并安装到 ~/.local，无需 root
+```
+
+前缀默认 `~/.local`，`BBT_INSTALL_PREFIX` 可覆盖；并行度 `BBT_JOBS`（默认 2）、构建目录 `BBT_BUILD_DIR` 同理。`scripts/install/uninstall.sh` 按同一前缀卸载。
+
+需要 ccache 或自定义并行度的完整构建仍可手动执行：
+
+```shell
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 JOBS=$(( $(nproc) / 4 )); JOBS=$(( JOBS < 2 ? 2 : JOBS ))
 cmake --build build --parallel "$JOBS"
-cd scripts/install && sudo ./install.sh    # 头文件装到 /usr/local/include，库装到 /usr/local/lib
 ```
 
 CMake 常用开关（布尔项默认全部 `OFF`，完整选项以 `CMakeLists.txt` 为准）：
