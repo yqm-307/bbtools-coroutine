@@ -40,7 +40,7 @@ Issue / 里程碑计划
 
 ### 验证阶梯
 
-本地验证与 PR 的 required checks（`编译 & 单元测试`、`性能回归检查`，分钟级）对齐；`gh pr checks` 结果与发布 Gate 结论以远端为准，不把本地输出当成远端证据。运行时/Hook 改动本地最低验证：冒烟 + 本次开发功能的单测 + 直接耦合功能的单测，三者全过；本地不跑全量 `ctest`，全量走 PR 的 CI。行为变更必须留下可重复验证入口。
+本地验证与 PR 的 required checks（`编译 & 单元测试`、`性能回归检查`，分钟级）对齐；`gh pr checks` 结果与发布 Gate 结论以远端为准，不把本地输出当成远端证据。运行时/Hook 改动本地最低验证：冒烟 + 本次开发功能的单测 + 直接耦合功能的单测，三者全过；本地不跑全量 `ctest`，全量回归用 `run_test_profile.sh --profile full` 或发布 Gate。行为变更必须留下可重复验证入口。
 
 | 改动类型 | 本地最低验证 | 合入仍走的 PR Checks | 不要在普通 PR 当完成证据 |
 |----------|--------------|----------------------|--------------------------|
@@ -59,7 +59,7 @@ PR 快速反馈，main 快速集成，Release 严格发布。普通改动先自�
 
 以下检查是 PR 合入 main 的硬门槛（均为分钟级）：
 
-- `编译 & 单元测试`（hosted `ubuntu-24.04`：Boost 1.90 context 私有前缀、全量 CTest、Test_smoke、Test_reliability；docs-only 变更时该 job 由分类器判为 optional 显式 skip，不伪造 success）
+- `编译 & 单元测试`（hosted `ubuntu-24.04`：Boost 1.90 context 私有前缀、Release 构建、全量 smoke 标签集经 `run_test_profile.sh --profile smoke` 单跑；docs-only 变更时该 job 由分类器判为 optional 显式 skip，不伪造 success）
 - `性能回归检查`（同 runner 顺序构建 base+head 的 `unified_stress`，六模块 45s×2 threads 严格比较；缺证据、`errors>0`、zero ops、NaN/inf 一律 `exit 2` fail-closed，不以 skipped 或空成功置绿）
 
 两个 check 的语义与边界以 `docs/guides/ci.md` 为准，本文不复制细节。
@@ -70,10 +70,13 @@ PR 快速反馈，main 快速集成，Release 严格发布。普通改动先自�
 
 每次合入 main 后，CI 只运行分钟级集成验证：
 
-- 编译与全量 CTest、Smoke、Reliability
+- Release 构建与全量 smoke 标签集
 - 快速性能回归检查
 
-发布级检查（真实客户端验收、可配置时长的六模块并行疲劳压测、性能基线记录与趋势检查）不在 main 路径执行，由 §5 的发布 Gate 承担。main 的定位是快速、持续可集成；发布资格由发布 Gate 证明。
+全量单测/integration（含 `Test_reliability`）与发布级检查（真实客户端验收、可配置
+时长的六模块并行疲劳压测、性能基线记录与趋势检查）不在 main 路径执行，由 §5 的
+发布 Gate 承担；本地全量回归入口为 `run_test_profile.sh --profile full`。main 的
+定位是快速、持续可集成；发布资格由发布 Gate 证明。
 
 压测必须满足以下条件才可形成通过证据：
 
@@ -190,8 +193,8 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 JOBS=$(( $(nproc) / 4 )); JOBS=$(( JOBS < 2 ? 2 : JOBS ))
 # 按验证阶梯做聚焦增量构建：<target> 填本次改动涉及的测试可执行名（如 Test_smoke，
-# 用 `ctest -N` 或 tests/CMakeLists.txt 查）；不跑裸全量 ctest——全量单测由 PR CI 执行，
-# 发布 Gate 另行全量。
+# 用 `ctest -N` 或 tests/CMakeLists.txt 查）；不跑裸全量 ctest——全量回归走
+# `run_test_profile.sh --profile full` 或发布 Gate。
 cmake --build build --target <target> --parallel "$JOBS"
 ctest --test-dir build -R <test-regex> --output-on-failure   # <test-regex> 填对应套件名正则
 
@@ -210,11 +213,16 @@ python3 scripts/release_gate.py validate-version --version <rc 版本号>
 ## 10. 测试、冒烟与压测入口
 
 ```shell
-# 构建并运行全部单元测试
+# 构建
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DNEED_TEST=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 JOBS=$(( $(nproc) / 4 )); JOBS=$(( JOBS < 2 ? 2 : JOBS ))
 cmake --build build --parallel "$JOBS"
-ctest --test-dir build --output-on-failure        # 套件数以 `ctest -N` 输出为准
+
+# 全量 smoke（与 CI 同口径：注册集=实跑集、skipped/failure 判红）
+bash scripts/ci/run_test_profile.sh --build-dir build --profile smoke
+
+# 本地全量回归（单测 + integration；默认排除 live|perf；套件数以 `ctest -N` 为准）
+bash scripts/ci/run_test_profile.sh --build-dir build --profile full
 
 # 冒烟（独立构建 + 报告）
 python3 scripts/ci/run_smoke.py --build-dir build-ci-smoke
@@ -225,7 +233,7 @@ cmake --build build-soak --target unified_stress --parallel "$JOBS"
 python3 scripts/ci/run_soak.py --build-dir build-soak
 ```
 
-- 单元测试覆盖：协程状态机、调度与进程寿命、取消、异常、hook 契约、同步原语、eventloop 契约、profiler 等；注册数以构建目录 `ctest -N` 输出为准，CI 说明见 `docs/guides/ci.md`。
+- 单元测试覆盖：协程状态机、调度与进程寿命、取消、异常、hook 契约、同步原语、eventloop 契约、profiler 等；注册数以构建目录 `ctest -N` 输出为准，测试分层与执行入口见 `docs/guides/testing.md`，CI 说明见 `docs/guides/ci.md`。
 - 真实客户端验收：`NEED_EXAMPLE=ON` 且 `NEED_TEST=ON` 时注册 `Test_real_clients_echo`（无条件、必须 PASS）；`co_with_hiredis` target 存在（系统装有 hiredis 库）时再注册 `Test_real_clients_hiredis`，运行时本机无 Redis 以 skip 77 跳过，不伪造通过。场景细节见 `docs/guides/real-client-acceptance.md`。
 - 压测：`benchmarks/unified_stress.cc` 提供六模块长时压测入口，由 `run_soak.py` 驱动。
 - 报告输出：`scripts/ci/run_smoke.py` → `tests/reports/smoke/<UTC 时间戳>/`（`summary.json`、`commands.json`、`ctest.xml`）；`scripts/ci/run_soak.py` → `tests/reports/soak/`。`tests/reports/` 与 `tests/ci-reports/` 下的原始日志/采样不入仓（D2：结论级归档已移出 main，perf 基线在 `perf-baseline` 分支）。

@@ -38,7 +38,8 @@ perf 触发位（仅以下改动为真，与「性能回归检查」测量面一
   （classification=unknown、perf=true→执行全部），**不裁剪成假子集**。
 
 输出（写入 `$GITHUB_OUTPUT`，未设置时写 stdout，便于离线冒烟）：
-  changed_files_json, classifier_status, classification, perf, event_json
+  changed_files_json, classifier_status, classification, perf, focused, event_json
+  （focused = 必要 focused 测试名正则；空串 = 无直接耦合测试，workflow 不追加 focused 步）
 
 环境输入（由 workflow 注入；离线冒烟可用同名 env 覆盖）：
   EVENT_NAME, BASE_REF, SHA, BEFORE, REF_NAME, GITHUB_OUTPUT
@@ -86,6 +87,131 @@ PERF_BASENAMES = {"CMakeLists.txt"}
 # 目录改名兼容：旧路径名 → 新名，匹配仍按新名集合执行。
 # （benchmark_test→benchmarks 是 D6 的既定改名；其余目录不涉及 perf 触发集。）
 RENAME_MAP = (("benchmark_test/", "benchmarks/"),)
+
+# ---- focused 映射表：变更路径前缀 → ctest 测试名正则 -----------------------
+# 普通 PR 的「必要 focused」入口：按受影响源码子系统选与之直接耦合的回归集。
+# 键按最具体前缀优先匹配；每个条目的每个 pattern 都必须是 ctest 注册集内
+# 测试名（<module>.<file>[_<mode>]）的前缀——离线契约测试（test_changed_files.py）
+# 断言每个 pattern 能命中注册集（经 `ctest -N -R <pattern>` 展开），同时断言
+# bbt/** 全部源码子目录被覆盖。值中元素之间是 OR 关系（与 ctest -R 一致）。
+FOCUSED_MAP = {
+    # core 基础设施（锁/闩/线程工具；errcode/log/clock 无独立测试，随 core 走）
+    "bbt/core/": ("core\\.", "coroutine\\.coroutine$", "coroutine\\.coroutine_exception$"),
+    # pollevent：Event/EventLoop/EvThread 及回调注册表生命周期
+    "bbt/pollevent/": ("pollevent\\.", "coroutine\\.eventloop_",
+                       "coroutine\\.copollevent_state"),
+    # coroutine runtime / 栈 / 调度核心
+    "bbt/coroutine/detail/": (
+        "coroutine\\.coroutine$", "coroutine\\.coroutine_api$",
+        "coroutine\\.coroutine_query", "coroutine\\.coroutine_stack$",
+        "coroutine\\.multi_size_stack_runtime",
+        "coroutine\\.scheduler_", "coroutine\\.cfs_",
+        "coroutine\\.ready_wakeup_", "coroutine\\.runtime_oom_",
+        "coroutine\\.processer_driver_", "coroutine\\.worker_",
+        "coroutine\\.profiler$", "coroutine\\.co_object_identity$",
+        "coroutine\\.coroutine_diag$", "coroutine\\.dns_lifecycle$",
+        "coroutine\\.stack_budget_static$", "coroutine\\.reliability$",
+    ),
+    "bbt/coroutine/coroutine": (  # coroutine.cc/.hpp 伞入口
+        "coroutine\\.coroutine$", "coroutine\\.coroutine_api$",
+        "coroutine\\.coroutine_exception$", "coroutine\\.coroutine_cancel$",
+        "coroutine\\.g_co$", "coroutine\\.async_syntax$",
+        "coroutine\\.exception_stop$", "coroutine\\.reliability$",
+    ),
+    "bbt/coroutine/syntax/": (
+        "coroutine\\.async_syntax$", "coroutine\\.g_co$",
+        "coroutine\\.macro_wrap$", "coroutine\\.defer$",
+    ),
+    "bbt/coroutine/sync/Chan": ("coroutine\\.chan$", "coroutine\\.coselect$"),
+    "bbt/coroutine/sync/CoSelect": ("coroutine\\.coselect$",),
+    "bbt/coroutine/sync/CoMutex": (
+        "coroutine\\.comutex$", "coroutine\\.sync_wait_regist_fail$",
+    ),
+    "bbt/coroutine/sync/CoCond": ("coroutine\\.cond$",),
+    "bbt/coroutine/sync/CoRWMutex": (
+        "coroutine\\.co_rwmutex$", "coroutine\\.rwlock_guard$",
+    ),
+    "bbt/coroutine/sync/CoWaiter": (
+        "coroutine\\.cowaiter_", "coroutine\\.combined_wait$",
+        "coroutine\\.sync_wait_regist_fail$",
+        "coroutine\\.diagnostic_wait_oom$",
+    ),
+    "bbt/coroutine/sync/CoEventValue": (
+        "coroutine\\.coeventvalue", "coroutine\\.cowaiter_payload",
+    ),
+    "bbt/coroutine/sync/WaitTypes": ("coroutine\\.cowaiter_",),
+    "bbt/coroutine/sync/CoLockGuard": ("coroutine\\.lockguard$",),
+    "bbt/coroutine/sync/": (  # sync 目录兜底（IChan/ICoLock 接口、__TChan 等）
+        "coroutine\\.chan$", "coroutine\\.comutex$", "coroutine\\.cond$",
+        "coroutine\\.coselect$", "coroutine\\.coevent$",
+        "coroutine\\.cowaiter_", "coroutine\\.coeventvalue",
+    ),
+    "bbt/coroutine/object/": (
+        "coroutine\\.co_object_identity$", "coroutine\\.coeventvalue",
+    ),
+    "bbt/coroutine/pool/": ("coroutine\\.copool$",),
+    "bbt/coroutine/io/": ("coroutine\\.io_executor$",),
+    "bbt/coroutine/utils/": (
+        "coroutine\\.coroutine_diag$", "coroutine\\.crash_diag$",
+        "coroutine\\.stringent_debug$",
+    ),
+    "bbt/coroutine/": (  # coroutine 兜底（CoPollEvent/CoPoller/Hook/Stack 等）
+        "coroutine\\.coroutine$", "coroutine\\.poller$", "coroutine\\.hook",
+        "coroutine\\.copoller_", "coroutine\\.copollevent_state",
+        "coroutine\\.eventloop_", "coroutine\\.io_executor$",
+        "coroutine\\.worker_", "coroutine\\.scheduler_",
+    ),
+}
+
+
+def _focused_patterns_for_path(path: str) -> tuple | None:
+    """单路径 → focused 测试名正则片段 tuple。
+
+    返回值：
+    - tuple（可空）：确定的选择集；空 tuple 表示该 code 路径无直接耦合测试。
+    - None：路径属 bbt/tests 但未覆盖或形状异常 → 调用方保守回退全量。
+    """
+    norm = _normalize_perf_path(path)
+    if norm.startswith("tests/"):
+        # tests/<module>/Test_<x>.cc → ^<module>\.<x 去前缀>(_|$)；
+        # 其余 tests/**（dso 辅助 .cc、共享头、非三层路径）→ None 全量兜底。
+        parts = norm.split("/")
+        if len(parts) == 3 and parts[2].startswith("Test_") and parts[2].endswith(".cc"):
+            base = parts[2][len("Test_"):-len(".cc")]
+            return (f"^{parts[1]}\\.{base}(_|$)",)
+        return None
+    if norm.startswith("bbt/"):
+        best = max((p for p in FOCUSED_MAP if norm.startswith(p)),
+                   key=len, default=None)
+        if best is None:
+            return None
+        return tuple(FOCUSED_MAP[best])
+    return ()
+
+
+def focused_regex(changed_files) -> str:
+    """变更集 → focused ctest 测试名正则；无直接耦合测试时返回空串。
+
+    保守口径（宁可多跑不漏跑）：
+    - 任一 CMakeLists.txt（含 tests/CMakeLists.txt）：注册集可能变化 → '.'；
+    - bbt/** 未被映射表覆盖、tests/** 非 Test_*.cc 形状 → '.'；
+    - 其余 code 路径（scripts/.github/examples/benchmarks 等）不扩大选集；
+    - 全 doc / 空集 → ''（docs-only 时 build-test 已整体跳过，双保险）。
+    """
+    if not changed_files:
+        return ""
+    patterns: list = []
+    for path in changed_files:
+        if classify_path(path) != "code":
+            continue
+        if path.rsplit("/", 1)[-1] == "CMakeLists.txt":
+            return "."
+        hit = _focused_patterns_for_path(path)
+        if hit is None:
+            return "."
+        patterns.extend(hit)
+    seen = list(dict.fromkeys(patterns))
+    return "|".join(seen)
 
 
 def _normalize_perf_path(path: str) -> str:
@@ -217,11 +343,15 @@ def main() -> int:
 
     classification = classify_status(status, files if status == "ok" else [])
     perf = perf_status(status, files if status == "ok" else [])
+    # focused 选集：分类非 ok（unknown/over-budget）时按「执行全部」给 '.'，
+    # 与 classification/perf 的保守回退同口径，不让未知 diff 漏掉回归。
+    focused = focused_regex(files) if status == "ok" else "."
 
     emit("changed_files_json", payload)
     emit("classifier_status", status if status == "ok" else "unknown")
     emit("classification", classification)
     emit("perf", "true" if perf else "false")
+    emit("focused", focused)
     emit("event_json", json.dumps(bounded_event(), ensure_ascii=False))
     return 0
 

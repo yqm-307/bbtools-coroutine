@@ -20,8 +20,10 @@ workflow 静态契约 / docs-check 行为」，**不跑 C++ 全量构建**（真
   （分类/perf 触发位用例集在 `test_changed_files.py`）；
 - 正式 workflow 文本契约（stdlib，恒跑，直接读真实 ci.yml）：触发面 / 权限 / SHA pin /
   hosted runs-on / concurrency / 无 callee / required-optional 内联 / docs-only 门控 /
-  always 汇聚 / 无 artifact / 无 cache / 性能 job 为同 runner base/head 短测（只构建
-  unified_stress，不跑全量 CTest）/ 无 sanitizer 长测 / 影子已退役；
+  always 汇聚 / build-test 单次 Release 构建 + run_test_profile.sh --profile smoke
+  （无自动重试、无独立 Test_smoke/Test_reliability step）/ 无 artifact / 无 cache /
+  性能 job 为同 runner base/head 短测（只构建 unified_stress，不跑全量 CTest）/
+  无 sanitizer 长测 / 影子已退役；
 - 正式 workflow 结构契约（需 PyYAML，缺省显式 SKIP，不等于通过）；
 - 正式 Recipe 不可少守卫（含 release_gate 消费者契约）；
 - 结果判定端到端：直接执行本仓 scripts/ci/result.py CLI（required/optional/docs-only
@@ -619,9 +621,6 @@ class FormalWorkflowTextContractTests(unittest.TestCase):
         for needle in (
             "-DCMAKE_BUILD_TYPE=Release -DNEED_TEST=ON -DNEED_BENCHMARK=ON",
             'cmake --build . --parallel "$JOBS"',
-            "ctest --timeout 60 --output-on-failure",
-            "for bin in 90s:Test_smoke 120s:Test_reliability",
-            '"bin/tests/$name" --log_level=test_suite',
             'bash scripts/ci/prepare_boost.sh "$BOOST_PREFIX"',
             'python3 scripts/test_release_gate.py',
             "python3 -m unittest discover -s scripts/ci -p 'test_*.py'",
@@ -799,13 +798,46 @@ class FormalRecipeGuardTests(unittest.TestCase):
         cls.text = raw(CI_YML)
         cls.stripped = body(CI_YML)
 
-    def test_retries_are_bounded_three_and_step_timeouts_present(self):
-        self.assertEqual(self.stripped.count("for i in 1 2 3; do"), 2,
-                         "ctest 与 smoke/reliability 各一轮有界重试循环")
-        self.assertEqual(self.stripped.count("timeout-minutes: 10"), 1, "ctest step 10min")
-        self.assertEqual(self.stripped.count("timeout-minutes: 12"), 1,
-                         "smoke/reliability 合并 step 12min")
-        self.assertEqual(self.stripped.count("timeout-minutes: 75"), 1, "build job 75min")
+    def test_retries_are_removed_and_step_timeouts_present(self):
+        # 普通 CI 收敛为单次 Release 构建 + 全量 smoke：ctest 层不再自动重试，
+        # Test_smoke/Test_reliability 的独立三次重试 step 已删除（深度回归由
+        # release.yml 全量 CTest 与本地 --profile full 承担）。
+        self.assertNotIn("for i in 1 2 3; do", self.stripped,
+                         "普通 CI 不得保留有界自动重试循环")
+        self.assertNotIn("retrying", self.stripped)
+        self.assertEqual(self.stripped.count("timeout-minutes: 10"), 1,
+                         "smoke step 10min")
+        self.assertEqual(self.stripped.count("timeout-minutes: 75"), 1,
+                         "build job 75min")
+
+    def test_smoke_runs_via_test_profile_single_pass(self):
+        # build-test 的测试步收敛为 run_test_profile.sh --profile smoke 单次执行，
+        # 注册集=实跑集由 profile 入口校验，不再散跑 ctest 或直接调测试二进制。
+        build = _job_block(self.stripped, "build-test", "perf-regression")
+        self.assertIn("run_test_profile.sh --build-dir \"$BUILD_DIR\"", build)
+        self.assertIn("--profile smoke", build)
+        self.assertIn("--require-count 1", build)
+        for forbidden in ("ctest --timeout", "Test_smoke", "Test_reliability",
+                          "--log_level=test_suite", "bin/tests/"):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, build,
+                                 "普通 CI 不再裸跑 ctest 或直接调用测试二进制")
+
+    def test_focused_step_wired_to_changes_output_in_same_build_tree(self):
+        # F-01 必要 focused 入口：build-test 内在 smoke 后追加 focused 步，
+        # 正则来自 changes 的 focused 输出（FOCUSED_MAP 映射），空串不执行。
+        build = _job_block(self.stripped, "build-test", "perf-regression")
+        self.assertIn("needs.changes.outputs.focused", build)
+        self.assertIn("--profile focused --regex", build)
+        # 正则经 env 传入，不得在 shell 内插表达式（docs-check 同口径防注入）。
+        self.assertIn("FOCUSED_REGEX: ${{ needs.changes.outputs.focused }}", build)
+        self.assertIn('--regex "$FOCUSED_REGEX"', build)
+        self.assertNotIn("--regex '${{", build)
+        # focused 与 smoke 共用同一 BUILD_DIR（不另起构建）。
+        self.assertIn('run_test_profile.sh --build-dir "$BUILD_DIR"', build)
+        # changes job 必须把 focused 从 diff step 透传到 job outputs。
+        changes = _job_block(self.stripped, "changes", "docs-check")
+        self.assertIn("focused: ${{ steps.diff.outputs.focused }}", changes)
 
     def test_tool_self_tests_invoke_this_discovered_file(self):
         self.assertIn("python3 scripts/test_release_gate.py", self.stripped)

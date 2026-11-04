@@ -9,15 +9,16 @@ workflow 文件本身是权威定义，本文不复制其步骤，只给门禁�
 
 | 文件 | 作用 |
 |---|---|
-| `.github/workflows/ci.yml` | 普通 CI 入口（workflow 名 `CI`）：`pull_request`/`push` 到 `main` 时运行 `changes → docs-check → build-test → perf-regression → result`（perf-regression 仅 perf 位为真时跑） |
+| `.github/workflows/ci.yml` | 普通 CI 入口（workflow 名 `CI`）：`pull_request`/`push` 到 `main` 时运行 `changes → docs-check → build-test（smoke + 必要 focused）→ perf-regression → result`（perf-regression 仅 perf 位为真时跑） |
 | `.github/workflows/ci.yml 的 docs-check job` | 文档类路径上的轻量快速反馈（<5min：空格 diff 检查 + 密钥扫描，fail-closed） |
 | `.github/workflows/memcheck.yml` | 内存检测：每周五 17:30（UTC+8）定时 + `workflow_dispatch`，跑在 `arc-s4-memcheck` |
 | `.github/workflows/release.yml` | 发布 Gate：`workflow_dispatch` 触发，Release 构建 + 全量 CTest + 真实客户端验收 + 性能 Gate + 可配置时长压测 + 基线写入 |
-| `scripts/ci/changed_files.py` | 从真实 git diff 归一受限变更集，完成路径分类（docs-only/code/unknown）并产出 perf 触发位（见 §2） |
+| `scripts/ci/changed_files.py` | 从真实 git diff 归一受限变更集，完成路径分类（docs-only/code/unknown）、perf 触发位与 focused 正则输出（见 §2） |
 | `scripts/ci/result.py` | result job 的本仓内联汇总：needs.*.result → verdict，fail-closed（见 §3） |
 | `scripts/ci/prepare_boost.sh` | 按锁定版本/sha256 源码构建 Boost 1.90 `context` 到工作区私有前缀 |
 | `scripts/ci/run_memcheck.py` + `build_memcheck_target.sh` | memcheck 环境前置校验、`mem_check_test` 构建与判定（见 §6） |
 | `scripts/ci/run_smoke.py` / `run_soak.py` | 冒烟/soak harness（构建 + ctest + 报告落 `tests/reports/`） |
+| `scripts/ci/run_test_profile.sh` | 统一测试执行入口：`--profile smoke|focused|full`，选集非空 → ctest → JUnit 校验注册集=实跑集，skipped/failure 判红 |
 | `scripts/ci/perf_contract.py` | 统一性能报告 schema、环境指纹比较、阈值判定、基线写闸门（见 §5） |
 | `scripts/ci/check_docs.py` | docs 检查：相对链接有效、docs 文件名无过程编号、README ≤200 行、ADR 编号唯一 |
 | `scripts/ci/check_format_diff.sh` | 只检查本 PR 改动行的 clang-format 违规 |
@@ -101,12 +102,19 @@ hosted `ubuntu-24.04`，`timeout-minutes: 75`：
    固定 `JOBS=3`；
 3. **自测**：`python3 scripts/test_release_gate.py` +
    `python3 -m unittest discover -s scripts/ci -p 'test_*.py'`；
-4. **ctest**：`ctest --timeout 60 --output-on-failure`，最多 3 次有界重试（step 10min）；
-5. **冒烟/可靠性**：`Test_smoke`（90s）/`Test_reliability`（120s）各自 3 次有界重试
-   （step 各 8min）。
+4. **smoke 测试集**：`run_test_profile.sh --build-dir "$BUILD_DIR" --profile smoke
+   --timeout 120 --require-count 1`（step 10min）：`-L smoke` 选集非空 → ctest 实跑 →
+   JUnit 校验注册集=实跑集，skipped/failure/error 一律判红；普通 CI 不自动重试；
+5. **必要 focused 测试集**（step 15min，`needs.changes.outputs.focused` 非空才执行）：
+   `changes` job 把变更路径经 `changed_files.py` 的 `FOCUSED_MAP`（路径前缀 →
+   ctest 测试名正则，覆盖全部 `bbt/**` 与 `tests/**`；任一 CMakeLists.txt 或
+   `bbt/`/`tests/` 未覆盖路径、diff 状态非 ok 一律回退 `.` 全量；docs-only 与
+   scripts/examples/.github 等不扩大选集给空串）产出 focused 正则，非空时同一
+   构建树追加 `run_test_profile.sh --profile focused --regex '<affected>'`，
+   同样走注册集=实跑集校验与 fail-closed 判定。
 
-重试为有界 3 次，每次 attempt 独立进程、失败证据留在 job 日志；总时长由 step 级
-`timeout-minutes` 界定。
+全量单测/integration（含 `Test_reliability`）不在普通 PR 路径执行，由 release.yml
+全量 CTest 与本地 `run_test_profile.sh --profile full` 承担（见 §7、§9）。
 
 ## 5. 性能回归门禁（`性能回归检查`，required context）
 
@@ -247,8 +255,14 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
   -DNEED_TEST=ON -DNEED_BENCHMARK=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 JOBS=$(( $(nproc) / 4 )); JOBS=$(( JOBS < 2 ? 2 : JOBS ))
 cmake --build build --parallel "$JOBS"
-ctest --test-dir build --output-on-failure
-./build/bin/tests/Test_smoke --log_level=test_suite
+# 与 CI 同口径跑全量 smoke（注册集=实跑集校验，skipped/failure 判红）
+bash scripts/ci/run_test_profile.sh --build-dir build --profile smoke
+# 本地 focused：changes 同款映射可用 changed_files.py 在仓库内离线复现；
+# 或直接按受影响模块名给 --regex（如 '^coroutine\.chan'）
+bash scripts/ci/run_test_profile.sh --build-dir build --profile focused \
+  --regex '^coroutine\.chan(_|$)'
+# 本地全量回归（单测 + integration，默认排除 live|perf）
+bash scripts/ci/run_test_profile.sh --build-dir build --profile full
 
 # CI 脚本与契约自测（仅标准库；结构契约需 PyYAML，缺失显式 SKIP）
 python3 scripts/test_release_gate.py

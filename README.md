@@ -97,7 +97,7 @@ Chan、CoCond、CoMutex、CoPool、CoSelect、CoRWMutex、WaitFor、defer、Hook
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DNEED_TEST=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 JOBS=$(( $(nproc) / 4 )); JOBS=$(( JOBS < 2 ? 2 : JOBS ))
 cmake --build build --parallel "$JOBS"
-ctest --test-dir build --output-on-failure        # 套件数以 `ctest -N` 输出为准
+bash scripts/ci/run_test_profile.sh --build-dir build --profile smoke   # 全量 smoke；套件数以 `ctest -N` 为准
 ```
 
 冒烟、长时 soak、真实客户端验收与本地验证阶梯见[开发与发布流程](docs/guides/development.md)。

@@ -1,4 +1,4 @@
-# 测试约定见 docs/conventions.md §6：文件 Test_<行为>.cc，ctest 名
+# 测试约定见 docs/conventions.md §6 与 docs/guides/testing.md：文件 Test_<行为>.cc，ctest 名
 # <module>.<行为>（行为段小写下划线），label ∈ {smoke,unit,integration,live,perf}。
 # 本目录按模块分子目录：core/ coroutine/ pollevent/。
 #
