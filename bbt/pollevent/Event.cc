@@ -1,5 +1,6 @@
 #include <atomic>
 #include <cerrno>
+#include <cstdio>
 #include <mutex>
 #include <system_error>
 #include <unordered_map>
@@ -24,6 +25,25 @@ Event::CallbackRegistry& Event::_Registry()
     static auto* holder = new CallbackRegistry();
     return *holder;
 }
+
+#ifdef BBT_POLLEVENT_TESTING
+namespace
+{
+/* 测试串行设置：测试在启动装配/完成线程之前写入，线程 join 之后才清除。 */
+void (*g_test_hook)(Event*, Event::TestHookPoint) = nullptr;
+} // namespace
+
+void Event::SetTestHook(void (*hook)(Event*, TestHookPoint))
+{
+    g_test_hook = hook;
+}
+
+void Event::RunTestHook(Event* self, TestHookPoint point)
+{
+    if (g_test_hook != nullptr)
+        g_test_hook(self, point);
+}
+#endif
 
 Event::Event(detail::EventBase* base, evutil_socket_t fd, short listen_events,
              const OnEventCallback& onevent_cb)
@@ -77,7 +97,7 @@ Event::Event(detail::EventBase* base, evutil_socket_t fd, short listen_events,
             /* fd 事件先于 timer 创建：timer 构造抛异常时回收内部 dup fd。
              * m_sd 自构造起即持有 m_internal_fd（adopt 语义），destroy 会对
              * 仍 open 的 descriptor 再 close 一次——先 release() 剥离所有权
-             * 再 ::close，保证同一 fd 号只关一次，与 CancelListen 口径一致
+             * 再 ::close，保证同一 fd 号只关一次，与析构口径一致
              * （此时 callback 尚未注册，fd 是唯一待回收资源）。 */
             if (m_sd) {
                 m_sd->release();
@@ -99,13 +119,52 @@ Event::Event(detail::EventBase* base, evutil_socket_t fd, short listen_events,
 
 Event::~Event()
 {
+    /* 取消等待、摘除用户回调（可能在锁外重入本对象），并归还 asio 对象与内部
+     * dup fd。析构后排队中的完成回调只能拿到失效的 weak_ptr。 */
     CancelListen();
     m_ref_base->DecEventCount();
 }
 
+bool Event::EnsureWeakSelfLocked()
+{
+    if (m_self.expired())
+        m_self = weak_from_this();
+    return !m_self.expired();
+}
+
+void Event::CancelPendingLocked()
+{
+    if (m_sd) {
+        boost::system::error_code ec;
+        m_sd->cancel(ec);
+    }
+    if (m_timer) {
+        /* Boost 1.90（Asio 1.38）的 basic_waitable_timer 只有抛异常的 cancel()，
+         * 没有 error_code 重载；这里只服务 StartListen/Trigger 这类非析构路径。
+         * 析构路径改走 ReleaseObjectsLocked 的 timer 销毁（内部用 error_code
+         * cancel），见该函数注释。 */
+        m_timer->cancel();
+    }
+}
+
 int Event::StartListen(uint64_t timeout)
 {
-    // 记录超时
+    std::lock_guard<std::mutex> lock(m_mutex);
+
+    /* 异步登记只在 shared ownership 建立后成立：没有强引用就没有办法在回调
+     * 执行期间保活。栈上构造仍可用于构造/取消/析构，但不能进入监听。 */
+    if (!EnsureWeakSelfLocked()) {
+        static std::atomic_bool reported{false};
+        if (!reported.exchange(true))
+            std::fprintf(stderr,
+                         "[pollevent] StartListen requires shared_ptr ownership of Event id=%lld\n",
+                         static_cast<long long>(m_id));
+        return -1;
+    }
+
+    /* 新轮次：上一轮已排队的完成回调与 PERSIST 重挂全部作废。 */
+    const uint64_t round = ++m_round;
+
     if (timeout > 0) {
         m_timeout = bbt::core::clock::nowAfter(
             bbt::core::clock::milliseconds(timeout + 1))
@@ -114,153 +173,220 @@ int Event::StartListen(uint64_t timeout)
         m_timeout = -1;
     }
 
-    // fd 事件
-    if (m_sd) {
-        boost::system::error_code ec;
-        m_sd->cancel(ec);
+    /* 撤销上一轮的底层等待（fd 与 timer 可共存）：此后只有本轮挂载可以交付。 */
+    CancelPendingLocked();
 
+    // fd 事件（可与 timer 共存）
+    if (m_sd) {
         if (m_listen_events & EV_READ)
-            DoAsyncWait(EV_READ);
+            DoAsyncWaitLocked(EV_READ, round);
         if (m_listen_events & EV_WRITE)
-            DoAsyncWait(EV_WRITE);
+            DoAsyncWaitLocked(EV_WRITE, round);
     }
+
+#ifdef BBT_POLLEVENT_TESTING
+    /* 装配中点：fd 等待已挂、timer 尚未挂；测试在此证明完成回调与装配竞争。 */
+    RunTestHook(this, TestHookPoint::StartListenArmedFd);
+#endif
 
     // 定时器事件（可与 fd 事件共存）
     if (m_timer) {
-        if (timeout > 0) {
-            m_timer->cancel();  // 防止重复 StartListen 导致双重 async_wait UB
-            m_timer->expires_after(std::chrono::milliseconds(timeout));
-            m_timer->async_wait([this](boost::system::error_code ec) {
-                if (ec == boost::asio::error::operation_aborted)
-                    return;
-                // Plan C: timer 触发时取消 fd 等待，防止 double-fire
-                if (m_sd) {
-                    boost::system::error_code ignored;
-                    m_sd->cancel(ignored);
-                }
-                CallEventCallback(m_id, -1, EV_TIMEOUT);
-            });
-        }
+        if (timeout > 0)
+            ArmTimerLocked(timeout, round);
         return 0;
     }
 
-    // 自定义事件：无 fd 无 timer，由 Trigger() 驱动
+    // 自定义事件：无 fd 无 timer，由 Trigger() 驱动；仅超时需要在此时建 timer
     if (timeout > 0 && m_fd < 0) {
-        // 为自定义事件也支持超时
         m_timer = std::make_unique<boost::asio::steady_timer>(
             m_ref_base->GetContext());
-        m_timer->expires_after(std::chrono::milliseconds(timeout));
-        m_timer->async_wait([this](boost::system::error_code ec) {
-            if (ec == boost::asio::error::operation_aborted)
-                return;
-            CallEventCallback(m_id, -1, EV_TIMEOUT);
-        });
-        return 0;
+        ArmTimerLocked(timeout, round);
     }
 
     return 0;
 }
 
-void Event::DoAsyncWait(short event_flag)
+void Event::ArmTimerLocked(uint64_t timeout_ms, uint64_t round)
 {
-    if (!m_sd) return;
+    m_timer->expires_after(std::chrono::milliseconds(timeout_ms));
+
+    std::weak_ptr<Event> weak_self = m_self;
+    m_timer->async_wait([weak_self, round](boost::system::error_code ec) {
+        if (ec == boost::asio::error::operation_aborted)
+            return;
+        if (auto self = weak_self.lock())
+            self->OnTimerFired(round);
+    });
+}
+
+void Event::DoAsyncWaitLocked(short event_flag, uint64_t round)
+{
+    if (!m_sd)
+        return;
 
     auto wait_type = (event_flag == EV_READ)
         ? boost::asio::posix::stream_descriptor::wait_read
         : boost::asio::posix::stream_descriptor::wait_write;
 
-    EventId id = m_id;
-    short persist = (m_listen_events & EV_PERSIST);
-    int fd = m_fd;
+    const int fd = m_fd;
+    std::weak_ptr<Event> weak_self = m_self;
 
     m_sd->async_wait(wait_type,
-        [this, id, event_flag, persist, fd](boost::system::error_code ec) {
+        [weak_self, round, event_flag, fd](boost::system::error_code ec) {
             if (ec == boost::asio::error::operation_aborted)
                 return;
-
-            // Plan C: fd 就绪时取消 timer，防止 double-fire
-            if (m_timer) {
-                m_timer->cancel();
-            }
-
-            CallEventCallback(id, fd, event_flag);
-
-            // PERSIST: 重新注册
-            if (persist && m_sd) {
-                DoAsyncWait(event_flag);
-            }
+            if (auto self = weak_self.lock())
+                self->OnFdWaitCompleted(round, event_flag, fd);
         });
+}
+
+void Event::OnFdWaitCompleted(uint64_t round, short event_flag, int fd)
+{
+#ifdef BBT_POLLEVENT_TESTING
+    /* 入口点：尚未取 m_mutex，测试可在此确认完成回调已进入、正与装配竞争。 */
+    RunTestHook(this, TestHookPoint::FdCompletionEnter);
+#endif
+    bool persist = false;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        /* 取消/重启/自定义触发之后到达的旧轮次成功回调不得交付，也不得重挂。 */
+        if (round != m_round || !m_sd)
+            return;
+        if (m_timer)
+            m_timer->cancel();      // fd 已交付：撤销定时器，防止 double-fire
+        /* m_listen_events 构造后只读；仍在锁内取快照，回调路径不直接读成员。 */
+        persist = (m_listen_events & EV_PERSIST) != 0;
+    }
+
+    /* 锁外调用：用户回调可能重入 StartListen/CancelListen/析构本对象。 */
+    CallEventCallback(m_id, fd, event_flag);
+
+    if (!persist)
+        return;
+
+    std::lock_guard<std::mutex> lock(m_mutex);
+    /* 回调期间若已取消或重启，新一轮的挂载由那一侧负责，这里不得重复挂。 */
+    if (round != m_round)
+        return;
+    DoAsyncWaitLocked(event_flag, round);
+}
+
+void Event::OnTimerFired(uint64_t round)
+{
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        if (round != m_round || !m_timer)
+            return;
+        if (m_sd) {
+            boost::system::error_code ignored;
+            m_sd->cancel(ignored);  // timer 已交付：撤销 fd 等待，防止 double-fire
+        }
+    }
+
+    CallEventCallback(m_id, -1, EV_TIMEOUT);
 }
 
 int Event::CancelListen(bool need_close_fd)
 {
-    DelEventCallback(m_id);
-
-    // 取消所有挂起的异步操作
-    if (m_sd) {
-        boost::system::error_code ec;
-        m_sd->cancel(ec);
-        // flush 掉所有被取消的 handler
-        m_ref_base->GetContext().restart();
-        while (m_ref_base->GetContext().poll() > 0) {}
+    int user_fd = -1;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        ++m_round;              // 之后到达的完成回调一律作废
+        m_timeout = -1;
         if (need_close_fd && m_fd >= 0) {
-            /* need_close_fd 语义：由调用方要求连用户 fd 一起关（保留
-             * 旧行为）；内部 dup fd 无论何种路径都必须归还内核。 */
-            m_sd->release();
-            ::close(m_fd);
-        } else {
-            // 不关用户 fd — 先 release 内部 fd 防止 stream_descriptor 析构时
-            // 再触发一次 deregister（内部号唯一，无复用冲突，但保持干净）
-            m_sd->release();
+            /* need_close_fd 语义：由调用方要求连用户 fd 一起关（保留旧行为）。
+             * 取出后置 -1，重复取消不会二次关闭同一 fd。 */
+            user_fd = m_fd;
+            m_fd = -1;
         }
-        /* release() 只 deregister 并返回内部 fd 号（不 close）；此处 ::close
-         * 回收 dup 出来的内核资源——Event 是 m_internal_fd 的唯一 owner。 */
-        if (m_internal_fd >= 0) {
-            ::close(m_internal_fd);
-            m_internal_fd = -1;
-        }
-        m_sd.reset();
+        /* 取消后本对象不再交付（用户回调随后摘除），asio 对象与内部 dup fd
+         * 在此一次性归还：release() 与 timer 销毁都会把挂起操作以
+         * operation_aborted 投递，且都不抛异常——析构（经本函数）安全。 */
+        ReleaseObjectsLocked();
     }
 
-    if (m_timer) {
-        m_timer->cancel();
-        m_timer.reset();
-    }
+    if (user_fd >= 0)
+        ::close(user_fd);
 
-    if (need_close_fd && m_fd >= 0 && !m_sd) {
-        ::close(m_fd);
-    }
+    /* 不在此驱动 io_context：restart/poll 排空会把取消方变成第二个驱动者，
+     * 并与正在运行 poll 的线程争用同一 io_context。到期且已排队的完成回调
+     * 由轮次校验丢弃。
+     * 摘除的回调在锁外析构：其捕获对象可能持有本 Event（_EventHelper 即如此），
+     * 在注册表锁或 m_mutex 内析构会重入 CancelListen。 */
+    OnEventCallback removed = TakeEventCallback(m_id);
 
-    if (m_internal_fd >= 0) {
-        ::close(m_internal_fd);
-        m_internal_fd = -1;
-    }
-
-    m_timeout = -1;
     return 0;
 }
 
 int Event::Trigger(int flag)
 {
-    // Plan C: Trigger 时取消所有挂起的异步操作，防止与其他路径 double-fire
-    if (m_timer) {
-        m_timer->cancel();
-    }
-    if (m_sd) {
-        boost::system::error_code ignored;
-        m_sd->cancel(ignored);
+    std::weak_ptr<Event> weak_self;
+    uint64_t round = 0;
+    int fd = -1;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        if (!EnsureWeakSelfLocked()) {
+            static std::atomic_bool reported{false};
+            if (!reported.exchange(true))
+                std::fprintf(stderr,
+                             "[pollevent] Trigger requires shared_ptr ownership of Event id=%lld\n",
+                             static_cast<long long>(m_id));
+            return -1;
+        }
+        /* 自定义触发会撤销底层等待，但不推进监听轮次：每次成功 post 都应交付，
+         * 只有 StartListen/CancelListen 才会使已排队触发失效。 */
+        round = m_round;
+        weak_self = m_self;
+        /* fd 必须在本临界区内快照：CancelListen(true) 会在锁内把 m_fd 置 -1，
+         * post 出去的回调只读这份快照，不再回头读可变成员。 */
+        fd = m_fd;
+        CancelPendingLocked();
     }
 
-    EventId id = m_id;
-    int fd = m_fd;
-    boost::asio::post(m_ref_base->GetContext(), [id, fd, flag]() {
-        CallEventCallback(id, fd, static_cast<short>(flag));
-    });
+    const auto events = static_cast<short>(flag);
+    boost::asio::post(m_ref_base->GetContext(),
+        [weak_self, round, fd, events]() {
+            if (auto self = weak_self.lock())
+                self->OnCustomTriggered(round, fd, events);
+        });
     return 0;
+}
+
+void Event::OnCustomTriggered(uint64_t round, int fd, short flag)
+{
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        if (round != m_round)
+            return;
+    }
+    CallEventCallback(m_id, fd, flag);
+}
+
+void Event::ReleaseObjectsLocked()
+{
+    if (m_sd) {
+        /* Asio 1.38 的 basic_descriptor::release() 没有 error_code 重载，但实现
+         * 只有 deregister_descriptor（epoll_ctl DEL 结果忽略）、cleanup 与状态
+         * 复位，没有返回错误的路径；挂起操作被置 operation_aborted 并投递。
+         * 返回值是内部 dup fd 号，由下一行 ::close 单次收口。 */
+        (void)m_sd->release();
+        m_sd.reset();
+    }
+    if (m_internal_fd >= 0) {
+        ::close(m_internal_fd);
+        m_internal_fd = -1;
+    }
+    if (m_timer) {
+        /* 不调用 cancel()：1.90 的 basic_waitable_timer 只有抛异常的 cancel()；
+         * 销毁 timer 会经 deadline_timer_service::destroy 用 error_code cancel
+         * 等价撤销挂起等待且不抛——析构路径因此异常安全。 */
+        m_timer.reset();
+    }
 }
 
 int Event::GetSocket() const
 {
+    std::lock_guard<std::mutex> lock(m_mutex);
     return m_fd;
 }
 
@@ -276,6 +402,7 @@ EventId Event::GetEventId()
 
 int64_t Event::GetTimeoutMs() const
 {
+    std::lock_guard<std::mutex> lock(m_mutex);
     return m_timeout;
 }
 
@@ -292,11 +419,17 @@ void Event::AddEventCallback(EventId id, const OnEventCallback& cb)
     reg.m_callbacks[id] = cb;
 }
 
-void Event::DelEventCallback(EventId id)
+OnEventCallback Event::TakeEventCallback(EventId id)
 {
+    OnEventCallback removed;
     auto& reg = _Registry();
     std::lock_guard<std::mutex> lock(reg.m_mutex);
-    reg.m_callbacks.erase(id);
+    auto it = reg.m_callbacks.find(id);
+    if (it == reg.m_callbacks.end())
+        return removed;
+    removed = std::move(it->second);
+    reg.m_callbacks.erase(it);
+    return removed;
 }
 
 size_t Event::CallbackEntryCount()

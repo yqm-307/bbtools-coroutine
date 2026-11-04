@@ -191,8 +191,8 @@ BOOST_AUTO_TEST_CASE(t_fd_readable_first_win)
     done.Wait();
     ClosePipe(pipe);
     BOOST_CHECK(st.load() == sync::CombinedWaitStatus::FdReadable);
-    /* fd 触发位沿用底层 EventOpt 数值交付（READABLE=0x02） */
-    BOOST_CHECK(mask.load() & bbt::pollevent::EventOpt::READABLE);
+    /* GetLastResumeEvent() 已是 PollEventType 归一化掩码。 */
+    BOOST_CHECK(mask.load() & POLL_EVENT_READABLE);
 }
 
 /* 2. WRITEABLE 首胜：对打开的 pipe 写端，interest 即刻就绪 */
@@ -204,6 +204,7 @@ BOOST_AUTO_TEST_CASE(t_fd_writeable_first_win)
     auto waiter = sync::CoWaiter::Create();
     bbt::core::thread::CountDownLatch done{1};
     std::atomic<sync::CombinedWaitStatus> st{};
+    std::atomic<int> mask{-1};
     std::atomic<Coroutine*> co_p{nullptr};
 
     sync::CombinedWaitOptions opt;
@@ -213,6 +214,7 @@ BOOST_AUTO_TEST_CASE(t_fd_writeable_first_win)
     bbtco [&]() {
         co_p.store(g_bbt_tls_coroutine_co);
         st.store(waiter->Wait(opt));
+        mask.store(g_bbt_tls_coroutine_co->GetLastResumeEvent());
         done.Down();
     };
     BOOST_REQUIRE(WaitUntil([&]() { return CoroutineSuspended(co_p); }));
@@ -220,6 +222,10 @@ BOOST_AUTO_TEST_CASE(t_fd_writeable_first_win)
     ::close(fds[0]);
     ::close(fds[1]);
     BOOST_CHECK(st.load() == sync::CombinedWaitStatus::FdWriteable);
+    /* 归一化方向判别：底层交付 EventOpt::WRITEABLE(0x04)，恢复掩码须为
+     * POLL_EVENT_WRITEABLE(0x02)——位值互换时本断言会先失败。 */
+    BOOST_CHECK(mask.load() & POLL_EVENT_WRITEABLE);
+    BOOST_CHECK(!(mask.load() & POLL_EVENT_READABLE));
 }
 
 /* 3. Notify 首胜：fd 一直不就绪，Notify 到达返回 Completed */
@@ -294,7 +300,8 @@ BOOST_AUTO_TEST_CASE(t_request_cancel_first_win)
     co_p.load()->RequestCancel();
     done.Wait();
     ClosePipe(pipe);
-    BOOST_CHECK(st.load() == sync::CombinedWaitStatus::Cancelled);
+    BOOST_CHECK_MESSAGE(st.load() == sync::CombinedWaitStatus::Cancelled,
+        "actual=" << static_cast<int>(st.load()));
 }
 
 /* 6. 取消令牌首胜：挂起中 RequestCancel → Cancelled；入口预取消不挂起 */

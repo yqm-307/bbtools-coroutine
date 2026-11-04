@@ -131,6 +131,9 @@ bbt_unit_test(Test_event_callback_registry_lifetime
     MODES exit_live_event normal_reclaim cancel_reclaim
     TIMEOUT 15 LABELS "unit")
 
+# 监听轮次：旧完成回调、回调内重入启动/取消、取消后重启与排队回调寿命。
+bbt_unit_test(Test_event_round TIMEOUT 30 LABELS "unit")
+
 ################################################################
 # coroutine 模块：runtime / 栈 / 调度
 ################################################################
@@ -141,6 +144,10 @@ bbt_unit_test(Test_event_callback_registry_lifetime
 # NEED_TEST=OFF 的生产构建不含该定义：源码 seam/分支与符号全部缺失（已用
 # nm 对未 strip 的实际库做正反对照）。
 target_compile_definitions(bbt_coroutine PUBLIC BBT_COROUTINE_STACK_TESTING)
+
+# pollevent Event 的受控交错注入点（StartListen 装配中 / fd 完成回调取锁前）。
+# 与上面同理只在 NEED_TEST 构建存在，生产构建不含该分支。
+target_compile_definitions(bbt_coroutine PUBLIC BBT_POLLEVENT_TESTING)
 
 bbt_unit_test(Test_runtime_oom
     MODES fresh prepare tracked trigger defer

@@ -247,7 +247,7 @@ private:
     CoroutineOnYieldCallback        m_co_onyield_callback{nullptr};
     CoroutineYieldDisposition       m_yield_disposition{CoroutineYieldDisposition::MANUAL};
 
-    int                             m_last_resume_event{-1};    // 最后一次导致此协程唤醒的事件
+    int                             m_last_resume_event{-1};    // 最后一次导致此协程唤醒的事件（PollEventType 归一化掩码）
     /* 恢复时由 OnCoPollEvent 从消费掉的 await_event 捕获，供
      * FdWaitEpochValid 在重试 syscall 前比对；仅协程自身线程读写。 */
     int                             m_last_wait_fd{-1};

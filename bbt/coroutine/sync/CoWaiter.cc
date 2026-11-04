@@ -513,18 +513,17 @@ CombinedWaitStatus CoWaiter::Wait(
     if (yield_ret != 0)
         return CombinedWaitStatus::RuntimeUnavailable;
 
-    /* 决议只读唤醒原因掩码：fd 位沿用底层 EventOpt 数值交付
-     * （READABLE=0x02/WRITEABLE=0x04，与 PollEventType 同名位数值互换），
-     * 取消/超时/自定义用 PollEventType 位，首个胜出 Trigger 锁定为准。 */
+    /* 决议只读已归一化的 PollEventType 唤醒原因掩码；底层 EventOpt
+     * 与运行时 PollEventType 的 READABLE/WRITEABLE 位值不同，不能混比。 */
     if (resume_event & detail::POLL_EVENT_CANCELLED)
         return CombinedWaitStatus::Cancelled;
     if (resume_event & detail::POLL_EVENT_TIMEOUT)
         return CombinedWaitStatus::TimedOut;
     if (resume_event & detail::POLL_EVENT_CUSTOM)
         return CombinedWaitStatus::Completed;
-    if (resume_event & pollevent::EventOpt::READABLE)
+    if (resume_event & detail::POLL_EVENT_READABLE)
         return CombinedWaitStatus::FdReadable;
-    if (resume_event & pollevent::EventOpt::WRITEABLE)
+    if (resume_event & detail::POLL_EVENT_WRITEABLE)
         return CombinedWaitStatus::FdWriteable;
     /* 无明确决议位的异常唤醒按取消处理（同窄接口口径） */
     return CombinedWaitStatus::Cancelled;

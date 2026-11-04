@@ -15,6 +15,31 @@ namespace bbt::coroutine::detail
 
 typedef bbt::pollevent::EventOpt EventOpt;
 
+namespace
+{
+
+/* 完成回调交付的是 Trigger 锁存的原始掩码：fd 位为底层 EventOpt 口径
+ * （READABLE=0x02/WRITEABLE=0x04，与 PollEventType 同名位值互换），
+ * TIMEOUT 两枚举同为 0x01；runtime 自有位原样透传（CUSTOM 为 0x08，
+ * CANCELLED/CLOSED 为 bit8 及以上）。恢复路径在此唯一
+ * 归一化为 PollEventType，供唤醒原因掩码消费者统一比较。 */
+int NormalizeTriggerEvent(short trigger_events)
+{
+    int ret = 0;
+    if (trigger_events & EventOpt::READABLE)
+        ret |= POLL_EVENT_READABLE;
+    if (trigger_events & EventOpt::WRITEABLE)
+        ret |= POLL_EVENT_WRITEABLE;
+    if (trigger_events & EventOpt::TIMEOUT)
+        ret |= POLL_EVENT_TIMEOUT;
+
+    ret |= trigger_events & (POLL_EVENT_CUSTOM | POLL_EVENT_CANCELLED |
+                             POLL_EVENT_CLOSED);
+    return ret;
+}
+
+} // namespace
+
 /* 单测故障注入标志（定义，声明见 Coroutine.hpp） */
 std::atomic_bool                Coroutine::s_test_fail_await_regist{false};
 
@@ -501,7 +526,12 @@ void Coroutine::OnCoPollEvent(int event, int custom_key)
     auto ev = _AwaitEvent();
     Assert(ev != nullptr);
 
-    m_last_resume_event = event;
+    /* 唤醒原因掩码统一归一化为 PollEventType 保存：fd 位从回调交付的
+     * EventOpt 口径换名（READABLE/WRITEABLE 位值互换），runtime 高位
+     * 原样保留；GetLastResumeEvent / FdWaitEpochValid / Wait 决议都只
+     * 读这份归一化掩码，不与原始 EventOpt 混比。 */
+    const int resume_event = NormalizeTriggerEvent(static_cast<short>(event));
+    m_last_resume_event = resume_event;
     /* await_event 即将被消费清空，先把本次等待的 fd 与登记时采样的
      * 代际捕获下来——恢复后的 syscall 重试边界据此识别 close+reuse，
      * 覆盖「正常事件已就绪但尚未恢复」的调度间隙（此时 waiter 已被摘除，
@@ -529,7 +559,7 @@ void Coroutine::OnCoPollEvent(int event, int custom_key)
 
     // 超时任务优先级最高，覆盖 MLFQ 判定；取消改用独立位后，
     // 取消唤醒必须同样获得 CRITICAL 提升，否则是静默的调度行为回归。
-    if ((event & EventOpt::TIMEOUT) || (event & POLL_EVENT_CANCELLED))
+    if ((resume_event & POLL_EVENT_TIMEOUT) || (resume_event & POLL_EVENT_CANCELLED))
         priority = CO_PRIORITY_CRITICAL;
 
     /* 底层 Event 必须先析构，否则同一 FD 的下一次等待会在 ASIO 重复注册。 */
