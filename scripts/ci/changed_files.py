@@ -110,7 +110,7 @@ FOCUSED_MAP = {
         "coroutine\\.processer_driver_", "coroutine\\.worker_",
         "coroutine\\.profiler$", "coroutine\\.co_object_identity$",
         "coroutine\\.coroutine_diag$", "coroutine\\.dns_lifecycle$",
-        "coroutine\\.stack_budget_static$", "coroutine\\.reliability$",
+        "coroutine\\.reliability$",
     ),
     "bbt/coroutine/coroutine": (  # coroutine.cc/.hpp 伞入口
         "coroutine\\.coroutine$", "coroutine\\.coroutine_api$",

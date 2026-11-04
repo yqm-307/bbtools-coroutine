@@ -395,10 +395,20 @@ class FocusedRegexTests(unittest.TestCase):
 
 
 def _registered_ctest_names():
-    """尽力从任一已存在构建目录读 ctest 注册集；全缺返回空集（测试显式 SKIP）。"""
+    """尽力从已存在构建目录读 ctest 注册集；全缺返回空集（测试显式 SKIP）。
+
+    优先使用 BUILD_DIR（CI 与手动验证都设置它），再回退到常见构建目录名，
+    避免自定义构建目录（如 build-port）让对照用例静默跳过。
+    """
     root = os.path.normpath(os.path.join(HERE, "..", ".."))
-    for name in ("build-baseline", "build", "build-ci-smoke", "build-vscode"):
-        build = os.path.join(root, name)
+    candidates = []
+    env_build = os.environ.get("BUILD_DIR", "").strip()
+    if env_build:
+        candidates.append(env_build if os.path.isabs(env_build)
+                          else os.path.join(root, env_build))
+    candidates += [os.path.join(root, n)
+                   for n in ("build-baseline", "build", "build-ci-smoke", "build-vscode")]
+    for build in candidates:
         if not os.path.isdir(build):
             continue
         proc = subprocess.run(
