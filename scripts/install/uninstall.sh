@@ -1,20 +1,19 @@
-#!/bin/bash
-# 卸载本仓安装的产物。只删除 install.sh 中列出的自有路径，
-# 不动 bbt/core 下归 bbtools-infra 的其它路径。
+#!/usr/bin/env bash
+# 卸载本仓安装的用户前缀产物，不需要 root 权限。
+set -euo pipefail
 
-installpath="/usr/local/include"
-libpath="/usr/local/lib"
+prefix="${BBT_INSTALL_PREFIX:-${HOME}/.local}"
 
-sudo rm -rf $installpath/bbt/coroutine
-sudo rm -rf $installpath/bbt/pollevent
-sudo rm -rf $installpath/bbt/core/clock
-sudo rm -rf $installpath/bbt/core/errcode
-sudo rm -rf $installpath/bbt/core/thread
-sudo rm -f  $installpath/bbt/core/Attribute.hpp
-sudo rm -f  $installpath/bbt/core/Define.hpp
-sudo rm -f  $installpath/bbt/core/util/Assert.hpp
-sudo rm -f  $installpath/bbt/core/util/Result.hpp
-sudo rm -f  $installpath/bbt/core/log/DebugPrint.hpp
-sudo rm -f  $libpath/libbbt_coroutine.so
+rm -rf "${prefix}/include/bbt/coroutine"
+rm -rf "${prefix}/include/bbt/pollevent"
+rm -rf "${prefix}/include/bbt/core/clock"
+rm -rf "${prefix}/include/bbt/core/errcode"
+rm -rf "${prefix}/include/bbt/core/thread"
+rm -f "${prefix}/include/bbt/core/Attribute.hpp"
+rm -f "${prefix}/include/bbt/core/Define.hpp"
+rm -f "${prefix}/include/bbt/core/util/Assert.hpp"
+rm -f "${prefix}/include/bbt/core/util/Result.hpp"
+rm -f "${prefix}/include/bbt/core/log/DebugPrint.hpp"
+rm -f "${prefix}/lib/libbbt_coroutine.so"
 
-echo "删除完毕"
+printf '卸载完成：%s\n' "${prefix}"
