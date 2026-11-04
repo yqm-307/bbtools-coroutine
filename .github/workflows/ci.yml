@@ -1,6 +1,9 @@
 # bbtools-coroutine 正式普通 CI（唯一权威普通入口）。骨架（方案 §2.7）：
-# changes → docs-check → build-test（Release + ctest）→ perf-regression（仅
-# changes 的 perf 位为真，D4 语义不变）→ result（唯一汇聚判定点，result.py）。
+# changes → docs-check → build-test（Release 构建 + 全量 smoke 标签集 + 必要
+# focused 测试集：changes 的 focused 输出非空时在同一构建树追加
+# run_test_profile.sh --profile focused --regex <affected>，选集为空则不执行；
+# 均单跑不重试）→ perf-regression（仅 changes 的 perf 位为真，D4 语义不变）
+# → result（唯一汇聚判定点，result.py）。
 # 分类与结果判定本仓内联（scripts/ci/{changed_files,result}.py），callee 链已删（D3）。
 # docs-check.yml 全部检查（空白 diff/密钥扫描/check_docs.py）已迁入 docs-check job；
 # 纯文档 PR 只跑 changes + docs-check + result。判据见 out/co-p3a/gate-inventory.md。
@@ -38,6 +41,7 @@ jobs:
     outputs:
       classification: ${{ steps.diff.outputs.classification }}
       perf: ${{ steps.diff.outputs.perf }}
+      focused: ${{ steps.diff.outputs.focused }}
     steps:
       - name: "拉取代码库（含历史，供三点 diff）"
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -110,7 +114,9 @@ jobs:
           esac
       - name: "docs-check（链接/文件名/README 上限）"
         run: python3 -I scripts/ci/check_docs.py --root . --readme-max 200
-  # 重型构建 + 全量 ctest（含 integration label）：code/unknown 才跑，docs-only 显式跳过。
+  # 重型构建 + smoke 测试集：code/unknown 才跑，docs-only 显式跳过。
+  # 普通 PR 只跑全量 smoke 标签集（run_test_profile.sh --profile smoke）；
+  # 全量单测/integration 走 release.yml 与本地 --profile full。
   # job 名沿用现役 required check 名 `编译 & 单元测试`（release_gate 按名读取）。
   build-test:
     name: "编译 & 单元测试"
@@ -145,29 +151,49 @@ jobs:
         run: |
           python3 scripts/test_release_gate.py
           python3 -m unittest discover -s scripts/ci -p 'test_*.py'
-      - name: "ctest（全部单元测试）"
+      - name: "smoke 测试集（run_test_profile.sh --profile smoke，注册集=实跑集，无自动重试）"
         run: |
-          cd build
-          # 有界重试最多 3 次，应对间歇性 flaky 测试；每次 attempt 独立进程，失败证据留在 job 日志中。
-          # 总时长由 step 级 timeout-minutes 界定，不过度限制单次 ctest。
-          for i in 1 2 3; do
-            ctest --timeout 60 --output-on-failure && exit 0
-            echo "ctest attempt $i failed, retrying..."
-          done
-          exit 1
+          # 普通 CI 只跑全量 smoke 标签集；单测/integration 全量走 release.yml
+          # 与本地 --profile full，Test_reliability 由这两条深度路径覆盖。
+          # profile 入口自带注册集=实跑集校验与 skipped/failure FATAL，不重试。
+          bash scripts/ci/run_test_profile.sh --build-dir "$BUILD_DIR" \
+            --profile smoke --timeout 120 --require-count 1
         timeout-minutes: 10
-      - name: "冒烟/可靠性测试（Test_smoke 90s / Test_reliability 120s，各 3 次有界重试）"
+      # 必要 focused：changes 按受影响源码子系统给测试名正则（bbt/tests 路径 →
+      # FOCUSED_MAP 映射；CMakeLists 或未知回退 '.'=全量）。空串 = 无直接耦合测试，
+      # 不追加本步（scripts/examples/docs 等不改变产品行为的改动不白跑）。
+      - name: "focused 测试集（changes 映射的受影响模块回归，同一构建树）"
+        if: ${{ needs.changes.outputs.focused != '' }}
+        env:
+          FOCUSED_REGEX: ${{ needs.changes.outputs.focused }}
         run: |
-          cd build
-          for bin in 90s:Test_smoke 120s:Test_reliability; do
-            limit="${bin%%:*}"; name="${bin##*:}"
-            for i in 1 2 3; do
-              timeout --signal=TERM --kill-after=10s "$limit" "bin/tests/$name" --log_level=test_suite && break
-              echo "$name attempt $i failed, retrying..."
-              [ "$i" -lt 3 ] || exit 1
-            done
-          done
-        timeout-minutes: 12
+          # 正则经 env 传入（不在 shell 内插表达式）；空串时本步不执行。
+          if bash scripts/ci/run_test_profile.sh --build-dir "$BUILD_DIR" \
+            --profile focused --regex "$FOCUSED_REGEX" \
+            --timeout 120 --require-count 1; then
+            exit 0
+          fi
+          # 已知 flaky 余量（见 issue #427，修好后删除本余量）：首轮失败项必须
+          # 全部属于下列已知不稳定测试，否则原样失败；重试只针对它们、上限 3 次，
+          # 不扩大为通用重试（确定性失败仍会 3/3 挂掉判红）。
+          #   coroutine.combined_wait  唤醒掩码编号在两条投递路径上不一致
+          #   coroutine.poller         偶发 std::length_error 崩溃（疑似 UB）
+          flaky_re='^(coroutine\.combined_wait|coroutine\.poller)$'
+          failed_log="$BUILD_DIR/Testing/Temporary/LastTestsFailed.log"
+          if [ ! -s "$failed_log" ]; then
+            echo "::error::focused 首轮失败且无失败用例清单（契约/环境失败），不重试"
+            exit 1
+          fi
+          other="$(cut -d: -f2- "$failed_log" | grep -vE "$flaky_re" | grep -c . || true)"
+          if [ "${other:-0}" -ne 0 ]; then
+            echo "::error::首轮存在非已知 flaky 失败，不重试"
+            cat "$failed_log"
+            exit 1
+          fi
+          echo "::warning::已知 flaky 首轮失败（issue #427），有界重试"
+          ctest --test-dir "$BUILD_DIR" -j1 --output-on-failure --timeout 120 \
+            -R "$flaky_re" --repeat until-pass:3
+        timeout-minutes: 15
   # ── 性能回归检查：仅 changes 的 perf 位为真时跑（D4），阈值与阻断语义不变 ──
   # 同 runner 顺序构建/测量 base+head 真实对比（fail-closed）；结果进 result 汇聚，
   # 触发后 skipped/失败一律判红。判定链与阈值见 docs/guides/ci.md §5，与现役逐项一致。

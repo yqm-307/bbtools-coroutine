@@ -108,7 +108,7 @@ cmake/                 CMake 模块
 | `README.md` | 项目是什么、当前状态、最短构建/使用路径、文档地图；不超过 200 行，不放 API 全表或流程正文。 |
 | `docs/architecture/` | 稳定架构设计与契约；记录目标契约，变更随 PR 审查。coroutine 运行时契约迁入此处。 |
 | `docs/decisions/NNNN-<slug>.md` | ADR；编号唯一且递增。合入后不改正文，只追加「已被 NNNN 取代」。稳定引用使用相对路径。 |
-| `docs/guides/` | development、ci、performance、api-reference 等操作指南；一个主题一篇，随代码在同一 PR 更新。CI 指南唯一落点为 `docs/guides/ci.md`。 |
+| `docs/guides/` | development、ci、testing、performance、api-reference 等操作指南；一个主题一篇，随代码在同一 PR 更新。CI 指南唯一落点为 `docs/guides/ci.md`，测试规范唯一落点为 `docs/guides/testing.md`。 |
 | `docs/dependencies/` | 第三方依赖来源与证明材料（infra）。 |
 | 仓库外 / PR / Issue / CI artifact | 运行证据、审查报告、阶段计划和会话记录；不作为长期文档提交。perf 基线仍放 `perf-baseline` 分支。 |
 
@@ -127,7 +127,7 @@ cmake/                 CMake 模块
 ## 10. CI 骨架
 
 - `changes` 在本仓 workflow 内完成路径分类；不引入共享 classify/result callee 链。
-- `build-test` 在 `ubuntu-24.04` 上执行 Release 构建及 `ctest -L "smoke|unit"`。
+- `build-test` 在 `ubuntu-24.04` 上执行 Release 构建及 `ctest -L smoke`（经 `scripts/ci/run_test_profile.sh --profile smoke`，注册集=实跑集校验，不自动重试）；全量 unit/integration 标签集走 full/release 入口。
 - 仓库专属 job：coroutine 的 perf；infra 的 live（Redis/Mongo 分开成 job）；framework 的 consume 验证。
 - `result` 汇总并作为唯一 required check。docs-only PR 只运行 `docs-check`。
 - 普通 CI 固定使用 `ubuntu-24.04`，不使用浮动 `ubuntu-latest`；ARC 仅用于 perf 和 memcheck。

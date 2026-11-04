@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -284,6 +285,142 @@ class ChangedFilesRoutingTests(unittest.TestCase):
             self.assertEqual(values["classifier_status"], "unknown")
             self.assertEqual(values["classification"], "unknown")
             self.assertEqual(values["perf"], "true")
+            # 未知 diff → focused 全量兜底，不擅免回归。
+            self.assertEqual(values["focused"], ".")
+
+    def test_pr_source_change_emits_nonempty_focused(self):
+        with tempfile.TemporaryDirectory() as repo:
+            self._init_repo(repo)
+            base = self._commit(repo, "docs/a.md", "a", "base")
+            self._git(repo, "update-ref", "refs/remotes/origin/main", base)
+            self._git(repo, "checkout", "-q", "-b", "feat")
+            head = self._commit(repo, "bbt/coroutine/sync/Chan.hpp", "c", "src")
+            proc, values = self._run(
+                repo, {"EVENT_NAME": "pull_request", "BASE_REF": "main",
+                       "SHA": head})
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertIn("chan", values["focused"])
+            self.assertNotEqual(values["focused"], ".")
+
+    def test_push_scripts_only_emits_empty_focused(self):
+        with tempfile.TemporaryDirectory() as repo:
+            self._init_repo(repo)
+            first = self._commit(repo, "docs/a.md", "a", "base")
+            second = self._commit(repo, "scripts/ci/result.py", "r", "script")
+            proc, values = self._run(
+                repo, {"EVENT_NAME": "push", "BEFORE": first, "SHA": second,
+                       "REF_NAME": "main"})
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(values["classification"], "code")
+            self.assertEqual(values["focused"], "")
+
+
+class FocusedRegexTests(unittest.TestCase):
+    """focused 输出：bbt/tests 变更 → 受影响模块测试名正则；无耦合 → 空串；
+    CMakeLists/未知形状 → '.' 全量兜底。映射表条目必须在 ctest 注册集中真实存在。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.registered = _registered_ctest_names()
+
+    def test_docs_only_and_empty_give_empty(self):
+        self.assertEqual(changed_files.focused_regex([]), "")
+        self.assertEqual(
+            changed_files.focused_regex(["docs/guides/ci.md", "README.md"]), "")
+
+    def test_bbt_module_maps_to_nonempty_regex(self):
+        for path, needle in (
+            ("bbt/coroutine/sync/Chan.hpp", r"coroutine\.chan"),
+            ("bbt/pollevent/EventLoop.cc", r"pollevent\."),
+            ("bbt/coroutine/detail/Scheduler.cc", r"coroutine\.scheduler_"),
+            ("bbt/core/thread/lock/Mutex.cc", r"core\."),
+        ):
+            with self.subTest(path=path):
+                regex = changed_files.focused_regex([path])
+                self.assertTrue(regex, f"{path} 应产出非空 focused 正则")
+                self.assertIn(needle, regex)
+
+    def test_test_file_maps_to_own_ctest_name(self):
+        regex = changed_files.focused_regex(["tests/coroutine/Test_chan.cc"])
+        self.assertEqual(regex, r"^coroutine\.chan(_|$)")
+
+    def test_cmakelists_and_unknown_bbt_fall_back_to_full(self):
+        self.assertEqual(changed_files.focused_regex(["CMakeLists.txt"]), ".")
+        self.assertEqual(
+            changed_files.focused_regex(["tests/CMakeLists.txt"]), ".")
+        self.assertEqual(
+            changed_files.focused_regex(["tests/coroutine/helper.hpp"]), ".")
+        self.assertEqual(
+            changed_files.focused_regex(["bbt/unknown_mod/x.cc"]), ".")
+        # 混合：doc + 无法映射 code → 仍全量
+        self.assertEqual(
+            changed_files.focused_regex(["docs/a.md", "CMakeLists.txt"]), ".")
+
+    def test_pure_scripts_examples_give_empty(self):
+        # scripts/.github/examples/benchmarks 等非产品/非注册集路径不扩大选集。
+        self.assertEqual(
+            changed_files.focused_regex(
+                ["scripts/ci/result.py", ".github/workflows/ci.yml",
+                 "examples/echo_server.cc"]), "")
+
+    def test_map_is_total_over_bbt_sources(self):
+        # bbt/** 全部实际源码文件必须被映射表覆盖（防新增子系统漏映射静默失保）。
+        missing = []
+        for root, _dirs, files in os.walk(
+                os.path.join(HERE, "..", "..", "bbt")):
+            for name in files:
+                if name.endswith((".cc", ".hpp")):
+                    rel = os.path.relpath(os.path.join(root, name),
+                                          os.path.join(HERE, "..", ".."))
+                    if changed_files._focused_patterns_for_path(rel) is None:
+                        missing.append(rel)
+        self.assertEqual(missing, [])
+
+    def test_every_map_pattern_matches_registered_ctest(self):
+        # FOCUSED_MAP 每个正则片段都必须命中真实注册集（防改名漂移成死映射）。
+        if not self.registered:
+            self.skipTest("无可用构建目录，跳过注册集对照")
+        for prefix, patterns in changed_files.FOCUSED_MAP.items():
+            for pattern in patterns:
+                with self.subTest(prefix=prefix, pattern=pattern):
+                    self.assertTrue(
+                        any(re.search(pattern, n) for n in self.registered),
+                        f"{prefix} 的 {pattern!r} 未命中任何注册测试名")
+
+    def test_test_file_regex_matches_registered_ctest(self):
+        if not self.registered:
+            self.skipTest("无可用构建目录，跳过注册集对照")
+        regex = changed_files.focused_regex(["tests/coroutine/Test_chan.cc"])
+        self.assertTrue(any(re.search(regex, n) for n in self.registered))
+
+
+def _registered_ctest_names():
+    """尽力从已存在构建目录读 ctest 注册集；全缺返回空集（测试显式 SKIP）。
+
+    优先使用 BUILD_DIR（CI 与手动验证都设置它），再回退到常见构建目录名，
+    避免自定义构建目录（如 build-port）让对照用例静默跳过。
+    """
+    root = os.path.normpath(os.path.join(HERE, "..", ".."))
+    candidates = []
+    env_build = os.environ.get("BUILD_DIR", "").strip()
+    if env_build:
+        candidates.append(env_build if os.path.isabs(env_build)
+                          else os.path.join(root, env_build))
+    candidates += [os.path.join(root, n)
+                   for n in ("build-baseline", "build", "build-ci-smoke", "build-vscode")]
+    for build in candidates:
+        if not os.path.isdir(build):
+            continue
+        proc = subprocess.run(
+            ["ctest", "--test-dir", build, "-N", "--show-only=json-v1"],
+            capture_output=True, text=True, check=False)
+        if proc.returncode != 0:
+            continue
+        try:
+            return {t["name"] for t in json.loads(proc.stdout)["tests"]}
+        except (json.JSONDecodeError, KeyError):
+            continue
+    return set()
 
 
 class ResultContractTests(unittest.TestCase):
