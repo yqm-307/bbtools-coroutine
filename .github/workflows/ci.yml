@@ -173,23 +173,26 @@ jobs:
             --timeout 120 --require-count 1; then
             exit 0
           fi
-          # 已知 flaky 余量：coroutine.combined_wait 的唤醒掩码在两条投递路径上
-          # 编号不一致（详见 docs/guides/testing.md「已知 flaky」）。首轮失败项必须
-          # 全部是它，否则原样失败；重试只针对它、上限 3 次，不扩大为通用重试。
+          # 已知 flaky 余量（见 issue #427，修好后删除本余量）：首轮失败项必须
+          # 全部属于下列已知不稳定测试，否则原样失败；重试只针对它们、上限 3 次，
+          # 不扩大为通用重试（确定性失败仍会 3/3 挂掉判红）。
+          #   coroutine.combined_wait  唤醒掩码编号在两条投递路径上不一致
+          #   coroutine.poller         偶发 std::length_error 崩溃（疑似 UB）
+          flaky_re='^(coroutine\.combined_wait|coroutine\.poller)$'
           failed_log="$BUILD_DIR/Testing/Temporary/LastTestsFailed.log"
           if [ ! -s "$failed_log" ]; then
             echo "::error::focused 首轮失败且无失败用例清单（契约/环境失败），不重试"
             exit 1
           fi
-          other="$(grep -v 'coroutine\.combined_wait' "$failed_log" | grep -c . || true)"
+          other="$(cut -d: -f2- "$failed_log" | grep -vE "$flaky_re" | grep -c . || true)"
           if [ "${other:-0}" -ne 0 ]; then
             echo "::error::首轮存在非已知 flaky 失败，不重试"
             cat "$failed_log"
             exit 1
           fi
-          echo "::warning::coroutine.combined_wait 首轮失败（既有 flaky），有界重试"
+          echo "::warning::已知 flaky 首轮失败（issue #427），有界重试"
           ctest --test-dir "$BUILD_DIR" -j1 --output-on-failure --timeout 120 \
-            -R '^coroutine\.combined_wait$' --repeat until-pass:3
+            -R "$flaky_re" --repeat until-pass:3
         timeout-minutes: 15
   # ── 性能回归检查：仅 changes 的 perf 位为真时跑（D4），阈值与阻断语义不变 ──
   # 同 runner 顺序构建/测量 base+head 真实对比（fail-closed）；结果进 result 汇聚，

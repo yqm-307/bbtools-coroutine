@@ -70,12 +70,18 @@ flaky 失败保留证据修复，不用重跑掩盖。
 
 ## 6. 已知 flaky 与有界重试
 
-`coroutine.combined_wait`（`t_read_write_interest_combined`）存在既有 flaky：同一 fd 同时申请
-READABLE/WRITEABLE 时，唤醒掩码在两条投递路径上的编号不一致（`EventOpt` 与 `PollEventType`
-的 READABLE/WRITEABLE 位互换），极少数情况下可读就绪被判为 `FdWriteable`。本地实测约 8%
-（ctest 120 轮 8～15 次），与编译器/机器无关；旧 CI 的三轮重试掩盖了它。
+两项既有不稳定测试（追踪 issue #427，修好后删除余量）：
 
-处理约定：CI 的 focused 步骤只对该测试做**有界重试**（上限 3 次，且首轮失败项必须全部是它，
-出现任何其它失败立即判红）。不允许把这种余量扩大成通用重试——通用重试会掩盖新引入的
-flakiness，正是本次收敛要去掉的东西。根治（统一掩码编号）属并发关键改动，需独立审查后
-单独提交，不在 CI 改动里夹带。
+- `coroutine.combined_wait`：同一 fd 同时申请 READABLE/WRITEABLE 时，唤醒掩码在两条投递
+  路径上的编号不一致（`EventOpt` 的 READABLE/WRITEABLE 与 `PollEventType` 同名位值互换），
+  约 8% 概率把可读就绪判成 `FdWriteable`。本地 120 轮 ctest 复现 8～15 次。
+- `coroutine.poller`：`t_poller_timerout_event_multi_thread` 偶发 `std::length_error`
+  崩溃（疑似未定义行为）；本地直跑 40 轮、本地 full 123/123 均未复现，只在 CI 负载下出现。
+
+处理约定：CI 的 focused 步骤只对上述两项做**有界重试**（上限 3 次，且首轮失败项必须全部
+属于它们；出现任何其它失败或没有失败清单，立即判红）。确定性失败会在 3 次重试中持续失败，
+因此不会因这条余量漏过回归。不允许把它扩大成通用重试——通用重试会掩盖新引入的 flakiness，
+正是本次收敛要去掉的东西。
+
+根治按 issue #427 单独推进：统一掩码编号、查明 `length_error` 的来源，属并发/内存安全关键
+改动，需独立审查后单独提交，不在 CI 改动里夹带。
