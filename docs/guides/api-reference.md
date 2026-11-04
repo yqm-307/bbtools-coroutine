@@ -14,7 +14,7 @@
 - 查询：`GetLocalCoroutineId`、`GetLocalCoroutineStackSize`、`IsInCoroutineContext`
 - 同步：`Chan`、`CoSelect`、`CoMutex`、`CoRWMutex`、`CoLockGuard`、`CoUniqueLock`、`CoReadLock`、`CoWriteLock`、`CoCond`
 - 池：`CoPool`
-- 事件：`bbtco_wait_for`、`bbtco_ev_*`
+- 事件：`bbtco_wait_for`、`bbtco_ev_*`、`bbt::pollevent::Event`（底层等待对象，见 §9）
 - Defer：`bbtco_defer`
 - Hook 拦截列表与 IO 约束
 - 配置：`g_bbt_coroutine_config` 用户字段
@@ -416,6 +416,15 @@ int idx = sync::CoSelect()
 | `bbtco_ev_t(timeout_ms)` | 纯超时，`fd=-1` |
 
 `with_copool` 变体把回调提交到指定 `CoPool`。定义见 `SyntaxMacro.hpp`。
+
+### `bbt::pollevent::Event`（底层等待对象）
+
+- 头文件：`bbt/pollevent/Event.hpp`；`bbtco_wait_for` / `bbtco_ev_*` 与 `CoPoller` 的单次等待由它承接。
+- 所有权：`StartListen` / `Trigger` 是异步登记入口，要求 Event 已由 `std::shared_ptr` 持有——完成回调只持 weak 引用，执行期间再 lock 保活；未由 shared_ptr 持有时返回 `-1`。构造、`CancelListen` 与析构不要求 shared ownership，栈对象可用于这些路径。
+- 线程模型：每对象一把 mutex，串行化 `StartListen` / `CancelListen` / `Trigger` 与 asio 完成回调内的 timer/descriptor 操作；用户回调在锁外调用与销毁。
+- 轮次：`StartListen` / `CancelListen` 推进轮次；`Trigger` 只快照当前轮次、取消底层等待并分别 post，不使先前已排队的 Trigger 失效。只有后续 `StartListen` / `CancelListen` 会淘汰旧 post；过期成功完成按轮次丢弃，PERSIST 重挂前再次校验，不复活已取消的监听。
+- `CancelListen(need_close_fd)`：只撤销本轮等待并归还 asio 对象与内部 dup fd，不调用 `restart()` / `poll()` 驱动 io_context；已排队的完成由下一次驱动派发（`EventLoop` 或 `CoPoller` 的 poll）并丢弃。`need_close_fd=true` 时用户 fd 只关闭一次；析构走同一路径，不抛异常。
+- 交付边界：完成回调在持锁时校验轮次，用户回调在锁外调用；已通过校验的那一次交付若与另一线程的 `StartListen` / `CancelListen` 并发，仍可能在新一轮开始或取消返回后到达一次，但不会再重挂 PERSIST，也不会继续交付后续事件。
 
 ---
 

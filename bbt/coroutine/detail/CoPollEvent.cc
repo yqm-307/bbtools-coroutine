@@ -699,6 +699,11 @@ int CoPollEvent::_Complete(short trigger_events)
     std::exception_ptr pending_exception{nullptr};
     try
     {
+        /* 完成回调交付首胜 Trigger 锁存的原始触发掩码：fd 位保持底层
+         * EventOpt 口径（READABLE=0x02/WRITEABLE=0x04），运行时高位
+         * （CUSTOM/CANCELLED/CLOSED）原样透传。需要 PollEventType 统一
+         * 口径的消费者（协程恢复路径）在各自入口自行归一化，不在此替
+         * 所有回调消费者改写口径。 */
         callback(keep_alive, trigger_events, custom_key);
     }
     catch(const std::exception& e)

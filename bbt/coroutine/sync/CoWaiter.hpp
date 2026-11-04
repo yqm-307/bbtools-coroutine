@@ -99,7 +99,8 @@ public:
      * @brief 等待 fd、Notify、deadline 或协程取消中的首个事件。
      *
      * 恢复后按首个胜出 Trigger 锁存的 flags 返回，不做第二遍优先级重判。
-     * fd 触发位沿用 pollevent EventOpt 数值，与 PollEventType 的同名位数值互换。
+     * 唤醒原因掩码在恢复入口已统一归一化为 PollEventType 位（fd 就绪位
+     * 与底层 EventOpt 同名位值互换），决议只读归一化口径。
      * @param options fd interest 与 deadline 设置；deadline 使用单调时钟
      * @return 命中的组合等待状态
      */

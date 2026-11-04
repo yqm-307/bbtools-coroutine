@@ -108,6 +108,8 @@ BOOST_AUTO_TEST_CASE(t_poller_timerout_event_multi_thread)
 
     std::vector<CoPollEvent::SPtr>  events;
     std::mutex                      events_mutex;
+    /* 工作线程只累计失败次数，由主线程统一断言（不在工作线程构造测试报告）。 */
+    std::atomic_int                 init_fail{0}, regist_fail{0}, park_true{0};
 
     for (int i = 0; i < 2; ++i)
     {
@@ -119,9 +121,16 @@ BOOST_AUTO_TEST_CASE(t_poller_timerout_event_multi_thread)
                     count++;
                 });
 
-                BOOST_ASSERT(event->InitFdEvent(-1, bbt::pollevent::EventOpt::TIMEOUT, m_timeout_ms) == 0);
-                BOOST_ASSERT(event->Regist() == 0);
-                BOOST_REQUIRE(!event->CommitPark());
+                if (event->InitFdEvent(-1, bbt::pollevent::EventOpt::TIMEOUT, m_timeout_ms) != 0) {
+                    init_fail.fetch_add(1);
+                    continue;
+                }
+                if (event->Regist() != 0) {
+                    regist_fail.fetch_add(1);
+                    continue;
+                }
+                if (event->CommitPark())
+                    park_true.fetch_add(1);
 
                 events_mutex.lock();
                 events.push_back(event);
@@ -147,6 +156,9 @@ BOOST_AUTO_TEST_CASE(t_poller_timerout_event_multi_thread)
         std::this_thread::sleep_for(bbt::core::clock::microseconds(2));
     }
 
+    BOOST_CHECK_EQUAL(init_fail.load(), 0);
+    BOOST_CHECK_EQUAL(regist_fail.load(), 0);
+    BOOST_CHECK_EQUAL(park_true.load(), 0);
     BOOST_CHECK_EQUAL(count, 10000);
 }
 
@@ -533,8 +545,9 @@ BOOST_AUTO_TEST_CASE(t_wait_handler_exception_resets_in_poll)
     BOOST_CHECK(std::this_thread::get_id() == driver_tid);
 }
 
-/* 截止等待不再注册独立 timer：FD 析构的 poll 冲刷后，另一个未就绪 FD
- * 仍可使 context 保持有工作。本例验证这时等待按 deadline 返回且 FD 可继续使用；
+/* 取消不再在 CancelListen 内排空 io_context：被取消的等待会在 context 中留下
+ * 一个 aborted 完成，由下一次 poll 兑现一次，但它不交付事件（fired 保持 0），
+ * 之后的等待仍按 deadline 返回且 FD 可继续使用。
  * 不模拟异线程 restart，也不声称复现已删除的截止 handler 被消费的精确交错。 */
 BOOST_AUTO_TEST_CASE(t_wait_deadline_after_fd_destruction_flush)
 {
@@ -555,7 +568,9 @@ BOOST_AUTO_TEST_CASE(t_wait_deadline_after_fd_destruction_flush)
     BOOST_CHECK_EQUAL(poller.GetEventLoop()->GetEventNum(), 1);
 
     const auto begin = std::chrono::steady_clock::now();
-    BOOST_CHECK(!poller.PollOnceUntil(begin + std::chrono::milliseconds(80)));
+    /* 第一次兑现取消残留（至多一次），第二次必须真的等到 deadline。 */
+    poller.PollOnceUntil(begin + std::chrono::milliseconds(80));
+    BOOST_CHECK(!poller.PollOnceUntil(std::chrono::steady_clock::now() + std::chrono::milliseconds(80)));
     BOOST_CHECK(std::chrono::steady_clock::now() - begin < kBoundedWaitCeiling);
     BOOST_CHECK_EQUAL(fired.load(), 0);
 
