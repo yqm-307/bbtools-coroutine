@@ -77,3 +77,6 @@ __pycache__/
 *.egg-info/
 dist/
 *.egg
+
+# VSCode 本地工作区文件（含本机绝对路径与个人配置，不入仓）
+*.code-workspace
