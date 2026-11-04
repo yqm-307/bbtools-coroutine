@@ -67,3 +67,15 @@ flaky 失败保留证据修复，不用重跑掩盖。
 - 每个 smoke 用例必须有对应构建 target；进程隔离场景按 case/mode 注册多条 CTest。
 - 并发/生命周期用例先证明进入目标阶段再注入故障或关闭。
 - 删测试前确认其覆盖的唯一风险已被接管或明确记录。
+
+## 6. 已知 flaky 与有界重试
+
+`coroutine.combined_wait`（`t_read_write_interest_combined`）存在既有 flaky：同一 fd 同时申请
+READABLE/WRITEABLE 时，唤醒掩码在两条投递路径上的编号不一致（`EventOpt` 与 `PollEventType`
+的 READABLE/WRITEABLE 位互换），极少数情况下可读就绪被判为 `FdWriteable`。本地实测约 8%
+（ctest 120 轮 8～15 次），与编译器/机器无关；旧 CI 的三轮重试掩盖了它。
+
+处理约定：CI 的 focused 步骤只对该测试做**有界重试**（上限 3 次，且首轮失败项必须全部是它，
+出现任何其它失败立即判红）。不允许把这种余量扩大成通用重试——通用重试会掩盖新引入的
+flakiness，正是本次收敛要去掉的东西。根治（统一掩码编号）属并发关键改动，需独立审查后
+单独提交，不在 CI 改动里夹带。
