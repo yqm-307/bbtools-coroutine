@@ -23,7 +23,7 @@ workflow 文件本身是权威定义，本文不复制其步骤，只给门禁�
 | `scripts/ci/run_test_profile.sh` | 统一测试执行入口：`--profile smoke|focused|full`，选集非空 → ctest → JUnit 校验注册集=实跑集，skipped/failure 判红 |
 | `scripts/ci/perf_contract.py` | 统一性能报告 schema、环境指纹比较、阈值判定、基线写闸门（见 §5） |
 | `scripts/ci/check_docs.py` | docs 检查：相对链接有效、docs 文件名无过程编号、README ≤200 行、ADR 编号唯一 |
-| `scripts/ci/check_format_diff.sh` | 只检查本 PR 改动行的 clang-format 违规 |
+| `scripts/ci/check_format.sh` | clang-format 整仓检查（阻断）；`--staged` 供提交前钩子用；版本必须与 `.clang-format` 头部一致 |
 | `scripts/ci/test_changed_files.py` | 分类规则 + perf 触发位 + result 契约单测（仅标准库） |
 | `scripts/ci/test_check_docs.py` | check_docs 正反例单测 |
 | `scripts/ci/test_formal_ci.py` | 现役 workflow 的离线冒烟与文本/结构契约测试 |
@@ -273,8 +273,8 @@ python3 -m unittest discover -s scripts/ci -p 'test_*.py'
 # docs-check 本仓自检
 python3 -I scripts/ci/check_docs.py --root . --readme-max 200
 
-# format-diff（需 clang-format-diff 或 git-clang-format）
-bash scripts/ci/check_format_diff.sh origin/main
+# 格式检查（需 clang-format 23.1.3：pip install clang-format==23.1.3）
+bash scripts/ci/check_format.sh
 
 # 性能冒烟（不比较基线）
 python3 scripts/ci_perf_check.py --module=comutex --threads=2 --dur=15 --no-baseline-compare

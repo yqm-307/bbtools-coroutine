@@ -121,7 +121,9 @@ cmake/                 CMake 模块
 ## 9. 格式、构建与警告
 
 - C++ 格式参数由 `.clang-format` 定义；`.editorconfig` 统一 UTF-8、LF、4 空格缩进和文件末尾换行，Makefile/YAML 例外按需设置。
-- CI 只对 PR 改动行运行 `clang-format-diff`；不强制格式化存量代码。全仓格式化须单独决策和提交，不夹带在功能变更中。
+- 全仓按 `.clang-format` 格式化：函数定义的大括号独占下一行，其余结构（`if`/`for`/类/`namespace`/lambda）大括号同行，120 列，4 空格缩进。字符串字面量不自动拆分；第三方代码由 `.clang-format-ignore` 排除。
+- CI 对全仓运行 `scripts/ci/check_format.sh`，违规即失败；clang-format 版本固定为 23.1.3（`pip install clang-format==23.1.3`），升级版本时同一次变更重新格式化全仓。
+- 提交前本地检查：`bash scripts/ci/check_format.sh --staged`；一次性安装钩子见该脚本头部注释。格式化变更单独提交，不夹带功能改动。
 - 使用 CMake；不得引入新编译器警告。新模块/测试需接入相应 `CMakeLists.txt`。本地构建并发和验证边界见 `agents-common.md`，禁止无参数并行构建。
 
 ## 10. CI 骨架
