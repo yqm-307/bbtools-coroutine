@@ -1,0 +1,16 @@
+{
+  "project": "bbtools-coroutine",
+  "modules": {
+    "coroutine": "公共入口与顶层门面（coroutine.hpp）",
+    "sync": "协程同步原语：Chan / CoCond / CoMutex / CoRWMutex / CoSelect / CoWaiter",
+    "pool": "协程池 CoPool",
+    "syntax": "语法糖：bbtco* 宏与 bbt_co_async / bbt_co_await",
+    "object": "运行时对象基类：CoObject / CoRuntimeOnly",
+    "io": "IO 执行器",
+    "pollevent": "fd / 定时器事件与事件循环"
+  },
+  "start_here": [
+    ["syntax", "写协程代码：语法糖优先，不直接调用调度器内部接口"],
+    ["sync", "同步原语"]
+  ]
+}

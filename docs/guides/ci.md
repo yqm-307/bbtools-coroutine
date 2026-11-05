@@ -13,6 +13,8 @@ workflow 文件本身是权威定义，本文不复制其步骤，只给门禁�
 | `.github/workflows/ci.yml 的 docs-check job` | 文档类路径上的轻量快速反馈（<5min：空格 diff 检查 + 密钥扫描，fail-closed） |
 | `.github/workflows/memcheck.yml` | 内存检测：每周五 17:30（UTC+8）定时 + `workflow_dispatch`，跑在 `arc-s4-memcheck` |
 | `.github/workflows/release.yml` | 发布 Gate：`workflow_dispatch` 触发，Release 构建 + 全量 CTest + 真实客户端验收 + 性能 Gate + 可配置时长压测 + 基线写入 |
+| `.github/workflows/docs.yml` | API 文档导出：main 上 `CI` 成功后（`workflow_run`）构建并发布 Pages，相关 PR 只构建报告；见 §10 |
+| `scripts/docs/` | 文档导出入口 `build_docs.sh`、`Doxyfile`、AI 版转换 `export_ai_docs.py`、模块配置 `modules.json`（见 §10） |
 | `scripts/ci/changed_files.py` | 从真实 git diff 归一受限变更集，完成路径分类（docs-only/code/unknown）、perf 触发位与 focused 正则输出（见 §2） |
 | `scripts/ci/result.py` | result job 的本仓内联汇总：needs.*.result → verdict，fail-closed（见 §3） |
 | `scripts/ci/prepare_boost.sh` | 按锁定版本/sha256 源码构建 Boost 1.90 `context` 到工作区私有前缀 |
@@ -304,13 +306,31 @@ python3 scripts/record_baseline.py trend
 `tests/reports/`（不入仓）；`run_parallel_stress.sh` 汇总要求六模块 `ops_total>0`、
 `errors=0`、达计划时长，任一无效判 FAIL。
 
-## 10. 参考
+## 10. 文档导出（docs.yml）
+
+公开头文件的 Doxygen 注释每次 main 上的 `CI` 成功后自动导出两份文档，一次 Doxygen 解析、两种读者：
+
+| 产物 | 读者 | 位置 |
+|---|---|---|
+| HTML（Doxygen Awesome 主题 + 类图） | 人 | GitHub Pages 根 |
+| 分层 Markdown：`index.md`（L0）→ `modules/<m>.md`（L1）→ `symbols/<s>.md`（L2）→ 源码 `文件:行号`（L3） | AI，渐进式披露：读到够用就停 | Pages 的 `/ai/`，同时是 artifact `ai-docs`（保留 30 天） |
+
+- **触发**：`workflow_run`（`CI` 在 main 的 push 上成功后）构建并发布；相关 PR 与 `workflow_dispatch` 只构建，不发布。`workflow_run` 用默认分支上的 `docs.yml`，所以该文件合入 main 后才生效。
+- **入口**：本地与 CI 同一个 `scripts/docs/build_docs.sh`（需 `doxygen`、`dot`；输出默认在已忽略的 `build-docs/`）。`DOXYGEN_AWESOME_CSS` 指向主题 css，缺省回落到 Doxygen 默认样式。
+- **版本固定**：Doxygen 用官方预编译包并校验 sha256，主题固定到 tag 对应的 commit；不用 runner 自带版本，因为不同版本的 XML 输出不同。
+- **缺注释**：Doxygen 告警当前只报告（job 摘要含说明覆盖率与告警数），不阻断；设 `DOCS_WERROR=1` 即变为门禁。
+- **AI 版自检**：`export_ai_docs.py` 导出后检查断链、绝对路径、重复符号页，任一失败则导出失败。
+- **范围**：`scripts/docs/Doxyfile` 只收 `bbt/coroutine` 与 `bbt/pollevent` 的公开头文件，排除 `detail/`、无锁容器与 debug。
+- **前置**：仓库 Settings → Pages → Source 选 “GitHub Actions”，否则发布 job 失败。
+
+## 11. 参考
 
 | 文档 | 说明 |
 |---|---|
 | `.github/workflows/ci.yml` | 普通 CI workflow 权威定义（唯一汇聚 check：`CI/result`；远端 required 以 ruleset 回读为准） |
 | `.github/workflows/release.yml` | 发布 Gate 权威定义 |
 | `.github/workflows/memcheck.yml` | 内存检测权威定义 |
+| `.github/workflows/docs.yml` | API 文档导出权威定义 |
 | `.github/workflows/ci.yml 的 docs-check job` | 文档快速反馈权威定义 |
 | `docs/guides/development.md` | 开发、验证阶梯与发布流程真源 |
 | `docs/guides/performance.md` | 性能分析与测量协议 |
