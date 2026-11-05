@@ -27,24 +27,49 @@
 
 namespace bbt::pollevent {
 
+/** @brief 一次 fd / 定时器 / 自定义等待：登记、交付、取消；由调用方以 shared_ptr 持有，须显式 StartListen。 */
 class Event : public std::enable_shared_from_this<Event> {
 public:
+    /** @brief 共享指针别名；异步登记（StartListen/Trigger）要求调用方持有它。 */
     typedef std::shared_ptr<Event> SPtr;
 
+    /**
+     * @brief 构造事件并登记交付回调，不启动等待；@p base 必须非空且活过本对象，listen_events 见 EventOpt。
+     * @param fd 用户 fd；-1 表示非 fd 事件（定时器或 Trigger() 驱动）；::dup 失败抛 std::system_error，已建资源先回收。
+     */
     Event(detail::EventBase* base, evutil_socket_t fd, short listen_events, const OnEventCallback& onevent_cb);
+
+    /** @brief 取消等待、摘除回调并归还 asio 对象与内部 dup fd；析构后排队中的完成回调只能拿到失效 weak_ptr。 */
     ~Event();
 
+    /**
+     * @brief 建立一轮等待（fd 与定时器可共存）并推进轮次，上一轮等待在此撤销。
+     * @param timeout 毫秒；fd 事件须带 TIMEOUT 才附带定时器，fd<0 的事件正期限下也会建；@return 0 成功，-1 表示没有 shared ownership（只打印一次到 stderr）。
+     */
     int StartListen(uint64_t timeout);
+
+    /**
+     * @brief 撤销本轮等待、摘除用户回调；之后到达的完成回调按轮次丢弃，恒返回 0。
+     * @param need_close_fd true 时连用户 fd 一起关闭，重复调用不会二次关闭；不驱动 io_context。
+     */
     int CancelListen(bool need_close_fd = false);
+
+    /** @brief 用户 fd 号（锁内读取）；need_close_fd 关闭后为 -1。 */
     int GetSocket() const;
+    /** @brief 构造时登记的监听标志位，构造后只读，不做锁同步。 */
     short GetEvents() const;
+    /** @brief 本事件的 EventId，构造时自增分配，是回调注册表的 key。 */
     EventId GetEventId();
+    /** @brief 本轮超时的绝对时刻（毫秒）；未设超时或已取消为 -1。 */
     int64_t GetTimeoutMs() const;
 
-    /* 自定义事件触发；连续成功调用分别排队交付，StartListen/CancelListen 可淘汰旧 post。 */
+    /**
+     * @brief 自定义事件触发：把一次交付 post 到 EventBase 的 context；连续调用各自有效，轮次只在
+     * StartListen/CancelListen 推进，可淘汰旧 post。@return 0 成功，-1 表示没有 shared ownership。
+     */
     int Trigger(int flag);
 
-    /* 测试探针：callback_map 当前条目数（构造失败回滚验证用，不参与协议）。 */
+    /** @brief 测试探针：callback_map 当前条目数（构造失败回滚验证用，不参与协议）。 */
     static size_t CallbackEntryCount();
 
 #ifdef BBT_POLLEVENT_TESTING

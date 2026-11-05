@@ -138,6 +138,8 @@ void Event::CancelPendingLocked()
 
 int Event::StartListen(uint64_t timeout)
 {
+    // 一次调用完成「开新一轮 → 撤旧等待 → 按事件类型重新挂载」；asio 登记也在 m_mutex 内发出，
+    // 两轮 StartListen 不会交错挂载。
     std::lock_guard<std::mutex> lock(m_mutex);
 
     /* 异步登记只在 shared ownership 建立后成立：没有强引用就没有办法在回调
@@ -258,6 +260,7 @@ void Event::OnTimerFired(uint64_t round)
 {
     {
         std::lock_guard<std::mutex> lock(m_mutex);
+        // 定时器已交付：先校验轮次，再撤销同轮的 fd 等待，避免同一轮双交付
         if (round != m_round || !m_timer)
             return;
         if (m_sd) {
@@ -266,6 +269,7 @@ void Event::OnTimerFired(uint64_t round)
         }
     }
 
+    // 锁外交付：回调可能重入 StartListen/CancelListen；外层 weak.lock() 仍持本对象，交付途中不会析构。
     CallEventCallback(m_id, -1, EV_TIMEOUT);
 }
 
@@ -337,6 +341,7 @@ void Event::OnCustomTriggered(uint64_t round, int fd, short flag)
 {
     {
         std::lock_guard<std::mutex> lock(m_mutex);
+        // 只校验轮次：Trigger 不推进轮次，连续 post 各自有效，只有 StartListen/CancelListen 能让已排队触发失效。
         if (round != m_round)
             return;
     }
@@ -422,6 +427,7 @@ size_t Event::CallbackEntryCount()
 
 void Event::CallEventCallback(EventId id, int fd, short events)
 {
+    // 在注册表锁内拷一份回调、锁外调用：回调可能重入 CancelListen 再进注册表，持锁调用会自锁。
     OnEventCallback cb = nullptr;
     {
         auto& reg = _Registry();
