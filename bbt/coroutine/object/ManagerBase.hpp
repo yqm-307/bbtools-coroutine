@@ -114,19 +114,9 @@ public:
     ManagerBase(const ManagerBase&) = delete;
     ManagerBase& operator=(const ManagerBase&) = delete;
 
-    /**
-     * @brief 立即调用一次 creator，登记其成员后把 owner/deleter 原样返回。
-     *
-     * Manager 须由 `shared_ptr` 持有。creator 交付完整但尚未发布的对象；
-     * 交付 owner 之前不得并发访问或登记该对象。key 冲突、构造或登记失败都
-     * 抛异常，且不提交 created/destroyed。
-     * @tparam Creator 返回合法对象 owner 的零参可调用类型
-     * @param key 成员索引键
-     * @param kind 对象统计归类
-     * @param name 对象可读名
-     * @param creator 零参 owner 创建器
-     * @return 登记后原样移交的 owner
-     */
+    /** @brief 立即调用一次 creator，登记其成员后把 owner/deleter 原样返回。
+     * Manager 须由 `shared_ptr` 持有；creator 交付的对象在返回前不得并发访问或登记。继承
+     * `CoRuntimeOnly` 时先做协程域检查（不在协程内抛 `std::logic_error`，不构造对象）；失败均抛异常且不提交计数。 */
     template <class Creator>
     auto Create(const TKey& key, std::string kind, std::string name, Creator&& creator)
         -> decltype(std::forward<Creator>(creator)())

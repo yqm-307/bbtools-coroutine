@@ -1,3 +1,4 @@
+/** @file Async.hpp @brief `bbt_co_async` / `bbt_co_await` 的实现：返回值标记 AsyncReturn 与解包器 AwaitHelper。 */
 #pragma once
 
 #include <memory>
@@ -8,12 +9,13 @@ namespace bbt::coroutine::detail {
 
 class AwaitHelper;
 
-// 仅给返回值附加类型标记；不持有任务、调度状态或额外堆内存。
+/** @brief 仅给返回值附加类型标记；不持有任务、调度状态或额外堆内存。 */
 template <class T> class [[nodiscard]] AsyncReturn {
     static_assert(!std::is_reference_v<T>, "async supports values and lvalue references, not rvalue references");
     friend class AwaitHelper;
 
 public:
+    /// @brief 把可转换为 T 的值移入/拷入包装；await 时整块移出，调用方拿到的是独立对象
     template <class U, std::enable_if_t<std::is_convertible_v<U&&, T>, int> = 0>
     AsyncReturn(U&& value) noexcept(std::is_nothrow_constructible_v<T, U&&>) : m_value(std::forward<U>(value))
     {
@@ -23,11 +25,12 @@ private:
     T m_value;
 };
 
+/** @brief 引用结果的标记：只存指针，不延长被引用对象的寿命，await 后仍是原对象。 */
 template <class T> class [[nodiscard]] AsyncReturn<T&> {
     friend class AwaitHelper;
 
 public:
-    // 只借用类型兼容的左值，拒绝临时对象及会产生临时量的隐式转换。
+    /// @brief 只借用类型兼容的左值，拒绝临时对象及会产生临时量的隐式转换。
     template <class U, std::enable_if_t<std::is_convertible_v<U*, T*>, int> = 0>
     AsyncReturn(U& value) noexcept : m_value(std::addressof(value))
     {
@@ -37,25 +40,34 @@ private:
     T* m_value;
 };
 
+/// @brief void 结果的标记：没有载荷，只承担 [[nodiscard]] 与类型区分。
 template <> class [[nodiscard]] AsyncReturn<void> {};
 
+/**
+ * @brief await 解包器：`bbt_co_await f()` 展开成 `AwaitHelper{} ->* f()`；构造即检查协程上下文
+ *        （不在则抛 std::logic_error），检查先于右侧函数体求值，对象是临时量、不持有状态。
+ */
 class AwaitHelper {
 public:
     // C++17 的 ->* 运算符写法先求值左侧：环境检查先于右侧实参和函数体。
     // 不保存 TLS/worker 指针，右侧挂起后可以恢复到另一 worker。
+    /// @brief 校验调用点在协程内；不在协程内抛 std::logic_error，右侧函数体因此不会执行
     AwaitHelper();
 
+    /// @brief 值结果：必须移出包装，返回指向临时包装内部的引用会悬空
     template <class T> T operator->*(AsyncReturn<T>&& result) const noexcept(std::is_nothrow_move_constructible_v<T>)
     {
         // 值必须移出包装，不能返回指向临时包装内部的引用。
         return std::move(result.m_value);
     }
 
+    /// @brief 引用结果：直接解引用包装里借来的指针，不复制对象
     template <class T> T& operator->*(AsyncReturn<T&>&& result) const noexcept
     {
         return *result.m_value;
     }
 
+    /// @brief void 结果：只做环境检查，没有返回值
     void operator->*(AsyncReturn<void>&&) const noexcept
     {
     }

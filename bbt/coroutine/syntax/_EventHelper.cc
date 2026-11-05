@@ -7,6 +7,7 @@ namespace bbt::coroutine {
 
 _EventHelper::_EventHelper(int fd, short event, int ms) : m_fd(fd), m_timeout(ms), m_event(event)
 {
+    /* 一次性事件：触发即释放。PERSIST 会在触发后重挂，和「回调里断开 Event」的生命期模型冲突 */
     Assert((m_event & bbt::pollevent::PERSIST) == 0);
     if (m_event > 0)
         m_arg_check_rlt = true;
@@ -24,6 +25,7 @@ _EventHelper::~_EventHelper()
 {
 }
 
+/* 参数检查失败返回 -1；否则原样返回 StartListen 的结果（0 已登记 / -1 失败，失败时回调不会被调用）。 */
 int _EventHelper::operator-(const ExtCoEventCallback& event_handle)
 {
     if (!m_arg_check_rlt)
@@ -35,24 +37,15 @@ int _EventHelper::operator-(const ExtCoEventCallback& event_handle)
     /* 当事件触发时，注册一个事件处理协程 */
     m_pollevent = g_bbt_poller->CreateEvent(m_fd, m_event,
                                             [pthis, event_handle](int fd, short type, bbt::pollevent::EventId eventid) {
-                                                /**
-         * 这里有个隐蔽的循环引用问题：
-         * 
-         * _EventHelper 引用 Event；function 持有 _EventHelper；Event 持有 function
-         * Event 变相持有 _EventHelper
-         * 
-         * 所以这里在触发事件后，将_EventHelper中持有的Event释放掉，打破循环引用
-         */
+                                                /* 循环引用：helper 持有 Event，Event 持有这个回调，回调又持有 helper。
+                                                 * 所以回调执行完要把 helper 里的 Event 置空，否则双方都等不到析构。 */
                                                 auto on_event_handle = [=]() {
-                                                    /**
-             * 如果是持久事件且使用者不想释放，直接返回。这样m_pollevent不会释放，下次触发再
-             * 根据使用者提供的返回值来判断是否释放事件
-             */
+                                                    /* 跑完即断开对 Event 的持有，一次性事件到此为止 */
                                                     event_handle(fd, type);
                                                     pthis->m_pollevent = nullptr;
                                                 };
 
-                                                /* 支持使用协程池处理 */
+                                                /* 支持使用协程池处理；池已销毁则回退到直接注册协程 */
                                                 auto copool = pthis->m_copool.lock();
                                                 if (copool)
                                                     copool->Submit(std::move(on_event_handle));

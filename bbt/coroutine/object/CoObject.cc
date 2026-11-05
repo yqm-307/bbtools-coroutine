@@ -19,6 +19,7 @@ CoObject::CoObject(std::string kind, std::string name) : MemberBase(CreateObject
 
 std::shared_ptr<CoObjectManager> GetCoObjectManager()
 {
+    // 刻意泄漏到进程退出：成员析构可能发生在静态退出期，那时仍要 lock 这份 Manager 结算计数。
     static const auto manager = new std::shared_ptr<CoObjectManager>(std::make_shared<CoObjectManager>());
     return *manager;
 }
