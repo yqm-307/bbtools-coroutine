@@ -51,6 +51,9 @@ typedef std::optional<bbt::core::errcode::Errcode> ErrOpt;
 /** @brief 「错误 + 若干返回值」的返回：第一个元素是 `ErrOpt`，其余是调用结果 */
 template <typename... TRetTuple> using ErrTuple = std::tuple<ErrOpt, TRetTuple...>;
 
+/** @brief 「若干返回值 + 错误」的返回：`ErrOpt` 永远放最后，新接口优先用它而不是 `ErrTuple` */
+template <typename... TRet> using TupleErr = std::tuple<TRet..., ErrOpt>;
+
 /** @brief 值/错误二态返回：成功取 `TRet`，失败取 `Errcode` */
 template <typename TRet> using ErrRlt = bbt::core::util::Result<TRet, Errcode>;
 
