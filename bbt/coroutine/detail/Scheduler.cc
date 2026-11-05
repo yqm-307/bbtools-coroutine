@@ -1013,120 +1013,196 @@ void Scheduler::_ResetScalingSamplesLocked()
     m_last_auto_sample = std::chrono::steady_clock::now();
 }
 
+namespace {
+
+/* 连续命中计数：命中 +1 并封顶在 samples；没命中立即清零。 */
+void AdvanceHits(size_t& hits, bool hit, size_t samples)
+{
+    if (!hit) {
+        hits = 0;
+        return;
+    }
+    if (hits < samples)
+        ++hits;
+}
+
+} // namespace
+
 void Scheduler::_AutoScaleTick()
 {
-    if (!IsInitialized())
-        return;
-    if (m_scaling_mode.load(std::memory_order_acquire) != ProcesserScalingMode::Auto)
+    /* 自动伸缩的一拍：把最近的负载折成"该扩 / 该缩"信号，信号连续命中足够多拍后才调整
+     * 目标 worker 数（m_target_num）。由 _OnUpdate 每轮调用（调度线程，或 NO_LOOP 下的 LoopOnce）。
+     *
+     *   1. 门禁  未初始化、不是 Auto 模式、未到采样间隔：直接返回，不动任何状态
+     *   2. 采样  读全局 + 各 active worker 的待运行协程数，以及 worker 忙碌占比
+     *   3. 累计  扩 / 缩条件各自记录"连续命中了几拍"
+     *   4. 决策  连续命中达到 m_scale_*_samples 才调目标；每拍至多调一批，扩容优先
+     *   5. 唤醒  调整产生的 worker 通知，在退出全部锁之后才发布
+     *
+     * 控制权：目标数只在 m_lifecycle_mutex 下改。手动入口（SetProcesserNum / SetProcesserAutoScale）
+     * 持同一把锁，所以本拍和手动请求互斥：手动请求先到，本拍持锁复查时发现已是 Manual 就放弃。
+     *
+     * 为什么要"连续命中"而不是单拍判定：避免负载抖动带来来回伸缩。例：队列水位一拍内冲高又回落，
+     * 单拍触发会先扩出线程、下一拍又缩回去；要求连续 m_scale_up_samples 拍都偏高才扩，这种尖峰不会生效。 */
+
+    /* 1. 门禁（无锁快速路径）：不满足就不取锁 */
+    if (!IsInitialized() || m_scaling_mode.load(std::memory_order_acquire) != ProcesserScalingMode::Auto)
         return;
 
     std::vector<Processer::SPtr> notify;
     {
         std::unique_lock<std::mutex> lock(m_lifecycle_mutex);
-        if (m_scaling_mode.load(std::memory_order_acquire) != ProcesserScalingMode::Auto)
+        if (!_ClaimAutoSampleLocked())
             return;
 
-        const auto now = std::chrono::steady_clock::now();
-        const auto interval = std::chrono::milliseconds(m_scale_interval_ms);
-        if (now - m_last_auto_sample < interval)
-            return;
-        m_last_auto_sample = now;
-
-        std::shared_ptr<const ProcesserList> snapshot;
-        {
-            std::lock_guard<std::mutex> map_lock(m_processer_map_mutex);
-            snapshot = m_active_snapshot;
-        }
-        if (snapshot == nullptr || snapshot->empty())
+        /* 2. 采样 */
+        ScalingLoad load;
+        if (!_SampleScalingLoadLocked(load))
             return;
 
-        /* 近似 runnable：全局 + active 本地。只作控制信号，不证明空队列、
-         * 所有权移交或安全退役。 */
-        uint64_t queue_total = 0;
-        for (auto& queue : m_global_coroutine_queue)
-            queue_total += static_cast<uint64_t>(queue.size_approx());
-
-        size_t busy = 0;
-        for (const auto& proc : *snapshot)
-        {
-            if (proc == nullptr)
-                continue;
-            queue_total += static_cast<uint64_t>(proc->GetExecutableNum());
-            if (proc->m_busy.load(std::memory_order_acquire))
-                ++busy;
-        }
-
-        const size_t active = snapshot->size();
-        const size_t busy_percent = active == 0
-            ? 0
-            : static_cast<size_t>((static_cast<uint64_t>(busy) * 100) / active);
-
-        const bool up_hit =
-            queue_total >= m_scale_up_queue_watermark ||
-            busy_percent >= m_scale_up_busy_percent;
-        const bool down_hit =
-            queue_total <= m_scale_down_queue_watermark &&
-            busy_percent <= m_scale_down_busy_percent;
-
-        if (up_hit) {
-            if (m_scale_up_hits < m_scale_up_samples)
-                ++m_scale_up_hits;
-        } else {
-            m_scale_up_hits = 0;
-        }
-
-        if (down_hit) {
-            if (m_scale_down_hits < m_scale_down_samples)
-                ++m_scale_down_hits;
-        } else {
-            m_scale_down_hits = 0;
-        }
-
-        /* 相等阈值同拍双向命中时只选扩容方向；每拍至多一批。 */
-        if (m_scale_up_hits >= m_scale_up_samples) {
-            const size_t target = m_target_num.load(std::memory_order_acquire);
-            if (target < m_max_num) {
-                const size_t remain = m_max_num - target;
-                const size_t next = m_scale_step >= remain
-                    ? m_max_num
-                    : target + m_scale_step;
-                const auto result = _ApplyTargetLocked(next, notify, lock);
-                if (result == ProcesserResizeResult::Ok) {
-                    m_scale_up_hits = 0;
-                    m_scale_down_hits = 0;
-                } else {
-                    m_scale_up_hits = 0;
-                }
-            } else {
-                m_scale_up_hits = 0;
-            }
-        } else if (m_scale_down_hits >= m_scale_down_samples) {
-            const size_t target = m_target_num.load(std::memory_order_acquire);
-            if (target > m_min_num) {
-                const size_t remain = target - m_min_num;
-                const size_t next = m_scale_step >= remain
-                    ? m_min_num
-                    : target - m_scale_step;
-                const auto result = _ApplyTargetLocked(next, notify, lock);
-                if (result == ProcesserResizeResult::Ok ||
-                    result == ProcesserResizeResult::Pending) {
-                    m_scale_up_hits = 0;
-                    m_scale_down_hits = 0;
-                } else {
-                    /* DriverBound/Busy/SelfRetire/CreateFailed：目标不变，
-                     * 复位本方向，等下一轮重新累计。 */
-                    m_scale_down_hits = 0;
-                }
-            } else {
-                m_scale_down_hits = 0;
-            }
-        }
+        /* 3. 累计 + 4. 决策 */
+        _AccumulateScalingHitsLocked(load);
+        _ApplyScalingDecisionLocked(notify, lock);
     }
 
-    /* worker 唤醒与 driver Wake 在 lifecycle/map 锁外执行 */
+    /* 5. 唤醒：notify 里是本拍新建 / 被通知的 worker，所有权从 _ApplyTargetLocked 交给本函数，
+     * 持有 SPtr 期间 worker 对象不会被回收。必须在退出 lifecycle / map 锁之后发布（_ApplyTargetLocked
+     * 的契约）：被唤醒的 worker 没有本地任务时会走 TryWorkSteal，要取 m_processer_map_mutex，
+     * 在锁内唤醒只会让它一醒就撞上我们手里的锁。 */
     for (auto& proc : notify)
         if (proc != nullptr)
             proc->_PublishRunnable();
+}
+
+bool Scheduler::_ClaimAutoSampleLocked()
+{
+    /* 抢占本拍的采样名额：仍是 Auto 且距上次采样已满 m_scale_interval_ms 才返回 true，
+     * 并把现在记为新的采样起点。返回 false 只表示"这拍不用采样"，不是错误。
+     *
+     * 持锁复查 Auto 是必须的：门禁那次读是无锁的，之后手动入口可能已经切到 Manual；
+     * 不复查的话，本拍会在手动请求之后又改一次目标数，把用户刚设的数量覆盖掉。
+     * 名额一旦占用就算本拍已采样，即使后面发现没有 worker 可采，也要等下一个间隔。 */
+    if (m_scaling_mode.load(std::memory_order_acquire) != ProcesserScalingMode::Auto)
+        return false;
+
+    const auto now = std::chrono::steady_clock::now();
+    if (now - m_last_auto_sample < std::chrono::milliseconds(m_scale_interval_ms))
+        return false;
+
+    m_last_auto_sample = now;
+    return true;
+}
+
+bool Scheduler::_SampleScalingLoadLocked(ScalingLoad& out_load)
+{
+    /* 读一次负载：待运行协程数 = 全局队列 + 各 active worker 的本地队列，忙碌占比 = 忙碌 / active。
+     * 读数都是近似值（size_approx、无同步的 busy 标志），只用来决定"要不要调目标"，
+     * 不能当作"队列已空""协程已移交"或"worker 可以安全退役"的证据。
+     * 例：queue_total 为 0 只会让缩容命中数 +1；能否真正退役仍由 _ApplyTargetLocked 判定，
+     * 它可能因 driver 绑定、退役未收口等原因返回 DriverBound / Busy，目标数不变。 */
+
+    /* 拷贝一份不可变 active 快照后立刻释放 map 锁，之后只读这份拷贝：
+     * 扩缩容提交会整体替换 m_active_snapshot，不会改动我们手里这份旧列表。 */
+    std::shared_ptr<const ProcesserList> snapshot;
+    {
+        std::lock_guard<std::mutex> map_lock(m_processer_map_mutex);
+        snapshot = m_active_snapshot;
+    }
+    if (snapshot == nullptr || snapshot->empty())
+        return false;
+
+    uint64_t queue_total = 0;
+    for (auto& queue : m_global_coroutine_queue)
+        queue_total += static_cast<uint64_t>(queue.size_approx());
+
+    size_t busy = 0;
+    for (const auto& proc : *snapshot) {
+        if (proc == nullptr)
+            continue;
+        queue_total += static_cast<uint64_t>(proc->GetExecutableNum());
+        if (proc->m_busy.load(std::memory_order_acquire))
+            ++busy;
+    }
+
+    out_load.m_queue_total = queue_total;
+    out_load.m_busy_percent = static_cast<size_t>((static_cast<uint64_t>(busy) * 100) / snapshot->size());
+    return true;
+}
+
+void Scheduler::_AccumulateScalingHitsLocked(const ScalingLoad& load)
+{
+    /* 把本拍负载折成两个"连续命中拍数"（m_scale_up_hits / m_scale_down_hits）：
+     *   扩容命中：队列水位到达上限水位，或忙碌占比到达上限占比（任一即可）
+     *   缩容命中：队列水位不高于下限水位，且忙碌占比不高于下限占比（必须同时）
+     * 即有任一压力迹象就可以扩，必须队列和 worker 都空闲才缩。 */
+    const bool up_hit =
+        load.m_queue_total >= m_scale_up_queue_watermark || load.m_busy_percent >= m_scale_up_busy_percent;
+    const bool down_hit =
+        load.m_queue_total <= m_scale_down_queue_watermark && load.m_busy_percent <= m_scale_down_busy_percent;
+
+    AdvanceHits(m_scale_up_hits, up_hit, m_scale_up_samples);
+    AdvanceHits(m_scale_down_hits, down_hit, m_scale_down_samples);
+}
+
+void Scheduler::_ApplyScalingDecisionLocked(std::vector<Processer::SPtr>& out_notify,
+                                            std::unique_lock<std::mutex>& lifecycle_lock)
+{
+    /* 连续命中拍数够了才动目标数。扩缩阈值相等的配置下两个方向可能同拍都够，此时只扩不缩；
+     * 每拍至多调一批。 */
+    if (m_scale_up_hits >= m_scale_up_samples)
+        _ScaleUpOneStepLocked(out_notify, lifecycle_lock);
+    else if (m_scale_down_hits >= m_scale_down_samples)
+        _ScaleDownOneStepLocked(out_notify, lifecycle_lock);
+}
+
+void Scheduler::_ScaleUpOneStepLocked(std::vector<Processer::SPtr>& out_notify,
+                                      std::unique_lock<std::mutex>& lifecycle_lock)
+{
+    /* 扩容一批：目标数 + m_scale_step，封顶 m_max_num。
+     * 目标数能否生效由 _ApplyTargetLocked 决定（新批次创建失败时返回 CreateFailed，
+     * 旧 active / target / mode 都不变）。只有 Ok 才算决策兑现，两个方向的累计一起清零；
+     * 否则只清本方向，要重新连续命中 m_scale_up_samples 拍才会再次尝试，不会每拍重试同一个失败。
+     * 新建 worker 经 out_notify 交回，由 _AutoScaleTick 在退出全部锁后发布 runnable。 */
+    const size_t target = m_target_num.load(std::memory_order_acquire);
+    if (target >= m_max_num) {
+        m_scale_up_hits = 0; // 已在上限，扩容信号作废
+        return;
+    }
+
+    const size_t remain = m_max_num - target;
+    const size_t next = m_scale_step >= remain ? m_max_num : target + m_scale_step;
+    const auto result = _ApplyTargetLocked(next, out_notify, lifecycle_lock);
+    if (result == ProcesserResizeResult::Ok) {
+        m_scale_up_hits = 0;
+        m_scale_down_hits = 0;
+    } else {
+        m_scale_up_hits = 0;
+    }
+}
+
+void Scheduler::_ScaleDownOneStepLocked(std::vector<Processer::SPtr>& out_notify,
+                                        std::unique_lock<std::mutex>& lifecycle_lock)
+{
+    /* 缩容一批：目标数 - m_scale_step，封底 m_min_num。
+     * Ok 和 Pending 都算决策兑现（目标已提交，Pending 只是退役 worker 的物理回收还在推进，
+     * 由 reaper 继续收口），两个方向的累计一起清零。 */
+    const size_t target = m_target_num.load(std::memory_order_acquire);
+    if (target <= m_min_num) {
+        m_scale_down_hits = 0; // 已在下限，缩容信号作废
+        return;
+    }
+
+    const size_t remain = target - m_min_num;
+    const size_t next = m_scale_step >= remain ? m_min_num : target - m_scale_step;
+    const auto result = _ApplyTargetLocked(next, out_notify, lifecycle_lock);
+    if (result == ProcesserResizeResult::Ok || result == ProcesserResizeResult::Pending) {
+        m_scale_up_hits = 0;
+        m_scale_down_hits = 0;
+    } else {
+        /* DriverBound / Busy / SelfRetire / CreateFailed：目标不变，
+         * 复位本方向，等下一轮重新累计。 */
+        m_scale_down_hits = 0;
+    }
 }
 
 void Scheduler::_ReapRetiredWorkers()

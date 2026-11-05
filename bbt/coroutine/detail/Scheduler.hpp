@@ -215,6 +215,22 @@ protected:
 
     /* 每采样拍驱动自动策略；NO_LOOP 由 LoopOnce 调用 */
     void                                        _AutoScaleTick();
+    /* 一拍自动伸缩的负载读数：近似值，只作控制信号，不证明队列为空或可安全退役 */
+    struct ScalingLoad
+    {
+        uint64_t                                m_queue_total{0};   // 全局队列 + active 本地队列的近似待运行数
+        size_t                                  m_busy_percent{0};  // 忙碌 worker 占 active worker 的百分比
+    };
+    /* 以下为 _AutoScaleTick 的分步，均由持 m_lifecycle_mutex 的调用方调用 */
+    bool                                        _ClaimAutoSampleLocked();
+    bool                                        _SampleScalingLoadLocked(ScalingLoad& out_load);
+    void                                        _AccumulateScalingHitsLocked(const ScalingLoad& load);
+    void                                        _ApplyScalingDecisionLocked(std::vector<Processer::SPtr>& out_notify,
+                                                    std::unique_lock<std::mutex>& lifecycle_lock);
+    void                                        _ScaleUpOneStepLocked(std::vector<Processer::SPtr>& out_notify,
+                                                    std::unique_lock<std::mutex>& lifecycle_lock);
+    void                                        _ScaleDownOneStepLocked(std::vector<Processer::SPtr>& out_notify,
+                                                    std::unique_lock<std::mutex>& lifecycle_lock);
     /* 有限推进 reaper：只认领 Exited，join 全程不持 runtime/driver/队列锁 */
     void                                        _ReapRetiredWorkers();
     /* 唤醒当前 active worker（drain 后把全局任务交给剩余 worker） */
