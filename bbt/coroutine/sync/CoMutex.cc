@@ -24,6 +24,7 @@ CoMutex::~CoMutex()
 
 void CoMutex::Lock()
 {
+    // 返回时 m_mutex 已释放、m_locked_co 是本协程。
     _SysLock();
 
     AssertWithInfo(g_bbt_tls_helper->EnableUseCo(), "must use in coroutine!");
@@ -89,6 +90,7 @@ int CoMutex::TryLock()
 
 int CoMutex::TryLock(int ms)
 {
+    // 等待失败时锁仍在手，由下面唯一出口释放，不重入已释放的锁。
     int ret = 0;
     _SysLock();
     AssertWithInfo(m_locked_co != g_bbt_tls_coroutine_co, "comutex deadlock!");

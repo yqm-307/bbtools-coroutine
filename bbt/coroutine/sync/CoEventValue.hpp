@@ -122,10 +122,12 @@ template <> struct CoEventValueTraits<void> {
  * 仅用于下方 T* 派生时的容量检查，不参与编号本身。
  */
 template <class T> struct CoEventValuePointerDepth {
+    /// @brief 非指针类型的层级，恒为 0。
     static constexpr unsigned value = 0u;
 };
 
 template <class T> struct CoEventValuePointerDepth<T*> {
+    /// @brief T* 的层级等于被指类型层级 + 1。
     static constexpr unsigned value = 1u + CoEventValuePointerDepth<T>::value;
 };
 
@@ -169,12 +171,8 @@ inline constexpr CoEventValueTypeId kCoEventValueInt64 = CoEventValueTraits<std:
 inline constexpr CoEventValueTypeId kCoEventValueUInt64 = CoEventValueTraits<std::uint64_t>::id;
 
 /**
- * 登记自定义 POD：ID 必须落在自定义区间，且各 DSO 使用同一常量。
- *
- * 登记必须写在**全局命名空间**（或 `bbt::coroutine` / `bbt`）作用域：显式特化
- * 只能声明在包裹模板命名空间的命名空间里（与 `std::hash` 特化同一条语言规则），
- * 放进用户命名空间或匿名命名空间会报 “does not enclose” 错误。
- * 成员与断言里的类型名用全限定 ::bbt::coroutine::... 引用，避免被同名类型遮蔽。
+ * @brief 登记自定义 POD 载荷类型：ID 须在自定义区间，各 DSO 用同一常量。
+ *        特化须写在全局 / bbt::coroutine 命名空间，否则报 "does not enclose"；类型名用全限定 ::bbt::coroutine::...
  */
 #define BBT_COEVENT_VALUE_REGISTER_TYPE(TYPE, ID)                                        \
     template<> struct bbt::coroutine::CoEventValueTraits<TYPE>                            \

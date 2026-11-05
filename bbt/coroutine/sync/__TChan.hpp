@@ -1,3 +1,4 @@
+/** @file __TChan.hpp @brief Chan 的模板实现，由 Chan.hpp 末尾包含。 */
 #pragma once
 #include <bbt/core/clock/Clock.hpp>
 #include <bbt/core/util/Assert.hpp>
@@ -334,7 +335,7 @@ template <class TItem, int Max> void Chan<TItem, Max>::Close()
     // 锁内复查通过（open）后，Close 必须等该次入队完成才能置位
     m_run_status.store(ChanStatus::CHAN_CLOSE, std::memory_order_release);
 
-    // 不再丢弃缓冲数据 — 保留给读者读完
+    // 缓冲数据留给读者读完，这里不清空
     // 唤醒所有阻塞的协程
     if (m_is_reading)
         _OnEnableRead();
@@ -391,7 +392,7 @@ template <class TItem, int Max> void Chan<TItem, Max>::RemoveWriteWatcher(const 
 }
 
 // ============================================================
-// wait helpers (unchanged logic, adapted for unique_lock)
+// wait helpers
 // ============================================================
 
 template <class TItem, int Max> int Chan<TItem, Max>::_WaitUntilEnableRead(const detail::CoroutineOnYieldCallback& cb)
@@ -493,21 +494,25 @@ int Chan<TItem, Max>::_WaitUntilEnableReadOrTimeout(int timeout_ms, const detail
 // stream operators
 // ============================================================
 
+/// @brief 转发 Chan::Write 并折算成 bool：成功（0）为 true，可能挂起。
 template <class TItem, int Max> bool operator<<(Chan<TItem, Max>& chan, const typename Chan<TItem, Max>::ItemType& item)
 {
     return (chan.Write(item) == 0);
 }
 
+/// @brief 转发 Chan::Read 并折算成 bool：成功（0）为 true，可能挂起。
 template <class TItem, int Max> bool operator>>(Chan<TItem, Max>& chan, typename Chan<TItem, Max>::ItemType& item)
 {
     return (chan.Read(item) == 0);
 }
 
+/// @brief 经 shared_ptr 转发 Write，成功（0）为 true。
 template <class TItem, int Max> bool operator<<(std::shared_ptr<Chan<TItem, Max>> chan, const TItem& item)
 {
     return (chan->Write(item) == 0);
 }
 
+/// @brief 经 shared_ptr 转发 Read，成功（0）为 true。
 template <class TItem, int Max> bool operator>>(std::shared_ptr<Chan<TItem, Max>> chan, TItem& item)
 {
     return (chan->Read(item) == 0);

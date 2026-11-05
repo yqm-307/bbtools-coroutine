@@ -263,7 +263,9 @@ WaitStatus CoWaiter::Wait(const WaitOptions& options)
 WaitStatus CoWaiter::WaitWithCallback(const WaitOptions& options, const detail::CoroutineOnYieldCallback& on_registered,
                                       CoEventValue* value)
 {
-    /* 环境检查先于一切（对齐运行时契约）：非协程上下文一律拒绝 */
+    /* 五段：入口校验 → 建事件 → 挂起 → 决议 → 解绑；任何一段失败都不得留下占位的等待位。
+     * 入口校验与等待位占用判断都在 m_notify_mutex 内，与 Notify 的 COND_WAIT→COND_ACTIVE 翻转互斥。
+     * 环境检查先于一切：非协程上下文一律拒绝 */
     if (!g_bbt_tls_helper->EnableUseCo())
         return WaitStatus::InvalidContext;
     auto* coroutine = g_bbt_tls_coroutine_co;
@@ -389,7 +391,10 @@ CombinedWaitStatus CoWaiter::Wait(const CombinedWaitOptions& options,
 CombinedWaitStatus CoWaiter::Wait(const CombinedWaitOptions& options,
                                   const detail::CoroutineOnYieldCallback& on_registered, CoEventValue* value)
 {
-    /* 环境检查先于一切（对齐窄接口）：非协程上下文一律拒绝 */
+    /* 五段：选项/入口校验 → 建事件 → 挂起 → 决议 → 解绑。fd interest 与定时器必须
+     * 挂在同一个 CoPollEvent 上：m_event 只能建立一次。
+     *
+     * 环境检查先于一切（对齐窄接口）：非协程上下文一律拒绝 */
     if (!g_bbt_tls_helper->EnableUseCo())
         return CombinedWaitStatus::InvalidContext;
     auto* coroutine = g_bbt_tls_coroutine_co;

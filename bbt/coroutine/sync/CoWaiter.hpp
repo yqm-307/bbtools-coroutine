@@ -9,10 +9,8 @@
 namespace bbt::coroutine::sync {
 
 /**
- * @brief 单个等待位上的协程等待/唤醒原语。
- *
- * 一个 Waiter 同时只容纳一个等待者：Wait 族重复进入会失败，Notify 是「尝试
- * 唤醒」而非计数信号。Chan、CoCond、CoSelect 都建立在它之上。
+ * @brief 单个等待位上的协程等待/唤醒原语：同时只容纳一个等待者，Notify 是尝试唤醒而非计数信号。
+ * Wait 族必须在协程内调用；Notify/Cancel 可在非协程上下文调用。
  */
 class CoWaiter {
 public:

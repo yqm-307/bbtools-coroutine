@@ -1,3 +1,4 @@
+/** @file CoSelect.hpp @brief Go select 风格的多 Chan 复用。 */
 #pragma once
 #include <functional>
 #include <vector>
@@ -59,7 +60,7 @@ public:
     template <class TItem, int Max> CoSelect& CaseWrite(std::shared_ptr<Chan<TItem, Max>> ch, const TItem& val);
 
     /// @brief 设置等待超时；与 Default 同时出现时 Default 优先（不挂起）。
-    /// @param ms 超时毫秒
+    /// @param ms 超时毫秒；负值表示不设超时（默认）
     /// @return 当前 CoSelect，供链式调用
     CoSelect& CaseTimeout(int ms);
 
@@ -181,7 +182,7 @@ inline int CoSelect::Run()
             index = cb_index;
     }
 
-    /* 4. 无论命中/超时/Default 都清理：Notify 已 Cancel 的 waiter 返回 -1，忽略 */
+    /* 4. 无论命中/超时/Default 都清理：先摘 watcher 再 Cancel，迟到的 Notify 返回 -1 */
     for (auto& c : m_cases)
         c.unwatch(waiter);
     waiter->Cancel();

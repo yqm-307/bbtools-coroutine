@@ -1,3 +1,4 @@
+/** @file WaitTypes.hpp @brief 等待选项与结果类型（Deadline、WaitStatus、CombinedWaitStatus）。 */
 #pragma once
 #include <chrono>
 

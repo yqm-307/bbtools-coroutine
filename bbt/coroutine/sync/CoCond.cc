@@ -26,6 +26,7 @@ int CoCond::Wait()
 {
     auto waiter = CoWaiter::Create();
 
+    // 入队放在挂起回调里：回调只在挂起成功后执行，Notify 不会 pop 到未登记的 waiter（那会返回 -1 丢唤醒）。
     return waiter->WaitWithCallback([waiter, this]() {
         _SysLock();
         m_waiter_queue.push(waiter);
@@ -38,6 +39,7 @@ int CoCond::WaitFor(int ms)
 {
     auto waiter = CoWaiter::Create();
 
+    // 同 Wait：入队放在挂起回调里，避免 Notify 命中尚未登记的 waiter。
     return waiter->WaitWithTimeoutAndCallback(ms, [waiter, this]() {
         _SysLock();
         m_waiter_queue.push(waiter);
@@ -48,6 +50,7 @@ int CoCond::WaitFor(int ms)
 
 void CoCond::NotifyAll()
 {
+    // 逐个出队后在锁外 Notify：唤醒链不持 m_mutex，期间新到的等待者仍能入队。
     while (true) {
         _SysLock();
         if (m_waiter_queue.empty()) {
@@ -69,8 +72,7 @@ int CoCond::NotifyOne()
 int CoCond::_NotifyOne()
 {
     int ret = -1;
-    /* waiter->Notify() 的触发链在 m_mutex 内执行；driver Wake 推迟到
-     * 本函数退出（_SysUnLock 已完成）之后。 */
+    /* waiter->Notify() 的触发链在 m_mutex 内执行；driver Wake 推迟到本函数退出之后。 */
     detail::DriverWakeDeferral _defer;
     _SysLock();
     while (!m_waiter_queue.empty()) {

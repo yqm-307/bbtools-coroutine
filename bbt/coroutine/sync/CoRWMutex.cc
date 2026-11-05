@@ -10,6 +10,7 @@ CoRWMutex::SPtr CoRWMutex::Create()
 
 int CoRWMutex::RLock()
 {
+    // 挂起回调里登记读阻塞并放锁；唤醒后重取锁复查并计数。
     _SysLock();
     // 如果获取不到锁则持续挂起，直到获取到锁
     while (m_status == CORWMUTEX_WLOCKED || m_has_wait_wlock) {
@@ -63,6 +64,7 @@ int CoRWMutex::RLock()
 
 int CoRWMutex::WLock()
 {
+    // 挂起回调里登记写者责任并放锁；唤醒后结清责任、重取锁复查。
     _SysLock();
     while (m_status != CORWMUTEX_FREE) {
         /* 失败补偿与 RLock 同——等待未挂起时锁仍在手，
@@ -163,6 +165,7 @@ int CoRWMutex::TryRLock()
 
 int CoRWMutex::TryRLock(int ms)
 {
+    // 快速路径先试一次；失败才挂起等待至多 ms 毫秒。
     {
         detail::DriverWakeDeferral _defer; // 首个非挂起段
         _SysLock();
@@ -243,6 +246,7 @@ int CoRWMutex::TryWLock()
 
 int CoRWMutex::TryWLock(int ms)
 {
+    // 快速路径先试一次；失败才挂起等待至多 ms 毫秒。
     _SysLock();
     if (m_status == CORWMUTEX_FREE) {
         m_status = CORWMUTEX_WLOCKED;
