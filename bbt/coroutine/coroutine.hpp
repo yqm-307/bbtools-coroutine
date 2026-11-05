@@ -1,5 +1,15 @@
 /** @file coroutine.hpp
  * @brief 协程库公共入口、当前协程查询与常用同步组件。
+ *
+ * 使用本库只需要 `#include <bbt/coroutine/coroutine.hpp>`，它已经带入调度器、Hook、
+ * 同步原语（Chan / CoCond / CoMutex / CoRWMutex）、协程池、CoObject 和语法糖。
+ *
+ * 从哪里读起：
+ *  - 启动协程、休眠、让出、defer、等 fd 事件等写法：读 `syntax/SyntaxMacro.hpp` 文件头的
+ *    速查表和每个宏的说明。同一意图优先用语法糖，不要直接调用 Scheduler / Coroutine 内部接口。
+ *  - 声明和调用会挂起的函数：`bbt_co_async(T)` / `bbt_co_await`，见 `syntax/Async.hpp`。
+ *  - 同步原语、协程池的完整签名与返回码：`docs/guides/api-reference.md`；
+ *    运行时启动与生命期：`docs/guides/user-guide.md`。
  */
 #pragma once
 
