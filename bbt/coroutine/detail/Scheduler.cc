@@ -1,3 +1,5 @@
+/* Scheduler 的实现：一次性启动、任务投递与全局队列、扩缩容串行入口、退役
+ * worker 的有限回收。锁序与字段所有权见 Scheduler.hpp 的总表。 */
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -32,9 +34,7 @@ Scheduler::UPtr& Scheduler::GetInstance()
     return *_holder;
 }
 
-/* 构造不再读取 m_cfg_static_thread_num：旧实现把 size_t 直接窄化进 int
- * 计数的 CountDownLatch，既无法表达非法配置，也让 Start 的不可逆副作用
- * 早于校验。初始数量改由 Start 校验后显式传入。 */
+/* 构造不做任何初始化：初始数量与 min/max 由 Start 校验后经 _Init 传入，构造期没有不可逆副作用。 */
 Scheduler::Scheduler() = default;
 
 /* 进程寿命：本析构实际不会被调用（实例持有者泄漏）；保留默认实现，
@@ -534,14 +534,8 @@ void Scheduler::_OnUpdate()
 
 void Scheduler::_Run()
 {
-    /**
-     * 调度器主循环
-     *
-     * 1. CoPoller 进行事件轮询，检测是否有await_event就绪。
-     * 2. 栈池进行定时采样和动态调整。
-     *
-     */
-
+    /* 调度循环：每轮 _OnUpdate 排空事件，再按真实时间维护扫描节拍；本线程不执行用户协程，
+     * 也没有退出条件（进程寿命，无停机入口）。 */
     m_begin_timestamp = bbt::core::clock::now<>();
     /* 维护节拍用 steady_clock 绝对时刻，不看事件次数 */
     auto next_scan_deadline = std::chrono::steady_clock::now();
@@ -555,8 +549,7 @@ void Scheduler::_Run()
 
         const size_t interval_ms = g_bbt_coroutine_config->m_cfg_scan_interval_ms;
 
-        /* interval==0 保持既有「不停拍」语义：旧实现的 sleep_until 此时也已过期，
-           两者都是立即进入下一轮。 */
+        /* interval==0 = 不停拍：立即进入下一轮，不等扫描节拍。 */
         if (interval_ms == 0)
             continue;
 
@@ -567,9 +560,8 @@ void Scheduler::_Run()
         if (now >= next_scan_deadline)
             next_scan_deadline = now + std::chrono::milliseconds(interval_ms);
 
-        /* 停拍期间不空等：有已注册事件时阻塞到「事件派发」或「扫描拍到期」先到
-           先醒，没有事件时退回旧的定时休眠。派发过事件也回到 _OnUpdate 排空，
-           剩余时间仍按同一 deadline 等待。 */
+        /* 停拍期间不空等：有已注册事件时阻塞到「事件派发」或「扫描拍到期」先到先醒，没有事件时
+           退化为 sleep_until(deadline)；派发过事件也回到 _OnUpdate 排空。 */
         g_bbt_poller->PollOnceUntil(next_scan_deadline);
     }
 }
@@ -670,7 +662,7 @@ void Scheduler::Start(SchedulerStartOpt opt)
 
 void Scheduler::LoopOnce()
 {
-    // 使用单独的调度线程，就不可以调用LoopOnce来手动驱动了
+    // 已有 S 线程时不允许手动驱动：断言失败。
     AssertWithInfo(m_sche_thread == nullptr, "the sche-thread has been started!");
 
     _OnUpdate();
@@ -696,6 +688,7 @@ size_t Scheduler::GetCoroutineFromGlobal(CoroutinePriority priority, size_t size
 
 bool Scheduler::_CreateProcessers(size_t initial_num)
 {
+    /* 初始批次走与扩容相同的 prepare/commit；失败返回 false，m_target_num 不变。 */
     std::unique_lock<std::mutex> lock(m_lifecycle_mutex);
     std::vector<Processer::SPtr> created;
     if (!_PrepareExpansionLocked(initial_num, created, lock))
@@ -848,6 +841,8 @@ bool Scheduler::_PrepareExpansionLocked(size_t need, std::vector<Processer::SPtr
 ProcesserResizeResult Scheduler::_CommitShrinkLocked(size_t need, size_t target,
                                                      std::vector<Processer::SPtr>& out_notify)
 {
+    /* 缩容提交：先挑候选（Active 且无 driver 归属），构造好新 map/snapshot 再一次性
+     * 提交。DriverBound/SelfRetire/Busy 三个拒绝码都在改动 map/snapshot/target 之前返回。 */
     Processer::SPtr self = Processer::TryGetLocalProcesser();
     const ProcesserId self_id = self != nullptr ? self->GetId() : BBT_COROUTINE_INVALID_PROCESSER_ID;
 
@@ -922,6 +917,8 @@ ProcesserResizeResult Scheduler::_CommitShrinkLocked(size_t need, size_t target,
 ProcesserResizeResult Scheduler::_ApplyTargetLocked(size_t target, std::vector<Processer::SPtr>& out_notify,
                                                     std::unique_lock<std::mutex>& lifecycle_lock)
 {
+    /* 手动与自动共用的目标提交点，调用方持 m_lifecycle_mutex。扩：prepare+commit，失败返回
+     * CreateFailed 且无副作用；缩：Pending 表示目标已提交、物理回收交给 reaper。 */
     const size_t active = _ActiveCountLocked();
 
     if (target > active) {
@@ -1260,10 +1257,8 @@ Processer::SPtr Scheduler::_LoadBlance2Proc(CoroutinePriority priority, Coroutin
 
 int Scheduler::TryWorkSteal(Processer::SPtr thief)
 {
-    /**
-     * m_active_snapshot 在提交时整体替换；快照只保对象寿命，真正窃取前
-     * 仍要检查双方 lifecycle/admission。thief 正在退役时不再收入新任务。
-     */
+    /* m_active_snapshot 在提交时整体替换；快照只保对象寿命，真正窃取前仍要
+     * 检查双方 lifecycle/admission。thief 正在退役时不再收入新任务。 */
     if (thief == nullptr || !thief->_IsActive())
         return 0;
 
@@ -1295,14 +1290,9 @@ int Scheduler::TryWorkSteal(Processer::SPtr thief)
 
 void Scheduler::_InitGlobalUniqInstance()
 {
-    /**
-     * 禁止编译器优化。
-     *
-     * 1. 确保全局单例在使用前被初始化，防止编译器将全局单例的初始化延迟到第一次使用时。
-     * 2. 确保全局单例在程序启动时就被初始化，避免多线程环境下的竞态条件。
-     * 3. 确保全局单例的初始化顺序正确，避免依赖关系错误。
-     *
-     */
+    /* 函数内静态单例在哪条线程首次触碰就在哪条线程构造：这里在 Start 的调用线程上先取一遍
+     * poller/profiler/stackpool，避免 worker 在调度循环里首次惰性构造；g_bbt_tls_helper 是
+     * thread_local，只保证 Start 所在线程有一份。局部引用用于强制求值，故关闭优化。 */
 #pragma optimize("", off)
     BBTATTR_COMM_UNUSED auto& _init_tls_helper = g_bbt_tls_helper;
     BBTATTR_COMM_UNUSED auto& _init_poller = g_bbt_poller;

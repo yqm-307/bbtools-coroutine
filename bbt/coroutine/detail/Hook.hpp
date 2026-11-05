@@ -1,4 +1,7 @@
-/* 系统调用 hook 声明与 dlsym 原函数指针表。 */
+/**
+ * @file Hook.hpp
+ * @brief libc 阻塞调用的接管层：原函数指针表、Hook_* 入口声明与 C 符号导出声明。
+ */
 #pragma once
 #include <sys/socket.h>
 #include <sys/uio.h>
@@ -20,17 +23,10 @@
 #include <errno.h>
 #include <atomic>
 
-/**
- * 当协程中执行会阻塞的接口时，不能真的阻塞当前线程。
- * 
- * 因此使用我们的函数hook系统函数，实际上使用同步非阻塞。
- * 当协程调用需要阻塞的系统接口时，注册一个事件并使用poll、
- * epoll等的监听功能来轮训监听事件，当事件完成时，再让P去
- * 唤醒阻塞的协程获取资源继续执行。
- * 
- * todo：更丰富的接口、支持跨平台
- */
-
+/* 原函数指针表：dlsym(RTLD_NEXT) 取 libc 实现，static 变量每个 TU 各一份、各自在动态初始化期
+ * 解析。同名 C 符号是链接期入口，按「本线程能否跑协程」分流（不能跑的直通原函数）；协程 IO 由守卫
+ * 临时设 O_NONBLOCK、结束恢复原 flags，不要求调用方预设，close 不分流。取不到时为 nullptr——只有
+ * accept4 有降级路径，其余调用点不判空。TODO: 覆盖更多阻塞接口并支持非 Linux 平台。 */
 using g_bbt_sys_hook_socket_fn_t = int (*)(int /*domain*/, int /*type*/, int /*protocol*/);
 using g_bbt_sys_hook_connect_fn_t = int (*)(int /*socket*/, const struct sockaddr* /*address*/,
                                             socklen_t /*address_len*/);

@@ -8,6 +8,8 @@
 #include <bbt/coroutine/detail/CoPoller.hpp>
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
 
+/* CoPoller 门面实现：底层 Event 只能由驱动线程（首个调用 PollOnce 的线程）析构——asio 对象
+ * 与派发中的回调共用同一 context，别处析构会与 event loop 竞态；其它线程只能 DeferDestroyEvent。 */
 namespace bbt::coroutine::detail {
 
 /* StartLoop 内的在 poll 标记；handler 抛异常也不遗留 m_in_poll == true。 */
@@ -28,7 +30,7 @@ private:
 
 CoPoller::UPtr& CoPoller::GetInstance()
 {
-    /* 进程寿命：持 epoll fd 且被 worker 线程使用，不在静态退出期析构 */
+    /* 进程寿命：持 EventLoop/io_context，不在静态退出期析构。 */
     static UPtr* _holder = new UPtr{new CoPoller()};
 
     return *_holder;
@@ -76,6 +78,7 @@ void CoPoller::_BeginDrive()
 
 bool CoPoller::PollOnce()
 {
+    /* 清零 errno 后驱动。本函数不解释 errno：返回值只反映 StartLoop 是否派发了事件。 */
     errno = 0;
 
     _BeginDrive();

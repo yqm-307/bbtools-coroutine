@@ -18,6 +18,7 @@ namespace bbt::coroutine::detail {
  */
 class DriverWakeDeferral {
 public:
+    // 构造 depth++；析构 depth--，退到最外层且 pending 置位时补发 driver Wake。
     DriverWakeDeferral() noexcept
     {
         ++_TlsDepth();

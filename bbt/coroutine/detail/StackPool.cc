@@ -229,6 +229,8 @@ size_t StackPool::GetCoAvgCount()
 
 void StackPool::OnUpdate()
 {
+    /* 采样与回收串在同一拍：采样算出全池要留多少，回收按差额摘空闲栈。
+     * 两段都只在锁内改计数，实际 delete 一律放到锁外，避免析构链在池锁里跑。 */
     size_t keep = 0;
     size_t to_release = 0;
 

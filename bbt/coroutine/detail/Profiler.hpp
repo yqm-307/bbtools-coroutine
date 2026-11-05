@@ -1,4 +1,7 @@
-/* 协程事件计数/剖析 Profiler。 */
+/**
+ * @file Profiler.hpp
+ * @brief 运行时计数器与 worker 快照：ProfileInfo 输出可读文本，DumpStderr 供压测逐秒采样。
+ */
 #pragma once
 #include <atomic>
 #include <memory>
@@ -29,6 +32,8 @@ public:
     void OnEvent_StartProcesser(Processer::SPtr proc);
     void OnEvent_StopPorcesser(Processer::SPtr proc) noexcept;
 
+    /* 以下 OnEvent_* 由热路径直接调用：只做一次原子自增（OnEvent_StartProcesser 例外，要登记
+     * worker 强引用），不加锁、不分配、不挂起。 */
     void OnEvent_RegistCoroutine();
     void OnEvent_DoneCoroutine();
 
@@ -45,9 +50,12 @@ public:
 
     void OnEvent_CoMutexLockYield();
 
+    /** @brief 生成多行可读统计文本：计数、StackPool 指标与每个 worker 的实时数字。
+     *  worker 列表锁内只拷强引用，格式化在锁外做；退役 worker 由 reaper 在 join 后移除。 */
     void ProfileInfo(std::string& info);
 
-    // 紧凑格式输出到 stderr，用于压测时每秒采样
+    /* 紧凑格式输出到 stderr，用于压测时每秒采样。与 ProfileInfo 不同：整段持
+     * m_processer_map_mutex 直接写 stderr，采样线程阻塞期间会挡住 worker 登记/退役。 */
     void DumpStderr();
 
     /**

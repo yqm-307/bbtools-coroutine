@@ -1,3 +1,5 @@
+/* Processer：worker 线程的执行单元。本地 CFS 就绪队列、admission 门禁、
+ * 生命周期状态和单槽 driver 绑定都在这里；创建/激活/退役由 Scheduler 驱动。 */
 #pragma once
 #include <condition_variable>
 #include <mutex>
@@ -34,16 +36,15 @@ struct ProcesserDriverBinding {
 };
 
 /**
- * @brief Processer类
+ * @brief 一个 worker 线程的执行单元：本地就绪队列 + admission 门禁 + 单槽 driver。
  *
- * Processer是协程的执行单元，负责调度和执行协程任务。
- * 每个Processer绑定一个线程，且每个线程只能有一个Processer。
+ * 一个 P 绑定一个线程；TLS 那份是本线程唯一可见的 P，Scheduler 的 worker 由
+ * _WorkerMain 指向已登记对象，不会在 worker 里再建第二个。
  *
- * Processer的主要职责包括：
- * - 执行协程任务
- * - 管理协程的状态
- * - 支持协程的窃取和负载均衡
- *
+ * 控制权不重叠：本地队列只由本线程 Pick/Account、外部生产者过 admission 入队、
+ * steal/排空走 Take；生命周期与 admission 只由 Scheduler 在 m_lifecycle_mutex 下
+ * 推进（worker 只发布 Exited，reaper 在 join 后发布 Joined）；driver 槽绑定在
+ * lifecycle 锁下提交、解绑走同代校验。无停机入口，_Run 只在 retire 后退出。
  */
 class Processer : public std::enable_shared_from_this<Processer> {
 public:
@@ -51,8 +52,10 @@ public:
     friend class Profiler;
     typedef std::shared_ptr<Processer> SPtr;
 
+    /* 只构造对象：分配 id、置 PROC_SUSPEND，不装 TLS、不进 active 快照；参与调度须由 Scheduler prepare→commit。 */
     static SPtr Create();
-    /* 获取当前线程Processer */
+    /* 取当前线程的 P；不存在时惰性建一个只在本线程 TLS 可见、未登记 Scheduler 的 P：
+     * 不进 active 快照，不能当 driver 目标或定向首投目标（未初始化时也会创建）。 */
     static SPtr GetLocalProcesser();
     /* 只读取同一份线程局部存储；不存在时返回空，不创建 Processer。 */
     static SPtr TryGetLocalProcesser();
@@ -60,21 +63,23 @@ public:
     explicit Processer();
     ~Processer();
 
-    /* 获取processer当前状态 */
+    /* 最近一次调度状态：worker 每轮调度时写，任意线程可读（atomic）。 */
     ProcesserStatus GetStatus();
-    /* 获取processer id */
+    /* 构造时分配的 id，进程内不复用；只读，任意线程可读。 */
     ProcesserId GetId();
+    /* 只在 P 自己的 worker 线程上有意义：m_running_coroutine 非原子，跨线程读是竞争；不在 Resume 中返回 nullptr。 */
     Coroutine::Ptr GetCurrentCoroutine();
 
 protected:
     /* 非公开库内部接口 */
+
+    /* 跑本对象的调度循环：background_thread=true 新建并 detach 一条线程（不可 join），false 在当前线程同步跑；
+     * Scheduler 的 worker 不走这里，由 _WorkerMain 直接调 _Run。 */
     void Start(bool background_thread = true);
     size_t GetLoadValue();
     size_t GetExecutableNum(); /* 可执行协程数 */
-    /* admission gate：返回 false 表示 P 已关闭接纳（Preparing/Retiring/
-     * Exited），调用方仍持有协程所有权，必须重试 active/global 或显式拒绝。
-     * 入队与关闭 admission 通过 in-flight 计数线性化，旧 snapshot 命中
-     * 不能仅凭 shared_ptr 保活就写 retired 本地队列。 */
+    /* admission gate：false 表示 P 已关闭接纳（Preparing/Retiring/Exited），协程所有权仍在调用方，
+     * 须重试 active/global 或显式拒绝；入队与关闭通过 in-flight 计数线性化。 */
     bool AddCoroutineTask(CoroutinePriority priority, Coroutine::Ptr coroutine);
 
     uint64_t GetContextSwapTimes(); /* 协程上下文换出次数 */
@@ -83,12 +88,12 @@ protected:
     uint64_t GetStealCount();       /* 被窃取次数 */
     uint64_t GetStallLoopCount();   /* 空队列但size_approx非零的循环数 */
     /**
-     * @brief 从Processer中窃取任务（线程安全）
-     *
-     * @param works 窃取的任务
-     * @return 偷取任务数量
+     * @brief 从 *this（victim）转移一批本地 runnable 给 thief；victim 须 Active 且 admission
+     * 开、thief 须 Active，否则返回 0。thief 拒收的那一项回全局队列，不丢所有权。
+     * @param proc 窃取方
      */
-    size_t Steal(Processer::SPtr proc); /* 偷取任务 */
+    size_t Steal(Processer::SPtr proc);
+
 protected:
     void _Init();
     static ProcesserId _GenProcesserId();
@@ -107,15 +112,9 @@ protected:
     ProcesserDriverStatus _UnregisterDriver(uint64_t generation);
 
     /* ---- 动态 worker 生命周期（仅 Scheduler 经 friend 调用）----
-     * Preparing -> Active -> Retiring -> Exited -> Joined：
-     *  - Preparing：本批线程尚未 commit，不接任务/不绑定 driver；
-     *  - Active：active 快照成员，admission 开放；
-     *  - Retiring：已从 active 移除、admission 关闭；worker 完成当前
-     *    Resume 的 READY/EVENT_WAIT/FINAL disposition 后排空本地队列；
-     *  - Exited：调度函数已发布退出，不等于线程返回/TLS 析构/join；
-     *  - Joined：reaper 在锁外 join 返回后才发布。
-     * Scheduler 提交 Active/Retiring，worker 发布 Exited，reaper 发布 Joined；
-     * admission 关闭与 enqueue/drain 握手使用 SC 全序，其余状态 release 发布。 */
+     * Preparing → Active → Retiring → Exited → Joined。Scheduler 提交 Active/Retiring，
+     * worker 发布 Exited（只表示调度函数已退出，不等于线程返回或 join），reaper 在 join
+     * 返回后发布 Joined。Retiring 关闭 admission 并排空本地队列。 */
     static void _InstallLocalProcesser(SPtr proc);
     void _Activate();
     void _BeginRetire();
@@ -128,9 +127,8 @@ protected:
     void _MarkJoined();
 
 private:
-    /* 带 notify 开关的 admission 入队：AddCoroutineTask 用于外部生产者
-     * （需要 _PublishRunnable 唤醒）；worker 自身在持 run_cond 的睡前复查
-     * 或 steal 目的端使用 notify=false，避免自锁。 */
+    /* 带 notify 开关的 admission 入队：外部生产者要 notify=true 唤醒 worker；worker 自身在
+     * 睡前复查或 steal 目的端用 false，避免自锁。 */
     bool _EnqueueAdmitted(CoroutinePriority priority, Coroutine::Ptr coroutine, bool notify);
     void _ReleaseEnqueueSlot();
     void _WaitEnqueueQuiescent();
@@ -167,13 +165,9 @@ private:
     Coroutine::Ptr m_running_coroutine{nullptr};       // processer当前运行中的协程
     std::atomic_uint64_t m_running_coroutine_begin{0}; // 当前运行协程开始执行的时间
 
-    /* ---- worker 无进展快照----
-     * 单写者=worker 线程（协程每次进入 Resume 前），读者=调度线程。
-     * 同步依据：全部字段受 m_exec_mutex 保护，写者在临界区内一次性提交，
-     * 读者在临界区内整组复制——快照一致性直接由互斥锁的 happens-before
-     * 给出，每次上报载荷同属一次 Resume，无需无锁协议的正确性论证。
-     * 诊断可选且非热路径，取可证明的最小同步。
-     * m_last_stall_report_begin 仅调度线程读写。 */
+    /* ---- worker 无进展快照 ----
+     * 单写者=worker（Resume 前），读者=调度线程；字段受 m_exec_mutex 保护，写者一次提交、
+     * 读者整组复制，一致性由锁的 happens-before 给出。m_last_stall_report_begin 仅调度线程读写。 */
     std::mutex m_exec_mutex; // 以下快照字段均由它保护
     bool m_executing{false}; // 正在 Resume 用户协程中
     uint64_t m_exec_co_id{0};
@@ -192,7 +186,7 @@ private:
     std::shared_ptr<ProcesserDriverBinding> m_driver_binding;
     uint64_t m_driver_next_generation{0};
 
-    // XXX 可以优化到profiler中
+    // 计数随 P 生灭，由 Profiler 汇总读取；按 P 独立开关采集的话再搬进它的 worker registry。
 #ifdef BBT_COROUTINE_PROFILE
     /* ProfileInfo 可在 worker 运行/退役时并发采样，计数不与其它状态组成快照。 */
     std::atomic_uint64_t m_co_swap_times{0};

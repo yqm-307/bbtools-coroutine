@@ -32,23 +32,13 @@ enum class CoroutineYieldDisposition {
 };
 
 /**
- * @brief
+ * @brief 一个用户任务：内嵌 Context（借来的栈）与 CFS 节点，记录运行状态和当前等待事件。
  *
- * Coroutine是一个协程对象，封装了协程的上下文和状态信息。
- * 
- * Coroutine还提供了常用的挂起、唤醒以及基于事件的挂起和唤醒的功能。 
- * 
- * Coroutine使用shared_ptr来控制生命期，其主要目的是为了在使用
- * 基于EventLoop的调度器中不会被意外释放。减少编写调度器的难度，
- * 但是目前Scheduler和Processer的实现可以保证一个Coroutine只
- * 会在一个时刻，被一个Processer访问到，因为所有Coroutine执行都
- * 在Processer的上下文中进行。
- * 
- * TODO ： 不再使用shared_ptr来控制Coroutine的生命周期
- *
- * 稳定方法：Create / Resume / Yield / GetId / GetStatus。
- * YieldWithCallback、YieldAndPushGCoQueue、CommitYield 属调度内部。
- * RequestCancel / GetException 分别由后续工作补齐。
+ * 所有权：Create 返回裸指针（Ptr 即 Coroutine*），没有 shared_ptr。Scheduler 入队后所有权交给
+ * Processer：CommitYield 报 FINAL 由 Processer delete，报 READY 重新入队，报 EVENT_WAIT 交给
+ * CommitPark 完成 park。同一时刻只有一个 Processer 线程操作它；m_await_event 由 m_await_mu 保护，
+ * 所以 poller 派发和其他 worker 的 Notify 能在别的线程取到事件引用并 Trigger，运行状态只有持有者能改。
+ * 状态机见 Define.hpp 的 CoroutineStatus 图。
  */
 class Coroutine : public ICoroutine {
 public:
@@ -65,46 +55,54 @@ public:
     Coroutine(size_t stack_size, const CoroutineCallback& co_func, bool need_protect);
     virtual ~Coroutine();
 
-    /* 注册时携带描述：bbtco_desc 落库真源；空 desc 与不带参数等价 */
+    /**
+     * @brief 创建协程并分配 id；不启动、不入队。@p stack_size 为请求字节数，@p desc 为 nullptr 或空串都按未命名处理。
+     * @return 裸指针，调用方负责入队或 delete；栈借不到、描述赋值 bad_alloc 都直接抛出。
+     */
     static Ptr Create(size_t stack_size, const CoroutineCallback& co_func, bool need_protect = true,
                       const char* desc = nullptr);
     /**
-     * @brief 唤醒协程。切换到协程的上下文中执行。
+     * @brief 唤醒并切进协程，返回时协程已再次让出。
+     * 只能在持有该协程的 Processer 线程调用；运行状态不是 CO_RUNNABLE/CO_SUSPEND 时 Assert。
      */
     virtual void Resume() override;
 
     /**
-     * @brief 挂起协程。保存协程上下文，并回到调用Resume的上下文中
+     * @brief 主动让出，标记为 MANUAL + CO_SUSPEND 后切回调度线程。
+     * 只能由协程自身在 CO_RUNNING 状态调用。MANUAL 不产生 await 事件，CommitYield 也不会把它重新入队。
      */
     virtual void Yield() override;
 
     /**
-     * @brief 挂起协程，并在挂起成功后执行函数
-     * 
-     * 因为协程在Processer中执行，但是EventLoop在Scheduler中运行。
-     * 如果当前Coroutine在挂起前注册事件，可能会导致Scheduler中
-     * 立即触发此事件并将Coroutine放入就绪队列，导致当前Coroutine
-     * 还没被挂起就被唤醒了。
-     * 
-     * 因此这个函数是为了在挂起成功后，保证Event同步操作的。
-     * 
-     * @param cb 在挂起成功后执行的函数
-     * @return int 成功返回0，cb执行失败返回-1
+     * @brief 挂起协程，并在挂起成功后执行函数。
+     * 因为 EventLoop 在 Scheduler 中运行，挂起前注册事件可能被立刻触发、协程还没让出就被唤醒，
+     * 所以 cb 由 Resume 在协程真正让出之后执行，用来做事件注册这类必须晚于挂起的动作。
+     * @return 0 成功；cb 判定失败返回 -1。
      */
     virtual int YieldWithCallback(const CoroutineOnYieldCallback& cb) override;
-    /* 手动挂起co并加入到全局队列中，和事件触发挂起无冲突，因为一个协程内逻辑串行 */
 
     /**
-     * @brief 挂起协程，并将协程加入到全局就绪队列中去
+     * @brief 标记 READY 后让出，由 Processer 把它重新入队（本地或 global）；与事件等待不冲突，协程内逻辑串行。
      */
     virtual void YieldAndPushGCoQueue();
 
-    /* Processer 完成运行统计后调用；发布后不得再次访问 Coroutine。 */
+    /**
+     * @brief Processer 在统计结清后调用，决定这次让出的去向。
+     * 返回 FINAL 表示对象已到终态、可由调用方销毁；EVENT_WAIT 在这里提交 park，提交可能立即完成并唤醒协程。
+     * 发布之后不得再次访问 Coroutine。
+     */
     CoroutineYieldDisposition CommitYield();
 
+    /** @brief 协程 id，进程内单调递增，创建后不变。 */
     virtual CoroutineId GetId() const noexcept override;
+    /** @brief 运行状态快照；由持有它的 Processer 线程写入，m_run_status 是 volatile 非原子，无同步的跨线程并发读不安全。 */
     virtual CoroutineStatus GetStatus() const noexcept override;
+    /**
+     * @brief 最后一次导致唤醒的事件掩码（PollEventType 口径，含 TIMEOUT/CANCELLED/CLOSED 位）。
+     * @return 尚未被事件唤醒过时返回 -1。
+     */
     int GetLastResumeEvent() const noexcept;
+    /** @brief 本协程可用栈的字节数。 */
     size_t GetStackSize() const noexcept;
 
 #ifdef BBT_COROUTINE_STACK_DIAGNOSTICS
@@ -140,7 +138,12 @@ public:
         return m_desc;
     }
     int GetWaitInfo(CoroutineWaitInfo& out) const noexcept;
+    /**
+     * @brief 记录异常并把协程推进到终态（FINAL），顺手取消尚未完成的 await 事件。
+     * 在 Context 的 catch 和用户主函数的 catch 里都会调用；异常本身由 GetException 交付。
+     */
     void OnException(std::exception_ptr eptr = nullptr) noexcept;
+    /** @brief 取保存的异常；未发生过异常时为空。 */
     std::exception_ptr GetException() const noexcept;
 
     /**
@@ -148,9 +151,12 @@ public:
      * 运行中的协程在检查点（IsCancelRequested / 等待返回后）自行退出，RAII 照常展开。
      */
     void RequestCancel() noexcept;
+    /** @brief 是否已请求取消；acquire 语义，配合 RequestCancel 的 release 发布。 */
     bool IsCancelRequested() const noexcept;
 
-    /** MLFQ 调度支持 */
+    /**
+     * MLFQ 调度支持：OnCoPollEvent 按 1ms 时间片决定唤醒优先级，超时降级（最多 3 次），时长收敛则逐次恢复。
+     */
     uint64_t GetLastRunTimeUs() const noexcept
     {
         return m_last_run_us;
@@ -172,36 +178,19 @@ public:
         m_mlfq_demotions = 0;
     }
 
-    /**
-     * YieldUnitl事件
-     * 
-     * 这些事件是为了让Coroutine支持事件驱动的挂起和唤醒。
-     * 
-     * 工作原理：
-     * 首先Coroutine只能在Processer中被访问，当Coroutine执行YieldUnitl被挂起时，
-     * Coroutine会被存储在Event中，此时Coroutine就会被挂起了。Processer会继续执
-     * 行其他Coroutine。当Scheduler中发现有Coroutine的等待事件就绪了，就会将对应
-     * 的Coroutine放入到就绪队列中去。Coroutine只能在一个Processer中被访问，所以
-     * Coroutine可以保证事件是唯一的，不会出现同一个Coroutine被多次唤醒的情况。
-     * 
-     *  事件触发有两种情况：
-     *      1、Scheduler中事件就绪了，会将Coroutine放入就绪队列中去；
-     *      2、其他Processer中触发了Custom事件，会将Coroutine放入就绪队列中去。
-     * 
-     * 支持的事件有：
-     * - 可读事件：当fd可读
-     * - 可写事件：当fd可写
-     * - 超时事件：当超过指定时间
-     * - 自定义事件：当自定义事件被触发
-     * 
-     * Q: 事件触发是否为异步的？
-     * A: 是的，首先明确Coroutine只能在Processer中被访问，且YieldUnitl
-     * 只能由当前Coroutine主动调用，那么事件注册的唯一性就可以保证了。
-     * 
+    /*
+     * 事件等待族：先在 m_await_event 备好 CoPollEvent，再经 YieldWithCallback 在挂起后注册——注册早于
+     * 让出的话 poller 可能在协程还没让出时就把它标成就绪。唤醒来源不止两种：Scheduler 派发就绪事件、
+     * 其他 Processer 触发 custom 事件、native Notify、取消与 close 都会推进完成；都只入队，运行状态
+     * 保持 CO_SUSPEND 直到再次 Resume。
+     * 返回码：0 = 已注册并在被唤醒后返回（原因看 GetLastResumeEvent）；-1 = 事件创建/初始化/注册失败，
+     * 协程未真正挂起；1 = 进入时已有取消请求（未挂起）。同一时刻最多一个 await_event，已有事件时 Assert。
      */
 
     int YieldUntilTimeout(int ms);
+    /** @brief 登记一个 custom 事件，由外部 Trigger 唤醒；已有 await_event 或初始化失败返回 nullptr。 */
     std::shared_ptr<CoPollEvent> RegistCustom(int key);
+    /** @brief 同上，另加超时；超时与 custom 谁先到都算唤醒。 */
     std::shared_ptr<CoPollEvent> RegistCustom(int key, int timeout_ms);
     int YieldUntilFdReadable(int fd);
     int YieldUntilFdReadable(int fd, int timeout_ms);
@@ -222,43 +211,40 @@ public:
     static void _TestFailNextAwaitRegist() noexcept;
 
 protected:
+    // 唤醒入口：归一化掩码、清 await、按 MLFQ/超时规则定优先级后交给 Scheduler 入队。执行线程不固定——
+    // PENDING 由 CommitPark 所在 Processer 完成，PARKED 由 Trigger 调用线程同步完成。
     void OnCoPollEvent(int event, int custom_key);
 
 protected:
+    // 进程内单调递增，从 INVALID_COROUTINE_ID 之后开始
     static CoroutineId _GenCoroutineId();
 
 private:
+    // 挂起后注册当前 await 事件：先做取消预检与单测注入，注册失败则清 await、回滚 disposition。
     bool _RegistAwaitEvent();
+    // 锁内拷贝一份 shared_ptr：调用方拿到后即使槽被清空，事件对象仍然存活。
     std::shared_ptr<CoPollEvent> _AwaitEvent() const;
+    // 按值接管所有权；传 nullptr 即清空槽位。
     void _SetAwaitEvent(std::shared_ptr<CoPollEvent> ev);
 
     /* 单测故障注入标志：见 _TestFailNextAwaitRegist 注释 */
     static std::atomic_bool s_test_fail_await_regist;
 
 private:
+    // CFS 节点，随本对象生灭
     CfsEntity m_cfs;
     Context m_context;
     const CoroutineId m_id{BBT_COROUTINE_INVALID_COROUTINE_ID};
-    volatile CoroutineStatus m_run_status{CoroutineStatus::CO_DEFAULT};
+    volatile CoroutineStatus m_run_status{CoroutineStatus::CO_DEFAULT}; // 只有持有它的 Processer 线程写
 
-    /**
-     * 这是协程调度的核心
-     * 
-     * 当协程挂起时，会创建一个await_event事件，此事件会在满足条件后触发
-     * 并使当前协程进入就绪态并 push 到 global_queue 中。
-     * 
-     * 支持的事件有：
-     *  1. 自定义事件（由用户手动触发，如CoCond::Notify）
-     *  2. 超时事件（当超过指定时间后触发，libevent提供）
-     *  3. 可读事件（当fd可读时触发，libevent提供）
-     *  4. 可写事件（当fd可写时触发，libevent提供）
-     * 
-     */
+    /* 当前等待事件：挂起前建好、挂起后注册，唤醒时被消费清空。
+     * 由 m_await_mu 保护，所以 poller 派发和其他 worker 的 Notify 能取到引用并 Trigger。 */
     std::shared_ptr<CoPollEvent> m_await_event{nullptr};
     mutable std::mutex m_await_mu;
     std::atomic_bool m_cancel_requested{false};
     std::exception_ptr m_exception;
     CoroutineOnYieldCallback m_co_onyield_callback{nullptr};
+    /* 本次让出的去向，由 Coroutine::Yield* 写入、CommitYield 读出后交给 Processer。 */
     CoroutineYieldDisposition m_yield_disposition{CoroutineYieldDisposition::MANUAL};
 
     int m_last_resume_event{-1}; // 最后一次导致此协程唤醒的事件（PollEventType 归一化掩码）

@@ -19,10 +19,20 @@
 #include <bbt/coroutine/detail/debug/DebugMgr.hpp>
 #include <bbt/coroutine/detail/GlobalConfig.hpp>
 
+/* CoPollEvent 实现：CAS 状态机 + fd 代际注册表。
+ *
+ *   INITED → ARMING → ARMED → PARKED → TRIGGERING → FINAL
+ *   INITED/ARMING/ARMED ──Trigger──→ PENDING ──CommitPark──→ TRIGGERING → FINAL
+ *   INITED/ARMING/ARMED/PARKED ──UnRegist──→ CANCELLED
+ * 首胜：只有 CAS 胜者执行 _Complete。PARKED 的触发由 Trigger 就地完成，PENDING 的留给
+ * CommitPark 在 Processer 线程消费；终态之后任何触发都返回 -1。
+ * 槽位 epoch>0 后永不擦除，恢复侧才能事后比对代际；close 线性化见 hpp 的 BeginFdClose/EndFdClose。
+ */
 namespace bbt::coroutine::detail {
 
 namespace {
 
+/* 完成回调的异常在这里收口（打 stderr + 计数），不重抛：调用点可能在 Processer 原生栈上。 */
 void ReportCoPollEventException(CoroutineId co_id, CoPollEventId event_id, std::exception_ptr eptr) noexcept
 {
     const auto report = [co_id, event_id](const char* message) noexcept {
@@ -55,6 +65,7 @@ void RawSleepMs(long ms) noexcept
 
 }
 
+/* EventOpt 位 → PollEventType 位；自定义事件没有对应 fd 位，单独置 POLL_EVENT_CUSTOM。 */
 int TransformToPollEventType(short pollevent_type, bool has_custom)
 {
     int ret = 0x0;
@@ -98,6 +109,7 @@ int CoPollEvent::Trigger(short trigger_events)
     if (trigger_events == 0)
         return -1;
 
+    /* 首胜：INITED/ARMING/ARMED 只写 PENDING 状态字；PARKED 才由本线程执行 _Complete。 */
     uint64_t state = m_state.load(std::memory_order_acquire);
     for (;;) {
         const auto phase = GetCoPollEventPhase(state);
@@ -342,11 +354,10 @@ int CoPollEvent::InitFdEvent(int fd, short events, int timeout)
         return 0;
     }
     auto weakthis = weak_from_this();
-    /* asio 侧旧监听的析构延迟到驱动线程下一次 PollOnce 兑现；本协程
-     * 被唤醒后若抢在兑现前为同一 fd 建新监听，epoll ADD 报 EEXIST，异常曾
-     * 一路逃出杀死连接协程（客户端超时）。此处有界重试：驱动约 1ms 一拍，
-     * 旧监听很快释放；仍失败则返回 -1 不抛异常，调用方按等待建立失败处理，
-     * 协程存活。常态零开销，仅竞态路径短睡 worker（默认 stall 告警关闭）。 */
+    /* asio 侧旧监听的析构延迟到驱动线程下一次 PollOnce；本协程抢在兑现前为同一 fd 建新监听
+     * 会撞 EEXIST，不接住就一路逃出杀死连接协程。所以有界重试（驱动约 1ms 一拍），仍失败
+     * 返回 -1 不抛异常，调用方按等待建立失败处理。常态零开销，仅竞态路径短睡 worker
+     * （默认 stall 告警关闭）。 */
     for (int attempt = 0;; ++attempt) {
         try {
             m_event = g_bbt_poller->CreateEvent(fd, events,
@@ -385,6 +396,8 @@ int CoPollEvent::InitCustomEvent(int key, void* args)
 
 int CoPollEvent::Regist()
 {
+    /* INITED→ARMING（CAS 胜者 StartListen）→ARMED→登记 waiter；StartListen 失败则收敛成
+     * CANCELLED 并移交底层 Event；登记被拒（fd 已换代）以 CLOSED 自触，恢复侧按 EBADF 收口。 */
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
     /* 诊断登记经 TryRegistEvent 收口——map 节点单次分配失败返回
      * false（内部已报告 + 计数，不抛出——本函数可运行在 Context::Resume
@@ -630,6 +643,7 @@ int64_t CoPollEvent::GetTimeout() const
 int CoPollEvent::_Complete(short trigger_events)
 {
     auto keep_alive = shared_from_this();
+    /* 顺序固定：摘 waiter → 移交底层 Event → 发布 FINAL → 回调；CAS 保证只有这一个执行者。 */
     _CannelAllFdEvent();
     m_state.store(PackCoPollEventState(CoPollEventPhase::FINAL, trigger_events), std::memory_order_release);
 

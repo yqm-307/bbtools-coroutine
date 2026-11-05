@@ -21,24 +21,14 @@ fcontext_t& Context::GetCurThreadContext()
 
 void Context::_CoroutineMain(boost::context::detail::transfer_t transfer)
 {
-    Assert(transfer.data != nullptr); // 来源协程上下文
+    Assert(transfer.data != nullptr); // data 是 _Resume 传入的 Context*
     auto* context = reinterpret_cast<Context*>(transfer.data);
 
-    /**
-     * 保存来源线程的上下文。为了知道当前协程是从哪个
-     * 线程切换过来的在Yield时会用到这个上下文
-     */
+    /* 保存来源（worker）上下文：_Yield 切回时用它，所以每次切入都要重写本线程 TLS。 */
     context->GetCurThreadContext() = transfer.fctx;
 
-    /**
-     * 在这里执行用户协程的主函数。
-     *
-     * 用户协程内总是会调用 Yield() 来让出 CPU 控制权，同时
-     * 为了防止用户调用某些阻塞操作导致当前线程挂起，我们需要
-     * 提供一套非阻塞且使协程挂起的操作（bbt::co::sync提供了
-     * 相关类）。
-     *
-     */
+    /* 用户主函数在本协程栈上执行。协程内任何阻塞调用都必须经 bbt::co::sync 转成挂起，
+     * 否则会占死 worker 线程；异常不得逃出 fcontext，统一在这里收口。 */
     try {
         context->m_user_main();
     } catch (...) {
@@ -81,9 +71,7 @@ void Context::_CoroutineMain(boost::context::detail::transfer_t transfer)
     g_bbt_profiler->OnEvent_DoneCoroutine();
 #endif
 
-    /**
-     * 执行完后，切回到调度逻辑中去
-     */
+    /* 执行完后，切回到调度逻辑中去 */
     context->Yield();
 }
 
@@ -146,15 +134,9 @@ void Context::Yield()
 
 int Context::YieldWithCallback(const CoroutineOnYieldCallback& cb)
 {
-    /**
-     * 因为我们有CoEvent我们需要再协程挂起后再注册事件。
-     *
-     * 因为我们的CoEvent触发是在另外的线程执行的，如果挂起前
-     * 就注册了CoEvent，那么在尚未挂起，可能会触发CoEvent的回
-     * 调，CoEvent会尝试唤醒当前协程，这样就会导致一个协程尚未
-     * 被挂起就被唤醒出现异常。
-     *
-     */
+    /* CoEvent 的触发来自别的线程（poller 派发或其他 worker 的 Notify）。若在挂起前就
+     * 注册事件，回调可能在协程还没让出时把它唤醒——一个尚未挂起的协程被 Resume 会把
+     * 状态机打乱。所以注册动作放在 on-yield 回调里，由 Resume 在真正让出之后执行。 */
     int ret = 0;
 
     Assert(m_onyield_callback == nullptr);
@@ -186,13 +168,10 @@ void Context::Resume()
 {
     _Resume();
 
-    /* 执行on yield success。check 失败的重入会继续执行协程，其间协程
-     * 可能再次 YieldWithCallback 挂出新的 onyield 回调——必须循环处理
-     * 直到没有待执行回调。只重入一次的旧实现会丢掉新回调：协程带着未
-     * 注册的 await 事件停在 EVENT_WAIT，CommitYield 的 CommitPark 失败
-     * 后被 Processer 丢弃引用，协程永久悬挂且无回收点。
-     * 注：协程侧 YieldWithCallback 在 _Yield 返回后自行清空
-     * m_onyield_callback，本循环每次读到的是协程最新挂出的回调。 */
+    /* 执行 on-yield 检查。check 失败的重入会继续跑协程，其间可能再次挂出新回调，必须循环到没有
+     * 待执行回调：只重入一次的话新回调没有执行者，协程带着未注册的 await 事件停在 EVENT_WAIT，
+     * CommitPark 失败后被 Processer 丢弃引用，永久悬挂且无回收点。协程侧在 _Yield 返回后清空
+     * m_onyield_callback，本循环每次读到的是最新挂出的回调。 */
     while (m_onyield_callback) {
         const bool check_succ = m_onyield_callback();
         m_onyield_callback_result =
@@ -206,11 +185,8 @@ void Context::Resume()
 
 int Context::_Yield()
 {
-    /**
-     * 调用jump后，切换回调度线程
-     *
-     * 当jump返回时，说明调度线程通过 Resume 返回了。trf中保存了调度协程的上下文
-     */
+    /* jump 回 TLS 记录的来源上下文。jump 返回说明来源线程又 Resume 了本协程，
+     * transfer.fctx 是本次的来源，写回 TLS 供下一次 _Yield 切回。 */
     boost::context::detail::transfer_t transfer{fctx : nullptr, data : nullptr};
 
 #ifdef BBT_COROUTINE_STACK_DIAGNOSTICS
@@ -231,9 +207,8 @@ int Context::_Yield()
 
 int Context::_Resume()
 {
-    /**
-     * 调用jump后，将切换到当前协程
-     */
+    /* 切入本协程；jump 返回即协程又让出了。transfer.data 是上面传进去的 this，
+     * 协程侧把它当 void** 回写自己的返回 fctx（m_context 在偏移 0）。 */
     boost::context::detail::transfer_t transfer{fctx : nullptr, data : nullptr};
 
 #ifdef BBT_COROUTINE_STACK_DIAGNOSTICS

@@ -1,3 +1,7 @@
+/**
+ * @file CoPoller.hpp
+ * @brief EventLoop 门面：驱动权归属、Event 延迟析构兑现、FD/Timer/Wakeup 事件入口。
+ */
 #pragma once
 #include <atomic>
 #include <chrono>
@@ -13,30 +17,21 @@ namespace bbt::coroutine::detail {
 
 class CoPollEvent;
 
-/**
- * EventLoop 门面。Scheduler 只通过 PollOnce()（非阻塞排空）/PollOnceUntil()（有界
- * 事件等待）驱动，不依赖 epoll。
- *
- * 首版三类事件：
- *   FD      — CreateEvent(fd, READABLE/WRITEABLE)
- *   Timer   — CreateEvent(-1, TIMEOUT)
- *   Wakeup  — NotifyCustomEvent
- *
- * Poller backend 是 bbt::pollevent::EventLoop（当前 ASIO），可替换。
- * epoll 不是用户契约。IPoller 是未接入遗留接口，不在本阶段实现。
- *
- * Event 析构所有权：底层 Event 只能在驱动线程（第一个调用 PollOnce 的线程）
- * 上兑现。FlushDeferredEvents 在非驱动线程调用是 no-op，积压延迟到驱动线程
- * 下一次 PollOnce（进入 poll 前）兑现。
- */
+/* EventLoop 门面：Scheduler 只经 PollOnce()（非阻塞排空）/PollOnceUntil()（有界等待）驱动，
+ * 不依赖 epoll。三类事件：FD CreateEvent(fd, READABLE/WRITEABLE)、Timer CreateEvent(-1,
+ * TIMEOUT)、Wakeup NotifyCustomEvent。backend 是 bbt::pollevent::EventLoop（当前 ASIO），可
+ * 替换；epoll 不是用户契约，IPoller 是未接入的遗留接口、不实现。底层 Event 只在驱动线程兑现。 */
 class CoPoller {
 public:
     typedef std::unique_ptr<CoPoller> UPtr;
+    /** @brief 进程内唯一的 CoPoller；holder 刻意泄漏——没有可等待的停机点，静态析构会和仍在驱动的线程撞上。 */
     static UPtr& GetInstance();
 
     CoPoller();
     ~CoPoller();
 
+    /** @brief 非阻塞驱动一拍，进入 poll 前先兑现积压的延迟析构 Event。
+     *  @return true 表示本拍至少派发了一个完成回调；false 表示无可派发事件或 context 已 stopped。 */
     bool PollOnce();
 
     /**
@@ -61,6 +56,7 @@ public:
      */
     bool PollOnceUntil(std::chrono::steady_clock::time_point deadline);
 
+    /** @brief 只构造底层 Event 不登记；StartListen 时才挂到底层 context。 */
     std::shared_ptr<bbt::pollevent::Event> CreateEvent(int fd, short events,
                                                        const bbt::pollevent::OnEventCallback& onevent_cb);
 
@@ -84,6 +80,8 @@ public:
     uint64_t GetDrainOffDriverCount() const;
     uint64_t GetDrainInPollCount() const;
 
+    /* 内部入口：取底层 EventLoop（shared_ptr 保活）；调用方不得另行 run/stop/restart，
+       驱动权只在 PollOnce/PollOnceUntil。 */
     std::shared_ptr<bbt::pollevent::EventLoop> GetEventLoop() const;
 
     /* 只读投递入口：返回本 Poller 所持 EventLoop 的 Asio executor。

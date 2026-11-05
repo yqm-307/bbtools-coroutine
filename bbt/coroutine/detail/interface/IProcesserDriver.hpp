@@ -6,30 +6,29 @@
 
 namespace bbt::coroutine::detail {
 
-/**
- * @brief Processer driver 通用 adapter（B1，契约见
- *  docs/architecture/core-runtime-contract.md）。
- *
- * driver 由上层（如 infra reactor owner）实现，在绑定 Processer 的
- * worker 线程、非业务协程上下文被 Tick/Wait 推进；Wake 允许任意
- * 线程调用。接口不暴露任何第三方类型。
- */
+/** @brief Processer driver 通用 adapter（契约见 docs/architecture/core-runtime-contract.md）。
+ *  driver 由上层（如 infra reactor owner）实现，在绑定 P 的 worker 线程、非业务协程上下文被 Tick/Wait 推进；
+ *  Wake 允许任意线程调用；接口不暴露任何第三方类型。 */
 
+/** @brief 一轮调度中 driver 被推进的相位。 */
 enum class ProcesserDriverPhase {
     BeforeSchedule, // 每轮调度前
     AfterSchedule,  // 每轮调度后（公平轮次 continue 同样经过）
 };
 
+/** @brief Tick/Wait 的返回值。 */
 enum class ProcesserDriverResult {
     Ok,
-    Failed,
+    Failed, // runtime 转 Failed 态：保留 token、错误来源与异常，直到合法解绑
 };
 
+/** @brief driver 归属状态机：Unbound → Bound → Detaching → Unbound。
+ *  Failed 可从 Bound 进入，同样可解绑，不要求 worker 再跑一轮 ack。 */
 enum class ProcesserDriverState {
-    Unbound,
-    Bound,
-    Failed,
-    Detaching,
+    Unbound,   // 空槽，没有 driver 归属
+    Bound,     // 正常推进 Tick/Wait
+    Failed,    // Tick/Wait 失败后封存，不再发起普通 Tick/Wait/Wake
+    Detaching, // 已禁止新 lease，等该代 callback lease 全部退出
 };
 
 enum class ProcesserDriverStatus {
@@ -42,12 +41,15 @@ enum class ProcesserDriverStatus {
     SelfDetach,     // 目标 worker 线程、受管业务协程或持该代 lease 的线程
 };
 
+/** @brief 进入 Failed 的来源：哪一类回调失败。 */
 enum class ProcesserDriverFailure {
     None,
     Tick,
     Wait,
 };
 
+/** @brief 绑定收据：P 身份 + 非零代次。
+ *  解绑精确校验同代：过期 token 既不能解绑新一代，也不能当旧代成功解绑的收据。 */
 struct ProcesserDriverToken {
     ProcesserId m_processer_id{BBT_COROUTINE_INVALID_PROCESSER_ID};
     uint64_t m_generation{0};
@@ -62,6 +64,7 @@ struct ProcesserDriverToken {
     }
 };
 
+/** @brief 一次查询得到的归属快照（拷贝，不持 driver 引用）；空槽也返回 Ok，此时 m_state 是 Unbound、m_token 只带本 P 身份且代次为 0。 */
 struct ProcesserDriverSnapshot {
     ProcesserDriverState m_state{ProcesserDriverState::Unbound};
     ProcesserDriverToken m_token{};

@@ -1,3 +1,4 @@
+/* 运行时公共类型：状态枚举、事件位与回调 typedef；只放声明，不含实现。 */
 #pragma once
 #include <set>
 #include <map>
@@ -40,6 +41,8 @@
 
 namespace bbt::coroutine {
 
+/* 启动模式：THREAD 起后台调度线程后立即返回；LOOP 在当前线程阻塞调度；NO_LOOP 由用户
+ * 调 LoopOnce 驱动。初始化完成后 IsInitialized() 恒为 true，与模式无关。 */
 enum SchedulerStartOpt {
     SCHE_START_OPT_SCHE_THREAD = 1,  // 线程模式，几乎不阻塞，开启后台调度线程
     SCHE_START_OPT_SCHE_LOOP = 2,    // 循环模式，阻塞并在当前线程调度
@@ -56,8 +59,8 @@ enum SchedulerStartOpt {
 typedef std::function<void(int /*fd*/, short /*trigger event*/)> ExtCoEventCallback;
 
 /**
- * @brief 异常处理回调
- * 
+ * @brief 异常处理回调：Context 捕获用户任务异常后调用，参数是提取出的 what 文本（构造为 Errcode）。
+ * 回调抛出的异常被就地吞掉。
  */
 typedef std::function<void(const core::errcode::IErrcode& err)> ExceptionHandleCallback;
 
@@ -209,6 +212,8 @@ POLLEVENT_LISTEN  --> POLLEVENT_CANNEL : 取消监听
 POLLEVENT_FINAL   --> [*]
 @enduml
  */
+/* 对外可见的事件状态，由 CoPollEventPhase 映射：ARMING/ARMED/PARKED 都是 LISTEN，
+ * PENDING 与 TRIGGERING 都报 TRIGGER，CANCELLED 报 CANNEL。 */
 enum CoPollEventStatus : int32_t {
     POLLEVENT_DEFAULT = 0, // 默认
     POLLEVENT_INITED = 1,  // 初始化完成
@@ -351,11 +356,8 @@ typedef std::function<void()> CoroutineFinalCallback;   // 协程主函数执行
 typedef std::function<bool()> CoroutineOnYieldCallback; // 协程挂起后执行回调
 typedef std::function<void()> DeferCallback;            // defer 执行函数
 
-/**
- * @param 触发的事件
- * @param 事件类型
- * @param 仅当事件类型为POLL_EVENT_CUSTOM时，表示枚举类型CoPollEventCustom中的值
- */
+/* poller 事件完成回调，参数依次为：本次完成的 CoPollEvent；触发掩码（EventOpt 口径，由 Trigger 锁存）；
+ * 仅当掩码含 POLL_EVENT_CUSTOM 时有效，取值为 CoPollEventCustom。 */
 typedef std::function<void(std::shared_ptr<CoPollEvent>, int /*events*/, int)>
     CoPollEventCallback; // Poller监听事件完成回调
 

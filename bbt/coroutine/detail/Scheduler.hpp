@@ -114,8 +114,11 @@ public:
      * @throw std::runtime_error worker 批次创建失败（未公开任何半批 worker）
      */
     void Start(SchedulerStartOpt opt = SCHE_START_OPT_SCHE_THREAD);
+    /* 手动推进一步：只调一次 _OnUpdate；仅用于 SCHE_START_OPT_SCHE_NO_LOOP，S 线程已启动时断言失败。 */
     void LoopOnce();
 
+    /* 投递一个协程任务：不指定 stack_size 的重载用 m_cfg_stack_size。无可用 worker 抛
+     * std::runtime_error，其余创建失败见 Coroutine::Create；bool& succ 变体不抛，一律转 succ=false。 */
     void RegistCoroutineTask(const CoroutineCallback& handle, const char* desc = nullptr);
     void RegistCoroutineTask(const CoroutineCallback& handle, bool& succ) noexcept;
     void RegistCoroutineTask(size_t stack_size, const CoroutineCallback& handle, const char* desc = nullptr);
@@ -132,7 +135,8 @@ public:
                                const char* desc = nullptr);
 
     /* ---- processer driver adapter（运行时契约，见 IProcesserDriver.hpp）----
-     * 注册失败不改 out_token；查询失败不改 out_snapshot。 */
+     * 注册失败不改 out_token；查询失败不改 out_snapshot。GetWorkerProcesserIds 枚举 active 快照，
+     * 结果可能过期，绑定/定向投递前须重新校验；未初始化或快照为空时返回空 vector。 */
     std::vector<ProcesserId> GetWorkerProcesserIds();
     ProcesserDriverStatus RegisterProcesserDriver(ProcesserId target, std::shared_ptr<IProcesserDriver> driver,
                                                   ProcesserDriverToken& out_token);
@@ -146,14 +150,16 @@ public:
      * 手动与自动、扩/缩共用同一串行入口。 */
     ProcesserResizeResult SetProcesserNum(size_t num);
     ProcesserResizeResult SetProcesserAutoScale(bool enable);
-    /* active 是权威活动集合（已扣除 Retiring/Exited），不是物理线程总数。 */
+    /* active 是权威活动集合（已扣除 Retiring/Exited），不是物理线程总数。
+     * target/mode 不查初始化（Start 前读到 0 与 Manual），其余三个未初始化返回 0。 */
     size_t GetProcesserNum();
     size_t GetProcesserTargetNum();
     size_t GetProcesserRetiringNum();
     size_t GetProcesserExitedUnjoinedNum();
     ProcesserScalingMode GetProcesserScalingMode();
 
-    /* 协程被激活，重新加入全局队列 */
+    /* 挂起协程就绪后回到可运行集合：先试当前 worker 的 admission（就地入队），
+     * 拒收再回全局队列并广播 active worker。 */
     void OnActiveCoroutine(CoroutinePriority priority, Coroutine::Ptr coroutine);
 
     /**
@@ -187,7 +193,8 @@ protected:
     enum class StartState { NotStarted, Starting, Initialized };
 
     void _Run();
-    /* 定时扫描 */
+    /* worker 无进展检测（stall）：读各 active worker 在 m_exec_mutex 下的快照，
+     * 超过 m_cfg_worker_stall_warn_ms 才上报；配置为 0 时整段跳过。 */
     void _FixTimingScan();
     /* 创建 initial 个 worker；失败时本批已创建线程全部取消/join，不公开半批 */
     bool _CreateProcessers(size_t initial_num);
@@ -241,6 +248,8 @@ protected:
     /* worker 就绪后、进入运行循环前发布初始化完成标志 */
     void _PublishInitialized();
 
+    /* 一拍运行时推进：自动采样 + reaper + poll 事件派发 + stall 扫描 + 栈池维护。
+     * 有事件就继续排空，没有就返回给 _Run 控制节拍。 */
     void _OnUpdate();
 
 private:

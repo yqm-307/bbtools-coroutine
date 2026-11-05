@@ -1,3 +1,7 @@
+/**
+ * @file CoPollEvent.hpp
+ * @brief 一次协程等待的事件对象：阶段状态机、fd 代际/waiter 注册表与 close 线性化。
+ */
 #pragma once
 #include <memory>
 #include <mutex>
@@ -27,11 +31,13 @@ public:
     friend class CoPoller;
     typedef std::shared_ptr<CoPollEvent> SPtr;
 
+    /** @brief 建立一次等待的事件对象；cb 不能为空（构造期断言），仅在事件完成时调用（含 Trigger(POLL_EVENT_CANCELLED)），UnRegist 不回调。 */
     static SPtr Create(CoroutineId id, const CoPollEventCallback& cb);
 
     BBTATTR_FUNC_CTOR_HIDDEN CoPollEvent(CoroutineId id, const CoPollEventCallback& cb);
     ~CoPollEvent();
 
+    /* 监听事件位（EventOpt 口径）→ PollEventType 位；绑过自定义 key 时额外置 POLL_EVENT_CUSTOM。 */
     int GetEvent() const;
     bool IsListening() const;
     bool IsFinal() const;
@@ -60,11 +66,21 @@ public:
         return m_notify_value;
     }
 
-    /* 初始化后调用Regist注册事件 */
+    /* 绑 fd、事件位与超时；锁内采样 fd 代际作为本次等待基线（m_wait_epoch）。若此刻 fd 已
+     * 处于 closing，则把 POLL_EVENT_CLOSED 锁存为首胜结果并返回 0——建立成功但结果已定。
+     * 非 INITED、timeout<0 或重复调用返回 -1。 */
     int InitFdEvent(int fd, short events, int timeout);
+    /* 绑自定义 key，唤醒由 NotifyCustomEvent/NotifyCancelEvent 触发；重复绑定或非 INITED 返回 -1。 */
     int InitCustomEvent(int key, void* args);
 
-    /* 注册、触发、反注册都是线程安全的，意味着可以在任意线程执行 */
+    /* 注册、触发、反注册都是线程安全的，可在任意线程执行。
+     * Trigger：INITED/ARMING/ARMED 把触发掩码写进 PENDING（首胜，返回 0）；PARKED 由调用线程
+     * 就地推进到 TRIGGERING 并执行 _Complete；终态或竞争失败返回 -1。
+     * Regist：INITED→ARMING→ARMED，失败时把 ARMING 收敛为 CANCELLED 并返回 -1；已 PENDING
+     * 返回 0；发现 fd 已换代则拒绝登记，以 POLL_EVENT_CLOSED 自触后仍返回 0。
+     * UnRegist：INITED/ARMING/ARMED/PARKED → CANCELLED 返回 0，已是终态返回 -1。
+     * CommitPark：Context 已切回 Processer 的提交边界；ARMED→PARKED 返回 false（等触发方
+     * 完成），PENDING（触发已先胜）→TRIGGERING 就地完成并返回 true。 */
     int Trigger(short trigger_events);
     int Regist();
     int UnRegist();

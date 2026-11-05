@@ -2,6 +2,7 @@
 #include <bbt/coroutine/detail/Profiler.hpp>
 #include <bbt/coroutine/detail/StackPool.hpp>
 
+/* Profiler 实现：计数器自增、worker registry 维护，以及两种输出格式（可读文本/紧凑采样）。 */
 namespace bbt::coroutine::detail {
 
 Profiler::UPtr& Profiler::GetInstance()
@@ -53,6 +54,7 @@ void Profiler::OnEvent_StartProcesser(Processer::SPtr proc)
     std::unique_lock<std::mutex> _(m_processer_map_mutex);
     ProcesserId id = proc->GetId();
     auto it = m_processer_map.find(id);
+    /* 同一 ProcesserId 只登记一次：重复登记在这里断言失败，而不是覆盖旧引用。 */
     Assert(it == m_processer_map.end());
     m_processer_map.insert(std::make_pair(id, proc));
 }

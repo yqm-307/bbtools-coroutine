@@ -7,12 +7,15 @@ namespace bbt::coroutine::detail {
 
 GlobalConfig::GlobalConfig()
 {
+    /* 只解析初始 worker 数，其余字段留给调用方在 Start 前赋值；0 视为未配置。 */
     if (m_cfg_static_thread_num <= 0)
         m_cfg_static_thread_num = std::thread::hardware_concurrency() > 0 ? std::thread::hardware_concurrency() : 1;
 }
 
 bool GlobalConfig::ResolveProcesserScalingBounds(ProcesserScalingBounds& out_bounds) const noexcept
 {
+    /* 三段校验，全部通过才写 out_bounds：数量边界 → 采样/步长 → busy 与队列水位。
+     * 只读配置、不启动线程；失败时 out_bounds 保持调用方原值。 */
     const size_t initial = m_cfg_static_thread_num;
     const size_t min_num = m_cfg_processer_min_num == 0 ? initial : m_cfg_processer_min_num;
     const size_t max_num = m_cfg_processer_max_num == 0 ? initial : m_cfg_processer_max_num;

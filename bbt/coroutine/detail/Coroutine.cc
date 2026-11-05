@@ -105,9 +105,9 @@ void Coroutine::Resume()
      * 与 DebugMgr 的 Coroutine* 签名及实际所有权一致。 */
     g_bbt_dbgmgr->OnEvent_ResumeCo(this);
 #endif
-    /* 日志装配不分配：本函数在 worker 原生栈执行，std::to_string 拼接的
-     * bad_alloc 会逃出 Resume 直达 Processer 调度循环，不在协程侧任何
-     * catch 可达域内。栈缓冲 snprintf 保持同一日志语义、消除逃逸点。 */
+    /* 日志装配不分配：本函数在 worker 原生栈执行，装配若抛 bad_alloc 会逃出 Resume
+     * 直达 Processer 调度循环，不在协程侧任何 catch 可达域内。栈缓冲 snprintf 保持
+     * 同一日志语义，同时消掉这个逃逸点。 */
 #ifdef BBT_COROUTINE_DEBUG_PRINT
     char resume_log[64];
     std::snprintf(resume_log, sizeof(resume_log), "[Coroutine::Resume] co=%llu",
@@ -133,15 +133,10 @@ void Coroutine::Yield()
 
 int Coroutine::YieldWithCallback(const CoroutineOnYieldCallback& cb)
 {
-    /**
-     * 确保协程挂起后，才可以触发事件
-     */
+    /* 确保协程挂起后，才可以触发事件 */
     Assert(m_run_status == CoroutineStatus::CO_RUNNING);
-    /* 日志装配不分配——snprintf 进栈缓冲，OOM 无处抛出，原
-     * 故障点（to_string 动态拼接）已整体移除。armed 注入的首个真实分配
-     * 因此落在 Context::YieldWithCallback 的 m_onyield_callback 存储上，
-     * 由下方统一 catch 回滚。宏开启时才执行 snprintf 和完整日志调用；宏关闭
-     * 时整个格式化与日志装配路径均被编译掉。 */
+    /* 日志装配不分配——snprintf 进栈缓冲，OOM 无处抛出。armed 注入的首个真实分配因此落在
+     * Context::YieldWithCallback 的 m_onyield_callback 存储上，由下方统一 catch 回滚。 */
 #ifdef BBT_COROUTINE_DEBUG_PRINT
     char yieldcb_log[80];
     std::snprintf(yieldcb_log, sizeof(yieldcb_log), "[Coroutine::YieldWithCallback] co=%llu",
@@ -198,6 +193,8 @@ int Coroutine::YieldWithCallback(const CoroutineOnYieldCallback& cb)
 void Coroutine::YieldAndPushGCoQueue()
 {
     Assert(m_run_status == CoroutineStatus::CO_RUNNING);
+    /* 置 READY 后让出，入队交给 Processer：CommitYield 读到 READY 才决定本地入队还是
+     * 归还 global。这里不自己 push，否则同一协程会出现两条入队路径。 */
     m_yield_disposition = CoroutineYieldDisposition::READY;
     m_run_status = CoroutineStatus::CO_SUSPEND;
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
@@ -439,7 +436,8 @@ bool Coroutine::_RegistAwaitEvent()
 
 int Coroutine::GetWaitInfo(CoroutineWaitInfo& out) const noexcept
 {
-    /* 仅协程自身线程调用安全（同 Processer，无并发写者）；见头文件注释 */
+    /* 仅协程自身线程调用安全（同 Processer，无并发写者）；见头文件注释。
+     * m_parked_us == 0 表示不在等待（唤醒时清零），此时没有可导出的现场。 */
     if (m_await_event == nullptr || m_parked_us == 0)
         return -1;
 

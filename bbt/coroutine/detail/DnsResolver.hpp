@@ -11,26 +11,9 @@
 
 namespace bbt::coroutine::detail {
 
-/**
- * @brief DNS 阻塞解析的单线程任务池
- *
- * getaddrinfo/getnameinfo/gethostbyname/gethostbyaddr 会走真实网络或 NSS 查询，
- * 在协程内直接执行会占死 Processer 线程。本类把这类调用投递到唯一的 worker 线程
- * 执行，协程通过 CoWaiter 挂起，worker 完成后从非协程线程 Notify 唤醒。
- *
- * 时序约束：
- * - Await 只允许在协程上下文调用；work() 里禁止碰协程原语（跑在 worker 线程）。
- * - work 引用的结果变量在调用方协程栈上，挂起期间保持有效；调用方必须自行
- *   保证 work 与结果的寿命覆盖整个等待（超时后晚到的结果由调用方清理，
- *   禁止引用已退栈的协程栈）。
- * - 懒启动：第一次 Enqueue 才创建线程。
- * - 进程寿命：本池属于进程寿命对象，没有 Stop/停机路径；worker 线程与其
- *   std::thread 句柄都不会在静态退出期析构（GetInstance 持有者泄漏），
- *   因此不存在「析构 joinable thread」问题，也不以 detach 代替寿命论证。
- * - 排队数有上限；容量耗尽时拒绝入队而不丢弃已接纳任务。
- *
- * ponytail: 单 worker，QPS 不够再加池。无解析缓存。
- */
+/** @brief DNS 阻塞解析的单 worker 任务池：getaddrinfo 等投到 worker 线程跑，协程经 CoWaiter 挂起。
+ * Await 只能在协程内调用，work 跑在 worker 线程（禁止碰协程原语）且 work 与结果变量的寿命须覆盖整个等待；
+ * 超时后晚到的结果由调用方丢弃。懒启动、进程寿命对象（无 Stop），队列满即拒绝入队。 */
 class DnsResolver {
 public:
     static DnsResolver* GetInstance();
@@ -57,7 +40,7 @@ public:
     sync::CombinedWaitStatus AwaitBounded(const std::function<void()>& work, const sync::CombinedWaitOptions& options);
 
 private:
-    static constexpr std::size_t kMaxPendingJobs = 256;
+    static constexpr std::size_t kMaxPendingJobs = 256; // 排队上限：满了拒绝入队，不丢已接纳任务
     struct Job {
         std::function<void()> work;
         sync::CoWaiter::SPtr waiter;
@@ -66,13 +49,14 @@ private:
     DnsResolver() = default;
     ~DnsResolver() = default;
 
+    // 入队并懒创建 worker；队列满或线程创建失败返回 false，任务不执行。
     bool Enqueue(Job job);
     void _Worker();
 
-    std::mutex m_mutex;
-    std::condition_variable m_cv;
-    std::queue<Job> m_queue;
-    std::unique_ptr<std::thread> m_thread;
+    std::mutex m_mutex;                    // 保护 m_queue 与 m_thread 的懒创建
+    std::condition_variable m_cv;          // worker 在此等队列非空
+    std::queue<Job> m_queue;               // 待执行任务，上限见 kMaxPendingJobs
+    std::unique_ptr<std::thread> m_thread; // 首次 Enqueue 创建；进程寿命内不 join、不析构
 };
 
 } // namespace bbt/coroutine/detail

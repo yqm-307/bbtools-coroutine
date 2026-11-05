@@ -62,12 +62,10 @@ int DnsResolver::Await(const std::function<void()>& work)
     auto waiter = sync::CoWaiter::Create();
     bool enqueued = false;
 
-    /**
-     * 时序约束：WaitWithCallback 的回调在协程 Yield 之后（Processer Resume 内）执行，
+    /* 时序约束：WaitWithCallback 的回调在协程 Yield 之后（Processer Resume 内）执行，
      * 所以在回调里 Enqueue——worker 的 Notify 不可能早于协程挂起，不会丢唤醒。
      * 入队失败（队列满）时在同一回调里 Notify 唤醒自己，调用方凭栈上结果的
-     * 默认错误值返回失败。
-     */
+     * 默认错误值返回失败。 */
     waiter->WaitWithCallback([this, &enqueued, waiter, &work]() {
         enqueued = Enqueue(Job{work, waiter});
         if (!enqueued)
@@ -85,6 +83,8 @@ sync::CombinedWaitStatus DnsResolver::AwaitBounded(const std::function<void()>& 
     auto waiter = sync::CoWaiter::Create();
     bool enqueued = false;
     bool enqueue_attempted = false;
+    /* enqueue_attempted 区分「回调没执行过」与「入队失败」：等待可能因预取消、期限已到在回调前就结束，
+     * 此时 enqueued 仍为 false，不能据此报 RuntimeUnavailable。 */
     const auto status = waiter->Wait(options, [this, waiter, work, &enqueue_attempted, &enqueued]() {
         enqueue_attempted = true;
         enqueued = Enqueue(Job{work, waiter});

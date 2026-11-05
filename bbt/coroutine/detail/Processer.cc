@@ -1,3 +1,5 @@
+/* Processer 的实现：admission 入队/排空、worker 调度循环、driver 单槽的绑定
+ * 与同代解绑。锁序与所有权规则见 Processer.hpp 的成员注释。 */
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -165,6 +167,7 @@ void Processer::_InstallLocalProcesser(SPtr proc)
 
 ProcesserId Processer::_GenProcesserId()
 {
+    /* 进程内单调递增；退役后的 id 不再分配（契约：已退役 P 身份不复用）。 */
     static std::atomic_uint64_t _generate_id{BBT_COROUTINE_INVALID_PROCESSER_ID};
     return (++_generate_id);
 }
@@ -248,6 +251,7 @@ void Processer::_ReleaseEnqueueSlot()
 
 void Processer::_WaitEnqueueQuiescent()
 {
+    /* 只能在 admission 关闭后调用：计数由生产者入队时 ++/--，开着时等到的是新入队而非排空。 */
     std::unique_lock<std::mutex> lock(m_enqueue_wait_mutex);
     m_enqueue_wait_cv.wait(lock, [this] { return m_enqueue_inflight.load(std::memory_order_seq_cst) == 0; });
 }
@@ -326,6 +330,8 @@ void Processer::_WaitForWork()
 
 void Processer::_Init()
 {
+    /* 复位到 Preparing：admission 关、retire 未请求、in-flight 清零。Start 和
+     * prepare 阶段各调用一次，此后到 commit 之间不允许有生产者。 */
     m_run_status.store(ProcesserStatus::PROC_DEFAULT, std::memory_order_release);
     m_is_running.store(true, std::memory_order_release);
     m_run_cond_notify.store(true, std::memory_order_release);
@@ -381,23 +387,8 @@ void Processer::Start(bool background_thread)
 
 void Processer::_Run()
 {
-    /**
-     * Processer主循环逻辑
-     *
-     * 1. 尝试从全局队列或者本地队列取协程对象
-     *      - 若取不到，就挂起Processer线程
-     *      - 若取得到，本地线程处理协程执行
-     *
-     * 2. 处理完本地的协程后，尝试取窃取其他P的协程
-     *      - 如果窃取不到就挂起当前线程。
-     *      - 如果窃取到，就执行窃取到的协程
-     *
-     * 3. 重复1、2步骤，进程寿命内不设退出条件（无业务停机入口）
-     *
-     * XXX 这里也许可以优化的点：
-     *      - 是否在空闲的时候降低调度频率？
-     */
-    // 每轮至多 64 次 Resume，给 driver/global/退役检查确定的调度机会。
+    /* 主循环：取工作（global pull + 本地队列）→ 每 kGlobalCheckInterval 轮查一次 global
+     * → steal → _WaitForWork。唯一退出路径是 retire，且须在完整 disposition 之后。 */
     while (m_is_running.load(std::memory_order_acquire)) {
         /* 退役只在完整 disposition 之后、新一轮取工作之前确认：
          * 已提交的 Resume 不会被中断，parked 协程栈也不会被展开。 */
@@ -416,6 +407,7 @@ void Processer::_Run()
 
         bool any_dequeued = false;
         bool retire_now = false;
+        // 每轮至多 64 次 Resume，给 driver/global/退役检查确定的调度机会。
         for (unsigned turn = 0; turn < 64; ++turn) {
             if (m_retire_requested.load(std::memory_order_acquire)) {
                 retire_now = true;
@@ -481,7 +473,7 @@ void Processer::_Run()
             m_running_coroutine = nullptr;
             const auto disposition = yielded->CommitYield();
             if (disposition == CoroutineYieldDisposition::READY) {
-                // READY 保留既有 NORMAL 策略；退役门禁拒收时可靠归还 global。
+                // READY 仍用 NORMAL 优先级；退役门禁拒收时可靠归还 global。
                 if (!_EnqueueAdmitted(CO_PRIORITY_NORMAL, yielded, /*notify*/ false)) {
                     while (!g_scheduler->_EnqueueGlobal(CO_PRIORITY_NORMAL, yielded))
                         std::this_thread::yield();

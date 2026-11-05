@@ -16,6 +16,17 @@
 #include <bbt/coroutine/detail/LocalThread.hpp>
 #include <bbt/coroutine/detail/Coroutine.hpp>
 
+/* Hook 实现总览；各 Hook_* 只写自己多出来的约束。
+ *
+ * 分流：每个 libc 同名入口先看 g_bbt_tls_helper->EnableUseCo()——非 worker 线程直通 dlsym
+ * 原函数，worker 线程进 Hook_*；Hook_* 再用 AssertWithInfo 确认此刻确实跑着协程（线程级
+ * 标记只说明该线程能跑协程）。
+ * 协程 IO 的统一形态：CoIoNonblockGuard 把 fd 临时设成 O_NONBLOCK（设不上就失败返回）；
+ * 先打一次原 syscall，非 EAGAIN/EINTR 原样返回；EAGAIN 时 CoWaitFdReady 登记并挂起，有
+ * SO_RCVTIMEO/SO_SNDTIMEO 就按剩余时间加上界；恢复后按 fd 代际决定重试——代际变了说明 fd
+ * 已 close+reuse，回 -1/EBADF 且不回写旧 flags/偏移。
+ * 例外：带 MSG_DONTWAIT 的调用直通；close 不分流、不挂起。
+ */
 namespace bbt::coroutine::detail {
 
 namespace {
@@ -69,11 +80,7 @@ private:
 };
 
 /**
- * @brief 重置非阻塞 connect 的 socket 状态
- *
- * 非阻塞 connect 失败后，socket 的错误结果保存在 SO_ERROR 中；
- * 读取 SO_ERROR 后内核释放连接状态，socket 回到未连接、可重新 connect。
- * connect 挂起路径被异常打断或协程层失败时调用，保证 socket 可重试。
+ * @brief 读取并清掉非阻塞 connect 遗留的 SO_ERROR（不检查结果）；挂起路径失败或异常时调用。
  */
 void ResetConnectState(int fd) noexcept
 {
@@ -266,6 +273,9 @@ private:
 
 } // namespace
 
+/* 新 socket 一律 O_NONBLOCK：阻塞 socket 上 Hook 没有挂起的机会，后续调用要靠内核立即返回
+ * EAGAIN 才能转成一次等待。设不上就关掉 fd 返回 -1，不留会卡住 worker 的阻塞 socket；
+ * 这个标志对拿到该 fd 的其它线程和库同样可见。 */
 int Hook_Socket(int domain, int type, int protocol)
 {
     int fd = -1;
@@ -282,6 +292,10 @@ int Hook_Socket(int domain, int type, int protocol)
     return fd;
 }
 
+/* 非阻塞 connect：EINPROGRESS/EALREADY/EINTR 表示「还没有结果」，挂起等 fd writeable 后
+ * 重试；EISCONN 是重入时已连上，按成功返回。不采样 SO_SNDTIMEO，等待上界完全由内核的
+ * connect 结果决定。挂起失败或异常时尝试读取 SO_ERROR；fd 在挂起期间换代时只回 EBADF 并
+ * Dismiss flags 守卫，不再碰这个已不属于本对象的 socket。 */
 int Hook_Connect(int socket, const struct sockaddr* address, socklen_t address_len)
 {
     CoIoNonblockGuard io{socket};
@@ -368,6 +382,8 @@ int Hook_Close(int fd)
     return ret;
 }
 
+/* sleep() 的协程实现：入参是毫秒（C 入口换算秒后传入）。ms<=0 返回 -1，与 usleep(0)/
+ * nanosleep(0) 的空操作语义不一致，不要用 0 时长探活。 */
 int Hook_Sleep(int ms)
 {
     AssertWithInfo(g_bbt_tls_coroutine_co != nullptr, "must be in coroutine context");
@@ -927,19 +943,15 @@ int Hook_ClockNanosleep(clockid_t clock_id, int flags, const struct timespec* re
 }
 
 /**
- * @brief 协程内 poll 核心算法
+ * @brief 协程内 poll 的核心算法。
  *
- * 事件流：native poll(0) 快照 → 无就绪且需要等待时，建一个不被 hook 的 epoll fd
- * 聚合所有有 POLLIN/POLLOUT/POLLPRI 兴趣的 fd → 协程挂起等 epoll fd 可读 →
- * 醒来后 native poll(0) 填 revents。epoll 是 level-triggered：快照与注册之间到达
- * 的事件不会丢，挂起时 epfd 仍可读会立即唤醒。
- *
- * WHY 内部只走 g_bbt_sys_hook_poll_func（dlsym 原函数）：调度器经 libevent/epoll 驱动、
- * 不走 poll，但 hook 内若调 ::poll 会重入本实现造成无限递归。epoll_create1/epoll_ctl
- * 未被 hook，对 epfd 的 YieldUntilFdReadable 走既有 CoPollEvent 路径。
- *
- * epoll_ctl ADD 失败的 fd（普通文件等 epoll 不支持的类型）不进 epoll；
- * 若无任何 fd 能进 epoll，不挂起，直接返回快照结果。
+ * 事件流：native poll(0) 快照 → 无就绪且需要等待时，建一个不被 hook 的 epoll fd 聚合所有
+ * 有 POLLIN/POLLOUT/POLLPRI 兴趣的 fd → 挂起等 epfd 可读 → 醒来后 native poll(0) 填 revents。
+ * epoll 是 level-triggered，快照与注册之间到达的事件不会丢。
+ * WHY 只走 g_bbt_sys_hook_poll_func（dlsym 原函数）：调度器经 Asio 的 EventLoop 驱动、不走
+ * poll，但 hook 内调 ::poll 会重入本实现无限递归。epoll_create1/epoll_ctl 未被 hook，epfd 的
+ * YieldUntilFdReadable 走既有 CoPollEvent 路径。
+ * epoll_ctl ADD 失败的 fd（普通文件等）不进 epoll；一个都进不去就不挂起，直接返回快照结果。
  */
 static int PollCore(struct pollfd* fds, nfds_t nfds, int timeout_ms)
 {
@@ -1344,6 +1356,8 @@ int connect(int socket, const struct sockaddr* address, socklen_t address_len)
     return bbt::coroutine::detail::Hook_Connect(socket, address, address_len);
 }
 
+/* close 不分流：fd 代际与 waiter 摘除必须对任何线程的 close 生效，否则协程侧会等一个永远
+ * 不会到达的就绪事件。 */
 int close(int fd)
 {
     return bbt::coroutine::detail::Hook_Close(fd);

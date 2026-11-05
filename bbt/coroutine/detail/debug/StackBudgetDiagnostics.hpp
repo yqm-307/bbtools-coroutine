@@ -2,22 +2,10 @@
 #include <cstddef>
 #include <cstdint>
 
-/**
- * @file StackBudgetDiagnostics.hpp
- * @brief 可选协程栈采样诊断（B4）。仅在 BBT_COROUTINE_STACK_DIAGNOSTICS
- * 构建（Linux x86_64 + GNU，-finstrument-functions）存在；OFF 构建不包含
- * 任何状态、API 或 hook 引用。
- *
- * 语义边界（固定，不放宽）：
- *  - 采样的是「插桩函数入口处的硬件 SP」，只在函数入口打点；mid-function
- *    alloca/VLA、未插桩 TU（第三方/旧对象）、信号路径产生的栈延伸都观测不到，
- *    所以 coverage 恒为 PARTIAL，样本不是栈用量的上界或下界，更不能当
- *    生产容量证明。
- *  - 无全栈填色、无保护页修改、无诊断期堆分配；hook 只做整数/指针比较，
- *    不分配、不日志、不抛异常、不取锁、不调用 runtime 查询。
- *  - hook 自身开销包含在样本里：打点发生在函数入口，样本反映的是
- *    「含插桩成本」的布局，不能直接外推生产栈深。
- */
+/** @file StackBudgetDiagnostics.hpp：可选协程栈采样诊断，仅 BBT_COROUTINE_STACK_DIAGNOSTICS 构建（Linux x86_64 + GNU，-finstrument-functions）存在。
+ * 采样的是插桩函数入口的硬件 SP：mid-function alloca/VLA、未插桩 TU、信号路径都看不到，故 coverage 恒为 PARTIAL，样本不是栈用量上下界，不能当容量证明。
+ * 无全栈填色、无保护页修改、无诊断期堆分配；hook 只做整数/指针比较，不分配、不日志、不抛、不取锁。
+ * hook 自身开销计入样本（打点在函数入口），不能直接外推生产栈深；OFF 构建不含任何状态、API 或 hook 引用。 */
 
 #ifdef BBT_COROUTINE_STACK_DIAGNOSTICS
 
