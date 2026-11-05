@@ -1,3 +1,4 @@
+// Errcode 的成员实现：只有字符串拷贝/移动和取值，没有共享状态，也不需要加锁。
 #include "Errcode.hpp"
 
 namespace bbt::core::errcode {

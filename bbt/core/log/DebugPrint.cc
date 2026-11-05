@@ -22,9 +22,10 @@ std::string vformat(const char* fmt, va_list ap)
 
 } // namespace
 
+// 内部辅助：头文件里没有声明，只在本编译单元使用（外部链接，链接器仍可见）。
 void VPrint(const char* fmt, const char* msg)
 {
-    // 防止由于前缀导致的丢失数据
+    // 缓冲比正文上限多留 10 字节，给前缀留位置；否则前缀会把正文尾部挤掉
     char buf[LOG_BUFFER_MAX_LEN + 10];
     snprintf(buf, LOG_BUFFER_MAX_LEN, fmt, msg);
     printf("%s\n", buf);
