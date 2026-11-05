@@ -34,8 +34,7 @@ using namespace bbt::coroutine::detail;
 
 BOOST_AUTO_TEST_SUITE(SchedulerStartModesTest)
 
-namespace
-{
+namespace {
 
 int RunInChild(const std::function<int()>& body)
 {
@@ -50,7 +49,7 @@ int RunInChild(const std::function<int()>& body)
     BOOST_REQUIRE_EQUAL(::waitpid(pid, &status, 0), pid);
     if (WIFEXITED(status))
         return WEXITSTATUS(status);
-    return -1;   // 被信号终止（崩溃/超时）时返回 -1
+    return -1; // 被信号终止（崩溃/超时）时返回 -1
 }
 
 bool WaitFlag(const std::atomic_bool& flag, int ms)
@@ -92,7 +91,7 @@ int RunInChildRealExit(const std::function<int()>& body)
         g_exit_marker_fd = marker[1];
         std::atexit(WriteExitMarker);
         const int rc = body();
-        std::exit(rc);          // 非 _exit：执行真实退出/静态析构链
+        std::exit(rc); // 非 _exit：执行真实退出/静态析构链
     }
     ::close(marker[1]);
     char got = 0;
@@ -101,15 +100,14 @@ int RunInChildRealExit(const std::function<int()>& body)
     int status = 0;
     BOOST_REQUIRE_EQUAL(::waitpid(pid, &status, 0), pid);
     if (nread != 1 || got != 'E')
-        return -2;               // 退出处理器未执行：验收不成立
+        return -2; // 退出处理器未执行：验收不成立
     if (WIFEXITED(status))
         return WEXITSTATUS(status);
-    return -1;                   // 被信号终止（崩溃/超时）
+    return -1; // 被信号终止（崩溃/超时）
 }
 
 /* 主线程侧有界等待一个协程结果（协程不在本线程，可以阻塞） */
-template<class T>
-bool WaitValue(const std::atomic<T>& value, const T& expected, int ms)
+template <class T> bool WaitValue(const std::atomic<T>& value, const T& expected, int ms)
 {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
     while (value.load(std::memory_order_acquire) != expected) {
@@ -131,7 +129,10 @@ BOOST_AUTO_TEST_CASE(t_thread_mode_independent_process)
         if (!g_scheduler->IsInitialized())
             return 10;
         std::atomic_bool ran{false};
-        bbtco [&]() { ran.store(true, std::memory_order_release); };
+        bbtco[&]()
+        {
+            ran.store(true, std::memory_order_release);
+        };
         return WaitFlag(ran, 3000) ? 0 : 11;
     });
     BOOST_CHECK_EQUAL(rc, 0);
@@ -149,13 +150,17 @@ BOOST_AUTO_TEST_CASE(t_noloop_mode_independent_process)
         if (!g_scheduler->IsInitialized())
             return 20;
         std::atomic_bool ran{false};
-        bbtco [&]() { ran.store(true, std::memory_order_release); };
+        bbtco[&]()
+        {
+            ran.store(true, std::memory_order_release);
+        };
         if (!WaitFlag(ran, 3000))
             return 21;
 
         auto waiter = sync::CoWaiter::Create();
         std::atomic_int resolved{-1};
-        bbtco [&]() {
+        bbtco[&]()
+        {
             WaitOptions options;
             options.deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds{60};
             const auto st = waiter->Wait(options);
@@ -194,25 +199,28 @@ BOOST_AUTO_TEST_CASE(t_loop_mode_independent_process)
                     ::_exit(30);
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
-            bbtco [&]() { ran.store(true, std::memory_order_release); };
+            bbtco[&]()
+            {
+                ran.store(true, std::memory_order_release);
+            };
             if (!WaitFlag(ran, 3000))
-                ::_exit(31);   // 初始化已发布但调度未推进：LOOP 驱动失败
+                ::_exit(31); // 初始化已发布但调度未推进：LOOP 驱动失败
 
             auto waiter = sync::CoWaiter::Create();
-            bbtco [&]() {
+            bbtco[&]()
+            {
                 WaitOptions options;
-                options.deadline =
-                    std::chrono::steady_clock::now() + std::chrono::milliseconds{80};
+                options.deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds{80};
                 const auto st = waiter->Wait(options);
                 timer_state.store(st == WaitStatus::TimedOut ? 1 : 2);
             };
             if (!WaitValue(timer_state, 1, 3000))
-                ::_exit(33);   // LOOP 未驱动到期定时器
+                ::_exit(33); // LOOP 未驱动到期定时器
             ::_exit(0);
         });
-        g_scheduler->Start(SCHE_START_OPT_SCHE_LOOP);   // 阻塞：由 observer 结束进程
+        g_scheduler->Start(SCHE_START_OPT_SCHE_LOOP); // 阻塞：由 observer 结束进程
         observer.detach();
-        return 32;                                       // 理论上不可达
+        return 32; // 理论上不可达
     });
     BOOST_CHECK_EQUAL(rc, 0);
 }
@@ -234,7 +242,7 @@ BOOST_AUTO_TEST_CASE(t_concurrent_start_one_wins)
                 ts[i] = std::thread([&]() {
                     ready.fetch_add(1, std::memory_order_release);
                     while (!go.load(std::memory_order_acquire))
-                        std::this_thread::yield();       // 屏障：同时起跑
+                        std::this_thread::yield(); // 屏障：同时起跑
                     try {
                         g_scheduler->Start();
                         ok.fetch_add(1);
@@ -272,9 +280,10 @@ BOOST_AUTO_TEST_CASE(t_process_exit_with_parked_coroutine)
         std::atomic_bool parked{false};
         std::atomic_bool fd_parked{false};
         auto waiter = sync::CoWaiter::Create();
-        bbtco [&]() {
+        bbtco[&]()
+        {
             parked.store(true, std::memory_order_release);
-            waiter->Wait();   // 无 deadline：进程寿命内一直挂起
+            waiter->Wait(); // 无 deadline：进程寿命内一直挂起
         };
         if (!WaitFlag(parked, 3000))
             return 50;
@@ -284,20 +293,21 @@ BOOST_AUTO_TEST_CASE(t_process_exit_with_parked_coroutine)
         int sp[2] = {-1, -1};
         if (::socketpair(AF_UNIX, SOCK_STREAM, 0, sp) != 0)
             return 51;
-        bbtco [&]() {
+        bbtco[&]()
+        {
             char c = 0;
             fd_parked.store(true, std::memory_order_release);
-            ::read(sp[0], &c, 1);   // 无数据：park 在 fd 事件上
+            ::read(sp[0], &c, 1); // 无数据：park 在 fd 事件上
         };
         if (!WaitFlag(fd_parked, 3000))
             return 52;
         for (int i = 0; i < 3000 && CoPollEvent::FdWaiterCount(sp[0]) == 0; ++i)
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         if (CoPollEvent::FdWaiterCount(sp[0]) == 0)
-            return 53;          // fd 等待项未登记，寿命链覆盖不成立
+            return 53; // fd 等待项未登记，寿命链覆盖不成立
 
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        return 0;   // → 子进程 std::exit(0)：真实退出/静态析构链
+        return 0; // → 子进程 std::exit(0)：真实退出/静态析构链
     });
     BOOST_CHECK_EQUAL(rc, 0);
 }

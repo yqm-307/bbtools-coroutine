@@ -1,3 +1,5 @@
+/* Scheduler 的实现：一次性启动、任务投递与全局队列、扩缩容串行入口、退役
+ * worker 的有限回收。锁序与字段所有权见 Scheduler.hpp 的总表。 */
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -20,8 +22,7 @@
 #include <bbt/coroutine/detail/StackPool.hpp>
 #include <bbt/coroutine/detail/debug/DebugMgr.hpp>
 
-namespace bbt::coroutine::detail
-{
+namespace bbt::coroutine::detail {
 
 Scheduler::UPtr& Scheduler::GetInstance()
 {
@@ -33,9 +34,7 @@ Scheduler::UPtr& Scheduler::GetInstance()
     return *_holder;
 }
 
-/* 构造不再读取 m_cfg_static_thread_num：旧实现把 size_t 直接窄化进 int
- * 计数的 CountDownLatch，既无法表达非法配置，也让 Start 的不可逆副作用
- * 早于校验。初始数量改由 Start 校验后显式传入。 */
+/* 构造不做任何初始化：初始数量与 min/max 由 Start 校验后经 _Init 传入，构造期没有不可逆副作用。 */
 Scheduler::Scheduler() = default;
 
 /* 进程寿命：本析构实际不会被调用（实例持有者泄漏）；保留默认实现，
@@ -56,11 +55,9 @@ void Scheduler::_Init(const ProcesserScalingBounds& bounds)
     m_min_num = bounds.m_min_num;
     m_max_num = bounds.m_max_num;
     m_target_num.store(bounds.m_initial_num, std::memory_order_release);
-    m_scaling_mode.store(
-        g_bbt_coroutine_config->m_cfg_processer_auto_scale
-            ? ProcesserScalingMode::Auto
-            : ProcesserScalingMode::Manual,
-        std::memory_order_release);
+    m_scaling_mode.store(g_bbt_coroutine_config->m_cfg_processer_auto_scale ? ProcesserScalingMode::Auto
+                                                                            : ProcesserScalingMode::Manual,
+                         std::memory_order_release);
 
     m_scale_interval_ms = g_bbt_coroutine_config->m_cfg_processer_scale_interval_ms;
     m_scale_up_samples = g_bbt_coroutine_config->m_cfg_processer_scale_up_samples;
@@ -100,14 +97,10 @@ void Scheduler::RegistCoroutineTask(size_t stack_size, const CoroutineCallback& 
     Processer::SPtr proc = nullptr;
     {
         std::lock_guard<std::mutex> lock(m_global_queue_mutex);
-        coroutine = Coroutine::Create(
-            stack_size,
-            handle,
-            g_bbt_coroutine_config->m_cfg_stack_protect,
-            desc);
+        coroutine = Coroutine::Create(stack_size, handle, g_bbt_coroutine_config->m_cfg_stack_protect, desc);
         proc = _LoadBlance2Proc(CO_PRIORITY_NORMAL, coroutine);
         if (proc != nullptr)
-            coroutine = nullptr;    // 已交接给 worker：发布后不再读取可能被销毁的对象
+            coroutine = nullptr; // 已交接给 worker：发布后不再读取可能被销毁的对象
     }
 
     if (coroutine != nullptr) {
@@ -128,7 +121,8 @@ void Scheduler::RegistCoroutineTaskOn(ProcesserId target, const CoroutineCallbac
     RegistCoroutineTaskOn(target, g_bbt_coroutine_config->m_cfg_stack_size, handle, desc);
 }
 
-void Scheduler::RegistCoroutineTaskOn(ProcesserId target, size_t stack_size, const CoroutineCallback& handle, const char* desc)
+void Scheduler::RegistCoroutineTaskOn(ProcesserId target, size_t stack_size, const CoroutineCallback& handle,
+                                      const char* desc)
 {
     if (!IsInitialized())
         throw std::logic_error{"Scheduler::RegistCoroutineTaskOn: runtime not initialized"};
@@ -149,11 +143,7 @@ void Scheduler::RegistCoroutineTaskOn(ProcesserId target, size_t stack_size, con
     bool admitted = false;
     {
         std::lock_guard<std::mutex> lock(m_global_queue_mutex);
-        coroutine = Coroutine::Create(
-            stack_size,
-            handle,
-            g_bbt_coroutine_config->m_cfg_stack_protect,
-            desc);
+        coroutine = Coroutine::Create(stack_size, handle, g_bbt_coroutine_config->m_cfg_stack_protect, desc);
         /* 只是初次入目标队列的偏好；steal 与恢复全局路径不改。
          * 目标可能在 map 查找后、入队前提交退役；admission gate 会拒绝，
          * 此时协程仍归本调用方，必须显式拒绝而不是写入 retired 队列。 */
@@ -194,10 +184,8 @@ std::vector<ProcesserId> Scheduler::GetWorkerProcesserIds()
     return ids;
 }
 
-ProcesserDriverStatus Scheduler::RegisterProcesserDriver(
-    ProcesserId target,
-    std::shared_ptr<IProcesserDriver> driver,
-    ProcesserDriverToken& out_token)
+ProcesserDriverStatus Scheduler::RegisterProcesserDriver(ProcesserId target, std::shared_ptr<IProcesserDriver> driver,
+                                                         ProcesserDriverToken& out_token)
 {
     if (!IsInitialized())
         return ProcesserDriverStatus::NotInitialized;
@@ -229,9 +217,7 @@ ProcesserDriverStatus Scheduler::RegisterProcesserDriver(
     return status;
 }
 
-ProcesserDriverStatus Scheduler::QueryProcesserDriver(
-    ProcesserId target,
-    ProcesserDriverSnapshot& out_snapshot)
+ProcesserDriverStatus Scheduler::QueryProcesserDriver(ProcesserId target, ProcesserDriverSnapshot& out_snapshot)
 {
     if (!IsInitialized())
         return ProcesserDriverStatus::NotInitialized;
@@ -293,8 +279,7 @@ ProcesserResizeResult Scheduler::SetProcesserNum(size_t num)
     {
         std::unique_lock<std::mutex> lock(m_lifecycle_mutex);
         result = _ApplyTargetLocked(num, notify, lock);
-        if (result == ProcesserResizeResult::Ok ||
-            result == ProcesserResizeResult::Pending) {
+        if (result == ProcesserResizeResult::Ok || result == ProcesserResizeResult::Pending) {
             /* 合法手动请求（包括 same-target）一律切 Manual 并复位样本；
              * 拒绝路径保持 target/mode/样本不变。 */
             m_scaling_mode.store(ProcesserScalingMode::Manual, std::memory_order_release);
@@ -317,9 +302,7 @@ ProcesserResizeResult Scheduler::SetProcesserAutoScale(bool enable)
         return ProcesserResizeResult::NotInitialized;
 
     std::lock_guard<std::mutex> lock(m_lifecycle_mutex);
-    m_scaling_mode.store(
-        enable ? ProcesserScalingMode::Auto : ProcesserScalingMode::Manual,
-        std::memory_order_release);
+    m_scaling_mode.store(enable ? ProcesserScalingMode::Auto : ProcesserScalingMode::Manual, std::memory_order_release);
     _ResetScalingSamplesLocked();
     return ProcesserResizeResult::Ok;
 }
@@ -343,11 +326,9 @@ size_t Scheduler::GetProcesserRetiringNum()
 
     std::lock_guard<std::mutex> lock(m_processer_map_mutex);
     size_t count = 0;
-    for (const auto& record : m_workers)
-    {
-        if (record->m_processer != nullptr &&
-            record->m_processer->m_lifecycle.load(std::memory_order_acquire) ==
-                ProcesserLifecycleState::Retiring)
+    for (const auto& record : m_workers) {
+        if (record->m_processer != nullptr
+            && record->m_processer->m_lifecycle.load(std::memory_order_acquire) == ProcesserLifecycleState::Retiring)
             ++count;
     }
     return count;
@@ -360,11 +341,9 @@ size_t Scheduler::GetProcesserExitedUnjoinedNum()
 
     std::lock_guard<std::mutex> lock(m_processer_map_mutex);
     size_t count = 0;
-    for (const auto& record : m_workers)
-    {
-        if (record->m_processer != nullptr &&
-            record->m_processer->m_lifecycle.load(std::memory_order_acquire) ==
-                ProcesserLifecycleState::Exited)
+    for (const auto& record : m_workers) {
+        if (record->m_processer != nullptr
+            && record->m_processer->m_lifecycle.load(std::memory_order_acquire) == ProcesserLifecycleState::Exited)
             ++count;
     }
     return count;
@@ -395,13 +374,10 @@ void Scheduler::_WakeProcesserDrivers()
 
 void Scheduler::RegistCoroutineTask(const CoroutineCallback& handle, bool& succ) noexcept
 {
-    try
-    {
+    try {
         RegistCoroutineTask(handle);
         succ = true;
-    }
-    catch(...)
-    {
+    } catch (...) {
         succ = false;
         return;
     }
@@ -409,18 +385,14 @@ void Scheduler::RegistCoroutineTask(const CoroutineCallback& handle, bool& succ)
 
 void Scheduler::RegistCoroutineTask(size_t stack_size, const CoroutineCallback& handle, bool& succ) noexcept
 {
-    try
-    {
+    try {
         RegistCoroutineTask(stack_size, handle);
         succ = true;
-    }
-    catch(...)
-    {
+    } catch (...) {
         succ = false;
         return;
     }
 }
-
 
 void Scheduler::OnActiveCoroutine(CoroutinePriority priority, Coroutine::Ptr coroutine)
 {
@@ -432,8 +404,7 @@ void Scheduler::OnActiveCoroutine(CoroutinePriority priority, Coroutine::Ptr cor
     /* 当前 worker 的 admission 成功时就地入队，避免唤醒任务绕行 global；
      * notify=false 保持当前 worker 的通知语义，关闭 admission 仍回退 global。 */
     auto local_processer = Processer::TryGetLocalProcesser();
-    if (local_processer != nullptr &&
-        local_processer->_EnqueueAdmitted(priority, coroutine, false))
+    if (local_processer != nullptr && local_processer->_EnqueueAdmitted(priority, coroutine, false))
         return;
 
     /* 无停机、无代际：激活的协程一律回全局队列；没有需要 reclaim 的
@@ -477,8 +448,7 @@ void Scheduler::_FixTimingScan()
     const uint64_t threshold_us = (uint64_t)warn_ms * 1000;
 
     std::vector<WorkerStallInfo> pending;
-    for (const auto& proc : *snapshot)
-    {
+    for (const auto& proc : *snapshot) {
         if (proc == nullptr)
             continue;
         /* 一致性快照：与写者共用 m_exec_mutex，临界区内整组复制，
@@ -490,20 +460,20 @@ void Scheduler::_FixTimingScan()
         {
             std::lock_guard<std::mutex> lock(proc->m_exec_mutex);
             if (!proc->m_executing)
-                continue;   // worker 空闲/协程已让出，不算停顿
+                continue; // worker 空闲/协程已让出，不算停顿
             begin_us = proc->m_exec_begin_us;
             co_id = proc->m_exec_co_id;
             backlog = proc->m_exec_backlog;
             memcpy(desc, proc->m_exec_desc, sizeof(desc));
         }
         if (begin_us == 0)
-            continue;   // 尚未发布过快照
+            continue; // 尚未发布过快照
 
         if (now_us < begin_us || now_us - begin_us < threshold_us)
             continue;
 
         if (proc->m_last_stall_report_begin == begin_us)
-            continue;   // 同一停顿只报一次（协程仍在死循环中）
+            continue; // 同一停顿只报一次（协程仍在死循环中）
         proc->m_last_stall_report_begin = begin_us;
 
         WorkerStallInfo info;
@@ -515,17 +485,17 @@ void Scheduler::_FixTimingScan()
         pending.push_back(std::move(info));
     }
 
-    for (auto& info : pending)
-    {
+    for (auto& info : pending) {
         if (g_bbt_coroutine_config->m_ext_worker_stall_callback) {
-            try { g_bbt_coroutine_config->m_ext_worker_stall_callback(info); }
-            catch (...) { /* 回调契约：不得抛出；抛出吞掉保调度线程 */ }
+            try {
+                g_bbt_coroutine_config->m_ext_worker_stall_callback(info);
+            } catch (...) { /* 回调契约：不得抛出；抛出吞掉保调度线程 */
+            }
         } else {
             /* 无回调 = stderr 告警一行 */
             fprintf(stderr, "[bbtco] worker stall: worker=%llu co=%llu desc='%s' running=%llums backlog=%llu\n",
-                    (unsigned long long)info.m_worker_id, (unsigned long long)info.m_co_id,
-                    info.m_desc.c_str(), (unsigned long long)(info.m_running_us / 1000),
-                    (unsigned long long)info.m_backlog);
+                    (unsigned long long)info.m_worker_id, (unsigned long long)info.m_co_id, info.m_desc.c_str(),
+                    (unsigned long long)(info.m_running_us / 1000), (unsigned long long)info.m_backlog);
         }
     }
 }
@@ -544,9 +514,9 @@ void Scheduler::_OnUpdate()
         _ReapRetiredWorkers();
 
 #ifdef BBT_COROUTINE_PROFILE
-        if (g_bbt_coroutine_config->m_cfg_profile_printf_ms > 0 &&
-            bbt::core::clock::is_expired<bbt::core::clock::ms>((prev_profile_timepoint + bbt::core::clock::ms(g_bbt_coroutine_config->m_cfg_profile_printf_ms))))
-        {
+        if (g_bbt_coroutine_config->m_cfg_profile_printf_ms > 0
+            && bbt::core::clock::is_expired<bbt::core::clock::ms>(
+                (prev_profile_timepoint + bbt::core::clock::ms(g_bbt_coroutine_config->m_cfg_profile_printf_ms)))) {
             std::string info = "";
             g_bbt_profiler->ProfileInfo(info);
             bbt::core::log::DebugPrint(info.c_str());
@@ -559,20 +529,13 @@ void Scheduler::_OnUpdate()
         actived = g_bbt_poller->PollOnce();
         _FixTimingScan();
         g_bbt_stackpoll->OnUpdate();
-    } while(actived);
-
+    } while (actived);
 }
 
 void Scheduler::_Run()
 {
-    /**
-     * 调度器主循环
-     *
-     * 1. CoPoller 进行事件轮询，检测是否有await_event就绪。
-     * 2. 栈池进行定时采样和动态调整。
-     *
-     */
-
+    /* 调度循环：每轮 _OnUpdate 排空事件，再按真实时间维护扫描节拍；本线程不执行用户协程，
+     * 也没有退出条件（进程寿命，无停机入口）。 */
     m_begin_timestamp = bbt::core::clock::now<>();
     /* 维护节拍用 steady_clock 绝对时刻，不看事件次数 */
     auto next_scan_deadline = std::chrono::steady_clock::now();
@@ -581,14 +544,12 @@ void Scheduler::_Run()
     g_bbt_profiler->OnEvent_StartScheudler();
 #endif
     /* 进程寿命：调度循环不设退出条件——没有业务停机入口，退出即进程结束 */
-    for (;;)
-    {
+    for (;;) {
         _OnUpdate();
 
         const size_t interval_ms = g_bbt_coroutine_config->m_cfg_scan_interval_ms;
 
-        /* interval==0 保持既有「不停拍」语义：旧实现的 sleep_until 此时也已过期，
-           两者都是立即进入下一轮。 */
+        /* interval==0 = 不停拍：立即进入下一轮，不等扫描节拍。 */
         if (interval_ms == 0)
             continue;
 
@@ -599,9 +560,8 @@ void Scheduler::_Run()
         if (now >= next_scan_deadline)
             next_scan_deadline = now + std::chrono::milliseconds(interval_ms);
 
-        /* 停拍期间不空等：有已注册事件时阻塞到「事件派发」或「扫描拍到期」先到
-           先醒，没有事件时退回旧的定时休眠。派发过事件也回到 _OnUpdate 排空，
-           剩余时间仍按同一 deadline 等待。 */
+        /* 停拍期间不空等：有已注册事件时阻塞到「事件派发」或「扫描拍到期」先到先醒，没有事件时
+           退化为 sleep_until(deadline)；派发过事件也回到 _OnUpdate 排空。 */
         g_bbt_poller->PollOnceUntil(next_scan_deadline);
     }
 }
@@ -634,15 +594,14 @@ void Scheduler::Start(SchedulerStartOpt opt)
 
     switch (opt) {
 
-    case SCHE_START_OPT_SCHE_THREAD:
-    {
+    case SCHE_START_OPT_SCHE_THREAD: {
         Assert(m_sche_thread == nullptr);
         bbt::core::thread::CountDownLatch wg{1};
         std::shared_ptr<std::atomic_bool> created;
         const size_t initial_num = bounds.m_initial_num;
         try {
             created = std::make_shared<std::atomic_bool>(false);
-            m_sche_thread = new std::thread([this, &wg, created, initial_num](){
+            m_sche_thread = new std::thread([this, &wg, created, initial_num]() {
                 const bool ok = _CreateProcessers(initial_num);
                 created->store(ok, std::memory_order_release);
                 /* 初始化标志先于运行循环发布；latch 放行表示 Start 即将返回 */
@@ -699,12 +658,11 @@ void Scheduler::Start(SchedulerStartOpt opt)
     default:
         break;
     };
-
 }
 
 void Scheduler::LoopOnce()
 {
-    // 使用单独的调度线程，就不可以调用LoopOnce来手动驱动了
+    // 已有 S 线程时不允许手动驱动：断言失败。
     AssertWithInfo(m_sche_thread == nullptr, "the sche-thread has been started!");
 
     _OnUpdate();
@@ -715,7 +673,7 @@ size_t Scheduler::GetCoroutineFromGlobal(CoroutinePriority priority, size_t size
     size_t count = 0;
     Coroutine::Ptr item = nullptr;
     while (count < size && m_global_coroutine_queue[priority].try_dequeue(item)) {
-        if (!owner._EnqueueAdmitted(priority, item, /*notify*/false)) {
+        if (!owner._EnqueueAdmitted(priority, item, /*notify*/ false)) {
             // 睡前复查可能持 run_cond，不能嵌套 global mutex；底层队列自身支持 MPMC。
             // 未发布前保有任务，归还成功才结束，不把 retired P 当临时收件箱。
             while (!m_global_coroutine_queue[priority].enqueue(item))
@@ -730,6 +688,7 @@ size_t Scheduler::GetCoroutineFromGlobal(CoroutinePriority priority, size_t size
 
 bool Scheduler::_CreateProcessers(size_t initial_num)
 {
+    /* 初始批次走与扩容相同的 prepare/commit；失败返回 false，m_target_num 不变。 */
     std::unique_lock<std::mutex> lock(m_lifecycle_mutex);
     std::vector<Processer::SPtr> created;
     if (!_PrepareExpansionLocked(initial_num, created, lock))
@@ -759,9 +718,7 @@ void Scheduler::_WorkerMain(WorkerRecordSPtr record, std::shared_ptr<BatchStartG
         gate->m_cv.notify_all();
         if (!ready)
             return;
-        gate->m_cv.wait(lock, [&] {
-            return gate->m_started || gate->m_cancel;
-        });
+        gate->m_cv.wait(lock, [&] { return gate->m_started || gate->m_cancel; });
         if (gate->m_cancel)
             return;
     }
@@ -771,8 +728,7 @@ void Scheduler::_WorkerMain(WorkerRecordSPtr record, std::shared_ptr<BatchStartG
     record->m_processer->_Run();
 }
 
-void Scheduler::_CancelBatch(std::shared_ptr<BatchStartGate>& gate,
-                             std::vector<WorkerRecordSPtr>& records)
+void Scheduler::_CancelBatch(std::shared_ptr<BatchStartGate>& gate, std::vector<WorkerRecordSPtr>& records)
 {
     {
         std::lock_guard<std::mutex> lock(gate->m_mutex);
@@ -780,13 +736,14 @@ void Scheduler::_CancelBatch(std::shared_ptr<BatchStartGate>& gate,
     }
     gate->m_cv.notify_all();
 
-    for (auto& record : records)
-    {
+    for (auto& record : records) {
         if (record == nullptr || record->m_thread == nullptr)
             continue;
         if (record->m_thread->joinable()) {
-            try { record->m_thread->join(); }
-            catch (...) { /* 未公开批次：join 失败也不改变旧 active/target */ }
+            try {
+                record->m_thread->join();
+            } catch (...) { /* 未公开批次：join 失败也不改变旧 active/target */
+            }
         }
         delete record->m_thread;
         record->m_thread = nullptr;
@@ -818,9 +775,7 @@ bool Scheduler::_PrepareExpansionLocked(size_t need, std::vector<Processer::SPtr
 
             auto record = std::make_shared<WorkerRecord>();
             record->m_processer = proc;
-            record->m_thread = new std::thread([this, record, gate](){
-                _WorkerMain(record, gate);
-            });
+            record->m_thread = new std::thread([this, record, gate]() { _WorkerMain(record, gate); });
 
             records.push_back(record);
             out_new.push_back(proc);
@@ -875,7 +830,6 @@ bool Scheduler::_PrepareExpansionLocked(size_t need, std::vector<Processer::SPtr
         return false;
     }
 
-
     {
         std::lock_guard<std::mutex> lock(gate->m_mutex);
         gate->m_started = true;
@@ -887,10 +841,10 @@ bool Scheduler::_PrepareExpansionLocked(size_t need, std::vector<Processer::SPtr
 ProcesserResizeResult Scheduler::_CommitShrinkLocked(size_t need, size_t target,
                                                      std::vector<Processer::SPtr>& out_notify)
 {
+    /* 缩容提交：先挑候选（Active 且无 driver 归属），构造好新 map/snapshot 再一次性
+     * 提交。DriverBound/SelfRetire/Busy 三个拒绝码都在改动 map/snapshot/target 之前返回。 */
     Processer::SPtr self = Processer::TryGetLocalProcesser();
-    const ProcesserId self_id = self != nullptr
-        ? self->GetId()
-        : BBT_COROUTINE_INVALID_PROCESSER_ID;
+    const ProcesserId self_id = self != nullptr ? self->GetId() : BBT_COROUTINE_INVALID_PROCESSER_ID;
 
     std::lock_guard<std::mutex> lock(m_processer_map_mutex);
     const ProcesserList& active = *m_active_snapshot;
@@ -901,12 +855,10 @@ ProcesserResizeResult Scheduler::_CommitShrinkLocked(size_t need, size_t target,
     std::vector<Processer::SPtr> selected;
     try {
         candidates.reserve(active.size());
-        for (const auto& proc : active)
-        {
+        for (const auto& proc : active) {
             if (proc == nullptr)
                 continue;
-            if (proc->m_lifecycle.load(std::memory_order_acquire) !=
-                ProcesserLifecycleState::Active)
+            if (proc->m_lifecycle.load(std::memory_order_acquire) != ProcesserLifecycleState::Active)
                 continue;
             if (proc->_HasDriverOwnership())
                 continue;
@@ -919,8 +871,7 @@ ProcesserResizeResult Scheduler::_CommitShrinkLocked(size_t need, size_t target,
         /* worker 上下文调用时，若必须退役自身，返回 SelfRetire 且无副作用；
          * 其余候选足够时仍允许本次缩容。 */
         selected.reserve(need);
-        for (const auto& proc : candidates)
-        {
+        for (const auto& proc : candidates) {
             if (selected.size() >= need)
                 break;
             if (proc->GetId() == self_id)
@@ -942,8 +893,7 @@ ProcesserResizeResult Scheduler::_CommitShrinkLocked(size_t need, size_t target,
         auto new_map = m_processer_map;
         ProcesserList new_vec;
         new_vec.reserve(active.size() - need);
-        for (const auto& proc : active)
-        {
+        for (const auto& proc : active) {
             if (selected_ids.count(proc->GetId()) == 0)
                 new_vec.push_back(proc);
         }
@@ -964,10 +914,11 @@ ProcesserResizeResult Scheduler::_CommitShrinkLocked(size_t need, size_t target,
     return ProcesserResizeResult::Pending;
 }
 
-ProcesserResizeResult Scheduler::_ApplyTargetLocked(size_t target,
-                                                    std::vector<Processer::SPtr>& out_notify,
+ProcesserResizeResult Scheduler::_ApplyTargetLocked(size_t target, std::vector<Processer::SPtr>& out_notify,
                                                     std::unique_lock<std::mutex>& lifecycle_lock)
 {
+    /* 手动与自动共用的目标提交点，调用方持 m_lifecycle_mutex。扩：prepare+commit，失败返回
+     * CreateFailed 且无副作用；缩：Pending 表示目标已提交、物理回收交给 reaper。 */
     const size_t active = _ActiveCountLocked();
 
     if (target > active) {
@@ -994,13 +945,11 @@ size_t Scheduler::_ActiveCountLocked()
 size_t Scheduler::_CountOutstandingRetireLocked()
 {
     size_t count = 0;
-    for (const auto& record : m_workers)
-    {
+    for (const auto& record : m_workers) {
         if (record->m_processer == nullptr)
             continue;
         const auto state = record->m_processer->m_lifecycle.load(std::memory_order_acquire);
-        if (state == ProcesserLifecycleState::Retiring ||
-            state == ProcesserLifecycleState::Exited)
+        if (state == ProcesserLifecycleState::Retiring || state == ProcesserLifecycleState::Exited)
             ++count;
     }
     return count;
@@ -1013,120 +962,196 @@ void Scheduler::_ResetScalingSamplesLocked()
     m_last_auto_sample = std::chrono::steady_clock::now();
 }
 
+namespace {
+
+/* 连续命中计数：命中 +1 并封顶在 samples；没命中立即清零。 */
+void AdvanceHits(size_t& hits, bool hit, size_t samples)
+{
+    if (!hit) {
+        hits = 0;
+        return;
+    }
+    if (hits < samples)
+        ++hits;
+}
+
+} // namespace
+
 void Scheduler::_AutoScaleTick()
 {
-    if (!IsInitialized())
-        return;
-    if (m_scaling_mode.load(std::memory_order_acquire) != ProcesserScalingMode::Auto)
+    /* 自动伸缩的一拍：把最近的负载折成"该扩 / 该缩"信号，信号连续命中足够多拍后才调整
+     * 目标 worker 数（m_target_num）。由 _OnUpdate 每轮调用（调度线程，或 NO_LOOP 下的 LoopOnce）。
+     *
+     *   1. 门禁  未初始化、不是 Auto 模式、未到采样间隔：直接返回，不动任何状态
+     *   2. 采样  读全局 + 各 active worker 的待运行协程数，以及 worker 忙碌占比
+     *   3. 累计  扩 / 缩条件各自记录"连续命中了几拍"
+     *   4. 决策  连续命中达到 m_scale_*_samples 才调目标；每拍至多调一批，扩容优先
+     *   5. 唤醒  调整产生的 worker 通知，在退出全部锁之后才发布
+     *
+     * 控制权：目标数只在 m_lifecycle_mutex 下改。手动入口（SetProcesserNum / SetProcesserAutoScale）
+     * 持同一把锁，所以本拍和手动请求互斥：手动请求先到，本拍持锁复查时发现已是 Manual 就放弃。
+     *
+     * 为什么要"连续命中"而不是单拍判定：避免负载抖动带来来回伸缩。例：队列水位一拍内冲高又回落，
+     * 单拍触发会先扩出线程、下一拍又缩回去；要求连续 m_scale_up_samples 拍都偏高才扩，这种尖峰不会生效。 */
+
+    /* 1. 门禁（无锁快速路径）：不满足就不取锁 */
+    if (!IsInitialized() || m_scaling_mode.load(std::memory_order_acquire) != ProcesserScalingMode::Auto)
         return;
 
     std::vector<Processer::SPtr> notify;
     {
         std::unique_lock<std::mutex> lock(m_lifecycle_mutex);
-        if (m_scaling_mode.load(std::memory_order_acquire) != ProcesserScalingMode::Auto)
+        if (!_ClaimAutoSampleLocked())
             return;
 
-        const auto now = std::chrono::steady_clock::now();
-        const auto interval = std::chrono::milliseconds(m_scale_interval_ms);
-        if (now - m_last_auto_sample < interval)
-            return;
-        m_last_auto_sample = now;
-
-        std::shared_ptr<const ProcesserList> snapshot;
-        {
-            std::lock_guard<std::mutex> map_lock(m_processer_map_mutex);
-            snapshot = m_active_snapshot;
-        }
-        if (snapshot == nullptr || snapshot->empty())
+        /* 2. 采样 */
+        ScalingLoad load;
+        if (!_SampleScalingLoadLocked(load))
             return;
 
-        /* 近似 runnable：全局 + active 本地。只作控制信号，不证明空队列、
-         * 所有权移交或安全退役。 */
-        uint64_t queue_total = 0;
-        for (auto& queue : m_global_coroutine_queue)
-            queue_total += static_cast<uint64_t>(queue.size_approx());
-
-        size_t busy = 0;
-        for (const auto& proc : *snapshot)
-        {
-            if (proc == nullptr)
-                continue;
-            queue_total += static_cast<uint64_t>(proc->GetExecutableNum());
-            if (proc->m_busy.load(std::memory_order_acquire))
-                ++busy;
-        }
-
-        const size_t active = snapshot->size();
-        const size_t busy_percent = active == 0
-            ? 0
-            : static_cast<size_t>((static_cast<uint64_t>(busy) * 100) / active);
-
-        const bool up_hit =
-            queue_total >= m_scale_up_queue_watermark ||
-            busy_percent >= m_scale_up_busy_percent;
-        const bool down_hit =
-            queue_total <= m_scale_down_queue_watermark &&
-            busy_percent <= m_scale_down_busy_percent;
-
-        if (up_hit) {
-            if (m_scale_up_hits < m_scale_up_samples)
-                ++m_scale_up_hits;
-        } else {
-            m_scale_up_hits = 0;
-        }
-
-        if (down_hit) {
-            if (m_scale_down_hits < m_scale_down_samples)
-                ++m_scale_down_hits;
-        } else {
-            m_scale_down_hits = 0;
-        }
-
-        /* 相等阈值同拍双向命中时只选扩容方向；每拍至多一批。 */
-        if (m_scale_up_hits >= m_scale_up_samples) {
-            const size_t target = m_target_num.load(std::memory_order_acquire);
-            if (target < m_max_num) {
-                const size_t remain = m_max_num - target;
-                const size_t next = m_scale_step >= remain
-                    ? m_max_num
-                    : target + m_scale_step;
-                const auto result = _ApplyTargetLocked(next, notify, lock);
-                if (result == ProcesserResizeResult::Ok) {
-                    m_scale_up_hits = 0;
-                    m_scale_down_hits = 0;
-                } else {
-                    m_scale_up_hits = 0;
-                }
-            } else {
-                m_scale_up_hits = 0;
-            }
-        } else if (m_scale_down_hits >= m_scale_down_samples) {
-            const size_t target = m_target_num.load(std::memory_order_acquire);
-            if (target > m_min_num) {
-                const size_t remain = target - m_min_num;
-                const size_t next = m_scale_step >= remain
-                    ? m_min_num
-                    : target - m_scale_step;
-                const auto result = _ApplyTargetLocked(next, notify, lock);
-                if (result == ProcesserResizeResult::Ok ||
-                    result == ProcesserResizeResult::Pending) {
-                    m_scale_up_hits = 0;
-                    m_scale_down_hits = 0;
-                } else {
-                    /* DriverBound/Busy/SelfRetire/CreateFailed：目标不变，
-                     * 复位本方向，等下一轮重新累计。 */
-                    m_scale_down_hits = 0;
-                }
-            } else {
-                m_scale_down_hits = 0;
-            }
-        }
+        /* 3. 累计 + 4. 决策 */
+        _AccumulateScalingHitsLocked(load);
+        _ApplyScalingDecisionLocked(notify, lock);
     }
 
-    /* worker 唤醒与 driver Wake 在 lifecycle/map 锁外执行 */
+    /* 5. 唤醒：notify 里是本拍新建 / 被通知的 worker，所有权从 _ApplyTargetLocked 交给本函数，
+     * 持有 SPtr 期间 worker 对象不会被回收。必须在退出 lifecycle / map 锁之后发布（_ApplyTargetLocked
+     * 的契约）：被唤醒的 worker 没有本地任务时会走 TryWorkSteal，要取 m_processer_map_mutex，
+     * 在锁内唤醒只会让它一醒就撞上我们手里的锁。 */
     for (auto& proc : notify)
         if (proc != nullptr)
             proc->_PublishRunnable();
+}
+
+bool Scheduler::_ClaimAutoSampleLocked()
+{
+    /* 抢占本拍的采样名额：仍是 Auto 且距上次采样已满 m_scale_interval_ms 才返回 true，
+     * 并把现在记为新的采样起点。返回 false 只表示"这拍不用采样"，不是错误。
+     *
+     * 持锁复查 Auto 是必须的：门禁那次读是无锁的，之后手动入口可能已经切到 Manual；
+     * 不复查的话，本拍会在手动请求之后又改一次目标数，把用户刚设的数量覆盖掉。
+     * 名额一旦占用就算本拍已采样，即使后面发现没有 worker 可采，也要等下一个间隔。 */
+    if (m_scaling_mode.load(std::memory_order_acquire) != ProcesserScalingMode::Auto)
+        return false;
+
+    const auto now = std::chrono::steady_clock::now();
+    if (now - m_last_auto_sample < std::chrono::milliseconds(m_scale_interval_ms))
+        return false;
+
+    m_last_auto_sample = now;
+    return true;
+}
+
+bool Scheduler::_SampleScalingLoadLocked(ScalingLoad& out_load)
+{
+    /* 读一次负载：待运行协程数 = 全局队列 + 各 active worker 的本地队列，忙碌占比 = 忙碌 / active。
+     * 读数都是近似值（size_approx、无同步的 busy 标志），只用来决定"要不要调目标"，
+     * 不能当作"队列已空""协程已移交"或"worker 可以安全退役"的证据。
+     * 例：queue_total 为 0 只会让缩容命中数 +1；能否真正退役仍由 _ApplyTargetLocked 判定，
+     * 它可能因 driver 绑定、退役未收口等原因返回 DriverBound / Busy，目标数不变。 */
+
+    /* 拷贝一份不可变 active 快照后立刻释放 map 锁，之后只读这份拷贝：
+     * 扩缩容提交会整体替换 m_active_snapshot，不会改动我们手里这份旧列表。 */
+    std::shared_ptr<const ProcesserList> snapshot;
+    {
+        std::lock_guard<std::mutex> map_lock(m_processer_map_mutex);
+        snapshot = m_active_snapshot;
+    }
+    if (snapshot == nullptr || snapshot->empty())
+        return false;
+
+    uint64_t queue_total = 0;
+    for (auto& queue : m_global_coroutine_queue)
+        queue_total += static_cast<uint64_t>(queue.size_approx());
+
+    size_t busy = 0;
+    for (const auto& proc : *snapshot) {
+        if (proc == nullptr)
+            continue;
+        queue_total += static_cast<uint64_t>(proc->GetExecutableNum());
+        if (proc->m_busy.load(std::memory_order_acquire))
+            ++busy;
+    }
+
+    out_load.m_queue_total = queue_total;
+    out_load.m_busy_percent = static_cast<size_t>((static_cast<uint64_t>(busy) * 100) / snapshot->size());
+    return true;
+}
+
+void Scheduler::_AccumulateScalingHitsLocked(const ScalingLoad& load)
+{
+    /* 把本拍负载折成两个"连续命中拍数"（m_scale_up_hits / m_scale_down_hits）：
+     *   扩容命中：队列水位到达上限水位，或忙碌占比到达上限占比（任一即可）
+     *   缩容命中：队列水位不高于下限水位，且忙碌占比不高于下限占比（必须同时）
+     * 即有任一压力迹象就可以扩，必须队列和 worker 都空闲才缩。 */
+    const bool up_hit =
+        load.m_queue_total >= m_scale_up_queue_watermark || load.m_busy_percent >= m_scale_up_busy_percent;
+    const bool down_hit =
+        load.m_queue_total <= m_scale_down_queue_watermark && load.m_busy_percent <= m_scale_down_busy_percent;
+
+    AdvanceHits(m_scale_up_hits, up_hit, m_scale_up_samples);
+    AdvanceHits(m_scale_down_hits, down_hit, m_scale_down_samples);
+}
+
+void Scheduler::_ApplyScalingDecisionLocked(std::vector<Processer::SPtr>& out_notify,
+                                            std::unique_lock<std::mutex>& lifecycle_lock)
+{
+    /* 连续命中拍数够了才动目标数。扩缩阈值相等的配置下两个方向可能同拍都够，此时只扩不缩；
+     * 每拍至多调一批。 */
+    if (m_scale_up_hits >= m_scale_up_samples)
+        _ScaleUpOneStepLocked(out_notify, lifecycle_lock);
+    else if (m_scale_down_hits >= m_scale_down_samples)
+        _ScaleDownOneStepLocked(out_notify, lifecycle_lock);
+}
+
+void Scheduler::_ScaleUpOneStepLocked(std::vector<Processer::SPtr>& out_notify,
+                                      std::unique_lock<std::mutex>& lifecycle_lock)
+{
+    /* 扩容一批：目标数 + m_scale_step，封顶 m_max_num。
+     * 目标数能否生效由 _ApplyTargetLocked 决定（新批次创建失败时返回 CreateFailed，
+     * 旧 active / target / mode 都不变）。只有 Ok 才算决策兑现，两个方向的累计一起清零；
+     * 否则只清本方向，要重新连续命中 m_scale_up_samples 拍才会再次尝试，不会每拍重试同一个失败。
+     * 新建 worker 经 out_notify 交回，由 _AutoScaleTick 在退出全部锁后发布 runnable。 */
+    const size_t target = m_target_num.load(std::memory_order_acquire);
+    if (target >= m_max_num) {
+        m_scale_up_hits = 0; // 已在上限，扩容信号作废
+        return;
+    }
+
+    const size_t remain = m_max_num - target;
+    const size_t next = m_scale_step >= remain ? m_max_num : target + m_scale_step;
+    const auto result = _ApplyTargetLocked(next, out_notify, lifecycle_lock);
+    if (result == ProcesserResizeResult::Ok) {
+        m_scale_up_hits = 0;
+        m_scale_down_hits = 0;
+    } else {
+        m_scale_up_hits = 0;
+    }
+}
+
+void Scheduler::_ScaleDownOneStepLocked(std::vector<Processer::SPtr>& out_notify,
+                                        std::unique_lock<std::mutex>& lifecycle_lock)
+{
+    /* 缩容一批：目标数 - m_scale_step，封底 m_min_num。
+     * Ok 和 Pending 都算决策兑现（目标已提交，Pending 只是退役 worker 的物理回收还在推进，
+     * 由 reaper 继续收口），两个方向的累计一起清零。 */
+    const size_t target = m_target_num.load(std::memory_order_acquire);
+    if (target <= m_min_num) {
+        m_scale_down_hits = 0; // 已在下限，缩容信号作废
+        return;
+    }
+
+    const size_t remain = target - m_min_num;
+    const size_t next = m_scale_step >= remain ? m_min_num : target - m_scale_step;
+    const auto result = _ApplyTargetLocked(next, out_notify, lifecycle_lock);
+    if (result == ProcesserResizeResult::Ok || result == ProcesserResizeResult::Pending) {
+        m_scale_up_hits = 0;
+        m_scale_down_hits = 0;
+    } else {
+        /* DriverBound / Busy / SelfRetire / CreateFailed：目标不变，
+         * 复位本方向，等下一轮重新累计。 */
+        m_scale_down_hits = 0;
+    }
 }
 
 void Scheduler::_ReapRetiredWorkers()
@@ -1137,18 +1162,15 @@ void Scheduler::_ReapRetiredWorkers()
     /* 一次只认领一个已完成 TLS 析构的线程，无临时 vector 分配：OOM 不会
      * 留下“已认领但没有收据”的记录。Exited 仍是未 join 的可观察状态；
      * 退出 future 未就绪时跳过，不能阻塞 S/LoopOnce 等待用户 TLS。 */
-    for (size_t reaped = 0; reaped < kMaxReapPerTick; ++reaped)
-    {
+    for (size_t reaped = 0; reaped < kMaxReapPerTick; ++reaped) {
         WorkerRecordSPtr claimed;
         {
             std::lock_guard<std::mutex> lock(m_processer_map_mutex);
-            for (const auto& record : m_workers)
-            {
-                if (record->m_claimed.load(std::memory_order_acquire) ||
-                    record->m_processer->m_lifecycle.load(std::memory_order_acquire) !=
-                        ProcesserLifecycleState::Exited ||
-                    record->m_thread_exited.wait_for(std::chrono::seconds(0)) !=
-                        std::future_status::ready)
+            for (const auto& record : m_workers) {
+                if (record->m_claimed.load(std::memory_order_acquire)
+                    || record->m_processer->m_lifecycle.load(std::memory_order_acquire)
+                           != ProcesserLifecycleState::Exited
+                    || record->m_thread_exited.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
                     continue;
                 record->m_claimed.store(true, std::memory_order_release);
                 claimed = record;
@@ -1173,8 +1195,7 @@ void Scheduler::_ReapRetiredWorkers()
         claimed->m_processer->_MarkJoined();
         {
             std::lock_guard<std::mutex> lock(m_processer_map_mutex);
-            for (auto it = m_workers.begin(); it != m_workers.end(); ++it)
-            {
+            for (auto it = m_workers.begin(); it != m_workers.end(); ++it) {
                 if (it->get() == claimed.get()) {
                     m_workers.erase(it);
                     break;
@@ -1236,10 +1257,8 @@ Processer::SPtr Scheduler::_LoadBlance2Proc(CoroutinePriority priority, Coroutin
 
 int Scheduler::TryWorkSteal(Processer::SPtr thief)
 {
-    /**
-     * m_active_snapshot 在提交时整体替换；快照只保对象寿命，真正窃取前
-     * 仍要检查双方 lifecycle/admission。thief 正在退役时不再收入新任务。
-     */
+    /* m_active_snapshot 在提交时整体替换；快照只保对象寿命，真正窃取前仍要
+     * 检查双方 lifecycle/admission。thief 正在退役时不再收入新任务。 */
     if (thief == nullptr || !thief->_IsActive())
         return 0;
 
@@ -1271,14 +1290,9 @@ int Scheduler::TryWorkSteal(Processer::SPtr thief)
 
 void Scheduler::_InitGlobalUniqInstance()
 {
-    /**
-     * 禁止编译器优化。
-     *
-     * 1. 确保全局单例在使用前被初始化，防止编译器将全局单例的初始化延迟到第一次使用时。
-     * 2. 确保全局单例在程序启动时就被初始化，避免多线程环境下的竞态条件。
-     * 3. 确保全局单例的初始化顺序正确，避免依赖关系错误。
-     *
-     */
+    /* 函数内静态单例在哪条线程首次触碰就在哪条线程构造：这里在 Start 的调用线程上先取一遍
+     * poller/profiler/stackpool，避免 worker 在调度循环里首次惰性构造；g_bbt_tls_helper 是
+     * thread_local，只保证 Start 所在线程有一份。局部引用用于强制求值，故关闭优化。 */
 #pragma optimize("", off)
     BBTATTR_COMM_UNUSED auto& _init_tls_helper = g_bbt_tls_helper;
     BBTATTR_COMM_UNUSED auto& _init_poller = g_bbt_poller;

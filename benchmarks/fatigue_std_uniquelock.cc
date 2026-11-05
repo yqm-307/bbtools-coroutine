@@ -4,7 +4,7 @@ int main()
 {
     const int nco = 1000;
     auto lock = bbt::co::sync::StdLockWapper(bbtco_make_comutex());
-    int a=0, b=0;
+    int a = 0, b = 0;
 
     g_scheduler->Start();
 
@@ -13,9 +13,9 @@ int main()
     for (auto&& it : alive_ts_arr)
         it = bbt::core::clock::gettime();
 
-
     for (int i = 0; i < nco; ++i) {
-        bbtco [&, i](){
+        bbtco[&, i]()
+        {
             while (true) {
                 {
                     std::unique_lock<bbt::co::sync::StdLockWapper> _{lock};
@@ -29,7 +29,8 @@ int main()
         };
     }
 
-    bbtco_desc("监视") [&](){
+    bbtco_desc("监视")[&]()
+    {
         while (true) {
             printf("checked\n");
             for (int i = 0; i < nco; ++i) {

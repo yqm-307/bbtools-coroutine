@@ -7,12 +7,11 @@ int main()
 {
     const int ncount = 500000;
     auto begin = std::chrono::system_clock::now();
-    for (int i = 0; i < ncount; ++i)
-    {
-        bbtco [](){};
+    for (int i = 0; i < ncount; ++i) {
+        bbtco[](){};
     }
 
     auto end = std::chrono::system_clock::now();
-    printf("插入%d个协程耗时 %ldms\n", ncount, std::chrono::duration_cast<std::chrono::milliseconds>((end-begin)).count());
-
+    printf("插入%d个协程耗时 %ldms\n", ncount,
+           std::chrono::duration_cast<std::chrono::milliseconds>((end - begin)).count());
 }

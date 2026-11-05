@@ -9,14 +9,11 @@
 #include <bbt/coroutine/sync/CoLockGuard.hpp>
 /* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
  * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。 */
-namespace
-{
+namespace {
 void EnsureRuntime()
 {
     static std::once_flag once;
-    std::call_once(once, [](){
-        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
-    });
+    std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
 }
 
@@ -37,7 +34,7 @@ BOOST_AUTO_TEST_CASE(t_readlock_basic)
     auto rwlock = CoRWMutex::Create();
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco [rwlock, &l]()
+    bbtco[rwlock, &l]()
     {
         CoReadLock guard(rwlock);
         BOOST_TEST(guard.owns_lock());
@@ -58,7 +55,7 @@ BOOST_AUTO_TEST_CASE(t_readlock_multi_reader)
     int max_concurrent = 0;
 
     for (int i = 0; i < nreaders; ++i) {
-        bbtco [rwlock, &readers_inside, &max_concurrent, &l]()
+        bbtco[rwlock, &readers_inside, &max_concurrent, &l]()
         {
             CoReadLock guard(rwlock);
             readers_inside++;
@@ -81,7 +78,7 @@ BOOST_AUTO_TEST_CASE(t_readlock_releases_for_write)
     bbt::core::thread::CountDownLatch l{1};
     bool write_ok = false;
 
-    bbtco [rwlock, &l, &write_ok]()
+    bbtco[rwlock, &l, &write_ok]()
     {
         {
             CoReadLock guard(rwlock);
@@ -104,7 +101,7 @@ BOOST_AUTO_TEST_CASE(t_readlock_try_to_lock)
     auto rwlock = CoRWMutex::Create();
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco [rwlock, &l]()
+    bbtco[rwlock, &l]()
     {
         CoReadLock guard(rwlock, std::try_to_lock);
         BOOST_TEST(guard.owns_lock()); // 初始应成功
@@ -120,7 +117,7 @@ BOOST_AUTO_TEST_CASE(t_readlock_try_lock_for)
     auto rwlock = CoRWMutex::Create();
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco [rwlock, &l]()
+    bbtco[rwlock, &l]()
     {
         CoReadLock guard(rwlock, std::defer_lock);
         bool ok = guard.try_lock_for(100);
@@ -138,7 +135,7 @@ BOOST_AUTO_TEST_CASE(t_readlock_defer_lock)
     auto rwlock = CoRWMutex::Create();
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco [rwlock, &l]()
+    bbtco[rwlock, &l]()
     {
         CoReadLock guard(rwlock, std::defer_lock);
         BOOST_TEST(!guard.owns_lock());
@@ -160,7 +157,7 @@ BOOST_AUTO_TEST_CASE(t_readlock_move)
     auto rwlock = CoRWMutex::Create();
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco [rwlock, &l]()
+    bbtco[rwlock, &l]()
     {
         CoReadLock inner;
         {
@@ -184,7 +181,7 @@ BOOST_AUTO_TEST_CASE(t_writelock_basic)
     auto rwlock = CoRWMutex::Create();
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco [rwlock, &l]()
+    bbtco[rwlock, &l]()
     {
         CoWriteLock guard(rwlock);
         BOOST_TEST(guard.owns_lock());
@@ -204,23 +201,25 @@ BOOST_AUTO_TEST_CASE(t_writelock_mutual_exclusion)
     int max_inside = 0;
 
     // 写者 1：持锁一会儿
-    bbtco [rwlock, &inside, &max_inside, &l]()
+    bbtco[rwlock, &inside, &max_inside, &l]()
     {
         CoWriteLock guard(rwlock);
         inside = 1;
-        if (inside > max_inside) max_inside = inside;
+        if (inside > max_inside)
+            max_inside = inside;
         bbtco_sleep(100);
         inside = 0;
         l.Down();
     };
 
     // 写者 2：尝试获取（应排队等待）
-    bbtco [rwlock, &inside, &max_inside, &l]()
+    bbtco[rwlock, &inside, &max_inside, &l]()
     {
         bbtco_sleep(10);
         CoWriteLock guard(rwlock);
         inside = 1;
-        if (inside > max_inside) max_inside = inside;
+        if (inside > max_inside)
+            max_inside = inside;
         bbtco_sleep(10);
         inside = 0;
         l.Down();
@@ -236,7 +235,7 @@ BOOST_AUTO_TEST_CASE(t_writelock_try_to_lock)
     auto rwlock = CoRWMutex::Create();
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco [rwlock, &l]()
+    bbtco[rwlock, &l]()
     {
         CoWriteLock guard(rwlock, std::try_to_lock);
         BOOST_TEST(guard.owns_lock());
@@ -252,14 +251,14 @@ BOOST_AUTO_TEST_CASE(t_writelock_try_to_lock_conflict)
     auto rwlock = CoRWMutex::Create();
     bbt::core::thread::CountDownLatch l{2};
 
-    bbtco [rwlock, &l]()
+    bbtco[rwlock, &l]()
     {
         CoWriteLock guard(rwlock);
         bbtco_sleep(200);
         l.Down();
     };
 
-    bbtco [rwlock, &l]()
+    bbtco[rwlock, &l]()
     {
         bbtco_sleep(10);
         CoWriteLock guard(rwlock, std::try_to_lock);
@@ -276,7 +275,7 @@ BOOST_AUTO_TEST_CASE(t_writelock_try_lock_for)
     auto rwlock = CoRWMutex::Create();
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco [rwlock, &l]()
+    bbtco[rwlock, &l]()
     {
         CoWriteLock guard(rwlock, std::defer_lock);
         bool ok = guard.try_lock_for(100);
@@ -294,7 +293,7 @@ BOOST_AUTO_TEST_CASE(t_writelock_defer_lock)
     auto rwlock = CoRWMutex::Create();
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco [rwlock, &l]()
+    bbtco[rwlock, &l]()
     {
         CoWriteLock guard(rwlock, std::defer_lock);
         BOOST_TEST(!guard.owns_lock());
@@ -317,7 +316,7 @@ BOOST_AUTO_TEST_CASE(t_read_then_write)
     bbt::core::thread::CountDownLatch l{2};
     int shared = 0;
 
-    bbtco [rwlock, &shared, &l]()
+    bbtco[rwlock, &shared, &l]()
     {
         {
             CoReadLock guard(rwlock);
@@ -327,7 +326,7 @@ BOOST_AUTO_TEST_CASE(t_read_then_write)
         l.Down();
     };
 
-    bbtco [rwlock, &shared, &l]()
+    bbtco[rwlock, &shared, &l]()
     {
         bbtco_sleep(20); // etc reader acquire lock first
         CoWriteLock guard(rwlock);
@@ -347,7 +346,7 @@ BOOST_AUTO_TEST_CASE(t_writelock_move)
     auto rwlock = CoRWMutex::Create();
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco [rwlock, &l]()
+    bbtco[rwlock, &l]()
     {
         CoWriteLock inner;
         {
@@ -368,16 +367,17 @@ BOOST_AUTO_TEST_CASE(t_readlock_exception_safety)
     auto rwlock = CoRWMutex::Create();
     bbt::core::thread::CountDownLatch l{2};
 
-    bbtco [rwlock, &l]()
+    bbtco[rwlock, &l]()
     {
         try {
             CoReadLock guard(rwlock);
             throw std::runtime_error("test");
-        } catch (...) {}
+        } catch (...) {
+        }
         l.Down();
     };
 
-    bbtco [rwlock, &l]()
+    bbtco[rwlock, &l]()
     {
         CoReadLock guard(rwlock);
         BOOST_TEST(guard.owns_lock());
@@ -393,16 +393,17 @@ BOOST_AUTO_TEST_CASE(t_writelock_exception_safety)
     auto rwlock = CoRWMutex::Create();
     bbt::core::thread::CountDownLatch l{2};
 
-    bbtco [rwlock, &l]()
+    bbtco[rwlock, &l]()
     {
         try {
             CoWriteLock guard(rwlock);
             throw std::runtime_error("test");
-        } catch (...) {}
+        } catch (...) {
+        }
         l.Down();
     };
 
-    bbtco [rwlock, &l]()
+    bbtco[rwlock, &l]()
     {
         CoWriteLock guard(rwlock);
         BOOST_TEST(guard.owns_lock());
@@ -418,7 +419,7 @@ BOOST_AUTO_TEST_CASE(t_readlock_adopt_lock)
     auto rwlock = CoRWMutex::Create();
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco [rwlock, &l]()
+    bbtco[rwlock, &l]()
     {
         rwlock->RLock();
         {
@@ -436,7 +437,7 @@ BOOST_AUTO_TEST_CASE(t_writelock_adopt_lock)
     auto rwlock = CoRWMutex::Create();
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco [rwlock, &l]()
+    bbtco[rwlock, &l]()
     {
         rwlock->WLock();
         {
@@ -472,14 +473,14 @@ BOOST_AUTO_TEST_CASE(t_write_trylock_during_read)
     auto rwlock = CoRWMutex::Create();
     bbt::core::thread::CountDownLatch l{2};
 
-    bbtco [rwlock, &l]()
+    bbtco[rwlock, &l]()
     {
         CoReadLock guard(rwlock);
         bbtco_sleep(100);
         l.Down();
     };
 
-    bbtco [rwlock, &l]()
+    bbtco[rwlock, &l]()
     {
         bbtco_sleep(10);
         CoWriteLock guard(rwlock, std::try_to_lock);
@@ -498,7 +499,7 @@ BOOST_AUTO_TEST_CASE(t_writelock_double_lock_assert)
     auto rwlock = CoRWMutex::Create();
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco [rwlock, &l]()
+    bbtco[rwlock, &l]()
     {
         CoWriteLock guard(rwlock);
         BOOST_TEST(guard.owns_lock());
@@ -516,7 +517,7 @@ BOOST_AUTO_TEST_CASE(t_readlock_double_unlock_assert)
     auto rwlock = CoRWMutex::Create();
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco [rwlock, &l]()
+    bbtco[rwlock, &l]()
     {
         CoReadLock guard(rwlock, std::defer_lock);
         // unlock without lock should trigger "does not own the read lock" assert
@@ -536,7 +537,7 @@ BOOST_AUTO_TEST_CASE(t_readlock_relock)
     auto rwlock = CoRWMutex::Create();
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco [rwlock, &l]()
+    bbtco[rwlock, &l]()
     {
         CoReadLock guard(rwlock, std::defer_lock);
         guard.lock();
@@ -558,7 +559,7 @@ BOOST_AUTO_TEST_CASE(t_readlock_move_chain)
     auto rwlock = CoRWMutex::Create();
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco [rwlock, &l]()
+    bbtco[rwlock, &l]()
     {
         CoReadLock lock1(rwlock);
         CoReadLock lock2(std::move(lock1));
@@ -578,7 +579,7 @@ BOOST_AUTO_TEST_CASE(t_readlock_try_lock_for_zero)
     auto rwlock = CoRWMutex::Create();
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco [rwlock, &l]()
+    bbtco[rwlock, &l]()
     {
         CoReadLock guard(rwlock, std::defer_lock);
         bool got = guard.try_lock_for(0);
@@ -596,12 +597,12 @@ BOOST_AUTO_TEST_CASE(t_readlock_default_move_in)
     auto rwlock = CoRWMutex::Create();
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco [rwlock, &l]()
+    bbtco[rwlock, &l]()
     {
-        CoReadLock empty;           // default ctor — no mutex
+        CoReadLock empty; // default ctor — no mutex
         BOOST_TEST(!empty.owns_lock());
-        CoReadLock real(rwlock);    // holds lock
-        empty = std::move(real);    // move lock into empty guard
+        CoReadLock real(rwlock); // holds lock
+        empty = std::move(real); // move lock into empty guard
         BOOST_TEST(empty.owns_lock());
         l.Down();
         // both 'real' and 'empty' destroyed — only 'empty' calls RUnLock
@@ -616,14 +617,14 @@ BOOST_AUTO_TEST_CASE(t_read_trylock_during_write)
     auto rwlock = CoRWMutex::Create();
     bbt::core::thread::CountDownLatch l{2};
 
-    bbtco [rwlock, &l]()
+    bbtco[rwlock, &l]()
     {
         CoWriteLock guard(rwlock);
         bbtco_sleep(100);
         l.Down();
     };
 
-    bbtco [rwlock, &l]()
+    bbtco[rwlock, &l]()
     {
         bbtco_sleep(10);
         CoReadLock guard(rwlock, std::try_to_lock);
@@ -641,7 +642,7 @@ BOOST_AUTO_TEST_CASE(t_writelock_move_then_reuse)
     auto rwlock2 = CoRWMutex::Create();
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco [rwlock1, rwlock2, &l]()
+    bbtco[rwlock1, rwlock2, &l]()
     {
         CoWriteLock guard(rwlock1);
         BOOST_TEST(guard.owns_lock());

@@ -51,6 +51,8 @@ Issue / 里程碑计划
 | Hook / 兼容行为 | 冒烟 + 相关 hook 单测 + 直接耦合单测 | 同上 | #259 真实客户端长测（吸收 #284/#285）与发布 Gate |
 | 压测程序本身 | 短跑或相关 benchmark | `性能回归检查` | 未授权的长 soak |
 
+提交前先过格式检查：`bash scripts/ci/check_format.sh --staged`（CI 对全仓做同一检查且阻断）。
+
 本地命令见 §9。普通 PR 不把 `scripts/acceptance_real_clients.py`、1h `run_fatigue.py` / `run_parallel_stress.sh` 当合入完成证据。
 
 ### PR required checks

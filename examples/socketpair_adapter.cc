@@ -34,7 +34,8 @@ static void fd_adapter_example()
     std::atomic<bool> got_data{false};
 
     /* 协程：挂起等 fd 可读 */
-    bbtco [fds, &got_data]() {
+    bbtco[fds, &got_data]()
+    {
         /* 等价于 hiredis-async 的 redisAsyncHandleRead 前的等待 */
         int ret = g_bbt_tls_coroutine_co->YieldUntilFdReadable(fds[0], 5000);
         if (ret == 0) {
@@ -76,7 +77,8 @@ static void custom_event_adapter_example()
     std::atomic<bool> notified{false};
 
     /* 协程：挂起等外部事件 */
-    bbtco [waiter, &notified]() {
+    bbtco[waiter, &notified]()
+    {
         int ret = waiter->WaitWithTimeout(5000);
         if (ret == 0) {
             notified.store(true);

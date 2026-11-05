@@ -34,7 +34,10 @@ public:
     ~CoObject() noexcept override = default;
 
     /// @brief 当前身份快照（id/kind/name）；id 在对象寿命内不变。
-    CoObjectInfo GetObjectInfo() const override { return GetMemberObjectInfo(); }
+    CoObjectInfo GetObjectInfo() const override
+    {
+        return GetMemberObjectInfo();
+    }
 
 protected:
     /// @brief 默认构造：派生对象由 creator 在交付 owner 前初始化唯一身份。
@@ -58,14 +61,12 @@ std::shared_ptr<CoObjectManager> GetCoObjectManager();
  * 协程域。
  */
 template <class T, class Creator>
-auto MakeCoObject(std::string kind, std::string name, Creator&& creator)
-    -> decltype(std::forward<Creator>(creator)()) {
-    static_assert(std::is_base_of_v<CoObject, T>,
-                  "MakeCoObject: managed type must derive from CoObject");
+auto MakeCoObject(std::string kind, std::string name, Creator&& creator) -> decltype(std::forward<Creator>(creator)())
+{
+    static_assert(std::is_base_of_v<CoObject, T>, "MakeCoObject: managed type must derive from CoObject");
     using Owner = decltype(std::forward<Creator>(creator)());
     using Object = std::remove_reference_t<decltype(*std::declval<Owner&>())>;
-    static_assert(std::is_base_of_v<T, Object>,
-                  "MakeCoObject: creator return type must match T");
+    static_assert(std::is_base_of_v<T, Object>, "MakeCoObject: creator return type must match T");
     if constexpr (std::is_base_of_v<CoRuntimeOnly, Object>)
         RequireCoroutineContext();
     return GetCoObjectManager()->Create(std::move(kind), std::move(name), std::forward<Creator>(creator));

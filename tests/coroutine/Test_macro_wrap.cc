@@ -12,14 +12,11 @@
 #include <bbt/coroutine/detail/Scheduler.hpp>
 
 /* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。 */
-namespace
-{
+namespace {
 void EnsureRuntime()
 {
     static std::once_flag once;
-    std::call_once(once, [](){
-        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
-    });
+    std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
 }
 
@@ -41,10 +38,22 @@ BOOST_AUTO_TEST_CASE(t_bbtco_family_registers)
     bbt::core::thread::CountDownLatch done{3};
     std::atomic_int n{0};
 
-    bbtco [&]() { n.fetch_add(1); done.Down(); };
-    bbtco_desc("ignored") [&]() { n.fetch_add(1); done.Down(); };
+    bbtco[&]()
+    {
+        n.fetch_add(1);
+        done.Down();
+    };
+    bbtco_desc("ignored")[&]()
+    {
+        n.fetch_add(1);
+        done.Down();
+    };
     bool succ = false;
-    bbtco_noexcept(&succ) [&]() { n.fetch_add(1); done.Down(); };
+    bbtco_noexcept(&succ)[&]()
+    {
+        n.fetch_add(1);
+        done.Down();
+    };
 
     done.Wait();
     BOOST_CHECK(succ);
@@ -68,15 +77,16 @@ BOOST_AUTO_TEST_CASE(t_yield_and_sleep_are_wrappers)
     bbt::core::thread::CountDownLatch done{1};
     const auto t0 = std::chrono::steady_clock::now();
 
-    bbtco [&]() {
+    bbtco[&]()
+    {
         bbtco_yield;
         bbtco_sleep(20);
         done.Down();
     };
 
     done.Wait();
-    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::steady_clock::now() - t0).count();
+    const auto ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
     BOOST_CHECK_GE(ms, 15);
 
     cfg->m_cfg_static_thread_num = threads;

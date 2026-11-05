@@ -5,8 +5,7 @@
 #include <cstdint>
 #include <string>
 
-namespace bbt::coroutine
-{
+namespace bbt::coroutine {
 
 using CoObjectId = std::uint64_t;
 
@@ -16,11 +15,10 @@ using CoObjectId = std::uint64_t;
  * 只描述身份，不带运行时代际——运行时没有停机/重启，创建前置条件是
  * 「运行时已初始化」。
  */
-struct CoObjectInfo
-{
-    CoObjectId          id{0};    ///< 进程内唯一、严格递增、不复用
-    std::string         kind;     ///< 观测归类用的 kind
-    std::string         name;     ///< 调用方给的可读名
+struct CoObjectInfo {
+    CoObjectId id{0}; ///< 进程内唯一、严格递增、不复用
+    std::string kind; ///< 观测归类用的 kind
+    std::string name; ///< 调用方给的可读名
 };
 
 /**
@@ -29,8 +27,7 @@ struct CoObjectInfo
  * 只约束「能提供自己的身份」，不约束生命周期、执行域或网络能力；
  * 后者由更具体的接口分别描述。
  */
-class ICoObject
-{
+class ICoObject {
 public:
     /// @brief 虚析构，允许经接口指针销毁实现对象。
     virtual ~ICoObject() = default;

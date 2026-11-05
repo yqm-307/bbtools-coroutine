@@ -32,25 +32,20 @@
 #include <bbt/coroutine/sync/CoWaiter.hpp>
 
 /* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。 */
-namespace
-{
+namespace {
 void EnsureRuntime()
 {
     static std::once_flag once;
-    std::call_once(once, [](){
-        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
-    });
+    std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
 }
 
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::detail;
 
-namespace
-{
+namespace {
 
-struct ConfigSnapshot
-{
+struct ConfigSnapshot {
     size_t threads{0};
     bool stack_protect{false};
     bool saved{false};
@@ -79,7 +74,7 @@ BOOST_AUTO_TEST_CASE(t_begin)
     auto* cfg = g_bbt_coroutine_config.get();
     if (!g_cfg.saved) {
         g_cfg.threads = cfg->m_cfg_static_thread_num;
-        cfg->m_cfg_static_thread_num = 1;     /* 单 worker：协程内部顺序即确定 */
+        cfg->m_cfg_static_thread_num = 1; /* 单 worker：协程内部顺序即确定 */
         cfg->m_cfg_stack_protect = false;
         g_cfg.saved = true;
     }
@@ -98,7 +93,8 @@ BOOST_AUTO_TEST_CASE(t_regist_fail_keeps_stale_resume_mask)
     bbt::core::thread::CountDownLatch done{1};
     std::atomic<int> first_ret{-99}, second_ret{-99}, mask_after{-99};
 
-    bbtco [&]() {
+    bbtco[&]()
+    {
         /* 第一次真实超时：把 m_last_resume_event 固定为 TIMEOUT */
         first_ret.store(waiter->WaitWithTimeout(50));
         /* 下一次带 await 事件的登记必定失败：真实 Regist() 走到 -1 */
@@ -109,8 +105,8 @@ BOOST_AUTO_TEST_CASE(t_regist_fail_keeps_stale_resume_mask)
     };
 
     done.Wait();
-    BOOST_CHECK_EQUAL(first_ret.load(), 1);                 /* 真超时 → 1，掩码已置位 */
-    BOOST_CHECK_EQUAL(second_ret.load(), -1);               /* 登记失败 → -1，不得报超时 */
+    BOOST_CHECK_EQUAL(first_ret.load(), 1);   /* 真超时 → 1，掩码已置位 */
+    BOOST_CHECK_EQUAL(second_ret.load(), -1); /* 登记失败 → -1，不得报超时 */
     /* 失败不刷新掩码：仍是上一轮的 TIMEOUT。若实现误读旧值，此处暴露污染源 */
     BOOST_CHECK(mask_after.load() & POLL_EVENT_TIMEOUT);
 }
@@ -126,7 +122,8 @@ BOOST_AUTO_TEST_CASE(t_regist_fail_return_codes_across_interfaces)
     std::atomic<int> r_plain{-99}, r_cb{-99};
     std::atomic<WaitStatus> r_narrow{WaitStatus::Completed};
 
-    bbtco [&]() {
+    bbtco[&]()
+    {
         /* 先污染掩码：真实超时把 m_last_resume_event 固定为 TIMEOUT。
          * 不用 RequestCancel——取消位是粘性的，会让后续等待走预取消
          * 完成路径而非登记失败路径，干扰注入。 */
@@ -146,8 +143,8 @@ BOOST_AUTO_TEST_CASE(t_regist_fail_return_codes_across_interfaces)
     };
 
     done.Wait();
-    BOOST_CHECK_EQUAL(r_plain.load(), -1);                  /* 修复点 */
-    BOOST_CHECK_EQUAL(r_cb.load(), -1);                     /* 既有守卫保持一致 */
+    BOOST_CHECK_EQUAL(r_plain.load(), -1); /* 修复点 */
+    BOOST_CHECK_EQUAL(r_cb.load(), -1);    /* 既有守卫保持一致 */
     BOOST_CHECK(r_narrow.load() == WaitStatus::RuntimeUnavailable);
 }
 
@@ -158,7 +155,8 @@ BOOST_AUTO_TEST_CASE(t_waiter_usable_after_regist_fail)
     bbt::core::thread::CountDownLatch done{1};
     std::atomic<int> r_fail{-99}, r_ok{-99};
 
-    bbtco [&]() {
+    bbtco[&]()
+    {
         Coroutine::_TestFailNextAwaitRegist();
         r_fail.store(waiter->WaitWithTimeout(60000));
         /* 失败后等待位须已释放：立即再等待并由 Notify 正常完成 */
@@ -196,7 +194,8 @@ BOOST_AUTO_TEST_CASE(t_injection_is_one_shot)
     std::atomic<Coroutine*> co_p{nullptr};
     std::atomic<int> r_fail{-99}, r_ok{-99};
 
-    bbtco [&]() {
+    bbtco[&]()
+    {
         co_p.store(g_bbt_tls_coroutine_co);
         Coroutine::_TestFailNextAwaitRegist();
         r_fail.store(waiter->WaitWithTimeout(60000));
@@ -213,18 +212,18 @@ BOOST_AUTO_TEST_CASE(t_injection_is_one_shot)
     }
     done.Wait();
     BOOST_CHECK_EQUAL(r_fail.load(), -1);
-    BOOST_CHECK_EQUAL(r_ok.load(), 0);     /* 第二次等待正常完成，注入不残留 */
+    BOOST_CHECK_EQUAL(r_ok.load(), 0); /* 第二次等待正常完成，注入不残留 */
 }
 
 BOOST_AUTO_TEST_CASE(t_end)
 {
     if (g_started.exchange(false))
-    if (g_cfg.saved) {
-        auto* cfg = g_bbt_coroutine_config.get();
-        cfg->m_cfg_static_thread_num = g_cfg.threads;
-        cfg->m_cfg_stack_protect = g_cfg.stack_protect;
-        g_cfg.saved = false;
-    }
+        if (g_cfg.saved) {
+            auto* cfg = g_bbt_coroutine_config.get();
+            cfg->m_cfg_static_thread_num = g_cfg.threads;
+            cfg->m_cfg_stack_protect = g_cfg.stack_protect;
+            g_cfg.saved = false;
+        }
 }
 
 BOOST_AUTO_TEST_SUITE_END()

@@ -8,7 +8,9 @@ namespace bbt::coroutine {
 namespace {
 
 struct KindCounters {
-    explicit KindCounters(std::string_view value) : kind(value) {}
+    explicit KindCounters(std::string_view value) : kind(value)
+    {
+    }
 
     const std::string kind;
     detail::CoObjectCounters counters;
@@ -21,9 +23,10 @@ struct KindCounters {
 std::atomic<KindCounters*> g_kindCounters{nullptr};
 std::mutex g_kindMutex;
 
-KindCounters* FindKind(std::string_view kind) noexcept {
-    // ponytail: 线性查询面向少量稳定 kind；桶数量成为瓶颈时改不可变索引，
-    // 升级前不需要成员所有权或回收语义。
+KindCounters* FindKind(std::string_view kind) noexcept
+{
+    // TODO(线性查询)：kind 桶当前是个位数级的小集合，遍历比维护索引更便宜；
+    // 等 kind 数量增长到查询落在热点路径再换不可变索引——桶发布后不回收的前提不变。
     auto bucket = g_kindCounters.load(std::memory_order_acquire);
     while (bucket) {
         if (std::string_view(bucket->kind) == kind)
@@ -35,7 +38,8 @@ KindCounters* FindKind(std::string_view kind) noexcept {
 
 } // namespace
 
-CoObjectStats GetCoObjectStats(std::string_view kind) noexcept {
+CoObjectStats GetCoObjectStats(std::string_view kind) noexcept
+{
     // 未知 kind 直接返回全零：查询路径不建桶、不分配，因此可以在
     // noexcept 入口和退出期安全调用。
     if (const auto bucket = FindKind(kind))
@@ -45,7 +49,8 @@ CoObjectStats GetCoObjectStats(std::string_view kind) noexcept {
 
 namespace detail {
 
-CoObjectCounters& GetOrCreateCoObjectCounters(std::string_view kind) {
+CoObjectCounters& GetOrCreateCoObjectCounters(std::string_view kind)
+{
     std::lock_guard<std::mutex> lock(g_kindMutex);
     if (auto bucket = FindKind(kind))
         return bucket->counters;

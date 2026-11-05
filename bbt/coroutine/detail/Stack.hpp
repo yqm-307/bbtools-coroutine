@@ -7,28 +7,13 @@
 #include <bbt/coroutine/detail/Define.hpp>
 #include <boost/noncopyable.hpp>
 
-namespace bbt::coroutine::detail
-{
+namespace bbt::coroutine::detail {
 
-/**
- * @brief 协程栈
- *
- * bbt 的协程实现是固定栈大小 + 独立栈空间，栈大小在创建后不再变化
- * （不支持扩栈/换栈）。栈内存结构如下，在栈生长方向（低地址）加一页
- * 只读保护，越界读写直接 SIGSEGV：
- *
- * |            | <-- StackTop()（高地址 = 初始 SP）
- * |            |
- * |            | <-- StackBottom()（保护页之后）
- * |  protect   | <-- 一页 PROT_NONE，不属于登记的可用区
- *
- * 页对齐后的可用字节数（不含保护页）是本栈对外的唯一尺寸口径 U，
- * 也是 StackPool 分桶键的一半；另一半是 IsProtected()。同一运行时
- * 可以有多种 U 共存，不做二次幂归档、不借更大桶替代。
- */
-class Stack:
-    boost::noncopyable
-{
+/* 固定栈：创建后大小不变（不支持扩栈/换栈），低地址一页 PROT_NONE 保护，越界直接 SIGSEGV；
+ * StackTop() 是高地址（初始 SP），StackBottom() 在保护页之后。
+ * 页对齐可用字节数 U（不含保护页）是对外唯一尺寸口径，也是 StackPool 分桶键的一半（另一半 IsProtected()）。
+ * 对象独占这块 memalign 内存：移动构造整体转交（源对象回空态），析构与 Clear() 走同一释放路径、可重复调用。 */
+class Stack : boost::noncopyable {
 public:
     /**
      * @brief 构造一个协程栈对象
@@ -52,7 +37,10 @@ public:
     static size_t NormalizeSize(size_t stack_size);
 
     /* 保护开关是栈自身属性：归还/复用按它分桶，不再读全局配置 */
-    bool IsProtected() const noexcept { return m_stack_protect_flag; }
+    bool IsProtected() const noexcept
+    {
+        return m_stack_protect_flag;
+    }
 
     /**
      * @brief 获取最大栈顶指针
@@ -88,10 +76,10 @@ public:
     /* 窄测试 seam：只在 BBT_COROUTINE_STACK_TESTING 构建存在。
      * 分别让「下一次」memalign / 建立保护(PROT_NONE) / 解除保护(PROT_READ|WRITE)
      * 穿过真实结果检查分支失败，一次性消费。生产构建不含声明、定义与分支，
-     * 用 nm 对未 strip 的实际库做正反对照（见 design §注入真实性）。 */
-    static void _TestFailNextAlloc() noexcept;            // memalign 空返回
-    static void _TestFailNextApplyProtect() noexcept;     // 建立保护失败
-    static void _TestFailNextReleaseProtect() noexcept;   // 解除保护失败 → fail-stop
+     * 用 nm 对未 strip 的实际库做正反对照（用例见 tests/coroutine/Test_coroutine_stack.cc）。 */
+    static void _TestFailNextAlloc() noexcept;          // memalign 空返回
+    static void _TestFailNextApplyProtect() noexcept;   // 建立保护失败
+    static void _TestFailNextReleaseProtect() noexcept; // 解除保护失败 → fail-stop
 #endif
 protected:
     void* Alloc(size_t len);
@@ -108,11 +96,12 @@ protected:
 
     void _Release();
     void Swap(Stack&& other);
+
 private:
-    bool m_stack_protect_flag{false};    // 是否启用栈保护
-    size_t m_useable_size{0};            // 可用栈大小，不包含 protect 内存块
-    char* m_mem_chunk{nullptr};          // 内存块，包含 protect 内存块
-    size_t m_mem_chunk_size{0};          // 内存块大小，包含 protect 内存块
+    bool m_stack_protect_flag{false}; // 是否启用栈保护
+    size_t m_useable_size{0};         // 可用栈大小，不包含 protect 内存块
+    char* m_mem_chunk{nullptr};       // 内存块，包含 protect 内存块
+    size_t m_mem_chunk_size{0};       // 内存块大小，包含 protect 内存块
 
 #ifdef BBT_COROUTINE_VALGRIND
     /* 内存检测专用（NEED_VALGRIND=ON 才存在，默认构建不含此成员）。bbt 协程使用

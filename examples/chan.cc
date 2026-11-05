@@ -18,7 +18,8 @@ void FixSizeChan()
      * 
      */
 
-    bbtco_ref {
+    bbtco_ref
+    {
         printf("co_%lu write time<%ld>\n", bbt::co::GetLocalCoroutineId(), bbt::core::clock::gettime<>());
         chan << 1;
         printf("co_%lu write succ time<%ld>\n", bbt::co::GetLocalCoroutineId(), bbt::core::clock::gettime<>());
@@ -31,16 +32,17 @@ void FixSizeChan()
         printf("co_%lu write succ time<%ld>\n", bbt::co::GetLocalCoroutineId(), bbt::core::clock::gettime<>());
     };
 
-    bbtco_ref {
+    bbtco_ref
+    {
         bbtco_sleep(100);
         int value = 0;
         printf("co_%lu read time<%ld>\n", bbt::co::GetLocalCoroutineId(), bbt::core::clock::gettime<>());
         chan >> value;
-        printf("co_%lu read succ time<%ld>, value: %d\n", bbt::co::GetLocalCoroutineId(), bbt::core::clock::gettime<>(), value);
+        printf("co_%lu read succ time<%ld>, value: %d\n", bbt::co::GetLocalCoroutineId(), bbt::core::clock::gettime<>(),
+               value);
     };
 
     sleep(1);
-
 }
 
 void MultiWrite()
@@ -52,22 +54,23 @@ void MultiWrite()
      */
     auto chan = sync::Chan<int, 1>{};
 
-    for (int i = 0; i < 5; ++i)
-    {
-        bbtco_ref {
+    for (int i = 0; i < 5; ++i) {
+        bbtco_ref
+        {
             printf("co_%lu write time<%ld>\n", bbt::co::GetLocalCoroutineId(), bbt::core::clock::gettime<>());
             chan << 1;
             printf("co_%lu write succ time<%ld>\n", bbt::co::GetLocalCoroutineId(), bbt::core::clock::gettime<>());
         };
     }
 
-    bbtco_ref {
+    bbtco_ref
+    {
         bbtco_sleep(200);
-        for (int i = 0; i < 5; ++i)
-        {
+        for (int i = 0; i < 5; ++i) {
             int value = 0;
             chan >> value;
-            printf("co_%lu read succ time<%ld>, value: %d\n", bbt::co::GetLocalCoroutineId(), bbt::core::clock::gettime<>(), value);
+            printf("co_%lu read succ time<%ld>, value: %d\n", bbt::co::GetLocalCoroutineId(),
+                   bbt::core::clock::gettime<>(), value);
         }
     };
 
@@ -78,10 +81,12 @@ void CloseNotify()
 {
 
     // 创建一个协程
-    bbtco [](){
+    bbtco[]()
+    {
         sync::Chan<char, 0> c;
         // 创建协程写入并关闭，此时会唤醒阻塞在Read操作上的协程
-        bbtco_ref {
+        bbtco_ref
+        {
             printf("co2 beg %ld\n", bbt::core::clock::gettime<>());
 
             /**
@@ -95,7 +100,8 @@ void CloseNotify()
             printf("co2 close chan end %ld\n", bbt::core::clock::gettime<>());
         };
 
-        bbtco_ref {
+        bbtco_ref
+        {
             printf("co3 beg %ld\n", bbt::core::clock::gettime<>());
             /**
              * 读取一个字符，挂起直到关闭或者可读
@@ -122,18 +128,21 @@ void NoCacheChan()
     // 创建一个无缓存的chan
     auto chan = sync::Chan<int, 0>{};
 
-    bbtco_ref {
+    bbtco_ref
+    {
         printf("co_%lu write time<%ld>\n", bbt::co::GetLocalCoroutineId(), bbt::core::clock::gettime<>());
         chan << 1;
         printf("co_%lu write succ time<%ld>\n", bbt::co::GetLocalCoroutineId(), bbt::core::clock::gettime<>());
     };
 
-    bbtco_ref {
+    bbtco_ref
+    {
         sleep(100);
         int value = 0;
         printf("co_%lu read time<%ld>\n", bbt::co::GetLocalCoroutineId(), bbt::core::clock::gettime<>());
         chan >> value;
-        printf("co_%lu read succ time<%ld>, value: %d\n", bbt::co::GetLocalCoroutineId(), bbt::core::clock::gettime<>(), value);
+        printf("co_%lu read succ time<%ld>, value: %d\n", bbt::co::GetLocalCoroutineId(), bbt::core::clock::gettime<>(),
+               value);
     };
 
     sleep(1);

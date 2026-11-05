@@ -10,13 +10,11 @@
 #include <bbt/coroutine/utils/DebugPrint.hpp>
 #include <bbt/coroutine/detail/debug/DebugMgr.hpp>
 
-namespace bbt::coroutine::detail
-{
+namespace bbt::coroutine::detail {
 
 typedef bbt::pollevent::EventOpt EventOpt;
 
-namespace
-{
+namespace {
 
 /* 完成回调交付的是 Trigger 锁存的原始掩码：fd 位为底层 EventOpt 口径
  * （READABLE=0x02/WRITEABLE=0x04，与 PollEventType 同名位值互换），
@@ -33,15 +31,14 @@ int NormalizeTriggerEvent(short trigger_events)
     if (trigger_events & EventOpt::TIMEOUT)
         ret |= POLL_EVENT_TIMEOUT;
 
-    ret |= trigger_events & (POLL_EVENT_CUSTOM | POLL_EVENT_CANCELLED |
-                             POLL_EVENT_CLOSED);
+    ret |= trigger_events & (POLL_EVENT_CUSTOM | POLL_EVENT_CANCELLED | POLL_EVENT_CLOSED);
     return ret;
 }
 
 } // namespace
 
 /* 单测故障注入标志（定义，声明见 Coroutine.hpp） */
-std::atomic_bool                Coroutine::s_test_fail_await_regist{false};
+std::atomic_bool Coroutine::s_test_fail_await_regist{false};
 
 CoroutineId Coroutine::_GenCoroutineId()
 {
@@ -49,36 +46,39 @@ CoroutineId Coroutine::_GenCoroutineId()
     return (++_generate_id);
 }
 
-Coroutine::Ptr Coroutine::Create(size_t stack_size, const CoroutineCallback& co_func, bool need_protect, const char* desc)
+Coroutine::Ptr Coroutine::Create(size_t stack_size, const CoroutineCallback& co_func, bool need_protect,
+                                 const char* desc)
 {
     /* 发布前暂持 unique_ptr：描述赋值若抛出（bad_alloc）也必须销毁半成品，
      * 不能让已借出的栈随裸指针泄漏。 */
     std::unique_ptr<Coroutine> co(new Coroutine(stack_size, co_func, need_protect));
     if (desc != nullptr && desc[0] != '\0')
-        co->m_desc = desc;    // bbtco_desc 落库
+        co->m_desc = desc; // bbtco_desc 落库
     return co.release();
 }
 
-Coroutine::Coroutine(size_t stack_size, const CoroutineCallback& co_func, bool need_protect):
-    m_context(stack_size, [=](){
-        try {
-            co_func();
-            m_yield_disposition = CoroutineYieldDisposition::FINAL;
-            m_run_status = CoroutineStatus::CO_FINAL;
-        } catch (...) {
-            // 无 Processer TLS 时 Context 捕不到当前协程；失败必须进入终态。
-            OnException();
-            throw;
-        }
-    }, need_protect),
-    m_id(_GenCoroutineId())
+Coroutine::Coroutine(size_t stack_size, const CoroutineCallback& co_func, bool need_protect)
+    : m_context(
+          stack_size,
+          [=]() {
+              try {
+                  co_func();
+                  m_yield_disposition = CoroutineYieldDisposition::FINAL;
+                  m_run_status = CoroutineStatus::CO_FINAL;
+              } catch (...) {
+                  // 无 Processer TLS 时 Context 捕不到当前协程；失败必须进入终态。
+                  OnException();
+                  throw;
+              }
+          },
+          need_protect),
+      m_id(_GenCoroutineId())
 {
     m_run_status = CoroutineStatus::CO_RUNNABLE;
 #ifdef BBT_COROUTINE_PROFILE
     g_bbt_profiler->OnEvent_CreateCoroutine();
 #endif
 }
-
 
 Coroutine::~Coroutine()
 {
@@ -105,9 +105,9 @@ void Coroutine::Resume()
      * 与 DebugMgr 的 Coroutine* 签名及实际所有权一致。 */
     g_bbt_dbgmgr->OnEvent_ResumeCo(this);
 #endif
-    /* 日志装配不分配：本函数在 worker 原生栈执行，std::to_string 拼接的
-     * bad_alloc 会逃出 Resume 直达 Processer 调度循环，不在协程侧任何
-     * catch 可达域内。栈缓冲 snprintf 保持同一日志语义、消除逃逸点。 */
+    /* 日志装配不分配：本函数在 worker 原生栈执行，装配若抛 bad_alloc 会逃出 Resume
+     * 直达 Processer 调度循环，不在协程侧任何 catch 可达域内。栈缓冲 snprintf 保持
+     * 同一日志语义，同时消掉这个逃逸点。 */
 #ifdef BBT_COROUTINE_DEBUG_PRINT
     char resume_log[64];
     std::snprintf(resume_log, sizeof(resume_log), "[Coroutine::Resume] co=%llu",
@@ -126,27 +126,20 @@ void Coroutine::Yield()
     g_bbt_dbgmgr->OnEvent_YieldCo(this);
 #endif
     char yield_log[64];
-    std::snprintf(yield_log, sizeof(yield_log), "[Coroutine::Yield] co=%llu",
-                  static_cast<unsigned long long>(GetId()));
+    std::snprintf(yield_log, sizeof(yield_log), "[Coroutine::Yield] co=%llu", static_cast<unsigned long long>(GetId()));
     g_bbt_dbgp_full(yield_log);
     m_context.Yield();
 }
 
 int Coroutine::YieldWithCallback(const CoroutineOnYieldCallback& cb)
 {
-    /**
-     * 确保协程挂起后，才可以触发事件
-     */
+    /* 确保协程挂起后，才可以触发事件 */
     Assert(m_run_status == CoroutineStatus::CO_RUNNING);
-    /* 日志装配不分配——snprintf 进栈缓冲，OOM 无处抛出，原
-     * 故障点（to_string 动态拼接）已整体移除。armed 注入的首个真实分配
-     * 因此落在 Context::YieldWithCallback 的 m_onyield_callback 存储上，
-     * 由下方统一 catch 回滚。宏开启时才执行 snprintf 和完整日志调用；宏关闭
-     * 时整个格式化与日志装配路径均被编译掉。 */
+    /* 日志装配不分配——snprintf 进栈缓冲，OOM 无处抛出。armed 注入的首个真实分配因此落在
+     * Context::YieldWithCallback 的 m_onyield_callback 存储上，由下方统一 catch 回滚。 */
 #ifdef BBT_COROUTINE_DEBUG_PRINT
     char yieldcb_log[80];
-    std::snprintf(yieldcb_log, sizeof(yieldcb_log),
-                  "[Coroutine::YieldWithCallback] co=%llu",
+    std::snprintf(yieldcb_log, sizeof(yieldcb_log), "[Coroutine::YieldWithCallback] co=%llu",
                   static_cast<unsigned long long>(GetId()));
     g_bbt_dbgp_full(yieldcb_log);
 #endif
@@ -157,8 +150,8 @@ int Coroutine::YieldWithCallback(const CoroutineOnYieldCallback& cb)
      * 预演：多一次拷贝不证明下一次成功，反而多执行一次 callable 拷贝/析构
      * 副作用；唯一存储点的真实失败由 Context 侧收口（空槽 + NO_CHECK），
      * 下方 catch 统一完成 await/运行态回滚。 */
-    m_yield_disposition = _AwaitEvent() == nullptr ?
-        CoroutineYieldDisposition::MANUAL : CoroutineYieldDisposition::EVENT_WAIT;
+    m_yield_disposition =
+        _AwaitEvent() == nullptr ? CoroutineYieldDisposition::MANUAL : CoroutineYieldDisposition::EVENT_WAIT;
     m_run_status = CoroutineStatus::CO_SUSPEND;
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
     g_bbt_dbgmgr->OnEvent_YieldCo(this);
@@ -200,6 +193,8 @@ int Coroutine::YieldWithCallback(const CoroutineOnYieldCallback& cb)
 void Coroutine::YieldAndPushGCoQueue()
 {
     Assert(m_run_status == CoroutineStatus::CO_RUNNING);
+    /* 置 READY 后让出，入队交给 Processer：CommitYield 读到 READY 才决定本地入队还是
+     * 归还 global。这里不自己 push，否则同一协程会出现两条入队路径。 */
     m_yield_disposition = CoroutineYieldDisposition::READY;
     m_run_status = CoroutineStatus::CO_SUSPEND;
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
@@ -207,14 +202,12 @@ void Coroutine::YieldAndPushGCoQueue()
 #endif
 #ifdef BBT_COROUTINE_DEBUG_PRINT
     char yieldpush_log[80];
-    std::snprintf(yieldpush_log, sizeof(yieldpush_log),
-                  "[Coroutine::YieldAndPushGCoQueue] co=%llu",
+    std::snprintf(yieldpush_log, sizeof(yieldpush_log), "[Coroutine::YieldAndPushGCoQueue] co=%llu",
                   static_cast<unsigned long long>(GetId()));
     g_bbt_dbgp_full(yieldpush_log);
 #endif
     m_context.Yield();
 }
-
 
 CoroutineId Coroutine::GetId() const noexcept
 {
@@ -274,18 +267,15 @@ int Coroutine::YieldUntilTimeout(int ms)
         return 1;
 
     Assert(_AwaitEvent() == nullptr);
-    _SetAwaitEvent(CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key){
-        OnCoPollEvent(event, custom_key);
-    }));
+    _SetAwaitEvent(
+        CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key) { OnCoPollEvent(event, custom_key); }));
 
     if (_AwaitEvent()->InitFdEvent(-1, EventOpt::TIMEOUT, ms) != 0) {
         _SetAwaitEvent(nullptr);
         return -1;
     }
 
-    return YieldWithCallback([this](){
-        return _RegistAwaitEvent();
-    });
+    return YieldWithCallback([this]() { return _RegistAwaitEvent(); });
 }
 
 std::shared_ptr<CoPollEvent> Coroutine::RegistCustom(int key)
@@ -293,9 +283,8 @@ std::shared_ptr<CoPollEvent> Coroutine::RegistCustom(int key)
     if (_AwaitEvent() != nullptr)
         return nullptr;
 
-    auto ev = CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key){
-        OnCoPollEvent(event, custom_key);
-    });
+    auto ev =
+        CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key) { OnCoPollEvent(event, custom_key); });
     _SetAwaitEvent(ev);
 
     if (ev->InitCustomEvent(key, nullptr) != 0) {
@@ -311,9 +300,8 @@ std::shared_ptr<CoPollEvent> Coroutine::RegistCustom(int key, int timeout_ms)
     if (_AwaitEvent() != nullptr)
         return nullptr;
 
-    auto ev = CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key){
-        OnCoPollEvent(event, custom_key);
-    });
+    auto ev =
+        CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key) { OnCoPollEvent(event, custom_key); });
     _SetAwaitEvent(ev);
 
     if (ev->InitCustomEvent(key, nullptr) != 0) {
@@ -334,9 +322,8 @@ int Coroutine::YieldUntilFdReadable(int fd)
     if (IsCancelRequested())
         return 1;
     Assert(_AwaitEvent() == nullptr);
-    auto ev = CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key){
-        OnCoPollEvent(event, custom_key);
-    });
+    auto ev =
+        CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key) { OnCoPollEvent(event, custom_key); });
     _SetAwaitEvent(ev);
 
     if (ev->InitFdEvent(fd, EventOpt::READABLE | EventOpt::FINALIZE, 0) != 0) {
@@ -344,9 +331,7 @@ int Coroutine::YieldUntilFdReadable(int fd)
         return -1;
     }
 
-    return YieldWithCallback([this](){
-        return _RegistAwaitEvent();
-    });
+    return YieldWithCallback([this]() { return _RegistAwaitEvent(); });
 }
 
 int Coroutine::YieldUntilFdReadable(int fd, int timeout_ms)
@@ -355,9 +340,8 @@ int Coroutine::YieldUntilFdReadable(int fd, int timeout_ms)
         return 1;
     Assert(_AwaitEvent() == nullptr);
 
-    auto ev = CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key){
-        OnCoPollEvent(event, custom_key);
-    });
+    auto ev =
+        CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key) { OnCoPollEvent(event, custom_key); });
     _SetAwaitEvent(ev);
 
     if (ev->InitFdEvent(fd, EventOpt::READABLE | EventOpt::TIMEOUT | EventOpt::FINALIZE, timeout_ms) != 0) {
@@ -365,9 +349,7 @@ int Coroutine::YieldUntilFdReadable(int fd, int timeout_ms)
         return -1;
     }
 
-    return YieldWithCallback([this](){
-        return _RegistAwaitEvent();
-    });
+    return YieldWithCallback([this]() { return _RegistAwaitEvent(); });
 }
 
 int Coroutine::YieldUntilFdWriteable(int fd)
@@ -375,9 +357,8 @@ int Coroutine::YieldUntilFdWriteable(int fd)
     if (IsCancelRequested())
         return 1;
     Assert(_AwaitEvent() == nullptr);
-    auto ev = CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key){
-        OnCoPollEvent(event, custom_key);
-    });
+    auto ev =
+        CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key) { OnCoPollEvent(event, custom_key); });
     _SetAwaitEvent(ev);
 
     if (ev->InitFdEvent(fd, EventOpt::WRITEABLE | EventOpt::FINALIZE, 0) != 0) {
@@ -385,9 +366,7 @@ int Coroutine::YieldUntilFdWriteable(int fd)
         return -1;
     }
 
-    return YieldWithCallback([this](){
-        return _RegistAwaitEvent();
-    });
+    return YieldWithCallback([this]() { return _RegistAwaitEvent(); });
 }
 
 int Coroutine::YieldUntilFdWriteable(int fd, int timeout_ms)
@@ -395,9 +374,8 @@ int Coroutine::YieldUntilFdWriteable(int fd, int timeout_ms)
     if (IsCancelRequested())
         return 1;
     Assert(_AwaitEvent() == nullptr);
-    auto ev = CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key){
-        OnCoPollEvent(event, custom_key);
-    });
+    auto ev =
+        CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key) { OnCoPollEvent(event, custom_key); });
     _SetAwaitEvent(ev);
 
     if (ev->InitFdEvent(fd, EventOpt::WRITEABLE | EventOpt::TIMEOUT | EventOpt::FINALIZE, timeout_ms) != 0) {
@@ -405,9 +383,7 @@ int Coroutine::YieldUntilFdWriteable(int fd, int timeout_ms)
         return -1;
     }
 
-    return YieldWithCallback([this](){
-        return _RegistAwaitEvent();
-    });
+    return YieldWithCallback([this]() { return _RegistAwaitEvent(); });
 }
 
 int Coroutine::YieldUntilFdEx(int fd, short events, int timeout_ms)
@@ -415,9 +391,8 @@ int Coroutine::YieldUntilFdEx(int fd, short events, int timeout_ms)
     if (IsCancelRequested())
         return 1;
     Assert(_AwaitEvent() == nullptr);
-    auto ev = CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key){
-        OnCoPollEvent(event, custom_key);
-    });
+    auto ev =
+        CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key) { OnCoPollEvent(event, custom_key); });
     _SetAwaitEvent(ev);
 
     /* 绝对不可以反复触发 */
@@ -426,9 +401,7 @@ int Coroutine::YieldUntilFdEx(int fd, short events, int timeout_ms)
         return -1;
     }
 
-    return YieldWithCallback([this](){
-        return _RegistAwaitEvent();
-    });
+    return YieldWithCallback([this]() { return _RegistAwaitEvent(); });
 }
 
 void Coroutine::_TestFailNextAwaitRegist() noexcept
@@ -442,9 +415,7 @@ bool Coroutine::_RegistAwaitEvent()
     /* 单测故障注入：置位时先取消本次 await 事件，让下方 Regist() 走
      * 真实失败分支（CANCELLED 态 CAS 失败），等价于生产上事件在挂起回调
      * 执行前已被反注册的时序；一次性消费，不影响后续等待。 */
-    if (await_event != nullptr &&
-        s_test_fail_await_regist.exchange(false, std::memory_order_acq_rel))
-    {
+    if (await_event != nullptr && s_test_fail_await_regist.exchange(false, std::memory_order_acq_rel)) {
         await_event->UnRegist();
     }
     // RequestCancel 可能发生在入口检查之后、事件挂上之前。
@@ -452,9 +423,7 @@ bool Coroutine::_RegistAwaitEvent()
     if (await_event != nullptr && IsCancelRequested())
         await_event->Trigger(POLL_EVENT_CANCELLED);
 
-
-    if (await_event != nullptr && await_event->Regist() == 0)
-    {
+    if (await_event != nullptr && await_event->Regist() == 0) {
         /* 现场时戳：parked 起点；唤醒时清零 */
         m_parked_us = bbt::core::clock::gettime_mono<bbt::core::clock::microseconds>();
         return true;
@@ -467,13 +436,15 @@ bool Coroutine::_RegistAwaitEvent()
 
 int Coroutine::GetWaitInfo(CoroutineWaitInfo& out) const noexcept
 {
-    /* 仅协程自身线程调用安全（同 Processer，无并发写者）；见头文件注释 */
+    /* 仅协程自身线程调用安全（同 Processer，无并发写者）；见头文件注释。
+     * m_parked_us == 0 表示不在等待（唤醒时清零），此时没有可导出的现场。 */
     if (m_await_event == nullptr || m_parked_us == 0)
         return -1;
 
     out.m_wait_event = m_await_event->GetEvent();
     out.m_fd = (out.m_wait_event & (PollEventType::POLL_EVENT_READABLE | PollEventType::POLL_EVENT_WRITEABLE))
-               ? m_await_event->GetFd() : -1;
+                   ? m_await_event->GetFd()
+                   : -1;
     out.m_timeout_ms = m_await_event->GetTimeout() > 0 ? m_await_event->GetTimeout() : 0;
     out.m_waited_us = bbt::core::clock::gettime_mono<bbt::core::clock::microseconds>() - m_parked_us;
     return 0;
@@ -504,21 +475,17 @@ CoroutineYieldDisposition Coroutine::CommitYield()
     return disposition;
 }
 
-
 void Coroutine::OnCoPollEvent(int event, int custom_key)
 {
     CoroutinePriority priority = CO_PRIORITY_NORMAL;
 
     // MLFQ: 运行时长超过时间片 → 降级以让出 CPU 给其他协程
     constexpr uint64_t kMlfqTimeSliceUs = 1000; // 1ms
-    if (m_last_run_us > kMlfqTimeSliceUs)
-    {
+    if (m_last_run_us > kMlfqTimeSliceUs) {
         if (m_mlfq_demotions < 3)
             m_mlfq_demotions++;
         priority = CO_PRIORITY_LOW;
-    }
-    else if (m_mlfq_demotions > 0)
-    {
+    } else if (m_mlfq_demotions > 0) {
         // 运行时间收敛 → 逐步恢复优先级
         m_mlfq_demotions--;
     }
@@ -538,7 +505,7 @@ void Coroutine::OnCoPollEvent(int event, int custom_key)
      * 仅 epoch 仍能证明 fd 是否已换代）。 */
     m_last_wait_fd = ev->GetFd();
     m_last_wait_epoch = ev->GetWaitEpoch();
-    m_parked_us = 0;  // 唤醒即清等待现场
+    m_parked_us = 0; // 唤醒即清等待现场
 
     // 先取消事件，然后push到全局队列中
     /* 日志装配不分配：本函数经 _Complete 的 callback 在 Processer 原生栈
@@ -546,12 +513,9 @@ void Coroutine::OnCoPollEvent(int event, int custom_key)
      * 入队被跳过）致协程悬挂。栈缓冲 snprintf 同型消除该逃逸点。 */
 #ifdef BBT_COROUTINE_DEBUG_PRINT
     char trigger_log[160];
-    std::snprintf(trigger_log, sizeof(trigger_log),
-                  "[CoEvent:Trigger] co=%llu trigger_event=%d id=%llu customkey=%d",
-                  static_cast<unsigned long long>(GetId()),
-                  static_cast<int>(event),
-                  static_cast<unsigned long long>(ev->GetId()),
-                  custom_key);
+    std::snprintf(trigger_log, sizeof(trigger_log), "[CoEvent:Trigger] co=%llu trigger_event=%d id=%llu customkey=%d",
+                  static_cast<unsigned long long>(GetId()), static_cast<int>(event),
+                  static_cast<unsigned long long>(ev->GetId()), custom_key);
     g_bbt_dbgp_full(trigger_log);
 #endif
     _SetAwaitEvent(nullptr);
@@ -565,7 +529,6 @@ void Coroutine::OnCoPollEvent(int event, int custom_key)
     /* 底层 Event 必须先析构，否则同一 FD 的下一次等待会在 ASIO 重复注册。 */
     g_bbt_poller->FlushDeferredEvents();
     g_scheduler->OnActiveCoroutine(priority, this);
-
 }
 
 int Coroutine::GetLastResumeEvent() const noexcept

@@ -26,23 +26,19 @@ namespace bbt::coroutine {
  */
 CoObjectInfo CreateObjectInfo(std::string kind, std::string name);
 
-template <class TKey, class TMember>
-class ManagerBase;
+template <class TKey, class TMember> class ManagerBase;
 
 namespace detail {
 
-template <class TMember>
-struct CoMemberEntry {
+template <class TMember> struct CoMemberEntry {
     CoObjectInfo info;
     std::weak_ptr<TMember> owner;
     bool shared{false};
 };
 
-template <class T>
-struct IsSharedCoOwner : std::false_type {};
+template <class T> struct IsSharedCoOwner : std::false_type {};
 
-template <class T>
-struct IsSharedCoOwner<std::shared_ptr<T>> : std::true_type {};
+template <class T> struct IsSharedCoOwner<std::shared_ptr<T>> : std::true_type {};
 
 } // namespace detail
 
@@ -52,8 +48,7 @@ struct IsSharedCoOwner<std::shared_ptr<T>> : std::true_type {};
  * 成员不拥有 Manager，只持 `weak_ptr`；析构路径只做计数结算与索引注销，
  * 不调用业务代码、不挂起、不抛异常。构造/拷贝/移动都不对用户开放。
  */
-template <class TKey, class TMember>
-class MemberBase {
+template <class TKey, class TMember> class MemberBase {
     friend class ManagerBase<TKey, TMember>;
     using EntryMap = std::map<TKey, detail::CoMemberEntry<TMember>>;
 
@@ -66,16 +61,27 @@ public:
     MemberBase& operator=(MemberBase&&) = delete;
 
     /// @brief 登记时使用的 key（默认即对象身份 id）；未提交成员无 key。
-    const TKey& GetMemberId() const { return m_key.value(); }
+    const TKey& GetMemberId() const
+    {
+        return m_key.value();
+    }
     /// @brief 身份快照（id/kind/name），只读成员自身字段，不访问 Manager。
-    CoObjectInfo GetMemberObjectInfo() const { return m_info; }
+    CoObjectInfo GetMemberObjectInfo() const
+    {
+        return m_info;
+    }
 
 protected:
     MemberBase() = default;
-    explicit MemberBase(CoObjectInfo info) : m_info(std::move(info)) {}
+    explicit MemberBase(CoObjectInfo info) : m_info(std::move(info))
+    {
+    }
     ~MemberBase() noexcept;
 
-    std::shared_ptr<ManagerType> GetManager() const noexcept { return m_manager.lock(); }
+    std::shared_ptr<ManagerType> GetManager() const noexcept
+    {
+        return m_manager.lock();
+    }
 
 private:
     CoObjectInfo m_info;
@@ -108,22 +114,13 @@ public:
     ManagerBase(const ManagerBase&) = delete;
     ManagerBase& operator=(const ManagerBase&) = delete;
 
-    /**
-     * @brief 立即调用一次 creator，登记其成员后把 owner/deleter 原样返回。
-     *
-     * Manager 须由 `shared_ptr` 持有。creator 交付完整但尚未发布的对象；
-     * 交付 owner 之前不得并发访问或登记该对象。key 冲突、构造或登记失败都
-     * 抛异常，且不提交 created/destroyed。
-     * @tparam Creator 返回合法对象 owner 的零参可调用类型
-     * @param key 成员索引键
-     * @param kind 对象统计归类
-     * @param name 对象可读名
-     * @param creator 零参 owner 创建器
-     * @return 登记后原样移交的 owner
-     */
+    /** @brief 立即调用一次 creator，登记其成员后把 owner/deleter 原样返回。
+     * Manager 须由 `shared_ptr` 持有；creator 交付的对象在返回前不得并发访问或登记。继承
+     * `CoRuntimeOnly` 时先做协程域检查（不在协程内抛 `std::logic_error`，不构造对象）；失败均抛异常且不提交计数。 */
     template <class Creator>
     auto Create(const TKey& key, std::string kind, std::string name, Creator&& creator)
-        -> decltype(std::forward<Creator>(creator)()) {
+        -> decltype(std::forward<Creator>(creator)())
+    {
         return _Create(&key, std::move(kind), std::move(name), std::forward<Creator>(creator));
     }
 
@@ -136,15 +133,17 @@ public:
      * @return 登记后原样移交的 owner
      */
     template <class Creator>
-    auto Create(std::string kind, std::string name, Creator&& creator)
-        -> decltype(std::forward<Creator>(creator)()) {
-        static_assert(std::is_same_v<TKey, CoObjectId>,
-                      "ManagerBase: automatic key requires TKey == CoObjectId");
+    auto Create(std::string kind, std::string name, Creator&& creator) -> decltype(std::forward<Creator>(creator)())
+    {
+        static_assert(std::is_same_v<TKey, CoObjectId>, "ManagerBase: automatic key requires TKey == CoObjectId");
         return _Create(nullptr, std::move(kind), std::move(name), std::forward<Creator>(creator));
     }
 
     /// @brief 本 Manager 自己那份计数快照；与 `GetCoObjectStats(kind)` 各自独立记账。
-    CoObjectStats GetStats() const noexcept { return m_stats->GetStats(); }
+    CoObjectStats GetStats() const noexcept
+    {
+        return m_stats->GetStats();
+    }
 
     /**
      * @brief 按 key 取身份快照。
@@ -154,7 +153,8 @@ public:
      * @param key 成员索引键
      * @return 成员存在时返回身份快照，否则返回 `std::nullopt`
      */
-    std::optional<CoObjectInfo> GetObjectInfo(const TKey& key) const {
+    std::optional<CoObjectInfo> GetObjectInfo(const TKey& key) const
+    {
         std::shared_ptr<TMember> owner;
         std::optional<CoObjectInfo> info;
         {
@@ -175,19 +175,16 @@ public:
 private:
     template <class Creator>
     auto _Create(const TKey* key, std::string kind, std::string name, Creator&& creator)
-        -> decltype(std::forward<Creator>(creator)()) {
+        -> decltype(std::forward<Creator>(creator)())
+    {
         using Owner = decltype(std::forward<Creator>(creator)());
         using Object = std::remove_reference_t<decltype(*std::declval<Owner&>())>;
-        static_assert(std::is_base_of_v<TMember, Object>,
-                      "ManagerBase: creator object must derive from TMember");
-        static_assert(std::is_base_of_v<Member, TMember>,
-                      "ManagerBase: TMember must derive from its MemberBase");
-        static_assert(!std::is_reference_v<Owner>,
-                      "ManagerBase: creator must return the owner by value");
+        static_assert(std::is_base_of_v<TMember, Object>, "ManagerBase: creator object must derive from TMember");
+        static_assert(std::is_base_of_v<Member, TMember>, "ManagerBase: TMember must derive from its MemberBase");
+        static_assert(!std::is_reference_v<Owner>, "ManagerBase: creator must return the owner by value");
         static_assert(std::is_nothrow_move_constructible_v<Owner>,
                       "ManagerBase: owner move after commit must not throw");
-        static_assert(std::is_nothrow_destructible_v<TKey>,
-                      "ManagerBase: member key destruction must not throw");
+        static_assert(std::is_nothrow_destructible_v<TKey>, "ManagerBase: member key destruction must not throw");
 
         if constexpr (std::is_base_of_v<CoRuntimeOnly, Object>)
             RequireCoroutineContext();
@@ -239,7 +236,8 @@ private:
         return owner;
     }
 
-    void _OnMemberDestroy(typename EntryMap::iterator entry) noexcept {
+    void _OnMemberDestroy(typename EntryMap::iterator entry) noexcept
+    {
         std::lock_guard<std::mutex> lock(m_mutex);
         // 用稳定 iterator 注销，不比较/复制用户 key，不访问已析构的派生对象。
         m_members.erase(entry);
@@ -250,8 +248,8 @@ private:
     std::shared_ptr<detail::CoObjectCounters> m_stats{std::make_shared<detail::CoObjectCounters>()};
 };
 
-template <class TKey, class TMember>
-MemberBase<TKey, TMember>::~MemberBase() noexcept {
+template <class TKey, class TMember> MemberBase<TKey, TMember>::~MemberBase() noexcept
+{
     if (!m_committed)
         return;
     m_stats->OnDestroy();

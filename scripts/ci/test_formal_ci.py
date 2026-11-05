@@ -545,9 +545,10 @@ class FormalWorkflowTextContractTests(unittest.TestCase):
         # docs-check 迁入本文件后仍恰有一个 producer，display name 不变（context 不悬空）。
         self.assertEqual(self.stripped.count(f'name: "{DOCS_CHECK_NAME}"'), 1)
         self.assertIn("ci_perf_check.py", self.stripped)
-        # build-test 唯一 continue-on-error 在 changes job 的 format-diff（告警不阻断，D5）。
-        self.assertEqual(self.stripped.count("continue-on-error"), 1,
-                         "仅 format-diff 允许告警不阻断；不得伪造门禁 job 结果")
+        # 格式检查已转为阻断：workflow 中不允许 continue-on-error，不得伪造门禁 job 结果。
+        self.assertEqual(self.stripped.count("continue-on-error"), 0,
+                         "不允许 continue-on-error；格式检查必须阻断")
+        self.assertIn("scripts/ci/check_format.sh", self.stripped)
 
     def test_required_and_optional_disjoint_and_build_test_optional(self):
         # result job 内联 result.py：required/optional 集合写死在 heredoc payload。

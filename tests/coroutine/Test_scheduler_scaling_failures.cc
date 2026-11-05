@@ -26,25 +26,46 @@ void* operator new(std::size_t n)
     if (fail_after == 0) {
         fail_after = -1;
         ++allocation_hits;
-        if (worker_armed) ++worker_hits;
+        if (worker_armed)
+            ++worker_hits;
         throw std::bad_alloc();
     }
-    if (fail_after > 0) --fail_after;
-    if (void* p = std::malloc(n ? n : 1)) return p;
+    if (fail_after > 0)
+        --fail_after;
+    if (void* p = std::malloc(n ? n : 1))
+        return p;
     throw std::bad_alloc();
 }
-void* operator new[](std::size_t n) { return ::operator new(n); }
-void operator delete(void* p) noexcept { std::free(p); }
-void operator delete[](void* p) noexcept { std::free(p); }
-void operator delete(void* p, std::size_t) noexcept { std::free(p); }
-void operator delete[](void* p, std::size_t) noexcept { std::free(p); }
+void* operator new[](std::size_t n)
+{
+    return ::operator new(n);
+}
+void operator delete(void* p) noexcept
+{
+    std::free(p);
+}
+void operator delete[](void* p) noexcept
+{
+    std::free(p);
+}
+void operator delete(void* p, std::size_t) noexcept
+{
+    std::free(p);
+}
+void operator delete[](void* p, std::size_t) noexcept
+{
+    std::free(p);
+}
 
 #if defined(__linux__)
 static thread_local bool count_creates = false;
 static thread_local int create_calls = 0;
 static thread_local int fail_create = 0;
 static thread_local bool fail_worker_tls = false;
-struct ThreadEntry { void* (*entry)(void*); void* arg; };
+struct ThreadEntry {
+    void* (*entry)(void*);
+    void* arg;
+};
 static void* ArmedEntry(void* p)
 {
     const auto entry = *static_cast<ThreadEntry*>(p);
@@ -53,21 +74,24 @@ static void* ArmedEntry(void* p)
     fail_after = 0;
     return entry.entry(entry.arg);
 }
-extern "C" int pthread_create(pthread_t* thread, const pthread_attr_t* attr,
-                               void* (*entry)(void*), void* arg) noexcept
+extern "C" int pthread_create(pthread_t* thread, const pthread_attr_t* attr, void* (*entry)(void*), void* arg) noexcept
 {
     using Create = int (*)(pthread_t*, const pthread_attr_t*, void* (*)(void*), void*);
     static auto real_create = reinterpret_cast<Create>(dlsym(RTLD_NEXT, "pthread_create"));
-    if (!real_create) std::abort();
+    if (!real_create)
+        std::abort();
     if (count_creates) {
         ++create_calls;
-        if (create_calls == fail_create) return EAGAIN;
+        if (create_calls == fail_create)
+            return EAGAIN;
         if (fail_worker_tls && create_calls == 2) {
             auto* state = static_cast<ThreadEntry*>(std::malloc(sizeof(ThreadEntry)));
-            if (!state) return ENOMEM;
+            if (!state)
+                return ENOMEM;
             *state = {entry, arg};
             const int rc = real_create(thread, attr, ArmedEntry, state);
-            if (rc) std::free(state);
+            if (rc)
+                std::free(state);
             return rc;
         }
     }
@@ -109,8 +133,11 @@ static int Child(const char* mode, long nth)
     fail_after = alloc ? nth : -1;
     bool threw = false;
     auto result = ProcesserResizeResult::Ok;
-    try { result = g_scheduler->SetProcesserNum(target); }
-    catch (...) { threw = true; }
+    try {
+        result = g_scheduler->SetProcesserNum(target);
+    } catch (...) {
+        threw = true;
+    }
     fail_after = -1;
     count_creates = false;
     CHECK(!threw);
@@ -123,15 +150,17 @@ static int Child(const char* mode, long nth)
         return 42; // 只作扫描结束证据，不计为注入覆盖。
     }
     CHECK(alloc ? allocation_hits == 1 : (!std::strcmp(mode, "pthread") ? create_calls == 2 : worker_hits == 1));
-    std::printf("RESULT mode=%s nth=%ld hits=%d result=%d active=%zu target=%zu mode_value=%d creates=%d worker_hits=%d\n",
+    std::printf(
+        "RESULT mode=%s nth=%ld hits=%d result=%d active=%zu target=%zu mode_value=%d creates=%d worker_hits=%d\n",
         mode, nth, allocation_hits, static_cast<int>(result), g_scheduler->GetProcesserNum(),
-        g_scheduler->GetProcesserTargetNum(), static_cast<int>(g_scheduler->GetProcesserScalingMode()),
-        create_calls, worker_hits.load());
+        g_scheduler->GetProcesserTargetNum(), static_cast<int>(g_scheduler->GetProcesserScalingMode()), create_calls,
+        worker_hits.load());
 #ifdef BBT_COROUTINE_PROFILE
     std::string profile;
     g_bbt_profiler->ProfileInfo(profile);
     size_t rows = 0;
-    for (size_t pos = profile.find("\tPID："); pos != std::string::npos; pos = profile.find("\tPID：", pos + 1)) ++rows;
+    for (size_t pos = profile.find("\tPID："); pos != std::string::npos; pos = profile.find("\tPID：", pos + 1))
+        ++rows;
     std::printf("PROFILE rows=%zu active=%zu\n", rows, g_scheduler->GetProcesserNum());
     CHECK(rows == old_count);
 #endif
@@ -144,7 +173,8 @@ static int Child(const char* mode, long nth)
     CHECK(g_scheduler->GetProcesserExitedUnjoinedNum() == 0);
     // 批次取消必须物理 join，不能只隐藏新身份。
     CHECK(ThreadCount() == old_threads);
-    CHECK(g_scheduler->SetProcesserNum(target) == (shrink ? ProcesserResizeResult::Pending : ProcesserResizeResult::Ok));
+    CHECK(g_scheduler->SetProcesserNum(target)
+          == (shrink ? ProcesserResizeResult::Pending : ProcesserResizeResult::Ok));
     CHECK(g_scheduler->GetProcesserNum() == target);
     CHECK(g_scheduler->GetProcesserTargetNum() == target);
     CHECK(g_scheduler->GetProcesserScalingMode() == ProcesserScalingMode::Manual);
@@ -152,19 +182,21 @@ static int Child(const char* mode, long nth)
     if (!shrink) {
         g_bbt_profiler->ProfileInfo(profile);
         rows = 0;
-        for (size_t pos = profile.find("\tPID："); pos != std::string::npos;
-             pos = profile.find("\tPID：", pos + 1)) ++rows;
+        for (size_t pos = profile.find("\tPID："); pos != std::string::npos; pos = profile.find("\tPID：", pos + 1))
+            ++rows;
         CHECK(rows == target);
     }
 #endif
-    std::printf("INJECTED mode=%s nth=%ld creates=%d worker_hits=%d retry=ok\n", mode, nth, create_calls, worker_hits.load());
+    std::printf("INJECTED mode=%s nth=%ld creates=%d worker_hits=%d retry=ok\n", mode, nth, create_calls,
+                worker_hits.load());
     return 0;
 }
 int main(int argc, char** argv)
 {
 #if defined(__linux__)
     CHECK(argc >= 2);
-    if (argc == 4 && !std::strcmp(argv[1], "child")) return Child(argv[2], std::strtol(argv[3], nullptr, 10));
+    if (argc == 4 && !std::strcmp(argv[1], "child"))
+        return Child(argv[2], std::strtol(argv[3], nullptr, 10));
     const char* mode = argv[1];
     const bool sweep = !std::strcmp(mode, "expand") || !std::strcmp(mode, "shrink");
     int injected = 0;
@@ -188,11 +220,13 @@ int main(int argc, char** argv)
         }
         CHECK(rc == 0);
         ++injected;
-        if (!sweep) return 0;
+        if (!sweep)
+            return 0;
     }
     CHECK(false); // 未见首次完整成功，扫描不得冒充闭环。
 #else
-    (void)argc; (void)argv;
+    (void)argc;
+    (void)argv;
     return 77;
 #endif
 }

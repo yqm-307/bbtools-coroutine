@@ -1,4 +1,7 @@
-/* 系统调用 hook 声明与 dlsym 原函数指针表。 */
+/**
+ * @file Hook.hpp
+ * @brief libc 阻塞调用的接管层：原函数指针表、Hook_* 入口声明与 C 符号导出声明。
+ */
 #pragma once
 #include <sys/socket.h>
 #include <sys/uio.h>
@@ -20,86 +23,88 @@
 #include <errno.h>
 #include <atomic>
 
-/**
- * 当协程中执行会阻塞的接口时，不能真的阻塞当前线程。
- * 
- * 因此使用我们的函数hook系统函数，实际上使用同步非阻塞。
- * 当协程调用需要阻塞的系统接口时，注册一个事件并使用poll、
- * epoll等的监听功能来轮训监听事件，当事件完成时，再让P去
- * 唤醒阻塞的协程获取资源继续执行。
- * 
- * todo：更丰富的接口、支持跨平台
- */
-
-using g_bbt_sys_hook_socket_fn_t    = int           (*)(int /*domain*/, int /*type*/, int /*protocol*/);
-using g_bbt_sys_hook_connect_fn_t   = int           (*)(int /*socket*/, const struct sockaddr* /*address*/, socklen_t /*address_len*/);
-using g_bbt_sys_hook_close_fn_t     = int           (*)(int /*fd*/);
-using g_bbt_sys_hook_sleep_fn_t     = unsigned int  (*)(unsigned int /*sec*/);
-using g_bbt_sys_hook_read_fn_t      = ssize_t       (*)(int /*fd*/, void* /*buf*/, size_t /*nbytes*/);
-using g_bbt_sys_hook_write_fn_t     = ssize_t       (*) (int /*fd*/, const void * /*buf*/, size_t /*n*/);
-using g_bbt_sys_hook_accept_fn_t    = int           (*) (int /*fd*/, __SOCKADDR_ARG /*addr*/, socklen_t *__restrict /*addr_len*/);
-using g_bbt_sys_hook_send_fn_t      = ssize_t       (*)(int /*fd*/, const void * /*buf*/, size_t /*len*/, int /*flags*/);
-using g_bbt_sys_hook_recv_fn_t      = ssize_t       (*)(int /*fd*/, void * /*buf*/, size_t /*len*/, int /*flags*/);
-using g_bbt_sys_hook_sendto_fn_t    = ssize_t       (*)(int /*fd*/, const void * /*buf*/, size_t /*len*/, int /*flags*/, const struct sockaddr* /*dest_addr*/, socklen_t /*addrlen*/);
-using g_bbt_sys_hook_recvfrom_fn_t  = ssize_t       (*)(int /*fd*/, void * /*buf*/, size_t /*len*/, int /*flags*/, struct sockaddr* /*src_addr*/, socklen_t* /*addrlen*/);
-using g_bbt_sys_hook_recvmsg_fn_t   = ssize_t       (*)(int /*fd*/, struct msghdr* /*msg*/, int /*flags*/);
-using g_bbt_sys_hook_sendmsg_fn_t   = ssize_t       (*)(int /*fd*/, const struct msghdr* /*msg*/, int /*flags*/);
-using g_bbt_sys_hook_readv_fn_t     = ssize_t       (*)(int /*fd*/, const struct iovec* /*iov*/, int /*iovcnt*/);
-using g_bbt_sys_hook_writev_fn_t    = ssize_t       (*)(int /*fd*/, const struct iovec* /*iov*/, int /*iovcnt*/);
+/* 原函数指针表：dlsym(RTLD_NEXT) 取 libc 实现，static 变量每个 TU 各一份、各自在动态初始化期
+ * 解析。同名 C 符号是链接期入口，按「本线程能否跑协程」分流（不能跑的直通原函数）；协程 IO 由守卫
+ * 临时设 O_NONBLOCK、结束恢复原 flags，不要求调用方预设，close 不分流。取不到时为 nullptr——只有
+ * accept4 有降级路径，其余调用点不判空。TODO: 覆盖更多阻塞接口并支持非 Linux 平台。 */
+using g_bbt_sys_hook_socket_fn_t = int (*)(int /*domain*/, int /*type*/, int /*protocol*/);
+using g_bbt_sys_hook_connect_fn_t = int (*)(int /*socket*/, const struct sockaddr* /*address*/,
+                                            socklen_t /*address_len*/);
+using g_bbt_sys_hook_close_fn_t = int (*)(int /*fd*/);
+using g_bbt_sys_hook_sleep_fn_t = unsigned int (*)(unsigned int /*sec*/);
+using g_bbt_sys_hook_read_fn_t = ssize_t (*)(int /*fd*/, void* /*buf*/, size_t /*nbytes*/);
+using g_bbt_sys_hook_write_fn_t = ssize_t (*)(int /*fd*/, const void* /*buf*/, size_t /*n*/);
+using g_bbt_sys_hook_accept_fn_t = int (*)(int /*fd*/, __SOCKADDR_ARG /*addr*/, socklen_t* __restrict /*addr_len*/);
+using g_bbt_sys_hook_send_fn_t = ssize_t (*)(int /*fd*/, const void* /*buf*/, size_t /*len*/, int /*flags*/);
+using g_bbt_sys_hook_recv_fn_t = ssize_t (*)(int /*fd*/, void* /*buf*/, size_t /*len*/, int /*flags*/);
+using g_bbt_sys_hook_sendto_fn_t = ssize_t (*)(int /*fd*/, const void* /*buf*/, size_t /*len*/, int /*flags*/,
+                                               const struct sockaddr* /*dest_addr*/, socklen_t /*addrlen*/);
+using g_bbt_sys_hook_recvfrom_fn_t = ssize_t (*)(int /*fd*/, void* /*buf*/, size_t /*len*/, int /*flags*/,
+                                                 struct sockaddr* /*src_addr*/, socklen_t* /*addrlen*/);
+using g_bbt_sys_hook_recvmsg_fn_t = ssize_t (*)(int /*fd*/, struct msghdr* /*msg*/, int /*flags*/);
+using g_bbt_sys_hook_sendmsg_fn_t = ssize_t (*)(int /*fd*/, const struct msghdr* /*msg*/, int /*flags*/);
+using g_bbt_sys_hook_readv_fn_t = ssize_t (*)(int /*fd*/, const struct iovec* /*iov*/, int /*iovcnt*/);
+using g_bbt_sys_hook_writev_fn_t = ssize_t (*)(int /*fd*/, const struct iovec* /*iov*/, int /*iovcnt*/);
 // glibc 的 accept4 原型带 __nonnull；dlsym 指针按普通签名即可
-using g_bbt_sys_hook_accept4_fn_t   = int           (*)(int /*fd*/, __SOCKADDR_ARG /*addr*/, socklen_t *__restrict /*addr_len*/, int /*flags*/);
+using g_bbt_sys_hook_accept4_fn_t = int (*)(int /*fd*/, __SOCKADDR_ARG /*addr*/, socklen_t* __restrict /*addr_len*/,
+                                            int /*flags*/);
 // 时间系 hook：签名与 <time.h>/<unistd.h> 原型一致
-using g_bbt_sys_hook_usleep_fn_t          = int     (*)(useconds_t /*usec*/);
-using g_bbt_sys_hook_nanosleep_fn_t       = int     (*)(const struct timespec* /*req*/, struct timespec* /*rem*/);
-using g_bbt_sys_hook_clock_nanosleep_fn_t = int     (*)(clockid_t /*clock_id*/, int /*flags*/, const struct timespec* /*req*/, struct timespec* /*rem*/);
+using g_bbt_sys_hook_usleep_fn_t = int (*)(useconds_t /*usec*/);
+using g_bbt_sys_hook_nanosleep_fn_t = int (*)(const struct timespec* /*req*/, struct timespec* /*rem*/);
+using g_bbt_sys_hook_clock_nanosleep_fn_t = int (*)(clockid_t /*clock_id*/, int /*flags*/,
+                                                    const struct timespec* /*req*/, struct timespec* /*rem*/);
 // 多路复用系 hook：签名与 <poll.h>/<sys/select.h> 原型一致
-using g_bbt_sys_hook_poll_fn_t            = int     (*)(struct pollfd* /*fds*/, nfds_t /*nfds*/, int /*timeout_ms*/);
-using g_bbt_sys_hook_select_fn_t          = int     (*)(int /*nfds*/, fd_set* /*read*/, fd_set* /*write*/, fd_set* /*except*/, struct timeval* /*timeout*/);
-using g_bbt_sys_hook_pselect_fn_t         = int     (*)(int /*nfds*/, fd_set* /*read*/, fd_set* /*write*/, fd_set* /*except*/, const struct timespec* /*timeout*/, const sigset_t* /*sigmask*/);
+using g_bbt_sys_hook_poll_fn_t = int (*)(struct pollfd* /*fds*/, nfds_t /*nfds*/, int /*timeout_ms*/);
+using g_bbt_sys_hook_select_fn_t = int (*)(int /*nfds*/, fd_set* /*read*/, fd_set* /*write*/, fd_set* /*except*/,
+                                           struct timeval* /*timeout*/);
+using g_bbt_sys_hook_pselect_fn_t = int (*)(int /*nfds*/, fd_set* /*read*/, fd_set* /*write*/, fd_set* /*except*/,
+                                            const struct timespec* /*timeout*/, const sigset_t* /*sigmask*/);
 // DNS 系 hook：签名与 <netdb.h> 原型一致（dlsym 指针去掉 __restrict）
-using g_bbt_sys_hook_getaddrinfo_fn_t     = int     (*)(const char* /*node*/, const char* /*service*/, const struct addrinfo* /*req*/, struct addrinfo** /*res*/);
-using g_bbt_sys_hook_getnameinfo_fn_t     = int     (*)(const struct sockaddr* /*sa*/, socklen_t /*salen*/, char* /*host*/, socklen_t /*hostlen*/, char* /*serv*/, socklen_t /*servlen*/, int /*flags*/);
-using g_bbt_sys_hook_gethostbyname_fn_t   = struct hostent* (*)(const char* /*name*/);
-using g_bbt_sys_hook_gethostbyaddr_fn_t   = struct hostent* (*)(const void* /*addr*/, socklen_t /*len*/, int /*type*/);
+using g_bbt_sys_hook_getaddrinfo_fn_t = int (*)(const char* /*node*/, const char* /*service*/,
+                                                const struct addrinfo* /*req*/, struct addrinfo** /*res*/);
+using g_bbt_sys_hook_getnameinfo_fn_t = int (*)(const struct sockaddr* /*sa*/, socklen_t /*salen*/, char* /*host*/,
+                                                socklen_t /*hostlen*/, char* /*serv*/, socklen_t /*servlen*/,
+                                                int /*flags*/);
+using g_bbt_sys_hook_gethostbyname_fn_t = struct hostent* (*)(const char* /*name*/);
+using g_bbt_sys_hook_gethostbyaddr_fn_t = struct hostent* (*)(const void* /*addr*/, socklen_t /*len*/, int /*type*/);
 
-static auto g_bbt_sys_hook_socket_func      = (g_bbt_sys_hook_socket_fn_t)dlsym(RTLD_NEXT, "socket");
-static auto g_bbt_sys_hook_connect_func     = (g_bbt_sys_hook_connect_fn_t)dlsym(RTLD_NEXT, "connect");
-static auto g_bbt_sys_hook_close_func       = (g_bbt_sys_hook_close_fn_t)dlsym(RTLD_NEXT, "close");
-static auto g_bbt_sys_hook_sleep_func       = (g_bbt_sys_hook_sleep_fn_t)dlsym(RTLD_NEXT, "sleep");
-static auto g_bbt_sys_hook_read_func        = (g_bbt_sys_hook_read_fn_t)dlsym(RTLD_NEXT, "read");
-static auto g_bbt_sys_hook_write_func       = (g_bbt_sys_hook_write_fn_t)dlsym(RTLD_NEXT, "write");
-static auto g_bbt_sys_hook_accept_func      = (g_bbt_sys_hook_accept_fn_t)dlsym(RTLD_NEXT, "accept");
-static auto g_bbt_sys_hook_send_func        = (g_bbt_sys_hook_send_fn_t)dlsym(RTLD_NEXT, "send");
-static auto g_bbt_sys_hook_recv_func        = (g_bbt_sys_hook_recv_fn_t)dlsym(RTLD_NEXT, "recv");
-static auto g_bbt_sys_hook_sendto_func      = (g_bbt_sys_hook_sendto_fn_t)dlsym(RTLD_NEXT, "sendto");
-static auto g_bbt_sys_hook_recvfrom_func    = (g_bbt_sys_hook_recvfrom_fn_t)dlsym(RTLD_NEXT, "recvfrom");
-static auto g_bbt_sys_hook_recvmsg_func     = (g_bbt_sys_hook_recvmsg_fn_t)dlsym(RTLD_NEXT, "recvmsg");
-static auto g_bbt_sys_hook_sendmsg_func     = (g_bbt_sys_hook_sendmsg_fn_t)dlsym(RTLD_NEXT, "sendmsg");
-static auto g_bbt_sys_hook_readv_func       = (g_bbt_sys_hook_readv_fn_t)dlsym(RTLD_NEXT, "readv");
-static auto g_bbt_sys_hook_writev_func      = (g_bbt_sys_hook_writev_fn_t)dlsym(RTLD_NEXT, "writev");
+static auto g_bbt_sys_hook_socket_func = (g_bbt_sys_hook_socket_fn_t)dlsym(RTLD_NEXT, "socket");
+static auto g_bbt_sys_hook_connect_func = (g_bbt_sys_hook_connect_fn_t)dlsym(RTLD_NEXT, "connect");
+static auto g_bbt_sys_hook_close_func = (g_bbt_sys_hook_close_fn_t)dlsym(RTLD_NEXT, "close");
+static auto g_bbt_sys_hook_sleep_func = (g_bbt_sys_hook_sleep_fn_t)dlsym(RTLD_NEXT, "sleep");
+static auto g_bbt_sys_hook_read_func = (g_bbt_sys_hook_read_fn_t)dlsym(RTLD_NEXT, "read");
+static auto g_bbt_sys_hook_write_func = (g_bbt_sys_hook_write_fn_t)dlsym(RTLD_NEXT, "write");
+static auto g_bbt_sys_hook_accept_func = (g_bbt_sys_hook_accept_fn_t)dlsym(RTLD_NEXT, "accept");
+static auto g_bbt_sys_hook_send_func = (g_bbt_sys_hook_send_fn_t)dlsym(RTLD_NEXT, "send");
+static auto g_bbt_sys_hook_recv_func = (g_bbt_sys_hook_recv_fn_t)dlsym(RTLD_NEXT, "recv");
+static auto g_bbt_sys_hook_sendto_func = (g_bbt_sys_hook_sendto_fn_t)dlsym(RTLD_NEXT, "sendto");
+static auto g_bbt_sys_hook_recvfrom_func = (g_bbt_sys_hook_recvfrom_fn_t)dlsym(RTLD_NEXT, "recvfrom");
+static auto g_bbt_sys_hook_recvmsg_func = (g_bbt_sys_hook_recvmsg_fn_t)dlsym(RTLD_NEXT, "recvmsg");
+static auto g_bbt_sys_hook_sendmsg_func = (g_bbt_sys_hook_sendmsg_fn_t)dlsym(RTLD_NEXT, "sendmsg");
+static auto g_bbt_sys_hook_readv_func = (g_bbt_sys_hook_readv_fn_t)dlsym(RTLD_NEXT, "readv");
+static auto g_bbt_sys_hook_writev_func = (g_bbt_sys_hook_writev_fn_t)dlsym(RTLD_NEXT, "writev");
 // 部分平台/静态链接场景 dlsym 可能取不到 accept4，Hook_Accept4 里做降级处理
-static auto g_bbt_sys_hook_accept4_func     = (g_bbt_sys_hook_accept4_fn_t)dlsym(RTLD_NEXT, "accept4");
+static auto g_bbt_sys_hook_accept4_func = (g_bbt_sys_hook_accept4_fn_t)dlsym(RTLD_NEXT, "accept4");
 
 /* 测试 seam——claim 方在 BeginFdClose 之后、底层 close 之前
  * 睡眠的毫秒数；置 >0 使另一线程能确定性观察到 closing 并发起并发
  * close（BeginFdClose=false 路径）。生产恒为 0，仅测试写。 */
 inline std::atomic<int> g_bbt_fd_close_stall_for_test_ms{0};
-static auto g_bbt_sys_hook_usleep_func          = (g_bbt_sys_hook_usleep_fn_t)dlsym(RTLD_NEXT, "usleep");
-static auto g_bbt_sys_hook_nanosleep_func       = (g_bbt_sys_hook_nanosleep_fn_t)dlsym(RTLD_NEXT, "nanosleep");
-static auto g_bbt_sys_hook_clock_nanosleep_func = (g_bbt_sys_hook_clock_nanosleep_fn_t)dlsym(RTLD_NEXT, "clock_nanosleep");
-static auto g_bbt_sys_hook_poll_func            = (g_bbt_sys_hook_poll_fn_t)dlsym(RTLD_NEXT, "poll");
-static auto g_bbt_sys_hook_select_func          = (g_bbt_sys_hook_select_fn_t)dlsym(RTLD_NEXT, "select");
-static auto g_bbt_sys_hook_pselect_func         = (g_bbt_sys_hook_pselect_fn_t)dlsym(RTLD_NEXT, "pselect");
-static auto g_bbt_sys_hook_getaddrinfo_func     = (g_bbt_sys_hook_getaddrinfo_fn_t)dlsym(RTLD_NEXT, "getaddrinfo");
-static auto g_bbt_sys_hook_getnameinfo_func     = (g_bbt_sys_hook_getnameinfo_fn_t)dlsym(RTLD_NEXT, "getnameinfo");
-static auto g_bbt_sys_hook_gethostbyname_func   = (g_bbt_sys_hook_gethostbyname_fn_t)dlsym(RTLD_NEXT, "gethostbyname");
-static auto g_bbt_sys_hook_gethostbyaddr_func   = (g_bbt_sys_hook_gethostbyaddr_fn_t)dlsym(RTLD_NEXT, "gethostbyaddr");
+static auto g_bbt_sys_hook_usleep_func = (g_bbt_sys_hook_usleep_fn_t)dlsym(RTLD_NEXT, "usleep");
+static auto g_bbt_sys_hook_nanosleep_func = (g_bbt_sys_hook_nanosleep_fn_t)dlsym(RTLD_NEXT, "nanosleep");
+static auto g_bbt_sys_hook_clock_nanosleep_func =
+    (g_bbt_sys_hook_clock_nanosleep_fn_t)dlsym(RTLD_NEXT, "clock_nanosleep");
+static auto g_bbt_sys_hook_poll_func = (g_bbt_sys_hook_poll_fn_t)dlsym(RTLD_NEXT, "poll");
+static auto g_bbt_sys_hook_select_func = (g_bbt_sys_hook_select_fn_t)dlsym(RTLD_NEXT, "select");
+static auto g_bbt_sys_hook_pselect_func = (g_bbt_sys_hook_pselect_fn_t)dlsym(RTLD_NEXT, "pselect");
+static auto g_bbt_sys_hook_getaddrinfo_func = (g_bbt_sys_hook_getaddrinfo_fn_t)dlsym(RTLD_NEXT, "getaddrinfo");
+static auto g_bbt_sys_hook_getnameinfo_func = (g_bbt_sys_hook_getnameinfo_fn_t)dlsym(RTLD_NEXT, "getnameinfo");
+static auto g_bbt_sys_hook_gethostbyname_func = (g_bbt_sys_hook_gethostbyname_fn_t)dlsym(RTLD_NEXT, "gethostbyname");
+static auto g_bbt_sys_hook_gethostbyaddr_func = (g_bbt_sys_hook_gethostbyaddr_fn_t)dlsym(RTLD_NEXT, "gethostbyaddr");
 
-namespace bbt::coroutine
-{
+namespace bbt::coroutine {
 
-namespace detail
-{
+namespace detail {
 extern int Hook_Socket(int domain, int type, int protocol);
 extern int Hook_Connect(int socket, const struct sockaddr* address, socklen_t address_len);
 extern int Hook_Close(int fd);
@@ -107,10 +112,11 @@ extern int Hook_Sleep(int ms);
 extern ssize_t Hook_Read(int fd, void* buf, size_t nbytes);
 extern ssize_t Hook_Write(int fd, const void* buf, size_t n);
 extern int Hook_Accept(int fd, struct sockaddr* addr, socklen_t* len);
-extern ssize_t Hook_Send(int fd, const void *buf, size_t len, int flags);
-extern ssize_t Hook_Recv(int fd, void *buf, size_t len, int flags);
-extern ssize_t Hook_SendTo(int fd, const void *buf, size_t len, int flags, const struct sockaddr* dest_addr, socklen_t addrlen);
-extern ssize_t Hook_RecvFrom(int fd, void *buf, size_t len, int flags, struct sockaddr* src_addr, socklen_t* addrlen);
+extern ssize_t Hook_Send(int fd, const void* buf, size_t len, int flags);
+extern ssize_t Hook_Recv(int fd, void* buf, size_t len, int flags);
+extern ssize_t Hook_SendTo(int fd, const void* buf, size_t len, int flags, const struct sockaddr* dest_addr,
+                           socklen_t addrlen);
+extern ssize_t Hook_RecvFrom(int fd, void* buf, size_t len, int flags, struct sockaddr* src_addr, socklen_t* addrlen);
 extern ssize_t Hook_RecvMsg(int fd, struct msghdr* msg, int flags);
 extern ssize_t Hook_SendMsg(int fd, const struct msghdr* msg, int flags);
 extern ssize_t Hook_Readv(int fd, const struct iovec* iov, int iovcnt);
@@ -121,9 +127,11 @@ extern int Hook_Nanosleep(const struct timespec* req, struct timespec* rem);
 extern int Hook_ClockNanosleep(clockid_t clock_id, int flags, const struct timespec* req, struct timespec* rem);
 extern int Hook_Poll(struct pollfd* fds, nfds_t nfds, int timeout_ms);
 extern int Hook_Select(int nfds, fd_set* read_fds, fd_set* write_fds, fd_set* except_fds, struct timeval* timeout);
-extern int Hook_PSelect(int nfds, fd_set* read_fds, fd_set* write_fds, fd_set* except_fds, const struct timespec* timeout, const sigset_t* sigmask);
+extern int Hook_PSelect(int nfds, fd_set* read_fds, fd_set* write_fds, fd_set* except_fds,
+                        const struct timespec* timeout, const sigset_t* sigmask);
 extern int Hook_GetAddrInfo(const char* node, const char* service, const struct addrinfo* req, struct addrinfo** res);
-extern int Hook_GetNameInfo(const struct sockaddr* sa, socklen_t salen, char* host, socklen_t hostlen, char* serv, socklen_t servlen, int flags);
+extern int Hook_GetNameInfo(const struct sockaddr* sa, socklen_t salen, char* host, socklen_t hostlen, char* serv,
+                            socklen_t servlen, int flags);
 extern struct hostent* Hook_GetHostByName(const char* name);
 extern struct hostent* Hook_GetHostByAddr(const void* addr, socklen_t len, int type);
 }
@@ -132,31 +140,33 @@ extern struct hostent* Hook_GetHostByAddr(const void* addr, socklen_t len, int t
 
 // c api 接口导出声明
 extern "C" {
-    // 重新定义系统函数，这样所有动态库都会调用到我们的 hook 实现
-    int socket(int domain, int type, int protocol);
-    int connect(int socket, const struct sockaddr* address, socklen_t address_len);
-    int close(int fd);
-    unsigned int sleep(unsigned int sec);
-    ssize_t read(int fd, void* buf, size_t nbytes);
-    ssize_t write(int fd, const void* buf, size_t n);
-    int accept(int fd, __SOCKADDR_ARG addr, socklen_t *__restrict addr_len);
-    ssize_t send(int fd, const void *buf, size_t len, int flags);
-    ssize_t recv(int fd, void *buf, size_t len, int flags);
-    ssize_t sendto(int fd, const void *buf, size_t len, int flags, const struct sockaddr* dest_addr, socklen_t addrlen);
-    ssize_t recvfrom(int fd, void *buf, size_t len, int flags, struct sockaddr* src_addr, socklen_t* addrlen);
-    ssize_t recvmsg(int fd, struct msghdr *message, int flags);
-    ssize_t sendmsg(int fd, const struct msghdr *message, int flags);
-    ssize_t readv(int fd, const struct iovec *iov, int iovcnt);
-    ssize_t writev(int fd, const struct iovec *iov, int iovcnt);
-    int accept4(int fd, __SOCKADDR_ARG addr, socklen_t *__restrict addr_len, int flags);
-    int usleep(useconds_t usec);
-    int nanosleep(const struct timespec *req, struct timespec *rem);
-    int clock_nanosleep(clockid_t clock_id, int flags, const struct timespec *req, struct timespec *rem);
-    int poll(struct pollfd *fds, nfds_t nfds, int timeout_ms);
-    int select(int nfds, fd_set *read_fds, fd_set *write_fds, fd_set *except_fds, struct timeval *timeout);
-    int pselect(int nfds, fd_set *read_fds, fd_set *write_fds, fd_set *except_fds, const struct timespec *timeout, const sigset_t *sigmask);
-    int getaddrinfo(const char *node, const char *service, const struct addrinfo *req, struct addrinfo **res);
-    int getnameinfo(const struct sockaddr *sa, socklen_t salen, char *host, socklen_t hostlen, char *serv, socklen_t servlen, int flags);
-    struct hostent *gethostbyname(const char *name);
-    struct hostent *gethostbyaddr(const void *addr, socklen_t len, int type);
+// 重新定义系统函数，这样所有动态库都会调用到我们的 hook 实现
+int socket(int domain, int type, int protocol);
+int connect(int socket, const struct sockaddr* address, socklen_t address_len);
+int close(int fd);
+unsigned int sleep(unsigned int sec);
+ssize_t read(int fd, void* buf, size_t nbytes);
+ssize_t write(int fd, const void* buf, size_t n);
+int accept(int fd, __SOCKADDR_ARG addr, socklen_t* __restrict addr_len);
+ssize_t send(int fd, const void* buf, size_t len, int flags);
+ssize_t recv(int fd, void* buf, size_t len, int flags);
+ssize_t sendto(int fd, const void* buf, size_t len, int flags, const struct sockaddr* dest_addr, socklen_t addrlen);
+ssize_t recvfrom(int fd, void* buf, size_t len, int flags, struct sockaddr* src_addr, socklen_t* addrlen);
+ssize_t recvmsg(int fd, struct msghdr* message, int flags);
+ssize_t sendmsg(int fd, const struct msghdr* message, int flags);
+ssize_t readv(int fd, const struct iovec* iov, int iovcnt);
+ssize_t writev(int fd, const struct iovec* iov, int iovcnt);
+int accept4(int fd, __SOCKADDR_ARG addr, socklen_t* __restrict addr_len, int flags);
+int usleep(useconds_t usec);
+int nanosleep(const struct timespec* req, struct timespec* rem);
+int clock_nanosleep(clockid_t clock_id, int flags, const struct timespec* req, struct timespec* rem);
+int poll(struct pollfd* fds, nfds_t nfds, int timeout_ms);
+int select(int nfds, fd_set* read_fds, fd_set* write_fds, fd_set* except_fds, struct timeval* timeout);
+int pselect(int nfds, fd_set* read_fds, fd_set* write_fds, fd_set* except_fds, const struct timespec* timeout,
+            const sigset_t* sigmask);
+int getaddrinfo(const char* node, const char* service, const struct addrinfo* req, struct addrinfo** res);
+int getnameinfo(const struct sockaddr* sa, socklen_t salen, char* host, socklen_t hostlen, char* serv,
+                socklen_t servlen, int flags);
+struct hostent* gethostbyname(const char* name);
+struct hostent* gethostbyaddr(const void* addr, socklen_t len, int type);
 }

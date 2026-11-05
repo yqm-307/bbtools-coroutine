@@ -38,15 +38,14 @@ using namespace bbt::coroutine::detail;
 
 BOOST_AUTO_TEST_SUITE(HookFdEpochMultiTest)
 
-namespace
-{
+namespace {
 
 /* 唯一一次 Start 前固定 4 worker：本可执行只有这一个用例，配置不会被后续
  * 用例覆盖，一次初始化契约与多 worker 覆盖同时成立。 */
 void EnsureRuntimeMulti()
 {
     static std::once_flag once;
-    std::call_once(once, [](){
+    std::call_once(once, []() {
         auto* cfg = g_bbt_coroutine_config.get();
         cfg->m_cfg_static_thread_num = 4;
         cfg->m_cfg_stack_protect = false;
@@ -70,7 +69,7 @@ BOOST_AUTO_TEST_CASE(t_multi_worker_close_reuse_returns_ebadf)
 {
     EnsureRuntimeMulti();
     int fds[2] = {-1, -1};
-    int np[2]  = {-1, -1};
+    int np[2] = {-1, -1};
     BOOST_REQUIRE_EQUAL(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
     BOOST_REQUIRE_EQUAL(::socketpair(AF_UNIX, SOCK_STREAM, 0, np), 0);
 
@@ -78,7 +77,8 @@ BOOST_AUTO_TEST_CASE(t_multi_worker_close_reuse_returns_ebadf)
     std::atomic<ssize_t> result{12345};
     std::atomic_int errcode{0};
 
-    bbtco [&]() {
+    bbtco[&]()
+    {
         char buf[1];
         errno = 0;
         const ssize_t r = ::read(fds[0], buf, 1);
@@ -89,8 +89,7 @@ BOOST_AUTO_TEST_CASE(t_multi_worker_close_reuse_returns_ebadf)
 
     // 主线程（非协程）：FdWaiterCount 探针确认 A 已登记，随后 close+dup2+喂数据。
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(3000);
-    while (CoPollEvent::FdWaiterCount(fds[0]) == 0 &&
-           std::chrono::steady_clock::now() < deadline)
+    while (CoPollEvent::FdWaiterCount(fds[0]) == 0 && std::chrono::steady_clock::now() < deadline)
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     BOOST_REQUIRE(CoPollEvent::FdWaiterCount(fds[0]) > 0);
 
@@ -112,7 +111,8 @@ BOOST_AUTO_TEST_CASE(t_multi_worker_close_reuse_returns_ebadf)
     const ssize_t got = ::read(fds[0], &probe, 1);
     BOOST_CHECK_MESSAGE(got == 1 && probe == 'z',
                         "reused-fd byte was consumed by stale coroutine read (got=" << got << ")");
-    if (::fcntl(fds[0], F_GETFD) >= 0) ::close(fds[0]);
+    if (::fcntl(fds[0], F_GETFD) >= 0)
+        ::close(fds[0]);
     ::close(fds[1]);
     ::close(np[1]);
 }

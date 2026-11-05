@@ -43,22 +43,18 @@
  */
 
 /* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。 */
-namespace
-{
+namespace {
 void EnsureRuntime()
 {
     static std::once_flag once;
-    std::call_once(once, [](){
-        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
-    });
+    std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
 }
 
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::detail;
 
-namespace
-{
+namespace {
 
 constexpr int kWorkerCount = 2;
 /* 4 个协程在两个 worker 上轮转注册，保证同一 worker 上必然先后运行多个协程，
@@ -78,8 +74,7 @@ constexpr int kParkIdleMs = 5;
  * 有界重试，避免把调度延迟误报成运行时等待缺陷。 */
 constexpr int kNotifyRetryLimit = 500;
 
-struct ConfigSnapshot
-{
+struct ConfigSnapshot {
     size_t threads{0};
     size_t stack_size{0};
     bool stack_protect{false};
@@ -93,14 +88,13 @@ std::atomic_bool g_started{false};
 thread_local uint64_t tl_last_writer_co = 0;
 thread_local uint64_t tl_last_writer_worker = 0;
 
-struct YieldStats
-{
+struct YieldStats {
     std::atomic<uint64_t> resumes{0};
     std::atomic<uint64_t> tls_bad{0};
     std::atomic<uint64_t> migrations{0};
     std::atomic<uint64_t> user_tls_cross_coroutine_share{0};
     std::atomic<uint64_t> self_concurrent{0};
-    std::mutex            workers_mu;
+    std::mutex workers_mu;
     std::set<ProcesserId> workers;
 };
 
@@ -110,8 +104,7 @@ ProcesserId LocalWorkerId()
     return proc ? proc->GetId() : 0;
 }
 
-struct EventStats
-{
+struct EventStats {
     std::atomic<uint64_t> rounds{0};
     std::atomic<uint64_t> migrated{0};
     std::atomic<uint64_t> tls_bad{0};
@@ -122,14 +115,13 @@ struct EventStats
 };
 
 /* 每轮状态用堆对象持有：协程按值捕获 shared_ptr，等待超时后恢复也不会访问悬垂对象。 */
-struct EventRoundState
-{
+struct EventRoundState {
     bbt::core::thread::CountDownLatch parked{1};
     bbt::core::thread::CountDownLatch resumed{1};
     std::atomic<ProcesserId> parked_worker{0};
     std::atomic<ProcesserId> resume_worker{0};
-    std::atomic<int>         wait_ret{99};
-    std::atomic<uint64_t>    tls_bad{0};
+    std::atomic<int> wait_ret{99};
+    std::atomic<uint64_t> tls_bad{0};
 };
 
 /**
@@ -144,7 +136,8 @@ bool RunYieldPhase(YieldStats& stats)
     bbt::core::thread::CountDownLatch done{kYieldCoroutines};
 
     for (int i = 0; i < kYieldCoroutines; ++i) {
-        bbtco [&, i]() {
+        bbtco[&, i]()
+        {
             const CoroutineId self = GetLocalCoroutineId();
             if (self == 0) {
                 stats.tls_bad.fetch_add(1, std::memory_order_relaxed);
@@ -159,17 +152,16 @@ bool RunYieldPhase(YieldStats& stats)
             for (int k = 0; k < kYieldIterations; ++k) {
                 const int now = inside.fetch_add(1, std::memory_order_acq_rel) + 1;
                 int seen = inside_max.load(std::memory_order_relaxed);
-                while (now > seen && !inside_max.compare_exchange_weak(seen, now)) {}
+                while (now > seen && !inside_max.compare_exchange_weak(seen, now)) {
+                }
 
                 const ProcesserId worker = LocalWorkerId();
                 auto* cur = g_bbt_tls_coroutine_co;
                 /* cur->GetId() 与 GetLocalCoroutineId() 读的是同一份 worker TLS
                  * （Define.hpp 的 g_bbt_tls_coroutine_co），不是两条独立判据；
                  * 同时保留是为了覆盖"直接读 TLS"与"公共 API"两个入口都不残留旧值。 */
-                if (cur == nullptr || cur->GetId() != self ||
-                    GetLocalCoroutineId() != self ||
-                    cur->GetStatus() != CoroutineStatus::CO_RUNNING ||
-                    worker == 0) {
+                if (cur == nullptr || cur->GetId() != self || GetLocalCoroutineId() != self
+                    || cur->GetStatus() != CoroutineStatus::CO_RUNNING || worker == 0) {
                     stats.tls_bad.fetch_add(1, std::memory_order_relaxed);
                 }
 
@@ -266,13 +258,12 @@ BOOST_AUTO_TEST_CASE(t_runtime_tls_stable_across_yields)
     /* 用户 TLS 边界：同 worker 上的其他协程能看到本协程写入的值，
      * 即 thread_local 不按协程隔离。 */
     BOOST_CHECK_MESSAGE(stats.user_tls_cross_coroutine_share.load() > 0,
-        "未观察到用户 thread_local 在同一 worker 的不同协程之间共享；"
-        "若 thread_local 变成按协程隔离，用户 TLS 边界结论需要重新评估");
+                        "未观察到用户 thread_local 在同一 worker 的不同协程之间共享；"
+                        "若 thread_local 变成按协程隔离，用户 TLS 边界结论需要重新评估");
 
-    BOOST_TEST_MESSAGE("yield 阶段：resumes=" << resumes
-        << " workers=" << participating_workers
-        << " migrations=" << stats.migrations.load()
-        << " user_tls_shared=" << stats.user_tls_cross_coroutine_share.load());
+    BOOST_TEST_MESSAGE("yield 阶段：resumes=" << resumes << " workers=" << participating_workers
+                                              << " migrations=" << stats.migrations.load()
+                                              << " user_tls_shared=" << stats.user_tls_cross_coroutine_share.load());
 }
 
 /**
@@ -300,7 +291,8 @@ BOOST_AUTO_TEST_CASE(t_runtime_tls_stable_after_event_wake)
         auto state = std::make_shared<EventRoundState>();
         auto waiter = sync::CoWaiter::Create();
 
-        bbtco [state, waiter]() {
+        bbtco[state, waiter]()
+        {
             const CoroutineId self = GetLocalCoroutineId();
             state->parked_worker.store(LocalWorkerId());
             state->parked.Down();
@@ -309,10 +301,8 @@ BOOST_AUTO_TEST_CASE(t_runtime_tls_stable_after_event_wake)
             auto* cur = g_bbt_tls_coroutine_co;
             const ProcesserId worker = LocalWorkerId();
             /* 同 yield 阶段：两个 id 判据同源（worker TLS），保留用于覆盖公共 API 入口。 */
-            if (cur == nullptr || cur->GetId() != self ||
-                GetLocalCoroutineId() != self ||
-                cur->GetStatus() != CoroutineStatus::CO_RUNNING ||
-                worker == 0) {
+            if (cur == nullptr || cur->GetId() != self || GetLocalCoroutineId() != self
+                || cur->GetStatus() != CoroutineStatus::CO_RUNNING || worker == 0) {
                 state->tls_bad.fetch_add(1);
             }
             state->resume_worker.store(worker);
@@ -346,8 +336,8 @@ BOOST_AUTO_TEST_CASE(t_runtime_tls_stable_after_event_wake)
             stats.wait_failed.fetch_add(1);
         if (state->tls_bad.load() != 0)
             stats.tls_bad.fetch_add(1);
-        if (state->parked_worker.load() != 0 && state->resume_worker.load() != 0 &&
-            state->parked_worker.load() != state->resume_worker.load()) {
+        if (state->parked_worker.load() != 0 && state->resume_worker.load() != 0
+            && state->parked_worker.load() != state->resume_worker.load()) {
             stats.migrated.fetch_add(1);
         }
         stats.rounds.fetch_add(1);
@@ -363,24 +353,23 @@ BOOST_AUTO_TEST_CASE(t_runtime_tls_stable_after_event_wake)
      * 取走，因此事件完成后跨 worker 恢复是常态行为。本条要求"至少观测到一次"，
      * 用于保证迁移路径被真正执行；契约只要求"允许恢复其他 worker"，
      * 若将来改为固定 worker 亲和，应调整本条而不是改契约。 */
-    BOOST_CHECK_MESSAGE(stats.migrated.load() > 0,
-        "未观测到事件完成后跨 worker 恢复；跨 worker 迁移路径未被覆盖");
+    BOOST_CHECK_MESSAGE(stats.migrated.load() > 0, "未观测到事件完成后跨 worker 恢复；跨 worker 迁移路径未被覆盖");
 
-    BOOST_TEST_MESSAGE("事件唤醒阶段：rounds=" << stats.rounds.load()
-        << " migrated=" << stats.migrated.load()
-        << " (跨 worker 恢复占比 " << stats.migrated.load() << "/" << kEventRounds << ")");
+    BOOST_TEST_MESSAGE("事件唤醒阶段：rounds=" << stats.rounds.load() << " migrated=" << stats.migrated.load()
+                                               << " (跨 worker 恢复占比 " << stats.migrated.load() << "/"
+                                               << kEventRounds << ")");
 }
 
 BOOST_AUTO_TEST_CASE(t_end)
 {
     if (g_started.exchange(false))
-    if (g_cfg.saved) {
-        auto* cfg = g_bbt_coroutine_config.get();
-        cfg->m_cfg_static_thread_num = g_cfg.threads;
-        cfg->m_cfg_stack_size = g_cfg.stack_size;
-        cfg->m_cfg_stack_protect = g_cfg.stack_protect;
-        g_cfg.saved = false;
-    }
+        if (g_cfg.saved) {
+            auto* cfg = g_bbt_coroutine_config.get();
+            cfg->m_cfg_static_thread_num = g_cfg.threads;
+            cfg->m_cfg_stack_size = g_cfg.stack_size;
+            cfg->m_cfg_stack_protect = g_cfg.stack_protect;
+            g_cfg.saved = false;
+        }
 }
 
 BOOST_AUTO_TEST_SUITE_END()

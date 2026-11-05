@@ -1,17 +1,16 @@
 #include <bbt/coroutine/sync/CoRWMutex.hpp>
 #include <bbt/coroutine/detail/DriverWakeDeferral.hpp>
 
-namespace bbt::coroutine::sync
-{
+namespace bbt::coroutine::sync {
 
 CoRWMutex::SPtr CoRWMutex::Create()
 {
     return std::make_shared<CoRWMutex>(PrivateTag{});
 }
 
-
 int CoRWMutex::RLock()
 {
+    // 挂起回调里登记读阻塞并放锁；唤醒后重取锁复查并计数。
     _SysLock();
     // 如果获取不到锁则持续挂起，直到获取到锁
     while (m_status == CORWMUTEX_WLOCKED || m_has_wait_wlock) {
@@ -24,7 +23,7 @@ int CoRWMutex::RLock()
         bool cb_ran = false;
         int wait_ret = -1;
         try {
-            wait_ret = _WaitRLock([this, &cb_ran](){
+            wait_ret = _WaitRLock([this, &cb_ran]() {
                 /* 等待登记回调仍持 SysLock：若回调里触发 Wake，推迟到本
                  * lambda 退出（锁已释放）之后；guard 不跨 Yield。 */
                 detail::DriverWakeDeferral _defer;
@@ -65,6 +64,7 @@ int CoRWMutex::RLock()
 
 int CoRWMutex::WLock()
 {
+    // 挂起回调里登记写者责任并放锁；唤醒后结清责任、重取锁复查。
     _SysLock();
     while (m_status != CORWMUTEX_FREE) {
         /* 失败补偿与 RLock 同——等待未挂起时锁仍在手，
@@ -77,8 +77,8 @@ int CoRWMutex::WLock()
         bool cb_ran = false;
         int wait_ret = -1;
         try {
-            wait_ret = _WaitWLock([this, &cb_ran](){
-                detail::DriverWakeDeferral _defer;   // 同 RLock：不跨 Yield
+            wait_ret = _WaitWLock([this, &cb_ran]() {
+                detail::DriverWakeDeferral _defer; // 同 RLock：不跨 Yield
                 _OnWriterQueued();
                 ++m_wait_wlock_num;
                 m_has_wait_wlock = true;
@@ -115,7 +115,7 @@ int CoRWMutex::WLock()
 
 int CoRWMutex::RUnLock()
 {
-    detail::DriverWakeDeferral _defer;   // Notify 链 Wake 推迟到锁外
+    detail::DriverWakeDeferral _defer; // Notify 链 Wake 推迟到锁外
     _SysLock();
 
     m_rlock_hold_num--;
@@ -130,7 +130,7 @@ int CoRWMutex::RUnLock()
 
 int CoRWMutex::WUnLock()
 {
-    detail::DriverWakeDeferral _defer;   // 同 RUnLock
+    detail::DriverWakeDeferral _defer; // 同 RUnLock
     _SysLock();
 
     m_status = CORWMUTEX_FREE;
@@ -146,7 +146,7 @@ int CoRWMutex::WUnLock()
 
 int CoRWMutex::TryRLock()
 {
-    detail::DriverWakeDeferral _defer;   // 非挂起路径，可整体覆盖
+    detail::DriverWakeDeferral _defer; // 非挂起路径，可整体覆盖
     _SysLock();
     if (m_status == CORWMUTEX_WLOCKED || m_has_wait_wlock) {
         _SysUnLock();
@@ -165,8 +165,9 @@ int CoRWMutex::TryRLock()
 
 int CoRWMutex::TryRLock(int ms)
 {
+    // 快速路径先试一次；失败才挂起等待至多 ms 毫秒。
     {
-        detail::DriverWakeDeferral _defer;   // 首个非挂起段
+        detail::DriverWakeDeferral _defer; // 首个非挂起段
         _SysLock();
         if (m_status != CORWMUTEX_WLOCKED && !m_has_wait_wlock) {
             m_status = CORWMUTEX_RLOCKED;
@@ -185,8 +186,8 @@ int CoRWMutex::TryRLock(int ms)
     bool cb_ran = false;
     int ret = -1;
     try {
-        ret = _WaitRLockWithTimeout(ms, [this, &cb_ran](){
-            detail::DriverWakeDeferral _defer;   // 不跨 Yield
+        ret = _WaitRLockWithTimeout(ms, [this, &cb_ran]() {
+            detail::DriverWakeDeferral _defer; // 不跨 Yield
             _OnReaderBlocked();
             _SysUnLock();
             cb_ran = true;
@@ -218,7 +219,7 @@ int CoRWMutex::TryRLock(int ms)
     }
 
     {
-        detail::DriverWakeDeferral _defer;   // 最终非挂起段
+        detail::DriverWakeDeferral _defer; // 最终非挂起段
         m_status = CORWMUTEX_RLOCKED;
         m_rlock_hold_num++;
 
@@ -245,6 +246,7 @@ int CoRWMutex::TryWLock()
 
 int CoRWMutex::TryWLock(int ms)
 {
+    // 快速路径先试一次；失败才挂起等待至多 ms 毫秒。
     _SysLock();
     if (m_status == CORWMUTEX_FREE) {
         m_status = CORWMUTEX_WLOCKED;
@@ -258,8 +260,8 @@ int CoRWMutex::TryWLock(int ms)
     bool cb_ran = false;
     int ret = -1;
     try {
-        ret = _WaitWLockWithTimeout(ms, [this, &cb_ran](){
-            detail::DriverWakeDeferral _defer;   // 不跨 Yield
+        ret = _WaitWLockWithTimeout(ms, [this, &cb_ran]() {
+            detail::DriverWakeDeferral _defer; // 不跨 Yield
             _OnWriterQueued();
             ++m_wait_wlock_num;
             m_has_wait_wlock = true;
@@ -341,7 +343,6 @@ int CoRWMutex::_NotifyAll(bool reader)
     return 0;
 }
 
-
 int CoRWMutex::_WaitRLock(detail::CoroutineOnYieldCallback&& cb)
 {
     auto waiter = CoWaiter::Create();
@@ -408,12 +409,9 @@ void CoRWMutex::_OnWriterQueued() noexcept
     if (m_writer_queued_callback == nullptr)
         return;
 
-    try
-    {
+    try {
         m_writer_queued_callback();
-    }
-    catch (...)
-    {
+    } catch (...) {
     }
 }
 
@@ -422,12 +420,9 @@ void CoRWMutex::_OnReaderBlocked() noexcept
     if (m_reader_blocked_callback == nullptr)
         return;
 
-    try
-    {
+    try {
         m_reader_blocked_callback();
-    }
-    catch (...)
-    {
+    } catch (...) {
     }
 }
 

@@ -17,14 +17,11 @@
 #include <bbt/coroutine/detail/Scheduler.hpp>
 
 /* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。 */
-namespace
-{
+namespace {
 void EnsureRuntime()
 {
     static std::once_flag once;
-    std::call_once(once, [](){
-        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
-    });
+    std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
 }
 
@@ -39,8 +36,7 @@ BOOST_AUTO_TEST_SUITE(CrashDiagTest)
 static int RunStackOverflowChild(bool protect)
 {
     pid_t pid = fork();
-    if (pid == 0)
-    {
+    if (pid == 0) {
         auto* cfg = g_bbt_coroutine_config.get();
         cfg->m_cfg_static_thread_num = 1;
         cfg->m_cfg_stack_size = 16384;
@@ -51,14 +47,21 @@ static int RunStackOverflowChild(bool protect)
         std::function<void(int)> rec = [&](int depth) {
             char buf[2048];
             memset(buf, depth & 0xff, sizeof(buf));
-            if ((size_t)(uintptr_t)buf & 1) sink[0] = buf[0];
-            if (depth > 0) rec(depth - 1);
-            if ((size_t)(uintptr_t)buf & 2) sink[0] = buf[1];
+            if ((size_t)(uintptr_t)buf & 1)
+                sink[0] = buf[0];
+            if (depth > 0)
+                rec(depth - 1);
+            if ((size_t)(uintptr_t)buf & 2)
+                sink[0] = buf[1];
         };
         bbt::core::thread::CountDownLatch done{1};
-        bbtco [&]() { rec(200); done.Down(); };
+        bbtco[&]()
+        {
+            rec(200);
+            done.Down();
+        };
         done.WaitTimeout(3);
-        _exit(0);   // 正常返回 = 没有崩（保护未命中）
+        _exit(0); // 正常返回 = 没有崩（保护未命中）
     }
     int status = 0;
     waitpid(pid, &status, 0);

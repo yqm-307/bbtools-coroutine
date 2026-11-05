@@ -209,8 +209,8 @@ scaling_probe_replace(
     "    m_enqueue_inflight.fetch_add(1, std::memory_order_seq_cst);"
     "    ::ScalingAdmissionProbe(this, 1);\n    m_enqueue_inflight.fetch_add(1, std::memory_order_seq_cst);")
 scaling_probe_replace(
-    "    const bool enqueued = m_coroutine_queue.Enqueue(coroutine->m_cfs, coroutine, priority,"
-    "    ::ScalingAdmissionProbe(this, 2);\n    const bool enqueued = m_coroutine_queue.Enqueue(coroutine->m_cfs, coroutine, priority,")
+    "    const bool enqueued =\n        m_coroutine_queue.Enqueue(coroutine->m_cfs, coroutine, priority,"
+    "    ::ScalingAdmissionProbe(this, 2);\n    const bool enqueued =\n        m_coroutine_queue.Enqueue(coroutine->m_cfs, coroutine, priority,")
 scaling_probe_replace("    _WaitEnqueueQuiescent();"
     "    ::ScalingAdmissionProbe(this, 3);\n    _WaitEnqueueQuiescent();")
 scaling_probe_replace("\n}\n\nbool Processer::_HasDriverOwnership()"
@@ -222,8 +222,8 @@ set(_sc_scheduler "${PROJECT_SOURCE_DIR}/bbt/coroutine/detail/Scheduler.cc")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_sc_scheduler}")
 file(READ "${_sc_scheduler}" _sc_probe)
 scaling_probe_replace(
-    "                    : target + m_scale_step;\n                const auto result = _ApplyTargetLocked(next, notify, lock);"
-    "                    : target + m_scale_step;\n                ::ScalingAutoCommitProbe();\n                const auto result = _ApplyTargetLocked(next, notify, lock);")
+    "    const size_t next = m_scale_step >= remain ? m_max_num : target + m_scale_step;"
+    "    const size_t next = m_scale_step >= remain ? m_max_num : target + m_scale_step;\n    ::ScalingAutoCommitProbe();")
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/Scheduler_scaling_probe.cc"
     "void ScalingAutoCommitProbe();\n${_sc_probe}")
 target_sources(Test_scheduler_scaling PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/Scheduler_scaling_probe.cc")

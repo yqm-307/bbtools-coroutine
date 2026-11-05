@@ -49,21 +49,27 @@
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::detail;
 
-namespace bbt::coroutine::detail
-{
+namespace bbt::coroutine::detail {
 /* Boost.Test 打印支持：scoped enum 无内建 operator<< */
 static std::ostream& operator<<(std::ostream& os, ProcesserDriverStatus v)
-{ return os << static_cast<int>(v); }
+{
+    return os << static_cast<int>(v);
+}
 static std::ostream& operator<<(std::ostream& os, ProcesserDriverState v)
-{ return os << static_cast<int>(v); }
+{
+    return os << static_cast<int>(v);
+}
 static std::ostream& operator<<(std::ostream& os, ProcesserDriverFailure v)
-{ return os << static_cast<int>(v); }
+{
+    return os << static_cast<int>(v);
+}
 [[maybe_unused]] static std::ostream& operator<<(std::ostream& os, const ProcesserDriverToken& v)
-{ return os << "{pid=" << v.m_processer_id << ",gen=" << v.m_generation << "}"; }
+{
+    return os << "{pid=" << v.m_processer_id << ",gen=" << v.m_generation << "}";
+}
 }
 
-namespace
-{
+namespace {
 
 void EnsureRuntime(size_t workers = 2)
 {
@@ -77,17 +83,26 @@ void EnsureRuntime(size_t workers = 2)
 
 /* fatal 断言先同步收尾，再让 Boost 展开栈；引用捕获仍在其作用域内。
  * 所有门、异步控制调用、绑定和业务任务均登记，不靠进程退出掩盖悬挂。 */
-struct TestControl
-{
+struct TestControl {
     std::mutex m;
     std::vector<std::function<void()>> releases;
     std::vector<ProcesserDriverToken> bindings;
     std::atomic<int> tasks{0};
-    static TestControl& Get() { static TestControl c; return c; }
-    void Release() {
+    static TestControl& Get()
+    {
+        static TestControl c;
+        return c;
+    }
+    void Release()
+    {
         std::vector<std::function<void()>> pending;
-        { std::lock_guard<std::mutex> l(m); pending = releases; }
-        for (auto& f : pending) if (f) f();
+        {
+            std::lock_guard<std::mutex> l(m);
+            pending = releases;
+        }
+        for (auto& f : pending)
+            if (f)
+                f();
     }
     void Cleanup();
 };
@@ -98,29 +113,33 @@ bool RequireResult(bool result)
     const char* fail = std::getenv("BBT_PD_FAIL_REQUIRE_AT");
     return result && (!fail || std::atoi(fail) != require_visits);
 }
-struct AssertionCleanup
-{
+struct AssertionCleanup {
     bool failed;
-    ~AssertionCleanup() { if (failed) TestControl::Get().Cleanup(); }
+    ~AssertionCleanup()
+    {
+        if (failed)
+            TestControl::Get().Cleanup();
+    }
 };
 #define PD_REQUIRE(expr) do { const bool ok = RequireResult(static_cast<bool>(expr)); \
     AssertionCleanup cleanup{!ok}; BOOST_REQUIRE_MESSAGE(ok, #expr); } while (false)
 
 /* entered/open 两段握手门：回调进入时发 entered，停在 open 放行前 */
-struct Gate
-{
+struct Gate {
     std::mutex m;
     std::condition_variable cv;
     bool entered{false};
     bool open{false};
     size_t release_id;
-    Gate() {
+    Gate()
+    {
         auto& c = TestControl::Get();
         std::lock_guard<std::mutex> l(c.m);
         release_id = c.releases.size();
-        c.releases.push_back([this]{ Open(); });
+        c.releases.push_back([this] { Open(); });
     }
-    ~Gate() {
+    ~Gate()
+    {
         Open();
         auto& c = TestControl::Get();
         std::lock_guard<std::mutex> l(c.m);
@@ -132,54 +151,77 @@ struct Gate
     void Wait()
     {
         std::unique_lock<std::mutex> l(m);
-        cv.wait(l, [&]{ return open; });
+        cv.wait(l, [&] { return open; });
     }
     void PassThrough()
     {
         std::unique_lock<std::mutex> l(m);
         entered = true;
         cv.notify_all();
-        cv.wait(l, [&]{ return open; });
+        cv.wait(l, [&] { return open; });
     }
     bool WaitEntered(int ms = 5000)
     {
         std::unique_lock<std::mutex> l(m);
-        return cv.wait_for(l, std::chrono::milliseconds(ms), [&]{ return entered; });
+        return cv.wait_for(l, std::chrono::milliseconds(ms), [&] { return entered; });
     }
-    void Open() { { std::lock_guard<std::mutex> l(m); open = true; } cv.notify_all(); }
+    void Open()
+    {
+        {
+            std::lock_guard<std::mutex> l(m);
+            open = true;
+        }
+        cv.notify_all();
+    }
 };
 
-struct CleanupAction
-{
+struct CleanupAction {
     size_t index;
-    explicit CleanupAction(std::function<void()> f) {
-        auto& c = TestControl::Get(); std::lock_guard<std::mutex> l(c.m);
-        index = c.releases.size(); c.releases.push_back(std::move(f));
+    explicit CleanupAction(std::function<void()> f)
+    {
+        auto& c = TestControl::Get();
+        std::lock_guard<std::mutex> l(c.m);
+        index = c.releases.size();
+        c.releases.push_back(std::move(f));
     }
-    ~CleanupAction() {
-        auto& c = TestControl::Get(); std::lock_guard<std::mutex> l(c.m);
+    ~CleanupAction()
+    {
+        auto& c = TestControl::Get();
+        std::lock_guard<std::mutex> l(c.m);
         c.releases[index] = {};
     }
 };
 
 /* 只用于测试控制线程，析构先开所有门，后 join/get。 */
-struct JoiningThread : std::thread
-{
+struct JoiningThread : std::thread {
     using std::thread::thread;
-    ~JoiningThread() { if (joinable()) { TestControl::Get().Release(); join(); } }
+    ~JoiningThread()
+    {
+        if (joinable()) {
+            TestControl::Get().Release();
+            join();
+        }
+    }
 };
-template<class T> struct JoiningFuture : std::future<T>
-{
-    explicit JoiningFuture(std::future<T>&& f) : std::future<T>(std::move(f)) {}
-    ~JoiningFuture() { if (this->valid()) { TestControl::Get().Release(); this->wait(); } }
+template <class T> struct JoiningFuture : std::future<T> {
+    explicit JoiningFuture(std::future<T>&& f) : std::future<T>(std::move(f))
+    {
+    }
+    ~JoiningFuture()
+    {
+        if (this->valid()) {
+            TestControl::Get().Release();
+            this->wait();
+        }
+    }
 };
-template<class F> auto Async(std::launch policy, F&& f)
+template <class F> auto Async(std::launch policy, F&& f)
 {
     using T = decltype(f());
     return JoiningFuture<T>(std::async(policy, std::forward<F>(f)));
 }
-ProcesserDriverStatus Register(Scheduler& s, ProcesserId p,
-    const std::shared_ptr<IProcesserDriver>& d, ProcesserDriverToken& t)
+ProcesserDriverStatus Register(Scheduler& s, ProcesserId p, const std::shared_ptr<IProcesserDriver>& d,
+                               ProcesserDriverToken& t)
 {
     auto rc = s.RegisterProcesserDriver(p, d, t);
     if (rc == ProcesserDriverStatus::Ok) {
@@ -189,26 +231,40 @@ ProcesserDriverStatus Register(Scheduler& s, ProcesserId p,
     }
     return rc;
 }
-template<class F> auto TrackedTask(F f)
+template <class F> auto TrackedTask(F f)
 {
     ++TestControl::Get().tasks;
     return [f = std::move(f)]() mutable {
-        struct Done { ~Done() { --TestControl::Get().tasks; } } done;
+        struct Done {
+            ~Done()
+            {
+                --TestControl::Get().tasks;
+            }
+        } done;
         f();
     };
 }
-template<class F> void Post(Scheduler& s, F f) { s.RegistCoroutineTask(TrackedTask(std::move(f))); }
-template<class F> void PostOn(Scheduler& s, ProcesserId p, F f) {
+template <class F> void Post(Scheduler& s, F f)
+{
+    s.RegistCoroutineTask(TrackedTask(std::move(f)));
+}
+template <class F> void PostOn(Scheduler& s, ProcesserId p, F f)
+{
     s.RegistCoroutineTaskOn(p, TrackedTask(std::move(f)));
 }
 void TestControl::Cleanup()
 {
     Release();
     std::vector<ProcesserDriverToken> tokens;
-    { std::lock_guard<std::mutex> l(m); tokens.swap(bindings); }
-    for (auto t : tokens) Scheduler::GetInstance()->UnregisterProcesserDriver(t);
+    {
+        std::lock_guard<std::mutex> l(m);
+        tokens.swap(bindings);
+    }
+    for (auto t : tokens)
+        Scheduler::GetInstance()->UnregisterProcesserDriver(t);
     // 门均已打开；等待引用捕获的业务任务完全退出，才允许断言展开。
-    while (tasks.load() != 0) std::this_thread::yield();
+    while (tasks.load() != 0)
+        std::this_thread::yield();
     std::cout << "PD_CLEANUP tasks=0 bindings_released=" << tokens.size() << std::endl;
 }
 
@@ -216,40 +272,45 @@ void TestControl::Cleanup()
  * 队列），全部 driver callback 经 RAII guard 接入；cleanup 只允许
  * 同步解绑确认（MarkDetached）且 active==0 后由控制线程单 owner 推进。
  * fake 不是 Asio/真实关闭，只验证 runtime 交接语义可达。 */
-struct FakeResource
-{
+struct FakeResource {
     enum Kind { TickK = 0, WaitK = 1, WakeK = 2 };
 
-    std::mutex              m;
-    std::thread::id         owner{};              // cleanup owner
-    std::thread::id         pump_tid{};           // Tick/Wait 唯一 pump 线程
-    bool                    pump_conflict{false};
-    bool                    detached{false};      // Unregister Ok 后标记
-    bool                    cleanup_started{false};
-    int                     violations{0};
-    int                     active{0};
-    int                     access_seq{0};
-    int                     visits[3]{0, 0, 0};
+    std::mutex m;
+    std::thread::id owner{};    // cleanup owner
+    std::thread::id pump_tid{}; // Tick/Wait 唯一 pump 线程
+    bool pump_conflict{false};
+    bool detached{false}; // Unregister Ok 后标记
+    bool cleanup_started{false};
+    int violations{0};
+    int active{0};
+    int access_seq{0};
+    int visits[3]{0, 0, 0};
     /* fake 资源内容：两个 handle 与 pending completion 队列 */
-    std::vector<int>        handles{1, 2};        // fake handle id
-    std::vector<int>        closed_handles;       // 已关闭但未 drain
-    struct Completion { int id; std::function<void()> callback; };
-    std::vector<Completion> pending;              // 真正待执行的 cancel completion
+    std::vector<int> handles{1, 2};  // fake handle id
+    std::vector<int> closed_handles; // 已关闭但未 drain
+    struct Completion {
+        int id;
+        std::function<void()> callback;
+    };
+    std::vector<Completion> pending; // 真正待执行的 cancel completion
     std::atomic<int> completion_effect{0};
-    std::vector<int>        completed;            // 确实执行过的 completion id
+    std::vector<int> completed; // 确实执行过的 completion id
 
     void Enter(Kind k)
     {
         std::lock_guard<std::mutex> l(m);
-        ++active; ++access_seq; ++visits[k];
+        ++active;
+        ++access_seq;
+        ++visits[k];
         if (k != WakeK) {
             auto tid = std::this_thread::get_id();
-            if (pump_tid == std::thread::id()) pump_tid = tid;
-            else if (pump_tid != tid) pump_conflict = true;
+            if (pump_tid == std::thread::id())
+                pump_tid = tid;
+            else if (pump_tid != tid)
+                pump_conflict = true;
         }
-        if (detached || cleanup_started || (owner != std::thread::id() &&
-            owner != std::this_thread::get_id()))
-            ++violations;   // callback 与 cleanup 重叠 / owner 越域
+        if (detached || cleanup_started || (owner != std::thread::id() && owner != std::this_thread::get_id()))
+            ++violations; // callback 与 cleanup 重叠 / owner 越域
     }
     void Leave(Kind k)
     {
@@ -264,7 +325,8 @@ struct FakeResource
             return false;
         owner = self;
         cleanup_started = true;
-        if (self == pump_tid) ++violations;   // cleanup owner 不得是 pump
+        if (self == pump_tid)
+            ++violations; // cleanup owner 不得是 pump
         return true;
     }
     void MarkDetached()
@@ -276,9 +338,10 @@ struct FakeResource
     bool CloseOne(std::thread::id self)
     {
         std::lock_guard<std::mutex> l(m);
-        if (!cleanup_started || owner != self || active != 0 ||
-            handles.empty())
-            { ++violations; return false; }
+        if (!cleanup_started || owner != self || active != 0 || handles.empty()) {
+            ++violations;
+            return false;
+        }
         int hid = handles.back();
         handles.pop_back();
         closed_handles.push_back(hid);
@@ -289,12 +352,13 @@ struct FakeResource
     bool DrainOne(std::thread::id self)
     {
         std::lock_guard<std::mutex> l(m);
-        if (!cleanup_started || owner != self || active != 0 ||
-            pending.empty())
-            { ++violations; return false; }
+        if (!cleanup_started || owner != self || active != 0 || pending.empty()) {
+            ++violations;
+            return false;
+        }
         auto completion = std::move(pending.back());
         pending.pop_back();
-        completion.callback();          // 执行 CloseOne 已排队的取消 callback
+        completion.callback(); // 执行 CloseOne 已排队的取消 callback
         completed.push_back(completion.id);
         return true;
     }
@@ -302,8 +366,11 @@ struct FakeResource
     void Snapshot(int& h, int& p, int& c, int& a, int& seq, int& viol)
     {
         std::lock_guard<std::mutex> l(m);
-        h = (int)handles.size(); p = (int)pending.size();
-        c = (int)completed.size(); a = active; seq = access_seq;
+        h = (int)handles.size();
+        p = (int)pending.size();
+        c = (int)completed.size();
+        a = active;
+        seq = access_seq;
         viol = violations;
     }
     int AccessSeq()
@@ -313,11 +380,10 @@ struct FakeResource
     }
 };
 
-struct FakeState
-{
+struct FakeState {
     /* 观测（callback 写 / 主线程读，全 atomic 或 mutex 保护） */
     std::atomic<int> before{0}, after{0}, wakes{0}, waits{0};
-    std::atomic<int> bad_ctx{0};          // Tick/Wait 中观察到业务协程
+    std::atomic<int> bad_ctx{0}; // Tick/Wait 中观察到业务协程
     std::atomic<ProcesserId> tick_pid{0};
     std::thread::id tick_tid;             // 仅 worker 写 / 解绑后主线程读
     std::atomic<int> active_callbacks{0}; // Tick/Wait/Wake 在途计数
@@ -325,7 +391,7 @@ struct FakeState
 
     /* 相位记录（tick_sequence）：worker 写，解绑后主线程读 */
     std::mutex phase_m;
-    std::vector<int> phases;              // 1=Before 2=After
+    std::vector<int> phases; // 1=Before 2=After
 
     /* Wait 持久通知 */
     std::mutex wait_m;
@@ -336,7 +402,7 @@ struct FakeState
     std::atomic<int> wait_id_seq{0};
     std::atomic<int> selected_wait_id{0};
     std::atomic<int> wait_exit_notified{0}, wait_exit_timeout{0};
-    std::map<int, int> wait_exits;      // id -> 1 notified / 0 timeout
+    std::map<int, int> wait_exits; // id -> 1 notified / 0 timeout
     /* 终止 Wake 退出握手：query_on_wake 分类后，终止 Wake 尾部自增 */
     std::atomic<int> terminal_exited{0};
     std::condition_variable terminal_cv;
@@ -355,36 +421,42 @@ struct FakeState
     std::atomic_bool arm_gates{false};
     std::atomic_bool failure_enabled{false};
     Gate* wait_gate{nullptr};
-    Gate* wake_gate{nullptr};             // 普通 Wake 门
-    Gate* terminal_gate{nullptr};         // 终止 Wake 专用门（区分 leader）
-    ProcesserId self_pid{0};              // terminal 识别用
-    bool query_on_wake{false};            // Wake 内 Query 区分普通/终止
+    Gate* wake_gate{nullptr};     // 普通 Wake 门
+    Gate* terminal_gate{nullptr}; // 终止 Wake 专用门（区分 leader）
+    ProcesserId self_pid{0};      // terminal 识别用
+    bool query_on_wake{false};    // Wake 内 Query 区分普通/终止
     bool record_phase{false};
-    std::shared_ptr<FakeResource> res;    // 可选：接入全部 callback
-    std::function<void()> on_before;      // 只首轮 before 触发语义由内部 once 控制
+    std::shared_ptr<FakeResource> res; // 可选：接入全部 callback
+    std::function<void()> on_before;   // 只首轮 before 触发语义由内部 once 控制
     std::function<void()> on_wake;
     std::function<void()> on_after;
     Gate* pump_gate{nullptr};
     std::atomic_bool hold_pump{false};
 };
 
-class FakeDriver final : public IProcesserDriver
-{
+class FakeDriver final : public IProcesserDriver {
 public:
-    explicit FakeDriver(std::shared_ptr<FakeState> st) : m_st(std::move(st)) {}
+    explicit FakeDriver(std::shared_ptr<FakeState> st) : m_st(std::move(st))
+    {
+    }
 
     /* callback 全程 RAII 访问计数（含异常退出），并记录 pump tid */
     struct ResGuard {
         std::shared_ptr<FakeResource> r;
         std::atomic<int>& counter;
-        ResGuard(std::atomic<int>& count, const std::shared_ptr<FakeResource>& res,
-                 FakeResource::Kind kind)
+        ResGuard(std::atomic<int>& count, const std::shared_ptr<FakeResource>& res, FakeResource::Kind kind)
             : r(res), counter(count), k(kind)
         {
             ++counter;
-            if (r) r->Enter(k);
+            if (r)
+                r->Enter(k);
         }
-        ~ResGuard() { if (r) r->Leave(k); --counter; }
+        ~ResGuard()
+        {
+            if (r)
+                r->Leave(k);
+            --counter;
+        }
         FakeResource::Kind k;
     };
 
@@ -394,26 +466,31 @@ public:
         auto proc = Processer::TryGetLocalProcesser();
         m_st->tick_pid.store(proc ? proc->GetId() : 0, std::memory_order_release);
         m_st->tick_tid = std::this_thread::get_id();
-        if (m_st->pump_gate && m_st->hold_pump.load()) m_st->pump_gate->PassThrough();
+        if (m_st->pump_gate && m_st->hold_pump.load())
+            m_st->pump_gate->PassThrough();
         if (GetLocalCoroutineId() != 0)
             m_st->bad_ctx++;
         if (phase == ProcesserDriverPhase::BeforeSchedule) {
             m_st->before++;
-            if (m_st->on_before) m_st->on_before();
+            if (m_st->on_before)
+                m_st->on_before();
         } else {
             m_st->after++;
-            if (m_st->on_after) m_st->on_after();
+            if (m_st->on_after)
+                m_st->on_after();
         }
         if (m_st->record_phase) {
             std::lock_guard<std::mutex> l(m_st->phase_m);
             m_st->phases.push_back(phase == ProcesserDriverPhase::BeforeSchedule ? 1 : 2);
         }
-        if (m_st->tick_gate && m_st->arm_gates.load(std::memory_order_acquire)) m_st->tick_gate->PassThrough();
+        if (m_st->tick_gate && m_st->arm_gates.load(std::memory_order_acquire))
+            m_st->tick_gate->PassThrough();
         /* 失败只在 gate 之后、且 failure_enabled 显式开启才生效：
          * 保证 worker 确定先进入 gate，再产生故障。 */
         if (!m_st->failure_enabled.load(std::memory_order_acquire))
             return ProcesserDriverResult::Ok;
-        if (m_st->tick_throw) throw std::runtime_error{m_st->throw_msg ? m_st->throw_msg : "tick"};
+        if (m_st->tick_throw)
+            throw std::runtime_error{m_st->throw_msg ? m_st->throw_msg : "tick"};
         return m_st->tick_result;
     }
 
@@ -434,11 +511,11 @@ public:
                 m_st->notified = false;
             }
             m_st->wait_gate->PassThrough();
-        }  // entered 握手在实际阻塞前
+        } // entered 握手在实际阻塞前
         bool by_notify = false;
         {
             std::unique_lock<std::mutex> l(m_st->wait_m);
-            if (m_st->wait_cv.wait_for(l, timeout, [&]{ return m_st->notified; }))
+            if (m_st->wait_cv.wait_for(l, timeout, [&] { return m_st->notified; }))
                 by_notify = true;
             m_st->notified = false;
         }
@@ -446,10 +523,14 @@ public:
             std::lock_guard<std::mutex> l(m_st->wait_m);
             m_st->wait_exits[wait_id] = by_notify ? 1 : 0;
         }
-        if (by_notify) m_st->wait_exit_notified++; else m_st->wait_exit_timeout++;
+        if (by_notify)
+            m_st->wait_exit_notified++;
+        else
+            m_st->wait_exit_timeout++;
         if (!m_st->failure_enabled.load(std::memory_order_acquire))
             return ProcesserDriverResult::Ok;
-        if (m_st->wait_throw) throw std::runtime_error{m_st->throw_msg ? m_st->throw_msg : "wait"};
+        if (m_st->wait_throw)
+            throw std::runtime_error{m_st->throw_msg ? m_st->throw_msg : "wait"};
         return m_st->wait_result;
     }
 
@@ -459,8 +540,10 @@ public:
         struct TerminalExit {
             FakeState& st;
             bool& terminal;
-            ~TerminalExit() {
-                if (!terminal) return;
+            ~TerminalExit()
+            {
+                if (!terminal)
+                    return;
                 std::lock_guard<std::mutex> l(st.terminal_m);
                 ++st.terminal_exited;
                 st.terminal_cv.notify_all();
@@ -468,14 +551,16 @@ public:
         } exit{*m_st, was_terminal}; // 最后析构：整个 callback 资源/计数先退出
         ResGuard guard(m_st->active_callbacks, m_st->res, FakeResource::WakeK);
         m_st->wakes++;
-        if (m_st->on_wake) m_st->on_wake();
+        if (m_st->on_wake)
+            m_st->on_wake();
         /* query_on_wake：区分终止 Wake（state==Detaching）走独立门 */
         if (m_st->query_on_wake) {
             ProcesserDriverSnapshot snap;
             auto st = Scheduler::GetInstance()->QueryProcesserDriver(m_st->self_pid, snap);
             if (st == ProcesserDriverStatus::Ok && snap.m_state == ProcesserDriverState::Detaching) {
                 was_terminal = true;
-                if (m_st->terminal_gate) m_st->terminal_gate->PassThrough();
+                if (m_st->terminal_gate)
+                    m_st->terminal_gate->PassThrough();
             } else if (m_st->wake_gate && m_st->arm_gates.load(std::memory_order_acquire)) {
                 m_st->wake_gate->PassThrough();
             }
@@ -488,6 +573,7 @@ public:
         }
         m_st->wait_cv.notify_all();
     }
+
 private:
     std::shared_ptr<FakeState> m_st;
 };
@@ -496,7 +582,8 @@ bool WaitUntil(const std::function<bool()>& pred, int ms = 5000)
 {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
     while (std::chrono::steady_clock::now() < deadline) {
-        if (pred()) return true;
+        if (pred())
+            return true;
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     return pred();
@@ -508,29 +595,34 @@ bool LatchWait(bbt::core::thread::CountDownLatch& latch, int ms = 5000)
 }
 
 /* worker gate 只在真实 Tick 内阻塞：绑定前配置，确认实际 P 后才投任务。 */
-struct WorkerFence
-{
+struct WorkerFence {
     std::shared_ptr<FakeState> st = std::make_shared<FakeState>();
     Gate gate;
     ProcesserDriverToken token{};
-    explicit WorkerFence(ProcesserId pid) {
+    explicit WorkerFence(ProcesserId pid)
+    {
         st->pump_gate = &gate;
         st->hold_pump = true;
         if (Register(*Scheduler::GetInstance(), pid, std::make_shared<FakeDriver>(st), token)
-            != ProcesserDriverStatus::Ok) throw std::runtime_error("worker fence bind");
+            != ProcesserDriverStatus::Ok)
+            throw std::runtime_error("worker fence bind");
         PD_REQUIRE(gate.WaitEntered());
         PD_REQUIRE(st->tick_pid.load() == pid);
     }
-    void Open() { st->hold_pump = false; gate.Open(); }
-    ~WorkerFence() {
+    void Open()
+    {
+        st->hold_pump = false;
+        gate.Open();
+    }
+    ~WorkerFence()
+    {
         Open();
         Scheduler::GetInstance()->UnregisterProcesserDriver(token);
     }
 };
 
 /* 只读 probe：复制 waiter 当前登记事件，锁外读状态。不修改生产状态。 */
-struct CoWaiterProbe : sync::CoWaiter
-{
+struct CoWaiterProbe : sync::CoWaiter {
     int SnapshotEventStatus()
     {
         std::shared_ptr<detail::CoPollEvent> ev;
@@ -542,21 +634,26 @@ struct CoWaiterProbe : sync::CoWaiter
     }
 };
 
-struct ChanProbe : sync::Chan<int, 4>
-{
+struct ChanProbe : sync::Chan<int, 4> {
     std::shared_ptr<CoWaiterProbe> reader = std::make_shared<CoWaiterProbe>();
-    ChanProbe() { m_enable_read_cond = reader; }
+    ChanProbe()
+    {
+        m_enable_read_cond = reader;
+    }
 };
 
 } // namespace
 
 // 仅专用测试可执行的 Processer 副本插入两个观察点；产品库无 hook。
 #ifdef BBT_PD_CONTROLLED_PROBE
-struct PDProbeControl
-{
+struct PDProbeControl {
     std::mutex m;
     std::function<void()> joiner, continued;
-    static PDProbeControl& Get() { static auto* p = new PDProbeControl; return *p; }
+    static PDProbeControl& Get()
+    {
+        static auto* p = new PDProbeControl;
+        return *p;
+    }
 };
 void PDSetProbe(bool joiner, std::function<void()> callback)
 {
@@ -564,15 +661,24 @@ void PDSetProbe(bool joiner, std::function<void()> callback)
     std::lock_guard<std::mutex> l(p.m);
     (joiner ? p.joiner : p.continued) = std::move(callback);
 }
-void PDTestJoinerProbe() {
+void PDTestJoinerProbe()
+{
     // joiner gate 不持探针 mutex，允许 main 配置 continue 观察；清除在 join 后。
     std::function<void()> f;
-    { auto& p = PDProbeControl::Get(); std::lock_guard<std::mutex> l(p.m); f = p.joiner; }
-    if (f) f();
+    {
+        auto& p = PDProbeControl::Get();
+        std::lock_guard<std::mutex> l(p.m);
+        f = p.joiner;
+    }
+    if (f)
+        f();
 }
-void PDTestContinueProbe() {
-    auto& p = PDProbeControl::Get(); std::lock_guard<std::mutex> l(p.m);
-    if (p.continued) p.continued();
+void PDTestContinueProbe()
+{
+    auto& p = PDProbeControl::Get();
+    std::lock_guard<std::mutex> l(p.m);
+    if (p.continued)
+        p.continued();
 }
 #endif
 
@@ -587,11 +693,11 @@ void CaseApiBoundaries()
     BOOST_TEST(sche.GetWorkerProcesserIds().empty());
     ProcesserDriverToken tok{123, 456};
     ProcesserDriverSnapshot snap;
-    snap.m_state = ProcesserDriverState::Bound;   // 哨兵：失败不得改输出
+    snap.m_state = ProcesserDriverState::Bound; // 哨兵：失败不得改输出
     snap.m_failure = ProcesserDriverFailure::Wait;
     BOOST_TEST(Register(sche, 1, std::make_shared<FakeDriver>(std::make_shared<FakeState>()), tok)
                == ProcesserDriverStatus::NotInitialized);
-    BOOST_TEST(tok.m_processer_id == 123u);   // 失败不改输出 token
+    BOOST_TEST(tok.m_processer_id == 123u); // 失败不改输出 token
     BOOST_TEST(tok.m_generation == 456u);
     BOOST_TEST(sche.QueryProcesserDriver(1, snap) == ProcesserDriverStatus::NotInitialized);
     BOOST_TEST(snap.m_state == ProcesserDriverState::Bound);
@@ -606,11 +712,10 @@ void CaseApiBoundaries()
     BOOST_TEST(Register(sche, 999999, std::make_shared<FakeDriver>(std::make_shared<FakeState>()), tok)
                == ProcesserDriverStatus::InvalidTarget);
     BOOST_TEST(Register(sche, Processer::GetLocalProcesser()->GetId(),
-                                            std::make_shared<FakeDriver>(std::make_shared<FakeState>()), tok)
+                        std::make_shared<FakeDriver>(std::make_shared<FakeState>()), tok)
                == ProcesserDriverStatus::InvalidTarget);
-    BOOST_TEST(Register(sche, target, nullptr, tok)
-               == ProcesserDriverStatus::InvalidDriver);
-    BOOST_TEST(tok.m_generation == 456u);   // 失败不改输出
+    BOOST_TEST(Register(sche, target, nullptr, tok) == ProcesserDriverStatus::InvalidDriver);
+    BOOST_TEST(tok.m_generation == 456u); // 失败不改输出
 
     auto st1 = std::make_shared<FakeState>();
     auto drv1 = std::make_shared<FakeDriver>(st1);
@@ -621,7 +726,7 @@ void CaseApiBoundaries()
 
     BOOST_TEST(Register(sche, target, std::make_shared<FakeDriver>(std::make_shared<FakeState>()), tok)
                == ProcesserDriverStatus::Occupied);
-    BOOST_TEST(tok.m_generation == gen1);  // 失败不改输出
+    BOOST_TEST(tok.m_generation == gen1); // 失败不改输出
 
     BOOST_TEST(sche.QueryProcesserDriver(target, snap) == ProcesserDriverStatus::Ok);
     BOOST_TEST(snap.m_state == ProcesserDriverState::Bound);
@@ -648,12 +753,12 @@ void CaseApiBoundaries()
     BOOST_TEST(sche.UnregisterProcesserDriver(tok2) == ProcesserDriverStatus::Ok);
 
     /* 定向注册：未登记目标抛 invalid_argument */
-    BOOST_CHECK_THROW(sche.RegistCoroutineTaskOn(999999, []{}), std::invalid_argument);
-    BOOST_CHECK_THROW(sche.RegistCoroutineTaskOn(Processer::GetLocalProcesser()->GetId(), []{}),
+    BOOST_CHECK_THROW(sche.RegistCoroutineTaskOn(999999, [] {}), std::invalid_argument);
+    BOOST_CHECK_THROW(sche.RegistCoroutineTaskOn(Processer::GetLocalProcesser()->GetId(), [] {}),
                       std::invalid_argument);
     bbt::core::thread::CountDownLatch done{1};
     std::atomic<ProcesserId> ran_pid{0};
-    PostOn(sche, target, [&]{
+    PostOn(sche, target, [&] {
         auto p = Processer::TryGetLocalProcesser();
         ran_pid = p ? p->GetId() : 0;
         done.Down();
@@ -677,23 +782,30 @@ void CaseTickSequence()
     std::atomic<int> ran{0}, outstanding{0}, wait_while_busy{0};
     std::atomic_bool all_tasks_bracketed{false};
     st->on_after = [&] {
-        if (ran.load() == 3 && outstanding.load() == 0) all_tasks_bracketed = true;
+        if (ran.load() == 3 && outstanding.load() == 0)
+            all_tasks_bracketed = true;
     };
-    st->on_before = [&]{
+    st->on_before = [&] {
         /* 首轮 before 一次批量投递同 P 三个任务；配置在绑定前写入，
          * 这里只用 atomic once 保证一次性 */
         static std::atomic_flag posted = ATOMIC_FLAG_INIT;
         if (!posted.test_and_set()) {
             for (int i = 0; i < 3; ++i) {
                 outstanding++;
-                PostOn(sche, ids[0], [&]{
+                PostOn(sche, ids[0], [&] {
                     /* 每个任务超过一个调度轮次，READY 回本地仍始终 runnable；
                      * 此刻 worker 不应进入 driver Wait。 */
                     for (int j = 0; j < 65; ++j) {
-                        { std::lock_guard<std::mutex> l(st->phase_m); st->phases.push_back(3); }
+                        {
+                            std::lock_guard<std::mutex> l(st->phase_m);
+                            st->phases.push_back(3);
+                        }
                         bbtco_yield;
                     }
-                    { std::lock_guard<std::mutex> l(st->phase_m); st->phases.push_back(3); }
+                    {
+                        std::lock_guard<std::mutex> l(st->phase_m);
+                        st->phases.push_back(3);
+                    }
                     ran++;
                     outstanding--;
                 });
@@ -705,42 +817,54 @@ void CaseTickSequence()
     class FullDriver final : public IProcesserDriver {
     public:
         FullDriver(std::shared_ptr<FakeState> s, std::atomic<int>* out, std::atomic<int>* err)
-            : m_st(std::move(s)), m_out(out), m_err(err) {}
-        ProcesserDriverResult OnTick(ProcesserDriverPhase phase) override {
+            : m_st(std::move(s)), m_out(out), m_err(err)
+        {
+        }
+        ProcesserDriverResult OnTick(ProcesserDriverPhase phase) override
+        {
             auto proc = Processer::TryGetLocalProcesser();
             m_st->tick_pid.store(proc ? proc->GetId() : 0, std::memory_order_release);
-            if (proc == nullptr || proc->GetId() != m_expected_pid ||
-                GetLocalCoroutineId() != 0)
+            if (proc == nullptr || proc->GetId() != m_expected_pid || GetLocalCoroutineId() != 0)
                 m_st->bad_ctx++;
-            { std::lock_guard<std::mutex> l(m_st->phase_m);
-              m_st->phases.push_back(phase == ProcesserDriverPhase::BeforeSchedule ? 1 : 2); }
+            {
+                std::lock_guard<std::mutex> l(m_st->phase_m);
+                m_st->phases.push_back(phase == ProcesserDriverPhase::BeforeSchedule ? 1 : 2);
+            }
             if (phase == ProcesserDriverPhase::BeforeSchedule) {
                 m_st->before++;
-                if (m_st->on_before) m_st->on_before();
+                if (m_st->on_before)
+                    m_st->on_before();
             } else {
                 m_st->after++;
-                if (m_st->on_after) m_st->on_after();
+                if (m_st->on_after)
+                    m_st->on_after();
             }
             return ProcesserDriverResult::Ok;
         }
-        ProcesserDriverResult Wait(std::chrono::microseconds t) override {
+        ProcesserDriverResult Wait(std::chrono::microseconds t) override
+        {
             auto proc = Processer::TryGetLocalProcesser();
-            if (proc == nullptr || proc->GetId() != m_expected_pid ||
-                GetLocalCoroutineId() != 0)
+            if (proc == nullptr || proc->GetId() != m_expected_pid || GetLocalCoroutineId() != 0)
                 m_st->bad_ctx++;
-            if (m_out->load() > 0) (*m_err)++;   // outstanding>0 不该进 Wait
+            if (m_out->load() > 0)
+                (*m_err)++; // outstanding>0 不该进 Wait
             m_st->waits++;
             std::unique_lock<std::mutex> l(m_st->wait_m);
-            m_st->wait_cv.wait_for(l, t, [&]{ return m_st->notified; });
+            m_st->wait_cv.wait_for(l, t, [&] { return m_st->notified; });
             m_st->notified = false;
             return ProcesserDriverResult::Ok;
         }
-        void Wake() noexcept override {
+        void Wake() noexcept override
+        {
             m_st->wakes++;
-            { std::lock_guard<std::mutex> l(m_st->wait_m); m_st->notified = true; }
+            {
+                std::lock_guard<std::mutex> l(m_st->wait_m);
+                m_st->notified = true;
+            }
             m_st->wait_cv.notify_all();
         }
         ProcesserId m_expected_pid{0};
+
     private:
         std::shared_ptr<FakeState> m_st;
         std::atomic<int>* m_out;
@@ -749,7 +873,8 @@ void CaseTickSequence()
 
 #ifdef BBT_PD_CONTROLLED_PROBE
     PDSetProbe(false, [st] {
-        std::lock_guard<std::mutex> l(st->phase_m); st->phases.push_back(4);
+        std::lock_guard<std::mutex> l(st->phase_m);
+        st->phases.push_back(4);
     });
 #endif
     auto drv = std::make_shared<FullDriver>(st, &outstanding, &wait_while_busy);
@@ -757,16 +882,19 @@ void CaseTickSequence()
     ProcesserDriverToken tok{};
     PD_REQUIRE(Register(sche, ids[0], drv, tok) == ProcesserDriverStatus::Ok);
 
-    BOOST_TEST(WaitUntil([&]{ return ran.load() == 3; }));
+    BOOST_TEST(WaitUntil([&] { return ran.load() == 3; }));
     /* 给公平轮次留窗口再解绑，期间 outstanding 应已归零 */
-    PD_REQUIRE(WaitUntil([&]{ return all_tasks_bracketed.load(); }));
+    PD_REQUIRE(WaitUntil([&] { return all_tasks_bracketed.load(); }));
     BOOST_TEST(st->before.load() >= 3);
     BOOST_TEST(sche.UnregisterProcesserDriver(tok) == ProcesserDriverStatus::Ok);
 
     /* 解绑后主线程读相位序列：允许动态绑定首次为 After、末尾遗留
      * Before，其余严格 B/A 交错，且至少 3 轮成对（continue 覆盖） */
     std::vector<int> ph;
-    { std::lock_guard<std::mutex> l(st->phase_m); ph = st->phases; }
+    {
+        std::lock_guard<std::mutex> l(st->phase_m);
+        ph = st->phases;
+    }
     int pairs = 0, tasks = 0, continues = 0;
     int previous_phase = 0;
     for (size_t i = 0; i < ph.size(); ++i) {
@@ -780,8 +908,10 @@ void CaseTickSequence()
             ++continues;
             BOOST_TEST(previous_phase == 2); // 实际 continue 必经 A
         } else {
-            if (previous_phase != 0) BOOST_TEST(ph[i] != previous_phase); // 含首对
-            if (previous_phase == 1 && ph[i] == 2) ++pairs;
+            if (previous_phase != 0)
+                BOOST_TEST(ph[i] != previous_phase); // 含首对
+            if (previous_phase == 1 && ph[i] == 2)
+                ++pairs;
             previous_phase = ph[i];
         }
     }
@@ -803,7 +933,7 @@ void CaseWaitWakeup()
     EnsureRuntime(1);
     auto ids = sche.GetWorkerProcesserIds();
     auto st = std::make_shared<FakeState>();
-    Gate entry_gate;            // Wait 入口停在实际 predicate 阻塞前
+    Gate entry_gate; // Wait 入口停在实际 predicate 阻塞前
     st->wait_gate = &entry_gate;
     auto drv = std::make_shared<FakeDriver>(st);
 
@@ -819,23 +949,23 @@ void CaseWaitWakeup()
     bbt::core::thread::CountDownLatch task_done{1};
     const int sel = st->selected_wait_id.load();
     PD_REQUIRE(sel != 0);
-    Post(sche, [&]{ task_done.Down(); });   // publish→Wake 持久置位
+    Post(sche, [&] { task_done.Down(); }); // publish→Wake 持久置位
     entry_gate.Open();
-    BOOST_TEST(WaitUntil([&]{
+    BOOST_TEST(WaitUntil([&] {
         std::lock_guard<std::mutex> l(st->wait_m);
         auto it = st->wait_exits.find(sel);
         return it != st->wait_exits.end();
     }));
     {
         std::lock_guard<std::mutex> l(st->wait_m);
-        BOOST_TEST(st->wait_exits.at(sel) == 1);          // Notified 退出
+        BOOST_TEST(st->wait_exits.at(sel) == 1); // Notified 退出
     }
     BOOST_TEST(LatchWait(task_done));
 
     /* 解绑唤醒 worker 回 CV 路径，普通任务仍可执行 */
     BOOST_TEST(sche.UnregisterProcesserDriver(tok) == ProcesserDriverStatus::Ok);
     bbt::core::thread::CountDownLatch done2{1};
-    Post(sche, [&]{ done2.Down(); });
+    Post(sche, [&] { done2.Down(); });
     BOOST_TEST(LatchWait(done2));
 }
 
@@ -854,17 +984,15 @@ void CaseUnregisterWaits()
         auto drv = std::make_shared<FakeDriver>(st);
         ProcesserDriverToken tok{};
         PD_REQUIRE(Register(sche, ids[0], drv, tok) == ProcesserDriverStatus::Ok);
-        st->arm_gates.store(true, std::memory_order_release);   // 绑定后开闸
+        st->arm_gates.store(true, std::memory_order_release); // 绑定后开闸
         PD_REQUIRE(wait_gate.WaitEntered());
-        auto fut = Async(std::launch::async,
-                              [&]{ return sche.UnregisterProcesserDriver(tok); });
-        BOOST_TEST(static_cast<bool>(
-            fut.wait_for(std::chrono::milliseconds(300)) != std::future_status::ready));
+        auto fut = Async(std::launch::async, [&] { return sche.UnregisterProcesserDriver(tok); });
+        BOOST_TEST(static_cast<bool>(fut.wait_for(std::chrono::milliseconds(300)) != std::future_status::ready));
         wait_gate.Open();
-        PD_REQUIRE(static_cast<bool>(
-            fut.wait_for(std::chrono::seconds(5)) == std::future_status::ready));
+        PD_REQUIRE(static_cast<bool>(fut.wait_for(std::chrono::seconds(5)) == std::future_status::ready));
         BOOST_TEST(fut.get() == ProcesserDriverStatus::Ok);
-        drv.reset(); st.reset();
+        drv.reset();
+        st.reset();
     }
 
     /* (b) 在途 Tick */
@@ -877,16 +1005,14 @@ void CaseUnregisterWaits()
         PD_REQUIRE(Register(sche, ids[0], drv, tok) == ProcesserDriverStatus::Ok);
         st->arm_gates.store(true, std::memory_order_release);
         PD_REQUIRE(tick_gate.WaitEntered());
-        auto fut = Async(std::launch::async,
-                              [&]{ return sche.UnregisterProcesserDriver(tok); });
-        BOOST_TEST(static_cast<bool>(
-            fut.wait_for(std::chrono::milliseconds(300)) != std::future_status::ready));
+        auto fut = Async(std::launch::async, [&] { return sche.UnregisterProcesserDriver(tok); });
+        BOOST_TEST(static_cast<bool>(fut.wait_for(std::chrono::milliseconds(300)) != std::future_status::ready));
         tick_gate.Open();
-        PD_REQUIRE(static_cast<bool>(
-            fut.wait_for(std::chrono::seconds(5)) == std::future_status::ready));
+        PD_REQUIRE(static_cast<bool>(fut.wait_for(std::chrono::seconds(5)) == std::future_status::ready));
 
         BOOST_TEST(fut.get() == ProcesserDriverStatus::Ok);
-        drv.reset(); st.reset();
+        drv.reset();
+        st.reset();
     }
 
     /* (c) 在途普通 Wake（独立门）+ 终止 Wake 也经独立门确认。
@@ -908,14 +1034,12 @@ void CaseUnregisterWaits()
         /* 制造一次外线程普通 Wake：helper 线程发任务触发广播，
          * Wake 在投递线程同步执行并停在 wake_gate（不能由主线程投——
          * 主线程会卡在 Wake 里无法继续推进测试）。 */
-        JoiningThread waker([&]{ PostOn(sche, ids[0], []{}); });
+        JoiningThread waker([&] { PostOn(sche, ids[0], [] {}); });
 
-        PD_REQUIRE(wake_gate.WaitEntered());   // 普通 Wake 已进入并阻塞
+        PD_REQUIRE(wake_gate.WaitEntered()); // 普通 Wake 已进入并阻塞
 
-        auto fut = Async(std::launch::async,
-                              [&]{ return sche.UnregisterProcesserDriver(tok); });
-        BOOST_TEST(static_cast<bool>(
-            fut.wait_for(std::chrono::milliseconds(300)) != std::future_status::ready));
+        auto fut = Async(std::launch::async, [&] { return sche.UnregisterProcesserDriver(tok); });
+        BOOST_TEST(static_cast<bool>(fut.wait_for(std::chrono::milliseconds(300)) != std::future_status::ready));
         /* I2 顺序：普通 Wake 仍在独立 gate 内阻塞时，先让终止 Wake
          * 进入并完全退出（terminal_gate 开），此时只剩普通 Wake 的
          * lease 未退——detach 必须仍未 ready；再开普通门才完成。
@@ -923,15 +1047,14 @@ void CaseUnregisterWaits()
         PD_REQUIRE(terminal_gate.WaitEntered());
         terminal_gate.Open();
         /* 终止 Wake 退出后仍因普通 Wake 阻塞：leader 在等 inflight */
-        PD_REQUIRE(WaitUntil([&]{ return st->terminal_exited.load() == 1; }));
-        BOOST_TEST(static_cast<bool>(
-            fut.wait_for(std::chrono::milliseconds(300)) != std::future_status::ready));
+        PD_REQUIRE(WaitUntil([&] { return st->terminal_exited.load() == 1; }));
+        BOOST_TEST(static_cast<bool>(fut.wait_for(std::chrono::milliseconds(300)) != std::future_status::ready));
         wake_gate.Open();
-        PD_REQUIRE(static_cast<bool>(
-            fut.wait_for(std::chrono::seconds(5)) == std::future_status::ready));
+        PD_REQUIRE(static_cast<bool>(fut.wait_for(std::chrono::seconds(5)) == std::future_status::ready));
         BOOST_TEST(fut.get() == ProcesserDriverStatus::Ok);
         waker.join();
-        drv.reset(); st.reset();
+        drv.reset();
+        st.reset();
     }
 }
 
@@ -950,17 +1073,19 @@ void CaseSelfDetach()
         auto drv = std::make_shared<FakeDriver>(st);
         std::atomic<ProcesserDriverStatus> nested{ProcesserDriverStatus::Ok};
         std::atomic_bool observed_detaching{false};
-        struct TokenHolder { ProcesserDriverToken t{}; std::atomic_bool ready{false}; };
+        struct TokenHolder {
+            ProcesserDriverToken t{};
+            std::atomic_bool ready{false};
+        };
         auto holder = std::make_shared<TokenHolder>();
         /* 配置先于绑定；绑定时的首次 Wake 早 ready 置位，安全跳过；
          * 终止 Wake 到达时 ready 已置位。 */
-        st->on_wake = [&, holder]{
+        st->on_wake = [&, holder] {
             if (!holder->ready.load(std::memory_order_acquire))
                 return;
             ProcesserDriverSnapshot snap;
-            if (sche.QueryProcesserDriver(ids[0], snap) == ProcesserDriverStatus::Ok &&
-                snap.m_state == ProcesserDriverState::Detaching)
-            {
+            if (sche.QueryProcesserDriver(ids[0], snap) == ProcesserDriverStatus::Ok
+                && snap.m_state == ProcesserDriverState::Detaching) {
                 observed_detaching = true;
                 nested = sche.UnregisterProcesserDriver(holder->t); // 嵌套同代
             }
@@ -972,7 +1097,8 @@ void CaseSelfDetach()
         BOOST_TEST(sche.UnregisterProcesserDriver(tokA) == ProcesserDriverStatus::Ok);
         BOOST_TEST(observed_detaching.load());
         BOOST_TEST(nested.load() == ProcesserDriverStatus::SelfDetach);
-        drv.reset(); st.reset();
+        drv.reset();
+        st.reset();
     }
 
     /* (b) Tick（目标 worker 线程 + lease 双重拒绝）与受管业务协程
@@ -981,23 +1107,31 @@ void CaseSelfDetach()
     auto drv = std::make_shared<FakeDriver>(st);
     std::atomic<ProcesserDriverStatus> tick_ret{ProcesserDriverStatus::Ok};
     auto tick_once = std::make_shared<std::atomic_bool>(true);
-    struct TokenHolder2 { ProcesserDriverToken t{}; std::atomic_bool ready{false}; };
+    struct TokenHolder2 {
+        ProcesserDriverToken t{};
+        std::atomic_bool ready{false};
+    };
     auto holder2 = std::make_shared<TokenHolder2>();
-    st->on_before = [&, tick_once, holder2]{
-        if (!holder2->ready.load(std::memory_order_acquire)) return;
-        if (!tick_once->exchange(false)) return;
+    st->on_before = [&, tick_once, holder2] {
+        if (!holder2->ready.load(std::memory_order_acquire))
+            return;
+        if (!tick_once->exchange(false))
+            return;
         tick_ret = sche.UnregisterProcesserDriver(holder2->t);
     };
     ProcesserDriverToken tok{};
     PD_REQUIRE(Register(sche, ids[0], drv, tok) == ProcesserDriverStatus::Ok);
     holder2->t = tok;
     holder2->ready.store(true, std::memory_order_release);
-    BOOST_TEST(WaitUntil([&]{ return !tick_once->load(); }));
+    BOOST_TEST(WaitUntil([&] { return !tick_once->load(); }));
     BOOST_TEST(tick_ret.load() == ProcesserDriverStatus::SelfDetach);
 
     std::atomic<ProcesserDriverStatus> co_ret{ProcesserDriverStatus::Ok};
     bbt::core::thread::CountDownLatch co_done{1};
-    Post(sche, [&]{ co_ret = sche.UnregisterProcesserDriver(tok); co_done.Down(); });
+    Post(sche, [&] {
+        co_ret = sche.UnregisterProcesserDriver(tok);
+        co_done.Down();
+    });
     BOOST_TEST(LatchWait(co_done));
     BOOST_TEST(co_ret.load() == ProcesserDriverStatus::SelfDetach);
 
@@ -1011,22 +1145,22 @@ void CaseSelfDetach()
     std::atomic<int> nested_calls{0};
     std::atomic<ProcesserDriverStatus> wake_self{ProcesserDriverStatus::Ok};
     nestedA->on_wake = [&] {
-        if (!nested_enabled.load()) return;
+        if (!nested_enabled.load())
+            return;
         depth = 1;
-        PostOn(sche, ids[1], []{});
+        PostOn(sche, ids[1], [] {});
         depth = 0;
     };
     nestedB->on_wake = [&] {
-        if (depth != 1) return;
+        if (depth != 1)
+            return;
         ++nested_calls;
         wake_self = sche.UnregisterProcesserDriver(tokA);
     };
-    PD_REQUIRE(Register(sche, ids[0], std::make_shared<FakeDriver>(nestedA), tokA)
-               == ProcesserDriverStatus::Ok);
-    PD_REQUIRE(Register(sche, ids[1], std::make_shared<FakeDriver>(nestedB), tokB)
-               == ProcesserDriverStatus::Ok);
+    PD_REQUIRE(Register(sche, ids[0], std::make_shared<FakeDriver>(nestedA), tokA) == ProcesserDriverStatus::Ok);
+    PD_REQUIRE(Register(sche, ids[1], std::make_shared<FakeDriver>(nestedB), tokB) == ProcesserDriverStatus::Ok);
     nested_enabled = true;
-    PostOn(sche, ids[0], []{});
+    PostOn(sche, ids[0], [] {});
     nested_enabled = false;
     BOOST_TEST(nested_calls.load() == 1);
     BOOST_TEST(wake_self.load() == ProcesserDriverStatus::SelfDetach);
@@ -1044,12 +1178,11 @@ void CaseSelfDetach()
     old->self_pid = ids[0];
     old->terminal_gate = &terminal;
     ProcesserDriverToken old_token{}, new_token{};
-    PD_REQUIRE(Register(sche, ids[0], std::make_shared<FakeDriver>(old), old_token)
-               == ProcesserDriverStatus::Ok);
-    auto leader = Async(std::launch::async, [&]{ return sche.UnregisterProcesserDriver(old_token); });
+    PD_REQUIRE(Register(sche, ids[0], std::make_shared<FakeDriver>(old), old_token) == ProcesserDriverStatus::Ok);
+    auto leader = Async(std::launch::async, [&] { return sche.UnregisterProcesserDriver(old_token); });
     PD_REQUIRE(terminal.WaitEntered());
-    PDSetProbe(true, [&]{ captured_joiner.PassThrough(); });
-    auto joiner = Async(std::launch::async, [&]{ return sche.UnregisterProcesserDriver(old_token); });
+    PDSetProbe(true, [&] { captured_joiner.PassThrough(); });
+    auto joiner = Async(std::launch::async, [&] { return sche.UnregisterProcesserDriver(old_token); });
     PD_REQUIRE(captured_joiner.WaitEntered());
     terminal.Open();
     BOOST_TEST(leader.get() == ProcesserDriverStatus::Ok);
@@ -1108,25 +1241,30 @@ void CaseFailure(ProcesserDriverFailure expected_source, bool is_tick, bool is_t
     st->failure_enabled.store(true, std::memory_order_release);
     /* 期间制造一次在途普通 Wake（helper 线程投递；Wake 同步阻塞在
      * 调用线程的 gate 上）。 */
-    JoiningThread waker([&]{ PostOn(sche, target, []{}); });
+    JoiningThread waker([&] { PostOn(sche, target, [] {}); });
     PD_REQUIRE(wake_gate.WaitEntered());
     BOOST_TEST(!res->TryBeginCleanup(std::this_thread::get_id()));
     int h, pend, comp, act, seq, viol;
     res->Snapshot(h, pend, comp, act, seq, viol);
-    BOOST_TEST(act >= 2); BOOST_TEST(h == 2); BOOST_TEST(comp == 0);
+    BOOST_TEST(act >= 2);
+    BOOST_TEST(h == 2);
+    BOOST_TEST(comp == 0);
 
     /* 释放失败 callback → 状态转 Failed */
     fail_gate.Open();
     ProcesserDriverSnapshot snap;
-    PD_REQUIRE(WaitUntil([&]{
-        return sche.QueryProcesserDriver(target, snap) == ProcesserDriverStatus::Ok &&
-               snap.m_state == ProcesserDriverState::Failed;
+    PD_REQUIRE(WaitUntil([&] {
+        return sche.QueryProcesserDriver(target, snap) == ProcesserDriverStatus::Ok
+               && snap.m_state == ProcesserDriverState::Failed;
     }));
     BOOST_TEST(snap.m_failure == expected_source);
     if (is_throw) {
         BOOST_TEST(static_cast<bool>(snap.m_exception));
-        try { std::rethrow_exception(snap.m_exception); }
-        catch (const std::exception& e) { BOOST_TEST(std::strcmp(e.what(), "b1-fake-failure") == 0); }
+        try {
+            std::rethrow_exception(snap.m_exception);
+        } catch (const std::exception& e) {
+            BOOST_TEST(std::strcmp(e.what(), "b1-fake-failure") == 0);
+        }
     } else {
         BOOST_TEST(!static_cast<bool>(snap.m_exception));
     }
@@ -1147,7 +1285,7 @@ void CaseFailure(ProcesserDriverFailure expected_source, bool is_tick, bool is_t
     Gate biz_gate;
     std::atomic<ProcesserId> biz_pid{0};
     bbt::core::thread::CountDownLatch biz_started{1}, biz_done{1};
-    PostOn(sche, target, [&, res]{
+    PostOn(sche, target, [&, res] {
         auto p = Processer::TryGetLocalProcesser();
         biz_pid = p ? p->GetId() : 0;
         biz_started.Down();
@@ -1160,17 +1298,15 @@ void CaseFailure(ProcesserDriverFailure expected_source, bool is_tick, bool is_t
 
     /* async 同代解绑：终止 Wake 必须等待在途普通 Wake；解绑完成时目标
      * P 仍被业务 gate 占住——证明不需要 worker ack。 */
-    auto fut = Async(std::launch::async, [&]{ return sche.UnregisterProcesserDriver(tok); });
+    auto fut = Async(std::launch::async, [&] { return sche.UnregisterProcesserDriver(tok); });
     PD_REQUIRE(terminal_gate.WaitEntered());
     terminal_gate.Open();
-    PD_REQUIRE(WaitUntil([&]{ return st->terminal_exited.load() == 1; }));
+    PD_REQUIRE(WaitUntil([&] { return st->terminal_exited.load() == 1; }));
     BOOST_TEST(!res->TryBeginCleanup(std::this_thread::get_id()));
-    BOOST_TEST(static_cast<bool>(
-        fut.wait_for(std::chrono::milliseconds(300)) != std::future_status::ready));
+    BOOST_TEST(static_cast<bool>(fut.wait_for(std::chrono::milliseconds(300)) != std::future_status::ready));
     wake_gate.Open();
     waker.join();
-    PD_REQUIRE(static_cast<bool>(
-        fut.wait_for(std::chrono::seconds(5)) == std::future_status::ready));
+    PD_REQUIRE(static_cast<bool>(fut.wait_for(std::chrono::seconds(5)) == std::future_status::ready));
     BOOST_TEST(fut.get() == ProcesserDriverStatus::Ok);
     /* 此刻业务任务仍持有目标 P（biz_gate 未放）——解绑不依赖 worker */
     BOOST_TEST(static_cast<bool>(biz_done.WaitTimeout(10) != 0));
@@ -1179,12 +1315,12 @@ void CaseFailure(ProcesserDriverFailure expected_source, bool is_tick, bool is_t
     /* 同步解绑前（Detaching/在途仍在或已 Failed）：cleanup 拒绝且
      * 资源不变；解绑 Ok 后 MarkDetached，控制线程单 owner 推进。 */
     const int seq_before = res->AccessSeq();
-    BOOST_TEST(!res->TryBeginCleanup(std::this_thread::get_id()));  // 缺少收据仍拒绝
+    BOOST_TEST(!res->TryBeginCleanup(std::this_thread::get_id())); // 缺少收据仍拒绝
     res->Snapshot(h, pend, comp, act, seq, viol);
-    BOOST_TEST(h == 2);                     // 资源内容未变
+    BOOST_TEST(h == 2); // 资源内容未变
     BOOST_TEST(comp == 0);
 
-    res->MarkDetached();                    // Unregister 已 Ok
+    res->MarkDetached(); // Unregister 已 Ok
     BOOST_TEST(st->active_callbacks.load() == 0);
     PD_REQUIRE(res->TryBeginCleanup(std::this_thread::get_id()));
 
@@ -1192,14 +1328,19 @@ void CaseFailure(ProcesserDriverFailure expected_source, bool is_tick, bool is_t
      * drain 一个仍有 → 最终全收口且 2 个不同 completion 确实执行 */
     PD_REQUIRE(res->CloseOne(std::this_thread::get_id()));
     res->Snapshot(h, pend, comp, act, seq, viol);
-    BOOST_TEST(h == 1); BOOST_TEST(pend == 1);
+    BOOST_TEST(h == 1);
+    BOOST_TEST(pend == 1);
     PD_REQUIRE(res->CloseOne(std::this_thread::get_id()));
     PD_REQUIRE(res->DrainOne(std::this_thread::get_id()));
     res->Snapshot(h, pend, comp, act, seq, viol);
-    BOOST_TEST(h == 0); BOOST_TEST(pend == 1); BOOST_TEST(comp == 1);
+    BOOST_TEST(h == 0);
+    BOOST_TEST(pend == 1);
+    BOOST_TEST(comp == 1);
     PD_REQUIRE(res->DrainOne(std::this_thread::get_id()));
     res->Snapshot(h, pend, comp, act, seq, viol);
-    BOOST_TEST(h == 0); BOOST_TEST(pend == 0); BOOST_TEST(comp == 2);
+    BOOST_TEST(h == 0);
+    BOOST_TEST(pend == 0);
+    BOOST_TEST(comp == 2);
     {
         std::lock_guard<std::mutex> l(res->m);
         BOOST_TEST(res->completed[0] != res->completed[1]);
@@ -1208,19 +1349,20 @@ void CaseFailure(ProcesserDriverFailure expected_source, bool is_tick, bool is_t
         BOOST_TEST(res->pump_tid != res->owner);
         BOOST_TEST(res->visits[FakeResource::TickK] > 0);
         BOOST_TEST(res->visits[FakeResource::WakeK] > 0);
-        if (!is_tick) BOOST_TEST(res->visits[FakeResource::WaitK] > 0);
+        if (!is_tick)
+            BOOST_TEST(res->visits[FakeResource::WaitK] > 0);
     }
     BOOST_TEST(!res->pump_conflict);
     drv.reset();
     /* 解绑后旧资源零访问、零违例（严格等于，不是放宽计数） */
     /* 另一 worker 真实进展 */
     bbt::core::thread::CountDownLatch other_done{1};
-    PostOn(sche, other, [&]{ other_done.Down(); });
+    PostOn(sche, other, [&] { other_done.Down(); });
     BOOST_TEST(LatchWait(other_done));
     biz_gate.Open();
     BOOST_TEST(LatchWait(biz_done));
     bbt::core::thread::CountDownLatch next_round{1};
-    PostOn(sche, target, [&]{ next_round.Down(); });
+    PostOn(sche, target, [&] { next_round.Down(); });
     BOOST_TEST(LatchWait(next_round));
     res->Snapshot(h, pend, comp, act, seq, viol);
     BOOST_TEST(seq == seq_before);
@@ -1240,7 +1382,7 @@ void CaseReentrancy()
     /* 共享场景对象：先建好再绑定，全部活到同步解绑之后 */
     auto waiter = std::make_shared<CoWaiterProbe>();
     auto chan = std::make_shared<ChanProbe>();
-    CleanupAction close_reader([chan]{ chan->Close(); });
+    CleanupAction close_reader([chan] { chan->Close(); });
     auto stage = std::make_shared<std::atomic<int>>(0);
     auto reenter_ok = std::make_shared<std::atomic<int>>(0);
     auto once = std::make_shared<std::atomic_bool>(true);
@@ -1252,29 +1394,38 @@ void CaseReentrancy()
     auto stB = std::make_shared<FakeState>();
     static thread_local bool notifying_this_activation = false;
     std::atomic<int> activation_a{0}, activation_b{0};
-    stB->on_wake = [&] { if (notifying_this_activation) ++activation_b; };
+    stB->on_wake = [&] {
+        if (notifying_this_activation)
+            ++activation_b;
+    };
     std::atomic<ProcesserId> registered_pid{0}, chan_pid{0};
     std::atomic_bool committed{false}, chan_committed{false};
     auto after_commit = [&] {
         auto pid = Processer::TryGetLocalProcesser()->GetId();
-        if (registered_pid.load() == pid) committed = true;
-        if (chan_pid.load() == pid &&
-            chan->reader->SnapshotEventStatus() == static_cast<int>(POLLEVENT_LISTEN))
+        if (registered_pid.load() == pid)
+            committed = true;
+        if (chan_pid.load() == pid && chan->reader->SnapshotEventStatus() == static_cast<int>(POLLEVENT_LISTEN))
             chan_committed = true;
     };
     stA->on_after = after_commit;
     stB->on_after = after_commit;
     /* on_wake 绑定前配置一次，内部按 stage 分发；不再写 plain 成员 */
-    stA->on_wake = [&, waiter, chan, stage, reenter_ok, once, notify_reenter, chan_size]{
-        if (notifying_this_activation) ++activation_a;
+    stA->on_wake = [&, waiter, chan, stage, reenter_ok, once, notify_reenter, chan_size] {
+        if (notifying_this_activation)
+            ++activation_a;
         switch (stage->load(std::memory_order_acquire)) {
-        case 1: {   /* adapter 重入：GetWorkers/Query/受控递归 Regist 一次 */
-            if (!once->exchange(false)) break;
+        case 1: { /* adapter 重入：GetWorkers/Query/受控递归 Regist 一次 */
+            if (!once->exchange(false))
+                break;
             auto wids = sche.GetWorkerProcesserIds();
             ProcesserDriverSnapshot s;
             bool query_ok = (sche.QueryProcesserDriver(pid0, s) == ProcesserDriverStatus::Ok);
             bool regist_ok = true;
-            try { Post(sche, []{}); } catch (...) { regist_ok = false; }
+            try {
+                Post(sche, [] {});
+            } catch (...) {
+                regist_ok = false;
+            }
             BBTATTR_COMM_UNUSED auto cid = GetLocalCoroutineId();
             if (!wids.empty() && query_ok && regist_ok)
                 (*reenter_ok)++;
@@ -1286,7 +1437,8 @@ void CaseReentrancy()
         case 3: /* Wake 内重入 chan.size()：外层 OS 锁已释放才能返回 */
             *chan_size = chan->size();
             break;
-        default: break;
+        default:
+            break;
         }
     };
     auto drvA = std::make_shared<FakeDriver>(stA);
@@ -1297,13 +1449,13 @@ void CaseReentrancy()
 
     /* (a) 普通 Regist 实际触发 Wake，重入 adapter API */
     stage->store(1, std::memory_order_release);
-    Post(sche, []{});
-    BOOST_TEST(WaitUntil([&]{ return reenter_ok->load() >= 1; }));
+    Post(sche, [] {});
+    BOOST_TEST(WaitUntil([&] { return reenter_ok->load() >= 1; }));
 
     /* (b) 真实全局广播：确认 PARKED 后 Notify，两台 bound driver 的
      * Wake 都应观测到；Wake 内重入同一 waiter.Notify(value)。 */
     bbt::core::thread::CountDownLatch resumed{1};
-    Post(sche, [&, waiter]{
+    Post(sche, [&, waiter] {
         waiter->WaitWithTimeoutAndCallback(3000, [&] {
             registered_pid = Processer::TryGetLocalProcesser()->GetId();
             return true;
@@ -1311,7 +1463,7 @@ void CaseReentrancy()
         resumed.Down();
     });
     // on_registered 在 CommitYield 前；同 P 的 AfterSchedule 才是提交后确认。
-    PD_REQUIRE(WaitUntil([&]{ return committed.load(); }));
+    PD_REQUIRE(WaitUntil([&] { return committed.load(); }));
     stage->store(2, std::memory_order_release);
     const int wake_a = stA->wakes.load(), wake_b = stB->wakes.load();
     notifying_this_activation = true;
@@ -1322,20 +1474,22 @@ void CaseReentrancy()
     BOOST_TEST(LatchWait(resumed));
     BOOST_TEST(stA->wakes.load() > wake_a);
     BOOST_TEST(stB->wakes.load() > wake_b);
-    BOOST_TEST(WaitUntil([&]{ return notify_reenter->load() != 99; }));
+    BOOST_TEST(WaitUntil([&] { return notify_reenter->load() != 99; }));
     BOOST_TEST(notify_reenter->load() == -1);
 
     /* (c) Chan 链：真实读者挂起后 TryWrite 的 _OnEnableRead→Notify→
      * 广播触发 Wake；Wake 内 chan.size() 证明外层 OS 锁已释放。 */
     bbt::core::thread::CountDownLatch read_done{1};
-    Post(sche, [&, chan]{
+    Post(sche, [&, chan] {
         chan_pid = Processer::TryGetLocalProcesser()->GetId();
-        int v = 0; chan->Read(v); read_done.Down();
+        int v = 0;
+        chan->Read(v);
+        read_done.Down();
     });
-    PD_REQUIRE(WaitUntil([&]{ return chan_committed.load(); }));
+    PD_REQUIRE(WaitUntil([&] { return chan_committed.load(); }));
     stage->store(3, std::memory_order_release);
     BOOST_TEST(chan->TryWrite(1) == 0);
-    BOOST_TEST(WaitUntil([&]{ return chan_size->load() <= 1u; })); // 0或1取决于reader进度
+    BOOST_TEST(WaitUntil([&] { return chan_size->load() <= 1u; })); // 0或1取决于reader进度
     BOOST_TEST(LatchWait(read_done));
     stage->store(0, std::memory_order_release);
 
@@ -1357,7 +1511,8 @@ void CaseStealMigrate()
     std::atomic<ProcesserId> registered_pid{0};
     std::atomic_bool committed{false};
     st->on_after = [&] {
-        if (registered_pid.load() == target) committed = true;
+        if (registered_pid.load() == target)
+            committed = true;
     };
     ProcesserDriverToken tok{};
     PD_REQUIRE(Register(sche, target, std::make_shared<FakeDriver>(st), tok) == ProcesserDriverStatus::Ok);
@@ -1368,7 +1523,9 @@ void CaseStealMigrate()
     std::atomic<ProcesserId> blocker_pid{0};
     PostOn(sche, target, [&] {
         blocker_pid = Processer::TryGetLocalProcesser()->GetId();
-        occupying.Down(); hold.Wait(); occ_done.Down();
+        occupying.Down();
+        hold.Wait();
+        occ_done.Down();
     });
     PD_REQUIRE(LatchWait(occupying));
     PD_REQUIRE(blocker_pid.load() == target);
@@ -1376,29 +1533,33 @@ void CaseStealMigrate()
     std::atomic<ProcesserId> ran_pid{0};
     bbt::core::thread::CountDownLatch ran{1};
     PostOn(sche, target, [&] {
-        ran_pid = Processer::TryGetLocalProcesser()->GetId(); ran.Down();
+        ran_pid = Processer::TryGetLocalProcesser()->GetId();
+        ran.Down();
     });
     PD_REQUIRE(LatchWait(ran));
     BOOST_TEST(ran_pid.load() == other);
     hold.Open();
     PD_REQUIRE(LatchWait(occ_done));
-    PD_REQUIRE(WaitUntil([&]{ return st->before.load() > 0; }));
+    PD_REQUIRE(WaitUntil([&] { return st->before.load() > 0; }));
     BOOST_TEST(st->tick_pid.load() == target);
 
     // 反向布局：目标 P 停在真实 Tick，确保 other blocker 不会被 target 偷走。
     st->hold_pump = true;
-    PostOn(sche, target, []{});
+    PostOn(sche, target, [] {});
     PD_REQUIRE(target_pump.WaitEntered());
     BOOST_TEST(st->tick_pid.load() == target);
     bbt::core::thread::CountDownLatch other_in{1}, other_out{1};
     std::atomic<ProcesserId> other_blocker{0};
     PostOn(sche, other, [&] {
         other_blocker = Processer::TryGetLocalProcesser()->GetId();
-        other_in.Down(); other_hold.Wait(); other_out.Down();
+        other_in.Down();
+        other_hold.Wait();
+        other_out.Down();
     });
     PD_REQUIRE(LatchWait(other_in));
     PD_REQUIRE(other_blocker.load() == other);
-    st->hold_pump = false; target_pump.Open();
+    st->hold_pump = false;
+    target_pump.Open();
 
     auto waiter = std::make_shared<CoWaiterProbe>();
     std::atomic<ProcesserId> first_pid{0}, resume_pid{0};
@@ -1412,16 +1573,19 @@ void CaseStealMigrate()
             return true;
         });
         resume_pid = Processer::TryGetLocalProcesser()->GetId();
-        resume_co = GetLocalCoroutineId(); resume_done.Down();
+        resume_co = GetLocalCoroutineId();
+        resume_done.Down();
     });
-    PD_REQUIRE(WaitUntil([&]{ return committed.load(); }));
+    PD_REQUIRE(WaitUntil([&] { return committed.load(); }));
     BOOST_TEST(first_pid.load() == target);
     // other 仍被实际确认的 blocker 占住，故目标 blocker 的实际归属可固定。
     bbt::core::thread::CountDownLatch tgt_in{1}, tgt_out{1};
     std::atomic<ProcesserId> target_blocker{0};
     PostOn(sche, target, [&] {
         target_blocker = Processer::TryGetLocalProcesser()->GetId();
-        tgt_in.Down(); target_hold.Wait(); tgt_out.Down();
+        tgt_in.Down();
+        target_hold.Wait();
+        tgt_out.Down();
     });
     PD_REQUIRE(LatchWait(tgt_in));
     PD_REQUIRE(target_blocker.load() == target);
@@ -1445,7 +1609,7 @@ void CaseNoDriverDirected()
     EnsureRuntime(1);
     auto ids = sche.GetWorkerProcesserIds();
     bbt::core::thread::CountDownLatch done{1};
-    PostOn(sche, ids[0], [&]{ done.Down(); });
+    PostOn(sche, ids[0], [&] { done.Down(); });
     BOOST_TEST(LatchWait(done));
 }
 
@@ -1466,36 +1630,42 @@ void CaseQueryDestructRelease()
      * 同一 target 的 Query。清掉所有其它引用后再覆盖。 */
     std::atomic<int> dtor_count{0}, reenter_ok{0};
     ProcesserId self = ids[0];
-    auto payload = std::shared_ptr<int>(new int(0), [&](int* p){
+    auto payload = std::shared_ptr<int>(new int(0), [&](int* p) {
         ProcesserDriverSnapshot s2;
-        if (Scheduler::GetInstance()->QueryProcesserDriver(self, s2)
-                == ProcesserDriverStatus::Ok &&
-            s2.m_state == ProcesserDriverState::Bound)
+        if (Scheduler::GetInstance()->QueryProcesserDriver(self, s2) == ProcesserDriverStatus::Ok
+            && s2.m_state == ProcesserDriverState::Bound)
             ++reenter_ok;
         ++dtor_count;
         delete p;
     });
 
     ProcesserDriverSnapshot out;
-    try { throw std::runtime_error{"held"}; }
-    catch (...) { out.m_exception = std::current_exception(); }
+    try {
+        throw std::runtime_error{"held"};
+    } catch (...) {
+        out.m_exception = std::current_exception();
+    }
     /* 把 payload 挂进 exception 的捕获对象：用 shared_ptr 自定义
      * exception 承载。 */
     struct ExWithPayload : std::exception {
         std::shared_ptr<int> payload;
-        const char* what() const noexcept override { return "held"; }
+        const char* what() const noexcept override
+        {
+            return "held";
+        }
     };
-    ExWithPayload ex; ex.payload = payload;
+    ExWithPayload ex;
+    ex.payload = payload;
     out.m_exception = std::make_exception_ptr(ex);
     payload.reset();
-    ex.payload.reset();       // 清掉其余引用：exception 独占最后一份
+    ex.payload.reset(); // 清掉其余引用：exception 独占最后一份
     BOOST_TEST(dtor_count.load() == 0);
 
     /* Query 覆盖 out：生产实现锁内拷局部、锁外 move 赋值，
      * out 旧 exception（含 payload 最后引用）在锁外析构并重入 Query。 */
     BOOST_TEST(sche.QueryProcesserDriver(self, out) == ProcesserDriverStatus::Ok);
-    BOOST_TEST(dtor_count.load() == 1);     // 确切一次
-    BOOST_TEST(reenter_ok.load() == 1);     // 重入成功、返回 Ok/Bound
+    BOOST_TEST(dtor_count.load() == 1); // 确切一次
+    BOOST_TEST(reenter_ok.load() == 1); // 重入成功、返回 Ok/Bound
 
     /* 再 Query 不重复析构 */
     BOOST_TEST(sche.QueryProcesserDriver(self, out) == ProcesserDriverStatus::Ok);
@@ -1509,20 +1679,34 @@ BOOST_AUTO_TEST_CASE(dispatch)
     const char* mode_env = std::getenv("BBT_PD_MODE");
     PD_REQUIRE(mode_env != nullptr);
     const std::string m = mode_env;
-    if (m == "api_boundaries")        CaseApiBoundaries();
-    else if (m == "tick_sequence")    CaseTickSequence();
-    else if (m == "wait_wakeup")      CaseWaitWakeup();
-    else if (m == "unregister_waits") CaseUnregisterWaits();
-    else if (m == "self_detach")      CaseSelfDetach();
-    else if (m == "fail_tick_ret")    CaseFailure(ProcesserDriverFailure::Tick, true, false);
-    else if (m == "fail_tick_throw")  CaseFailure(ProcesserDriverFailure::Tick, true, true);
-    else if (m == "fail_wait_ret")    CaseFailure(ProcesserDriverFailure::Wait, false, false);
-    else if (m == "fail_wait_throw")  CaseFailure(ProcesserDriverFailure::Wait, false, true);
-    else if (m == "reentrancy")       CaseReentrancy();
-    else if (m == "steal_migrate")    CaseStealMigrate();
-    else if (m == "no_driver_directed") CaseNoDriverDirected();
-    else if (m == "query_destruct_release") CaseQueryDestructRelease();
-    else BOOST_FAIL("unknown mode: " << m);
+    if (m == "api_boundaries")
+        CaseApiBoundaries();
+    else if (m == "tick_sequence")
+        CaseTickSequence();
+    else if (m == "wait_wakeup")
+        CaseWaitWakeup();
+    else if (m == "unregister_waits")
+        CaseUnregisterWaits();
+    else if (m == "self_detach")
+        CaseSelfDetach();
+    else if (m == "fail_tick_ret")
+        CaseFailure(ProcesserDriverFailure::Tick, true, false);
+    else if (m == "fail_tick_throw")
+        CaseFailure(ProcesserDriverFailure::Tick, true, true);
+    else if (m == "fail_wait_ret")
+        CaseFailure(ProcesserDriverFailure::Wait, false, false);
+    else if (m == "fail_wait_throw")
+        CaseFailure(ProcesserDriverFailure::Wait, false, true);
+    else if (m == "reentrancy")
+        CaseReentrancy();
+    else if (m == "steal_migrate")
+        CaseStealMigrate();
+    else if (m == "no_driver_directed")
+        CaseNoDriverDirected();
+    else if (m == "query_destruct_release")
+        CaseQueryDestructRelease();
+    else
+        BOOST_FAIL("unknown mode: " << m);
     std::cout << "PD_REQUIRE_VISITS=" << require_visits << std::endl;
 }
 

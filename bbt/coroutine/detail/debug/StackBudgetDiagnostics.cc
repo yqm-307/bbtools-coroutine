@@ -13,8 +13,7 @@
  * 插桩调用，否则 __cyg_profile_func_enter 会自递归爆栈。
  */
 
-namespace
-{
+namespace {
 
 /**
  * TLS 归属：只指向当前线程正在运行的协程的 StackBudgetState，不存历史。
@@ -35,8 +34,7 @@ thread_local bbt::coroutine::detail::StackBudgetState* t_active_state
  * 读真实硬件 SP。必须用 %rsp 而不是局部变量地址：局部变量落在编译器
  * 选定的帧槽位，地址不保证等于当前 SP（红区/帧布局差异）。
  */
-__attribute__((noinline, no_instrument_function))
-inline uintptr_t ReadHardwareSp() noexcept
+__attribute__((noinline, no_instrument_function)) inline uintptr_t ReadHardwareSp() noexcept
 {
     uintptr_t sp;
     __asm__ __volatile__("mov %%rsp, %0" : "=r"(sp));
@@ -45,19 +43,17 @@ inline uintptr_t ReadHardwareSp() noexcept
 
 }
 
-namespace bbt::coroutine::detail
-{
+namespace bbt::coroutine::detail {
 
-__attribute__((noinline, no_instrument_function))
-StackBudgetState* ExchangeActiveStackBudgetState(StackBudgetState* next) noexcept
+__attribute__((noinline, no_instrument_function)) StackBudgetState*
+ExchangeActiveStackBudgetState(StackBudgetState* next) noexcept
 {
     StackBudgetState* prev = t_active_state;
     t_active_state = next;
     return prev;
 }
 
-__attribute__((noinline, no_instrument_function))
-StackBudgetState* GetActiveStackBudgetState() noexcept
+__attribute__((noinline, no_instrument_function)) StackBudgetState* GetActiveStackBudgetState() noexcept
 {
     return t_active_state;
 }
@@ -76,8 +72,8 @@ StackBudgetState* GetActiveStackBudgetState() noexcept
  * 区间外的样本直接丢弃：说明 SP 不属于本协程栈（如调度残留），
  * 不修正、不上报。
  */
-extern "C" __attribute__((no_instrument_function))
-void __cyg_profile_func_enter(void* /*this_fn*/, void* /*call_site*/) noexcept
+extern "C" __attribute__((no_instrument_function)) void __cyg_profile_func_enter(void* /*this_fn*/,
+                                                                                 void* /*call_site*/) noexcept
 {
     using bbt::coroutine::detail::StackBudgetState;
 
@@ -86,8 +82,7 @@ void __cyg_profile_func_enter(void* /*this_fn*/, void* /*call_site*/) noexcept
         return;
 
     const uintptr_t sp = ReadHardwareSp();
-    if (sp >= state->bottom && sp <= state->top)
-    {
+    if (sp >= state->bottom && sp <= state->top) {
         if (sp < state->min_sp)
             state->min_sp = sp;
         if (state->sample_count < UINT64_MAX)
@@ -95,8 +90,8 @@ void __cyg_profile_func_enter(void* /*this_fn*/, void* /*call_site*/) noexcept
     }
 }
 
-extern "C" __attribute__((no_instrument_function))
-void __cyg_profile_func_exit(void* /*this_fn*/, void* /*call_site*/) noexcept
+extern "C" __attribute__((no_instrument_function)) void __cyg_profile_func_exit(void* /*this_fn*/,
+                                                                                void* /*call_site*/) noexcept
 {
     /* exit 不采样：入口打点已足够形成 min-SP 水位，exit 再加只会放大开销 */
 }

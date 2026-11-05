@@ -50,14 +50,11 @@
 #include <bbt/pollevent/EventLoop.hpp>
 
 /* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。 */
-namespace
-{
+namespace {
 void EnsureRuntime()
 {
     static std::once_flag once;
-    std::call_once(once, [](){
-        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
-    });
+    std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
 }
 
@@ -66,11 +63,9 @@ using namespace bbt::coroutine::detail;
 
 BOOST_AUTO_TEST_SUITE(HookFdEpochTest)
 
-namespace
-{
+namespace {
 
-struct CoFixture
-{
+struct CoFixture {
     explicit CoFixture(int threads = 1)
     {
         m_old_pipe = std::signal(SIGPIPE, SIG_IGN);
@@ -112,11 +107,13 @@ bool WaitParticipants(const std::atomic<int>& remaining, int ms)
     std::abort();
 }
 
-struct DoneOnExit
-{
+struct DoneOnExit {
     std::atomic<int>& done;
     // 完成谓词只由参与者退出发布；条件变量被唤醒不代表借用已经结束。
-    ~DoneOnExit() { done.fetch_sub(1, std::memory_order_acq_rel); }
+    ~DoneOnExit()
+    {
+        done.fetch_sub(1, std::memory_order_acq_rel);
+    }
 };
 
 // 协程内非阻塞等待 flag（让出轮询，不占死 worker）；返回 false 表示超时
@@ -156,8 +153,8 @@ bool CoWaitFdWaiter(int fd, int max_ms)
 BOOST_AUTO_TEST_CASE(t_readable_resume_window_returns_ebadf)
 {
     CoFixture fx{1};
-    int fds[2] = {-1, -1};   // A 等待的旧对象
-    int np[2]  = {-1, -1};   // 复用源：dup2(np[0] -> fds[0])，对端 np[1] 供写数据
+    int fds[2] = {-1, -1}; // A 等待的旧对象
+    int np[2] = {-1, -1};  // 复用源：dup2(np[0] -> fds[0])，对端 np[1] 供写数据
     BOOST_REQUIRE_EQUAL(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
     BOOST_REQUIRE_EQUAL(::socketpair(AF_UNIX, SOCK_STREAM, 0, np), 0);
 
@@ -171,18 +168,19 @@ BOOST_AUTO_TEST_CASE(t_readable_resume_window_returns_ebadf)
      *    （阻塞），F_GETFL 上 O_NONBLOCK 丢失即判死刑。 */
     const int fl_old = ::fcntl(fds[0], F_GETFL, 0);
     BOOST_REQUIRE(fl_old >= 0);
-    BOOST_REQUIRE_EQUAL(fl_old & O_NONBLOCK, 0);          // 旧对象确为阻塞
+    BOOST_REQUIRE_EQUAL(fl_old & O_NONBLOCK, 0); // 旧对象确为阻塞
     BOOST_REQUIRE_EQUAL(::fcntl(np[0], F_SETFL, fl_old | O_NONBLOCK), 0);
     const int fl_new = ::fcntl(np[0], F_GETFL, 0);
     BOOST_REQUIRE(fl_new >= 0);
-    BOOST_REQUIRE(fl_new & O_NONBLOCK);                   // 新对象自带 O_NONBLOCK
+    BOOST_REQUIRE(fl_new & O_NONBLOCK); // 新对象自带 O_NONBLOCK
 
     std::atomic<int> done{2};
     std::atomic<ssize_t> result{12345};
     std::atomic_int errcode{0};
 
     // 协程 A：在 fds[0] 上挂起读（socketpair 无数据 → EAGAIN → park）
-    bbtco [&]() {
+    bbtco[&]()
+    {
         DoneOnExit signal{done};
         char buf[1];
         errno = 0;
@@ -195,16 +193,16 @@ BOOST_AUTO_TEST_CASE(t_readable_resume_window_returns_ebadf)
     // A 的 waiter 被正常 READABLE 触发；随后轮询到 FdWaiterCount==0（驱动
     // 线程已 _Complete 摘表）但 A 尚未恢复前，完成
     // close+dup2+新对象就绪——确定性命中「触发后未恢复」窗口。
-    bbtco [&]() {
+    bbtco[&]()
+    {
         DoneOnExit signal{done};
         BOOST_REQUIRE(CoWaitFdWaiter(fds[0], 3000));
         const char r = 'r';
-        BOOST_REQUIRE_EQUAL(::write(fds[1], &r, 1), 1);  // A 的 fd 就绪 → 唤醒入队
+        BOOST_REQUIRE_EQUAL(::write(fds[1], &r, 1), 1); // A 的 fd 就绪 → 唤醒入队
         /* 只让 OS 线程调度，不让出当前协程。驱动线程可完成 READABLE，
          * 但单 worker 上的 A 不能恢复；bbtco_sleep 会破坏这个窗口。 */
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(3000);
-        while (CoPollEvent::FdWaiterCount(fds[0]) != 0 &&
-               std::chrono::steady_clock::now() < deadline)
+        while (CoPollEvent::FdWaiterCount(fds[0]) != 0 && std::chrono::steady_clock::now() < deadline)
             std::this_thread::yield();
         BOOST_REQUIRE_EQUAL(CoPollEvent::FdWaiterCount(fds[0]), 0);
         BOOST_REQUIRE_EQUAL(result.load(), 12345); // A 确实尚未返回，不能拿先读到 'r' 冒充窗口
@@ -234,8 +232,9 @@ BOOST_AUTO_TEST_CASE(t_readable_resume_window_returns_ebadf)
     const int fl_after = ::fcntl(fds[0], F_GETFL, 0);
     BOOST_REQUIRE(fl_after >= 0);
     BOOST_CHECK_MESSAGE(fl_after & O_NONBLOCK,
-        "reused fd lost O_NONBLOCK: stale nonblock guard wrote old flags onto new object");
-    if (::fcntl(fds[0], F_GETFD) >= 0) ::close(fds[0]);
+                        "reused fd lost O_NONBLOCK: stale nonblock guard wrote old flags onto new object");
+    if (::fcntl(fds[0], F_GETFD) >= 0)
+        ::close(fds[0]);
     ::close(fds[1]);
     ::close(np[0]);
     ::close(np[1]);
@@ -259,7 +258,7 @@ BOOST_AUTO_TEST_CASE(t_concurrent_close_and_new_waiter_not_miswoken)
 {
     CoFixture fx{1};
     int fds[2] = {-1, -1};
-    int np[2]  = {-1, -1};
+    int np[2] = {-1, -1};
     BOOST_REQUIRE_EQUAL(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
     BOOST_REQUIRE_EQUAL(::socketpair(AF_UNIX, SOCK_STREAM, 0, np), 0);
 
@@ -271,7 +270,8 @@ BOOST_AUTO_TEST_CASE(t_concurrent_close_and_new_waiter_not_miswoken)
     std::atomic<char> byte_b{0};
 
     // A：等旧 fds[0]，将被 close+dup2 唤醒（应得 EBADF）
-    bbtco [&]() {
+    bbtco[&]()
+    {
         DoneOnExit signal{done};
         char buf[1];
         errno = 0;
@@ -282,20 +282,22 @@ BOOST_AUTO_TEST_CASE(t_concurrent_close_and_new_waiter_not_miswoken)
 
     // 控制协程：等 A 真正进入等待表后 close+dup2 复用；等 C 在新 fd 上
     // park 后由 np[1] 写数据唤醒
-    bbtco [&]() {
+    bbtco[&]()
+    {
         DoneOnExit signal{done};
-        BOOST_REQUIRE(CoWaitFdWaiter(fds[0], 3000));          // A 已登记
+        BOOST_REQUIRE(CoWaitFdWaiter(fds[0], 3000)); // A 已登记
         BOOST_REQUIRE_EQUAL(::close(fds[0]), 0);
         BOOST_REQUIRE_EQUAL(::dup2(np[0], fds[0]), fds[0]);
         fd_reused.store(true, std::memory_order_release);
         // 等 C 在新 fd 上完成登记（同一 fd 号，FdWaiterCount 重新 >0）
         BOOST_REQUIRE(CoWaitFdWaiter(fds[0], 3000));
         const char c = 'q';
-        BOOST_REQUIRE_EQUAL(::write(np[1], &c, 1), 1);     // 新对象对端可读事件
+        BOOST_REQUIRE_EQUAL(::write(np[1], &c, 1), 1); // 新对象对端可读事件
     };
 
     // C：在复用后的新 fds[0] 上挂起读，应由真实事件唤醒读到 'q'
-    bbtco [&]() {
+    bbtco[&]()
+    {
         DoneOnExit signal{done};
         BOOST_REQUIRE(CoWaitFlag(fd_reused, 3000));
         char buf[1] = {0};
@@ -307,11 +309,12 @@ BOOST_AUTO_TEST_CASE(t_concurrent_close_and_new_waiter_not_miswoken)
 
     const bool fin = WaitParticipants(done, 5000);
     BOOST_REQUIRE_MESSAGE(fin, "coroutines did not finish: A or C still parked after close+dup2");
-    BOOST_CHECK_EQUAL(result_a.load(), -1);                // 旧 waiter EBADF
+    BOOST_CHECK_EQUAL(result_a.load(), -1); // 旧 waiter EBADF
     BOOST_CHECK_EQUAL(errno_a.load(), EBADF);
     BOOST_CHECK_EQUAL(byte_b.load(), 'q');
-    BOOST_CHECK_EQUAL(result_b.load(), 1);                 // 新 waiter 正常读 'q'
-    if (::fcntl(fds[0], F_GETFD) >= 0) ::close(fds[0]);
+    BOOST_CHECK_EQUAL(result_b.load(), 1); // 新 waiter 正常读 'q'
+    if (::fcntl(fds[0], F_GETFD) >= 0)
+        ::close(fds[0]);
     ::close(fds[1]);
     ::close(np[0]);
     ::close(np[1]);
@@ -347,7 +350,7 @@ BOOST_AUTO_TEST_CASE(t_concurrent_double_close_loser_ebadf_then_reuse_survives)
 {
     CoFixture fx{1};
     int fds[2] = {-1, -1};
-    int np[2]  = {-1, -1};
+    int np[2] = {-1, -1};
     BOOST_REQUIRE_EQUAL(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
     BOOST_REQUIRE_EQUAL(::socketpair(AF_UNIX, SOCK_STREAM, 0, np), 0);
 
@@ -355,7 +358,8 @@ BOOST_AUTO_TEST_CASE(t_concurrent_double_close_loser_ebadf_then_reuse_survives)
     std::atomic<ssize_t> result_a{12345};
 
     // A：park 在旧 fds[0] 上，被 close 摘表唤醒（EBADF 语义由既有路径覆盖）
-    bbtco [&]() {
+    bbtco[&]()
+    {
         DoneOnExit signal{done};
         char buf[1];
         const ssize_t r = ::read(fds[0], buf, 1);
@@ -364,8 +368,7 @@ BOOST_AUTO_TEST_CASE(t_concurrent_double_close_loser_ebadf_then_reuse_survives)
 
     // 主线程：等 A 登记后，T1 claim close；T2 在确定性 stall 窗口内并发 close
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(3000);
-    while (CoPollEvent::FdWaiterCount(fds[0]) == 0 &&
-           std::chrono::steady_clock::now() < deadline)
+    while (CoPollEvent::FdWaiterCount(fds[0]) == 0 && std::chrono::steady_clock::now() < deadline)
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     BOOST_REQUIRE(CoPollEvent::FdWaiterCount(fds[0]) > 0);
 
@@ -374,16 +377,17 @@ BOOST_AUTO_TEST_CASE(t_concurrent_double_close_loser_ebadf_then_reuse_survives)
      * close（命中 BeginFdClose=false 分支）。 */
     g_bbt_fd_close_stall_for_test_ms.store(50, std::memory_order_release);
 
-    std::atomic<int>  t2_ret{-2};
-    std::atomic<int>  t2_errno{0};
+    std::atomic<int> t2_ret{-2};
+    std::atomic<int> t2_errno{0};
     std::atomic<bool> t2_issued{false};
 
     std::thread t2([&]() {
         // 自旋到 T1 已 claim（stall 窗口保证必然命中）
-        for (int i = 0; i < 10000 && !CoPollEvent::FdIsClosing(fds[0]); ++i) {}
+        for (int i = 0; i < 10000 && !CoPollEvent::FdIsClosing(fds[0]); ++i) {
+        }
         BOOST_REQUIRE(CoPollEvent::FdIsClosing(fds[0]));
         errno = 0;
-        const int r = ::close(fds[0]);   // BeginFdClose=false 路径
+        const int r = ::close(fds[0]); // BeginFdClose=false 路径
         t2_ret.store(r);
         t2_errno.store(errno);
         t2_issued.store(true, std::memory_order_release);
@@ -402,13 +406,13 @@ BOOST_AUTO_TEST_CASE(t_concurrent_double_close_loser_ebadf_then_reuse_survives)
     // 复用同号：新对象必须未被 T2 的 close 误关
     BOOST_REQUIRE_EQUAL(::dup2(np[0], fds[0]), fds[0]);
     int fl = ::fcntl(fds[0], F_GETFD);
-    BOOST_REQUIRE_MESSAGE(fl >= 0,
-        "reused fd was closed by the losing concurrent close (EBADF on fcntl)");
+    BOOST_REQUIRE_MESSAGE(fl >= 0, "reused fd was closed by the losing concurrent close (EBADF on fcntl)");
 
     const bool ok = WaitParticipants(done, 5000);
     BOOST_REQUIRE_MESSAGE(ok, "waiter coroutine did not finish after concurrent double close");
     BOOST_CHECK_EQUAL(result_a.load(), -1);
-    if (::fcntl(fds[0], F_GETFD) >= 0) ::close(fds[0]);
+    if (::fcntl(fds[0], F_GETFD) >= 0)
+        ::close(fds[0]);
     ::close(fds[1]);
     ::close(np[0]);
     ::close(np[1]);
@@ -429,19 +433,28 @@ BOOST_AUTO_TEST_CASE(t_concurrent_double_close_loser_ebadf_then_reuse_survives)
  * 判别：InitFdEvent / Event 构造失败必须收敛为 EMFILE 异常，且不残留
  *       callback 条目（CallbackEntryCount 不变）、fd 集合一个不多一个不少。
  * ------------------------------------------------------------------ */
-struct RlimitRestoreGuard
-{
-    explicit RlimitRestoreGuard(const struct rlimit& saved) : m_saved(saved) {}
-    ~RlimitRestoreGuard() { ::setrlimit(RLIMIT_NOFILE, &m_saved); }
+struct RlimitRestoreGuard {
+    explicit RlimitRestoreGuard(const struct rlimit& saved) : m_saved(saved)
+    {
+    }
+    ~RlimitRestoreGuard()
+    {
+        ::setrlimit(RLIMIT_NOFILE, &m_saved);
+    }
     RlimitRestoreGuard(const RlimitRestoreGuard&) = delete;
     RlimitRestoreGuard& operator=(const RlimitRestoreGuard&) = delete;
     struct rlimit m_saved;
 };
 
-struct FillerFdGuard
-{
-    ~FillerFdGuard() { CloseAll(); }
-    std::vector<int>& Fds() { return m_fds; }
+struct FillerFdGuard {
+    ~FillerFdGuard()
+    {
+        CloseAll();
+    }
+    std::vector<int>& Fds()
+    {
+        return m_fds;
+    }
     void CloseAll()
     {
         for (const int fd : m_fds)
@@ -464,9 +477,9 @@ std::vector<int> OpenFdSnapshot()
         char* end = nullptr;
         const long value = std::strtol(ent->d_name, &end, 10);
         if (end == ent->d_name || *end != '\0')
-            continue;                       // ".", ".." 等非数字项
+            continue; // ".", ".." 等非数字项
         if (static_cast<int>(value) == self_fd)
-            continue;                       // 测量自身，不计入
+            continue; // 测量自身，不计入
         fds.push_back(static_cast<int>(value));
     }
     ::closedir(dir);
@@ -523,8 +536,7 @@ BOOST_AUTO_TEST_CASE(t_event_construct_dup_failure_rolls_back)
 
     FillerFdGuard fillers;
     for (;;) {
-        const int filler = static_cast<int>(::syscall(
-            SYS_openat, AT_FDCWD, "/dev/null", O_RDONLY | O_CLOEXEC, 0));
+        const int filler = static_cast<int>(::syscall(SYS_openat, AT_FDCWD, "/dev/null", O_RDONLY | O_CLOEXEC, 0));
         if (filler < 0) {
             BOOST_REQUIRE_EQUAL(errno, EMFILE);
             break;
@@ -536,9 +548,8 @@ BOOST_AUTO_TEST_CASE(t_event_construct_dup_failure_rolls_back)
      * 修复语义：失败前没有 callback_map 残留，已有 fd 不受影响。 */
     std::exception_ptr eptr{nullptr};
     try {
-        auto ev = std::make_shared<bbt::pollevent::Event>(
-            &base, sp[0], bbt::pollevent::EventOpt::READABLE,
-            [](int, short, bbt::pollevent::EventId){});
+        auto ev = std::make_shared<bbt::pollevent::Event>(&base, sp[0], bbt::pollevent::EventOpt::READABLE,
+                                                          [](int, short, bbt::pollevent::EventId) {});
     } catch (...) {
         eptr = std::current_exception();
     }
@@ -548,28 +559,27 @@ BOOST_AUTO_TEST_CASE(t_event_construct_dup_failure_rolls_back)
     fillers.CloseAll();
 
     BOOST_REQUIRE(eptr != nullptr);
-    try { std::rethrow_exception(eptr); }
-    catch (const boost::system::system_error& e) {
+    try {
+        std::rethrow_exception(eptr);
+    } catch (const boost::system::system_error& e) {
         BOOST_CHECK_EQUAL(e.code().value(), EMFILE);
-    }
-    catch (const std::system_error& e) {
+    } catch (const std::system_error& e) {
         BOOST_CHECK_EQUAL(e.code().value(), EMFILE);
-    }
-    catch (const std::exception& e) {
+    } catch (const std::exception& e) {
         BOOST_FAIL("Event ctor threw unexpected exception: " << e.what());
+    } catch (...) {
+        BOOST_FAIL("Event ctor threw non-std exception");
     }
-    catch (...) { BOOST_FAIL("Event ctor threw non-std exception"); }
 
-    BOOST_CHECK_EQUAL(static_cast<long>(bbt::pollevent::Event::CallbackEntryCount()),
-                      cb_before);
+    BOOST_CHECK_EQUAL(static_cast<long>(bbt::pollevent::Event::CallbackEntryCount()), cb_before);
 
     const std::vector<int> fds_after = OpenFdSnapshot();
     BOOST_CHECK_MESSAGE(fds_after.size() == fds_before.size(),
-        "fd count changed across failed Event ctor: before=" << fds_before.size()
-        << " after=" << fds_after.size());
+                        "fd count changed across failed Event ctor: before=" << fds_before.size()
+                                                                             << " after=" << fds_after.size());
     BOOST_CHECK_MESSAGE(fds_after == fds_before,
-        "fd set changed across failed Event ctor (rollback leak or spurious close)");
-    BOOST_CHECK_EQUAL(static_cast<long>(::fcntl(sp[0], F_GETFD)), 0);  // 原 fd 未被误关
+                        "fd set changed across failed Event ctor (rollback leak or spurious close)");
+    BOOST_CHECK_EQUAL(static_cast<long>(::fcntl(sp[0], F_GETFD)), 0); // 原 fd 未被误关
     ::close(sp[0]);
     ::close(sp[1]);
 }
@@ -594,8 +604,8 @@ BOOST_AUTO_TEST_CASE(t_event_construct_dup_failure_rolls_back)
 BOOST_AUTO_TEST_CASE(t_parked_write_close_reuse_returns_ebadf)
 {
     CoFixture fx{1};
-    int fds[2] = {-1, -1};   // A 在其 [0] 上写等；[1] 是旧 peer
-    int np[2]  = {-1, -1};   // 复用源：dup2(np[0] -> fds[0])，[1] 是新 peer
+    int fds[2] = {-1, -1}; // A 在其 [0] 上写等；[1] 是旧 peer
+    int np[2] = {-1, -1};  // 复用源：dup2(np[0] -> fds[0])，[1] 是新 peer
     BOOST_REQUIRE_EQUAL(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
     BOOST_REQUIRE_EQUAL(::socketpair(AF_UNIX, SOCK_STREAM, 0, np), 0);
 
@@ -603,8 +613,7 @@ BOOST_AUTO_TEST_CASE(t_parked_write_close_reuse_returns_ebadf)
      * 对象的「守卫回写判别」可观察：旧对象默认阻塞，新对象预置
      * O_NONBLOCK。守卫正确 Dismiss 时新对象保留 O_NONBLOCK。 */
     int sndbuf = 64 * 1024;
-    BOOST_REQUIRE_EQUAL(::setsockopt(fds[0], SOL_SOCKET, SO_SNDBUF,
-                                     &sndbuf, sizeof(sndbuf)), 0);
+    BOOST_REQUIRE_EQUAL(::setsockopt(fds[0], SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf)), 0);
     const int fl_old = ::fcntl(fds[0], F_GETFL, 0);
     BOOST_REQUIRE(fl_old >= 0);
     BOOST_REQUIRE_EQUAL(fl_old & O_NONBLOCK, 0);
@@ -621,7 +630,7 @@ BOOST_AUTO_TEST_CASE(t_parked_write_close_reuse_returns_ebadf)
             break;
         }
         filled += static_cast<size_t>(w);
-        BOOST_REQUIRE_LT(filled, size_t(64) * 1024 * 1024);   // 上限防御
+        BOOST_REQUIRE_LT(filled, size_t(64) * 1024 * 1024); // 上限防御
     }
     BOOST_REQUIRE_GT(filled, 0);
 
@@ -630,11 +639,12 @@ BOOST_AUTO_TEST_CASE(t_parked_write_close_reuse_returns_ebadf)
     std::atomic_int errno_a{0};
     std::atomic_bool control_ran{false};
 
-    bbtco [&]() {
+    bbtco[&]()
+    {
         DoneOnExit signal{done};
         const char c = 'A';
         errno = 0;
-        const ssize_t r = ::write(fds[0], &c, 1);   // EAGAIN → 真 park
+        const ssize_t r = ::write(fds[0], &c, 1); // EAGAIN → 真 park
         result_a.store(r);
         errno_a.store(errno);
     };
@@ -642,17 +652,18 @@ BOOST_AUTO_TEST_CASE(t_parked_write_close_reuse_returns_ebadf)
     /* 控制协程与 A 同 worker：先等 A 的 waiter 登记，再等驱动线程把
      * 「worker 已被 A 交还」变成可观察——本协程能继续跑本身就是证据
      * （单 worker 上 A 若不真让出，这里到不了）。随后 close+dup2。 */
-    bbtco [&]() {
+    bbtco[&]()
+    {
         DoneOnExit signal{done};
         BOOST_REQUIRE(CoWaitFdWaiter(fds[0], 3000));
-        control_ran.store(true, std::memory_order_release);  // 已拿到 worker
+        control_ran.store(true, std::memory_order_release); // 已拿到 worker
         BOOST_REQUIRE_EQUAL(::close(fds[0]), 0);
         BOOST_REQUIRE_EQUAL(::dup2(np[0], fds[0]), fds[0]);
     };
 
     const bool ok = WaitParticipants(done, 5000);
     BOOST_REQUIRE_MESSAGE(ok, "write-park coroutine did not finish after close+dup2");
-    BOOST_REQUIRE(control_ran.load());        // 证明是交还 worker 的真 park
+    BOOST_REQUIRE(control_ran.load()); // 证明是交还 worker 的真 park
     BOOST_CHECK_EQUAL(result_a.load(), -1);
     BOOST_CHECK_EQUAL(errno_a.load(), EBADF);
 
@@ -661,15 +672,16 @@ BOOST_AUTO_TEST_CASE(t_parked_write_close_reuse_returns_ebadf)
     char probe = 0;
     const ssize_t got = ::recv(np[1], &probe, 1, MSG_DONTWAIT);
     BOOST_CHECK_MESSAGE(got < 0 && (errno == EAGAIN || errno == EWOULDBLOCK),
-        "stale write pushed a byte onto the reused peer (got=" << got << ", errno=" << errno << ")");
+                        "stale write pushed a byte onto the reused peer (got=" << got << ", errno=" << errno << ")");
 
     /* flags 判别：旧守卫 Dismiss 后新对象应保留自己的 O_NONBLOCK。 */
     const int fl_after = ::fcntl(fds[0], F_GETFL, 0);
     BOOST_REQUIRE(fl_after >= 0);
     BOOST_CHECK_MESSAGE(fl_after & O_NONBLOCK,
-        "reused fd lost O_NONBLOCK: stale nonblock guard wrote old flags onto new object");
+                        "reused fd lost O_NONBLOCK: stale nonblock guard wrote old flags onto new object");
 
-    if (::fcntl(fds[0], F_GETFD) >= 0) ::close(fds[0]);
+    if (::fcntl(fds[0], F_GETFD) >= 0)
+        ::close(fds[0]);
     ::close(fds[1]);
     ::close(np[0]);
     ::close(np[1]);

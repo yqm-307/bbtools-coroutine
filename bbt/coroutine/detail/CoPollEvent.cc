@@ -19,34 +19,35 @@
 #include <bbt/coroutine/detail/debug/DebugMgr.hpp>
 #include <bbt/coroutine/detail/GlobalConfig.hpp>
 
-namespace bbt::coroutine::detail
-{
+/* CoPollEvent 实现：CAS 状态机 + fd 代际注册表。
+ *
+ *   INITED → ARMING → ARMED → PARKED → TRIGGERING → FINAL
+ *   INITED/ARMING/ARMED ──Trigger──→ PENDING ──CommitPark──→ TRIGGERING → FINAL
+ *   INITED/ARMING/ARMED/PARKED ──UnRegist──→ CANCELLED
+ * 首胜：只有 CAS 胜者执行 _Complete。PARKED 的触发由 Trigger 就地完成，PENDING 的留给
+ * CommitPark 在 Processer 线程消费；终态之后任何触发都返回 -1。
+ * 槽位 epoch>0 后永不擦除，恢复侧才能事后比对代际；close 线性化见 hpp 的 BeginFdClose/EndFdClose。
+ */
+namespace bbt::coroutine::detail {
 
-namespace
-{
+namespace {
 
-void ReportCoPollEventException(CoroutineId co_id, CoPollEventId event_id,
-                                std::exception_ptr eptr) noexcept
+/* 完成回调的异常在这里收口（打 stderr + 计数），不重抛：调用点可能在 Processer 原生栈上。 */
+void ReportCoPollEventException(CoroutineId co_id, CoPollEventId event_id, std::exception_ptr eptr) noexcept
 {
     const auto report = [co_id, event_id](const char* message) noexcept {
         std::fprintf(stderr, "[bbtco] unhandled coevent exception co=%llu event=%llu: %.200s\n",
-                     static_cast<unsigned long long>(co_id),
-                     static_cast<unsigned long long>(event_id), message);
+                     static_cast<unsigned long long>(co_id), static_cast<unsigned long long>(event_id), message);
         g_bbt_coroutine_config->m_unhandled_exception_count.fetch_add(1, std::memory_order_relaxed);
     };
 
-    try
-    {
+    try {
         if (eptr != nullptr)
             std::rethrow_exception(eptr);
-    }
-    catch (const std::exception& e)
-    {
+    } catch (const std::exception& e) {
         report(e.what());
         return;
-    }
-    catch (...)
-    {
+    } catch (...) {
     }
 
     report("unknown exception");
@@ -58,13 +59,13 @@ void ReportCoPollEventException(CoroutineId co_id, CoPollEventId event_id,
 void RawSleepMs(long ms) noexcept
 {
     struct timespec req{ms / 1000, (ms % 1000) * 1000000L};
-    while (::syscall(SYS_nanosleep, &req, &req) != 0 && errno == EINTR)
-    {
+    while (::syscall(SYS_nanosleep, &req, &req) != 0 && errno == EINTR) {
     }
 }
 
 }
 
+/* EventOpt 位 → PollEventType 位；自定义事件没有对应 fd 位，单独置 POLL_EVENT_CUSTOM。 */
 int TransformToPollEventType(short pollevent_type, bool has_custom)
 {
     int ret = 0x0;
@@ -88,10 +89,8 @@ CoPollEvent::SPtr CoPollEvent::Create(CoroutineId id, const CoPollEventCallback&
     return std::make_shared<CoPollEvent>(id, cb);
 }
 
-CoPollEvent::CoPollEvent(CoroutineId id, const CoPollEventCallback& cb):
-    m_co_id(id),
-    m_event_id(_GenerateId()),
-    m_onevent_callback(cb)
+CoPollEvent::CoPollEvent(CoroutineId id, const CoPollEventCallback& cb)
+    : m_co_id(id), m_event_id(_GenerateId()), m_onevent_callback(cb)
 {
     Assert(m_onevent_callback != nullptr);
 }
@@ -110,18 +109,14 @@ int CoPollEvent::Trigger(short trigger_events)
     if (trigger_events == 0)
         return -1;
 
+    /* 首胜：INITED/ARMING/ARMED 只写 PENDING 状态字；PARKED 才由本线程执行 _Complete。 */
     uint64_t state = m_state.load(std::memory_order_acquire);
-    for (;;)
-    {
+    for (;;) {
         const auto phase = GetCoPollEventPhase(state);
-        if (phase == CoPollEventPhase::INITED ||
-            phase == CoPollEventPhase::ARMING ||
-            phase == CoPollEventPhase::ARMED)
-        {
+        if (phase == CoPollEventPhase::INITED || phase == CoPollEventPhase::ARMING
+            || phase == CoPollEventPhase::ARMED) {
             const uint64_t pending = PackCoPollEventState(CoPollEventPhase::PENDING, trigger_events);
-            if (m_state.compare_exchange_weak(state, pending,
-                                              std::memory_order_acq_rel,
-                                              std::memory_order_acquire))
+            if (m_state.compare_exchange_weak(state, pending, std::memory_order_acq_rel, std::memory_order_acquire))
                 return 0;
             continue;
         }
@@ -129,18 +124,11 @@ int CoPollEvent::Trigger(short trigger_events)
         if (phase != CoPollEventPhase::PARKED)
             return -1;
 
-        const uint64_t triggering = PackCoPollEventState(CoPollEventPhase::TRIGGERING,
-                                                           trigger_events);
-        if (m_state.compare_exchange_weak(state, triggering,
-                                          std::memory_order_acq_rel,
-                                          std::memory_order_acquire))
-        {
-            try
-            {
+        const uint64_t triggering = PackCoPollEventState(CoPollEventPhase::TRIGGERING, trigger_events);
+        if (m_state.compare_exchange_weak(state, triggering, std::memory_order_acq_rel, std::memory_order_acquire)) {
+            try {
                 return _Complete(trigger_events);
-            }
-            catch (...)
-            {
+            } catch (...) {
                 ReportCoPollEventException(m_co_id, m_event_id, std::current_exception());
                 return 0;
             }
@@ -177,7 +165,7 @@ CoPollEvent::FdSlots& CoPollEvent::_Slots()
 bool CoPollEvent::_TrackWaiter()
 {
     if (m_fd < 0 || m_event == nullptr)
-        return true;    // 非 fd 事件：不登记，也无须代际判定
+        return true; // 非 fd 事件：不登记，也无须代际判定
 
     std::lock_guard<std::mutex> lock(_WaitersMtx());
     auto& slot = _Slots()[m_fd];
@@ -199,9 +187,9 @@ bool CoPollEvent::_TrackWaiter()
      * close 历史，必须由 FdEpoch 永久可查——否则「触发后未恢复」窗口内
      * 的 close 会把 epoch 抹回 0，与首代 establish-epoch 别名。closing 槽位由 EndFdClose 收尾统一清理。 */
     if (vec.size() > 16) {
-        vec.erase(std::remove_if(vec.begin(), vec.end(),
-                                 [](const std::weak_ptr<CoPollEvent>& w) { return w.expired(); }),
-                  vec.end());
+        vec.erase(
+            std::remove_if(vec.begin(), vec.end(), [](const std::weak_ptr<CoPollEvent>& w) { return w.expired(); }),
+            vec.end());
         if (vec.empty() && !slot.closing && slot.epoch == 0)
             _Slots().erase(m_fd);
     }
@@ -263,7 +251,7 @@ bool CoPollEvent::BeginFdClose(int fd)
          * waiter 采样新 epoch 或看到 closing，均不会被本批误摘/误醒。 */
         auto& slot = _Slots()[fd];
         if (slot.closing)
-            return false;   // 已被其它线程 claim；本 close 走 EBADF/原语义
+            return false; // 已被其它线程 claim；本 close 走 EBADF/原语义
         // 所有可能分配必须先完成；准备失败不发布 closing/新 epoch，旧 waiter 仍在表内。
         snapshot.reserve(slot.waiters.size());
         for (auto& w : slot.waiters)
@@ -322,8 +310,8 @@ bool CoPollEvent::FdIsClosing(int fd)
 
 int CoPollEvent::InitFdEvent(int fd, short events, int timeout)
 {
-    if (GetCoPollEventPhase(m_state.load(std::memory_order_acquire)) != CoPollEventPhase::INITED ||
-        timeout < 0 || m_event != nullptr)
+    if (GetCoPollEventPhase(m_state.load(std::memory_order_acquire)) != CoPollEventPhase::INITED || timeout < 0
+        || m_event != nullptr)
         return -1;
 
     m_fd = fd;
@@ -366,27 +354,24 @@ int CoPollEvent::InitFdEvent(int fd, short events, int timeout)
         return 0;
     }
     auto weakthis = weak_from_this();
-    /* asio 侧旧监听的析构延迟到驱动线程下一次 PollOnce 兑现；本协程
-     * 被唤醒后若抢在兑现前为同一 fd 建新监听，epoll ADD 报 EEXIST，异常曾
-     * 一路逃出杀死连接协程（客户端超时）。此处有界重试：驱动约 1ms 一拍，
-     * 旧监听很快释放；仍失败则返回 -1 不抛异常，调用方按等待建立失败处理，
-     * 协程存活。常态零开销，仅竞态路径短睡 worker（默认 stall 告警关闭）。 */
-    for (int attempt = 0; ; ++attempt)
-    {
-        try
-        {
-            m_event = g_bbt_poller->CreateEvent(fd, events, [weakthis](int fd, short events, bbt::pollevent::EventId eventid){
-                if (weakthis.expired()) return;
-                auto pthis = weakthis.lock();
-                if (pthis == nullptr) return;
-                pthis->Trigger(events);
-            });
+    /* asio 侧旧监听的析构延迟到驱动线程下一次 PollOnce；本协程抢在兑现前为同一 fd 建新监听
+     * 会撞 EEXIST，不接住就一路逃出杀死连接协程。所以有界重试（驱动约 1ms 一拍），仍失败
+     * 返回 -1 不抛异常，调用方按等待建立失败处理。常态零开销，仅竞态路径短睡 worker
+     * （默认 stall 告警关闭）。 */
+    for (int attempt = 0;; ++attempt) {
+        try {
+            m_event = g_bbt_poller->CreateEvent(fd, events,
+                                                [weakthis](int fd, short events, bbt::pollevent::EventId eventid) {
+                                                    if (weakthis.expired())
+                                                        return;
+                                                    auto pthis = weakthis.lock();
+                                                    if (pthis == nullptr)
+                                                        return;
+                                                    pthis->Trigger(events);
+                                                });
             break;
-        }
-        catch (const std::exception& e)
-        {
-            if (attempt >= 3)
-            {
+        } catch (const std::exception& e) {
+            if (attempt >= 3) {
                 std::fprintf(stderr, "[bbtco] InitFdEvent give up co=%llu fd=%d: %.100s\n",
                              static_cast<unsigned long long>(m_co_id), fd, e.what());
                 return -1;
@@ -401,8 +386,7 @@ int CoPollEvent::InitFdEvent(int fd, short events, int timeout)
 int CoPollEvent::InitCustomEvent(int key, void* args)
 {
     BBTATTR_COMM_UNUSED void* unused_args = args;
-    if (GetCoPollEventPhase(m_state.load(std::memory_order_acquire)) != CoPollEventPhase::INITED ||
-        m_has_custom_event)
+    if (GetCoPollEventPhase(m_state.load(std::memory_order_acquire)) != CoPollEventPhase::INITED || m_has_custom_event)
         return -1;
 
     m_has_custom_event = true;
@@ -412,6 +396,8 @@ int CoPollEvent::InitCustomEvent(int key, void* args)
 
 int CoPollEvent::Regist()
 {
+    /* INITED→ARMING（CAS 胜者 StartListen）→ARMED→登记 waiter；StartListen 失败则收敛成
+     * CANCELLED 并移交底层 Event；登记被拒（fd 已换代）以 CLOSED 自触，恢复侧按 EBADF 收口。 */
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
     /* 诊断登记经 TryRegistEvent 收口——map 节点单次分配失败返回
      * false（内部已报告 + 计数，不抛出——本函数可运行在 Context::Resume
@@ -433,7 +419,9 @@ int CoPollEvent::Regist()
         return g_bbt_dbgmgr->TryRegistEvent(shared_from_this());
     };
 #else
-    const auto dbg_regist = []() -> bool { return true; };
+    const auto dbg_regist = []() -> bool {
+        return true;
+    };
 #endif
 
     uint64_t state = m_state.load(std::memory_order_acquire);
@@ -443,9 +431,7 @@ int CoPollEvent::Regist()
 
     uint64_t expected = PackCoPollEventState(CoPollEventPhase::INITED);
     if (!m_state.compare_exchange_strong(expected, PackCoPollEventState(CoPollEventPhase::ARMING),
-                                         std::memory_order_acq_rel,
-                                         std::memory_order_acquire))
-    {
+                                         std::memory_order_acq_rel, std::memory_order_acquire)) {
         if (GetCoPollEventPhase(expected) == CoPollEventPhase::PENDING) {
             return dbg_regist() ? 0 : -1;
         }
@@ -454,19 +440,15 @@ int CoPollEvent::Regist()
 
     auto keep_alive = shared_from_this();
     int regist_ret = 0;
-    try
-    {
+    try {
         if (m_event != nullptr)
             regist_ret = _RegistFdEvent();
-    }
-    catch (...)
-    {
+    } catch (...) {
         // StartListen() 抛出时仍由 ARMING 持有者收敛状态并转移 Event。
         state = m_state.load(std::memory_order_acquire);
         while (GetCoPollEventPhase(state) == CoPollEventPhase::ARMING) {
             if (m_state.compare_exchange_weak(state, PackCoPollEventState(CoPollEventPhase::CANCELLED),
-                                              std::memory_order_acq_rel,
-                                               std::memory_order_acquire))
+                                              std::memory_order_acq_rel, std::memory_order_acquire))
                 break;
         }
         _CannelAllFdEvent();
@@ -480,8 +462,7 @@ int CoPollEvent::Regist()
         state = m_state.load(std::memory_order_acquire);
         while (GetCoPollEventPhase(state) == CoPollEventPhase::ARMING) {
             if (m_state.compare_exchange_weak(state, PackCoPollEventState(CoPollEventPhase::CANCELLED),
-                                              std::memory_order_acq_rel,
-                                               std::memory_order_acquire))
+                                              std::memory_order_acq_rel, std::memory_order_acquire))
                 break;
         }
         _CannelAllFdEvent();
@@ -493,9 +474,7 @@ int CoPollEvent::Regist()
 
     expected = PackCoPollEventState(CoPollEventPhase::ARMING);
     if (!m_state.compare_exchange_strong(expected, PackCoPollEventState(CoPollEventPhase::ARMED),
-                                         std::memory_order_acq_rel,
-                                         std::memory_order_acquire))
-    {
+                                         std::memory_order_acq_rel, std::memory_order_acquire)) {
         _CannelAllFdEvent();
         if (GetCoPollEventPhase(expected) == CoPollEventPhase::PENDING) {
             return dbg_regist() ? 0 : -1;
@@ -523,19 +502,16 @@ int CoPollEvent::Regist()
      * EBADF，而不是等一个永远不会到达的就绪事件。 */
     if (!_TrackWaiter()) {
         Trigger(POLL_EVENT_CLOSED);
-        return 0;   // 已由 CLOSED 路径完成，Regist 语义为"等待建立完成"
+        return 0; // 已由 CLOSED 路径完成，Regist 语义为"等待建立完成"
     }
 
     /* 日志装配不分配：Regist() 可经 Context::Resume 的 onyield 回调在
      * worker 原生栈执行，to_string 拼接的 bad_alloc 无协程侧 catch 可达，
      * 出逃即 terminate。栈缓冲 snprintf 保持同一日志语义、消除逃逸点。 */
     char regist_log[192];
-    std::snprintf(regist_log, sizeof(regist_log),
-                  "[CoEvent:Regist] co=%llu event=%d id=%llu customkey=%d",
-                  static_cast<unsigned long long>(m_co_id),
-                  static_cast<int>(m_listen_events),
-                  static_cast<unsigned long long>(GetId()),
-                  m_custom_key);
+    std::snprintf(regist_log, sizeof(regist_log), "[CoEvent:Regist] co=%llu event=%d id=%llu customkey=%d",
+                  static_cast<unsigned long long>(m_co_id), static_cast<int>(m_listen_events),
+                  static_cast<unsigned long long>(GetId()), m_custom_key);
     g_bbt_dbgp_full(regist_log);
 #ifdef BBT_COROUTINE_PROFILE
     g_bbt_profiler->OnEvent_RegistCoPollEvent();
@@ -551,14 +527,12 @@ bool CoPollEvent::CommitPark()
      * 必须由当前 Processer 消费其 flags。FINAL/CANCELLED 等终态不再产生回调。
      */
     uint64_t state = m_state.load(std::memory_order_acquire);
-    for (;;)
-    {
+    for (;;) {
         const auto phase = GetCoPollEventPhase(state);
         if (phase == CoPollEventPhase::ARMED) {
             // 发布 PARKED 是尾操作；成功后 Processer 不得再访问关联 Coroutine。
             if (m_state.compare_exchange_weak(state, PackCoPollEventState(CoPollEventPhase::PARKED),
-                                               std::memory_order_acq_rel,
-                                               std::memory_order_acquire))
+                                              std::memory_order_acq_rel, std::memory_order_acquire))
                 return false;
             continue;
         }
@@ -568,19 +542,12 @@ bool CoPollEvent::CommitPark()
 
         // 提前触发的 flags 已随状态字发布，只有 CAS 胜者可以执行完成回调。
         const short trigger_events = GetCoPollEventFlags(state);
-        if (m_state.compare_exchange_weak(state,
-                                          PackCoPollEventState(CoPollEventPhase::TRIGGERING,
-                                                               trigger_events),
-                                          std::memory_order_acq_rel,
-                                          std::memory_order_acquire))
-        {
+        if (m_state.compare_exchange_weak(state, PackCoPollEventState(CoPollEventPhase::TRIGGERING, trigger_events),
+                                          std::memory_order_acq_rel, std::memory_order_acquire)) {
             // pending 完成运行在 Processer 线程，不能让 callback 异常逃出。
-            try
-            {
+            try {
                 _Complete(trigger_events);
-            }
-            catch (...)
-            {
+            } catch (...) {
                 ReportCoPollEventException(m_co_id, m_event_id, std::current_exception());
             }
             return true;
@@ -591,18 +558,14 @@ bool CoPollEvent::CommitPark()
 int CoPollEvent::UnRegist()
 {
     uint64_t state = m_state.load(std::memory_order_acquire);
-    for (;;)
-    {
+    for (;;) {
         const auto phase = GetCoPollEventPhase(state);
-        if (phase != CoPollEventPhase::INITED &&
-            phase != CoPollEventPhase::ARMING &&
-            phase != CoPollEventPhase::ARMED &&
-            phase != CoPollEventPhase::PARKED)
+        if (phase != CoPollEventPhase::INITED && phase != CoPollEventPhase::ARMING && phase != CoPollEventPhase::ARMED
+            && phase != CoPollEventPhase::PARKED)
             return -1;
 
         if (!m_state.compare_exchange_weak(state, PackCoPollEventState(CoPollEventPhase::CANCELLED),
-                                           std::memory_order_acq_rel,
-                                           std::memory_order_acquire))
+                                           std::memory_order_acq_rel, std::memory_order_acquire))
             continue;
 
         // ARMING 的 Regist() 仍可能在 StartListen() 内部，资源清理由它完成。
@@ -633,9 +596,7 @@ int CoPollEvent::GetEvent() const
 bool CoPollEvent::IsListening() const
 {
     const auto phase = GetCoPollEventPhase(m_state.load(std::memory_order_acquire));
-    return phase == CoPollEventPhase::ARMING ||
-        phase == CoPollEventPhase::ARMED ||
-        phase == CoPollEventPhase::PARKED;
+    return phase == CoPollEventPhase::ARMING || phase == CoPollEventPhase::ARMED || phase == CoPollEventPhase::PARKED;
 }
 
 bool CoPollEvent::IsFinal() const
@@ -646,8 +607,7 @@ bool CoPollEvent::IsFinal() const
 
 CoPollEventStatus CoPollEvent::GetStatus() const
 {
-    switch (GetCoPollEventPhase(m_state.load(std::memory_order_acquire)))
-    {
+    switch (GetCoPollEventPhase(m_state.load(std::memory_order_acquire))) {
     case CoPollEventPhase::INITED:
         return CoPollEventStatus::POLLEVENT_INITED;
     case CoPollEventPhase::ARMING:
@@ -683,9 +643,9 @@ int64_t CoPollEvent::GetTimeout() const
 int CoPollEvent::_Complete(short trigger_events)
 {
     auto keep_alive = shared_from_this();
+    /* 顺序固定：摘 waiter → 移交底层 Event → 发布 FINAL → 回调；CAS 保证只有这一个执行者。 */
     _CannelAllFdEvent();
-    m_state.store(PackCoPollEventState(CoPollEventPhase::FINAL, trigger_events),
-                  std::memory_order_release);
+    m_state.store(PackCoPollEventState(CoPollEventPhase::FINAL, trigger_events), std::memory_order_release);
 
 #ifdef BBT_COROUTINE_PROFILE
     g_bbt_profiler->OnEvent_TriggerCoPollEvent();
@@ -697,24 +657,19 @@ int CoPollEvent::_Complete(short trigger_events)
     const auto callback = m_onevent_callback;
     const int custom_key = m_custom_key;
     std::exception_ptr pending_exception{nullptr};
-    try
-    {
+    try {
         /* 完成回调交付首胜 Trigger 锁存的原始触发掩码：fd 位保持底层
          * EventOpt 口径（READABLE=0x02/WRITEABLE=0x04），运行时高位
          * （CUSTOM/CANCELLED/CLOSED）原样透传。需要 PollEventType 统一
          * 口径的消费者（协程恢复路径）在各自入口自行归一化，不在此替
          * 所有回调消费者改写口径。 */
         callback(keep_alive, trigger_events, custom_key);
-    }
-    catch(const std::exception& e)
-    {
+    } catch (const std::exception& e) {
         if (g_bbt_coroutine_config->m_ext_coevent_exception_callback != nullptr)
             g_bbt_coroutine_config->m_ext_coevent_exception_callback(core::errcode::Errcode(e.what()));
         else
             pending_exception = std::current_exception();
-    }
-    catch(...)
-    {
+    } catch (...) {
         if (g_bbt_coroutine_config->m_ext_coevent_exception_callback != nullptr)
             g_bbt_coroutine_config->m_ext_coevent_exception_callback(core::errcode::Errcode("unknown exception"));
         else

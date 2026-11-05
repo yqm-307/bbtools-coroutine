@@ -11,11 +11,9 @@
  * 3、使用CoPool来处理任务；
  */
 
-class RedisClient
-{
+class RedisClient {
 public:
-    RedisClient(const std::string& host, int port):
-        m_context(redisConnect(host.c_str(), port))
+    RedisClient(const std::string& host, int port) : m_context(redisConnect(host.c_str(), port))
     {
         if (m_context == nullptr || m_context->err) {
             throw std::runtime_error("Could not connect to Redis server");
@@ -101,11 +99,15 @@ public:
         freeReplyObject(reply);
     }
 
-    void Run() {
-        while (m_is_running) { sleep(1); };
+    void Run()
+    {
+        while (m_is_running) {
+            sleep(1);
+        };
     };
 
-    void Stop() {
+    void Stop()
+    {
         m_is_running = false;
     }
 
@@ -129,7 +131,8 @@ void Example1()
     // 同时我们可以直接使用hiredis的同步接口在一个hiredis的同步上下文中
     // 同时因为hiredis的同步接口是阻塞的，所以我们可以在协程中使用
     // 注意：hiredis的redisContext不是线程安全的
-    bbtco [&](){
+    bbtco[&]()
+    {
         try {
             client.Set("key2", "value2");
             std::string value2 = client.Get("key2");
@@ -140,7 +143,6 @@ void Example1()
 
         client.Stop();
     };
-
 
     client.Run();
 }
@@ -157,8 +159,7 @@ void Example2()
     std::atomic_int success_count{0};
     std::atomic_int error_count{0};
 
-    for (int worker = 0; worker < kWorkers; ++worker)
-    {
+    for (int worker = 0; worker < kWorkers; ++worker) {
         copool->Submit([&, worker]() {
             try {
                 RedisClient client("127.0.0.1", 6379);
@@ -216,5 +217,4 @@ int main()
     Example2();
 
     /* process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出 */
-
 }

@@ -14,14 +14,11 @@
 #include <bbt/coroutine/detail/Scheduler.hpp>
 
 /* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。 */
-namespace
-{
+namespace {
 void EnsureRuntime()
 {
     static std::once_flag once;
-    std::call_once(once, [](){
-        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
-    });
+    std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
 }
 
@@ -50,20 +47,23 @@ BOOST_AUTO_TEST_CASE(t_external_blocking_read_yields_and_restores_flags)
     std::atomic_int ticker{0};
     std::atomic_int n{0};
 
-    bbtco [&]() {
+    bbtco[&]()
+    {
         while (n.load() == 0) {
             ticker.fetch_add(1);
             bbtco_yield;
         }
         done.Down();
     };
-    bbtco [&]() {
+    bbtco[&]()
+    {
         char buf[1];
         const ssize_t r = ::read(fds[0], buf, 1);
         BOOST_CHECK_EQUAL(r, 1);
         n.store(1);
     };
-    bbtco [&]() {
+    bbtco[&]()
+    {
         bbtco_sleep(20);
         char c = 'x';
         BOOST_CHECK_EQUAL(::write(fds[1], &c, 1), 1);
@@ -96,7 +96,8 @@ BOOST_AUTO_TEST_CASE(t_repeated_wait_on_same_fd)
     bbt::core::thread::CountDownLatch done{1};
     std::atomic_bool failed{false};
 
-    bbtco [&]() {
+    bbtco[&]()
+    {
         try {
             for (int i = 0; i < kRounds; ++i) {
                 char value = 0;
@@ -108,7 +109,8 @@ BOOST_AUTO_TEST_CASE(t_repeated_wait_on_same_fd)
         }
         done.Down();
     };
-    bbtco [&]() {
+    bbtco[&]()
+    {
         for (int i = 0; i < kRounds; ++i) {
             bbtco_sleep(2);
             const char value = static_cast<char>('a' + i);

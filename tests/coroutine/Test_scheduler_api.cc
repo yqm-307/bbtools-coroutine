@@ -6,7 +6,7 @@
 #include <atomic>
 #include <limits>
 #include <stdexcept>
-#include <unistd.h>     // getpagesize()：显式大小按系统页对齐
+#include <unistd.h> // getpagesize()：显式大小按系统页对齐
 
 #include <bbt/core/thread/Lock.hpp>
 #include <bbt/coroutine/coroutine.hpp>
@@ -14,24 +14,19 @@
 #include <bbt/coroutine/detail/Scheduler.hpp>
 
 /* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。 */
-namespace
-{
+namespace {
 void EnsureRuntime()
 {
     static std::once_flag once;
-    std::call_once(once, [](){
-        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
-    });
+    std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
 }
 
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::detail;
 
-namespace
-{
-struct ConfigSnapshot
-{
+namespace {
+struct ConfigSnapshot {
     size_t threads{0};
     size_t stack_size{0};
     bool stack_protect{false};
@@ -91,16 +86,22 @@ BOOST_AUTO_TEST_CASE(t_explicit_stack_size_registration)
     std::atomic<size_t> seen{0};
     bbt::core::thread::CountDownLatch latch{3};
 
-    g_scheduler->RegistCoroutineTask(request, [&]() {
-        seen.store(GetLocalCoroutineStackSize());
-        latch.Down();
-    }, "explicit-size");
+    g_scheduler->RegistCoroutineTask(
+        request,
+        [&]() {
+            seen.store(GetLocalCoroutineStackSize());
+            latch.Down();
+        },
+        "explicit-size");
 
     bool succ = false;
     g_scheduler->RegistCoroutineTask(request, [&]() { latch.Down(); }, succ);
     BOOST_CHECK(succ);
 
-    bbtco_desc("api-desc") [&]() { latch.Down(); };
+    bbtco_desc("api-desc")[&]()
+    {
+        latch.Down();
+    };
 
     BOOST_CHECK_EQUAL(latch.WaitTimeout(5000), 0);
     BOOST_CHECK_EQUAL(seen.load(), expected);
@@ -113,20 +114,17 @@ BOOST_AUTO_TEST_CASE(t_invalid_stack_size_rejected_via_registration)
 {
     EnsureRuntime();
 
-    BOOST_CHECK_THROW(g_scheduler->RegistCoroutineTask(size_t(0), [](){}),
-                      std::invalid_argument);
-    BOOST_CHECK_THROW(g_scheduler->RegistCoroutineTask(static_cast<size_t>(-1), [](){}),
-                      std::length_error);
+    BOOST_CHECK_THROW(g_scheduler->RegistCoroutineTask(size_t(0), []() {}), std::invalid_argument);
+    BOOST_CHECK_THROW(g_scheduler->RegistCoroutineTask(static_cast<size_t>(-1), []() {}), std::length_error);
     BOOST_CHECK_THROW(
-        g_scheduler->RegistCoroutineTask(
-            static_cast<size_t>(std::numeric_limits<ptrdiff_t>::max()), [](){}),
+        g_scheduler->RegistCoroutineTask(static_cast<size_t>(std::numeric_limits<ptrdiff_t>::max()), []() {}),
         std::length_error);
 
     bool succ = true;
-    g_scheduler->RegistCoroutineTask(size_t(0), [](){}, succ);
+    g_scheduler->RegistCoroutineTask(size_t(0), []() {}, succ);
     BOOST_CHECK(!succ);
     succ = true;
-    g_scheduler->RegistCoroutineTask(static_cast<size_t>(-1), [](){}, succ);
+    g_scheduler->RegistCoroutineTask(static_cast<size_t>(-1), []() {}, succ);
     BOOST_CHECK(!succ);
 
     /* 真实任务仍可注册（拒绝没有破坏运行时） */

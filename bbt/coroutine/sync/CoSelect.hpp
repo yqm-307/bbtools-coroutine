@@ -1,10 +1,10 @@
+/** @file CoSelect.hpp @brief Go select 风格的多 Chan 复用。 */
 #pragma once
 #include <functional>
 #include <vector>
 #include <bbt/coroutine/sync/Chan.hpp>
 
-namespace bbt::coroutine::sync
-{
+namespace bbt::coroutine::sync {
 
 /**
  * @brief Go select 风格多路 Chan 复用
@@ -29,43 +29,38 @@ namespace bbt::coroutine::sync
  * 仅支持 Max>0 的缓冲 Chan：Chan<T,0> 为 private 继承、watcher 接口不可见，
  * Case* 对 Max==0 在编译期 static_assert 拒绝。
  */
-class CoSelect
-{
+class CoSelect {
 public:
     /// @brief 添加一个缓冲 Chan 的读分支；命中时把值写入 out。
     /// @tparam TItem Chan 中的元素类型
     /// @tparam Max 缓冲容量，必须大于 0
     /// @param ch 借用的 Chan，须存活至 Run() 返回
     /// @param out 命中时接收读出的值
-    template<class TItem, int Max>
-    CoSelect& CaseRead(Chan<TItem, Max>& ch, TItem& out);
+    template <class TItem, int Max> CoSelect& CaseRead(Chan<TItem, Max>& ch, TItem& out);
 
     /// @brief 添加一个 shared_ptr 参数的缓冲 Chan 读分支；Chan 须由调用方保活至 Run() 返回。
     /// @tparam TItem Chan 中的元素类型
     /// @tparam Max 缓冲容量，必须大于 0
     /// @param ch 指向需由调用方保活至 Run() 返回的 Chan
     /// @param out 命中时接收读出的值
-    template<class TItem, int Max>
-    CoSelect& CaseRead(std::shared_ptr<Chan<TItem, Max>> ch, TItem& out);
+    template <class TItem, int Max> CoSelect& CaseRead(std::shared_ptr<Chan<TItem, Max>> ch, TItem& out);
 
     /// @brief 添加一个缓冲 Chan 的写分支；命中表示 val 已入队。
     /// @tparam TItem Chan 中的元素类型
     /// @tparam Max 缓冲容量，必须大于 0
     /// @param ch 借用的 Chan，须存活至 Run() 返回
     /// @param val 待写入的值；注册时按值捕获
-    template<class TItem, int Max>
-    CoSelect& CaseWrite(Chan<TItem, Max>& ch, const TItem& val);
+    template <class TItem, int Max> CoSelect& CaseWrite(Chan<TItem, Max>& ch, const TItem& val);
 
     /// @brief 添加一个 shared_ptr 参数的缓冲 Chan 写分支；Chan 须由调用方保活至 Run() 返回。
     /// @tparam TItem Chan 中的元素类型
     /// @tparam Max 缓冲容量，必须大于 0
     /// @param ch 指向需由调用方保活至 Run() 返回的 Chan
     /// @param val 待写入的值；注册时按值捕获
-    template<class TItem, int Max>
-    CoSelect& CaseWrite(std::shared_ptr<Chan<TItem, Max>> ch, const TItem& val);
+    template <class TItem, int Max> CoSelect& CaseWrite(std::shared_ptr<Chan<TItem, Max>> ch, const TItem& val);
 
     /// @brief 设置等待超时；与 Default 同时出现时 Default 优先（不挂起）。
-    /// @param ms 超时毫秒
+    /// @param ms 超时毫秒；负值表示不设超时（默认）
     /// @return 当前 CoSelect，供链式调用
     CoSelect& CaseTimeout(int ms);
 
@@ -80,15 +75,17 @@ public:
 private:
     /* type erasure：watch/unwatch 操作对应 Chan 的 watcher 列表（Chan 内部持锁），
      * try_op 返回 TryRead/TryWrite 的原始返回值 */
-    struct Case
-    {
+    struct Case {
         std::function<void(const CoWaiter::SPtr&)> watch;
         std::function<void(const CoWaiter::SPtr&)> unwatch;
         std::function<int()> try_op;
     };
 
     /* 0 成功；-1 Chan 已关闭（永远等不到更多，视为就绪）。-2 = 未就绪 */
-    static bool _IsReady(int ret) { return ret == 0 || ret == -1; }
+    static bool _IsReady(int ret)
+    {
+        return ret == 0 || ret == -1;
+    }
 
     int _TryAll();
 
@@ -97,8 +94,7 @@ private:
     bool m_has_default{false};
 };
 
-template<class TItem, int Max>
-CoSelect& CoSelect::CaseRead(Chan<TItem, Max>& ch, TItem& out)
+template <class TItem, int Max> CoSelect& CoSelect::CaseRead(Chan<TItem, Max>& ch, TItem& out)
 {
     static_assert(Max > 0, "CoSelect: Chan<T, 0> has no watcher API and is not supported");
     m_cases.push_back(Case{
@@ -109,14 +105,12 @@ CoSelect& CoSelect::CaseRead(Chan<TItem, Max>& ch, TItem& out)
     return *this;
 }
 
-template<class TItem, int Max>
-CoSelect& CoSelect::CaseRead(std::shared_ptr<Chan<TItem, Max>> ch, TItem& out)
+template <class TItem, int Max> CoSelect& CoSelect::CaseRead(std::shared_ptr<Chan<TItem, Max>> ch, TItem& out)
 {
     return CaseRead(*ch, out);
 }
 
-template<class TItem, int Max>
-CoSelect& CoSelect::CaseWrite(Chan<TItem, Max>& ch, const TItem& val)
+template <class TItem, int Max> CoSelect& CoSelect::CaseWrite(Chan<TItem, Max>& ch, const TItem& val)
 {
     static_assert(Max > 0, "CoSelect: Chan<T, 0> has no watcher API and is not supported");
     m_cases.push_back(Case{
@@ -128,8 +122,7 @@ CoSelect& CoSelect::CaseWrite(Chan<TItem, Max>& ch, const TItem& val)
     return *this;
 }
 
-template<class TItem, int Max>
-CoSelect& CoSelect::CaseWrite(std::shared_ptr<Chan<TItem, Max>> ch, const TItem& val)
+template <class TItem, int Max> CoSelect& CoSelect::CaseWrite(std::shared_ptr<Chan<TItem, Max>> ch, const TItem& val)
 {
     return CaseWrite(*ch, val);
 }
@@ -148,8 +141,7 @@ inline CoSelect& CoSelect::Default()
 
 inline int CoSelect::_TryAll()
 {
-    for (size_t i = 0; i < m_cases.size(); ++i)
-    {
+    for (size_t i = 0; i < m_cases.size(); ++i) {
         if (_IsReady(m_cases[i].try_op()))
             return (int)i;
     }
@@ -166,8 +158,7 @@ inline int CoSelect::Run()
     int index = _TryAll();
 
     /* 2. Default 优先于 Timeout：有 Default 且全未就绪立即 -1，不挂起 */
-    if (index < 0 && !m_has_default)
-    {
+    if (index < 0 && !m_has_default) {
         /* 3. cb 在 Yield 之后执行：注册 watcher 后再 Try 一遍补丢唤醒窗口 */
         int cb_index = -1;
         auto cb = [this, waiter, &cb_index]() {
@@ -191,7 +182,7 @@ inline int CoSelect::Run()
             index = cb_index;
     }
 
-    /* 4. 无论命中/超时/Default 都清理：Notify 已 Cancel 的 waiter 返回 -1，忽略 */
+    /* 4. 无论命中/超时/Default 都清理：先摘 watcher 再 Cancel，迟到的 Notify 返回 -1 */
     for (auto& c : m_cases)
         c.unwatch(waiter);
     waiter->Cancel();

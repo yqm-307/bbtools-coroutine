@@ -13,7 +13,8 @@ volatile int b = 0;
 static fatigue::Metrics g_metrics("comutex");
 static volatile sig_atomic_t g_running = 1;
 
-void on_signal(int) {
+void on_signal(int)
+{
     g_running = 0;
     g_metrics.stop_reporter();
     _exit(0);
@@ -23,7 +24,8 @@ void fatigue_1()
 {
     // ── 100 个协程做 Lock/UnLock (互斥写入) ──
     for (int i = 0; i < nco_num; ++i) {
-        bbtco [i]() {
+        bbtco[i]()
+        {
             while (true) {
                 uint64_t t0 = fatigue::now_us();
                 mutex->Lock();
@@ -32,7 +34,8 @@ void fatigue_1()
                 g_metrics.record_lock_latency_us(lat);
 
                 Assert(a == b);
-                a++; b++;
+                a++;
+                b++;
                 g_metrics.ops_total++;
 
                 mutex->UnLock();
@@ -42,7 +45,8 @@ void fatigue_1()
 
     // ── 5 个协程做 TryLock(10ms) ──
     for (int i = 0; i < 5; ++i) {
-        bbtco [i]() {
+        bbtco[i]()
+        {
             while (true) {
                 uint64_t t0 = fatigue::now_us();
                 int ret = mutex->TryLock(10);
@@ -52,7 +56,8 @@ void fatigue_1()
                     g_metrics.trylock_success++;
                     g_metrics.record_lock_latency_us(lat);
                     Assert(a == b);
-                    a++; b++;
+                    a++;
+                    b++;
                     g_metrics.ops_total++;
                     mutex->UnLock();
                 } else {
@@ -62,7 +67,7 @@ void fatigue_1()
         };
     }
 
-    g_metrics.start_reporter(60);  // 每分钟输出一次指标
+    g_metrics.start_reporter(60); // 每分钟输出一次指标
 
     // 信号处理：SIGTERM/SIGINT 时优雅退出
     signal(SIGTERM, on_signal);

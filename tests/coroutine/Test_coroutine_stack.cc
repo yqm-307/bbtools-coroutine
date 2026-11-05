@@ -2,9 +2,9 @@
 #define BOOST_TEST_MAIN
 #include <boost/test/included/unit_test.hpp>
 
-#include <unistd.h>       // getpagesize() / fork()：校验保护页布局与隔离故障子进程
-#include <signal.h>       // SIGSEGV
-#include <sys/wait.h>     // waitpid：父进程核验子进程真实终止状态
+#include <unistd.h>   // getpagesize() / fork()：校验保护页布局与隔离故障子进程
+#include <signal.h>   // SIGSEGV
+#include <sys/wait.h> // waitpid：父进程核验子进程真实终止状态
 
 #include <atomic>
 #include <cerrno>
@@ -35,56 +35,54 @@ namespace {
  * 析构中不抛异常、不做 Boost 断言——析构路径抛出会终止进程，断言在析构中也不
  * 可靠；这里只把观测值存到外部变量，判定留在测试体。
  * 计数口径已改为 size_t（借出 + 申请中），探针类型同步，不做窄化。 */
-std::atomic_int    g_probe_destroy_count{0};
+std::atomic_int g_probe_destroy_count{0};
 std::atomic<size_t> g_probe_cur_at_destroy{static_cast<size_t>(-1)};
 
-struct StackBorrowProbe
-{
+struct StackBorrowProbe {
     ~StackBorrowProbe()
     {
-        g_probe_cur_at_destroy.store(
-            g_bbt_stackpoll->GetCurCoNum(), std::memory_order_relaxed);
+        g_probe_cur_at_destroy.store(g_bbt_stackpoll->GetCurCoNum(), std::memory_order_relaxed);
         g_probe_destroy_count.fetch_add(1, std::memory_order_relaxed);
     }
 };
 
 /* 只在没有 runtime、没有其他线程时改全局配置，并在作用域结束时还原
  * （设计 §风险与恢复：不在已启动进程里重启 runtime 来重置配置）。 */
-struct ConfigGuard
-{
+struct ConfigGuard {
     size_t max_coroutine;
     size_t static_coroutine;
     size_t stack_size;
-    bool   stack_protect;
+    bool stack_protect;
     size_t stackpool_min;
 
     ConfigGuard()
     {
         auto* cfg = g_bbt_coroutine_config.get();
-        max_coroutine    = cfg->m_cfg_max_coroutine;
+        max_coroutine = cfg->m_cfg_max_coroutine;
         static_coroutine = cfg->m_cfg_static_coroutine;
-        stack_size       = cfg->m_cfg_stack_size;
-        stack_protect    = cfg->m_cfg_stack_protect;
-        stackpool_min    = cfg->m_cfg_stackpool_min_alloc_size;
+        stack_size = cfg->m_cfg_stack_size;
+        stack_protect = cfg->m_cfg_stack_protect;
+        stackpool_min = cfg->m_cfg_stackpool_min_alloc_size;
     }
 
     ~ConfigGuard()
     {
         auto* cfg = g_bbt_coroutine_config.get();
-        cfg->m_cfg_max_coroutine              = max_coroutine;
-        cfg->m_cfg_static_coroutine           = static_coroutine;
-        cfg->m_cfg_stack_size                 = stack_size;
-        cfg->m_cfg_stack_protect              = stack_protect;
-        cfg->m_cfg_stackpool_min_alloc_size   = stackpool_min;
+        cfg->m_cfg_max_coroutine = max_coroutine;
+        cfg->m_cfg_static_coroutine = static_coroutine;
+        cfg->m_cfg_stack_size = stack_size;
+        cfg->m_cfg_stack_protect = stack_protect;
+        cfg->m_cfg_stackpool_min_alloc_size = stackpool_min;
     }
 };
 
 /* 复用式线程屏障：S7 用它固定「同时申请」与「成功者持有到第二屏障」两个时刻，
  * 不靠任意 sleep 排序；带超时，异常路径不会把测试挂死。 */
-class Barrier
-{
+class Barrier {
 public:
-    explicit Barrier(size_t total): m_total(total) {}
+    explicit Barrier(size_t total) : m_total(total)
+    {
+    }
 
     bool Wait(int timeout_ms = 30000)
     {
@@ -96,16 +94,15 @@ public:
             m_cv.notify_all();
             return true;
         }
-        return m_cv.wait_for(lk, std::chrono::milliseconds(timeout_ms),
-                             [&]{ return generation != m_generation; });
+        return m_cv.wait_for(lk, std::chrono::milliseconds(timeout_ms), [&] { return generation != m_generation; });
     }
 
 private:
-    std::mutex              m_mutex;
+    std::mutex m_mutex;
     std::condition_variable m_cv;
-    const size_t            m_total;
-    size_t                  m_arrived{0};
-    size_t                  m_generation{0};
+    const size_t m_total;
+    size_t m_arrived{0};
+    size_t m_generation{0};
 };
 
 } // namespace
@@ -132,12 +129,12 @@ BOOST_AUTO_TEST_CASE(t_factory_default_stack_size_without_runtime)
 
     ConfigGuard guard;
     auto* cfg = g_bbt_coroutine_config.get();
-    BOOST_REQUIRE_EQUAL(cfg->m_cfg_stack_size, 1024u * 12);    // 出厂默认；本二进制内无人改写
+    BOOST_REQUIRE_EQUAL(cfg->m_cfg_stack_size, 1024u * 12); // 出厂默认；本二进制内无人改写
     BOOST_REQUIRE_EQUAL(cfg->m_cfg_stack_protect, true);
 
     StackPool pool;
 
-    auto* by_default = pool.Apply();            // 无参入口 = 默认配置
+    auto* by_default = pool.Apply(); // 无参入口 = 默认配置
     BOOST_REQUIRE(by_default != nullptr);
     BOOST_CHECK_EQUAL(by_default->UseableSize(), 12288u);
     BOOST_CHECK(by_default->IsProtected());
@@ -155,7 +152,7 @@ BOOST_AUTO_TEST_CASE(t_factory_default_stack_size_without_runtime)
     pool.Release(by_explicit);
 
     auto* default_again = pool.Apply();
-    BOOST_CHECK(default_again == by_default);   // 默认桶按默认配置回桶，未被显式调用污染
+    BOOST_CHECK(default_again == by_default); // 默认桶按默认配置回桶，未被显式调用污染
     pool.Release(default_again);
 
     BOOST_CHECK_EQUAL(pool.GetCurCoNum(), 0u);
@@ -169,9 +166,8 @@ BOOST_AUTO_TEST_CASE(t_coroutine_stack_create)
 
     std::vector<bbt::coroutine::detail::Stack> array;
 
-    for (int i = 0; i < 1000; ++i)
-    {
-        array.push_back(bbt::coroutine::detail::Stack(1024*40));
+    for (int i = 0; i < 1000; ++i) {
+        array.push_back(bbt::coroutine::detail::Stack(1024 * 40));
     }
 }
 
@@ -183,32 +179,27 @@ BOOST_AUTO_TEST_CASE(t_stack_size_alignment_and_guard_layout)
     const size_t P = static_cast<size_t>(getpagesize());
     const size_t requests[] = {1, P - 1, P, P + 1, 12 * 1024, 16 * 1024 + 1, 64 * 1024};
 
-    for (size_t req : requests)
-    {
+    for (size_t req : requests) {
         Stack protected_stack(req, true);
         const size_t U = protected_stack.UseableSize();
         BOOST_CHECK(U >= req);
         BOOST_CHECK_EQUAL(U % P, 0u);
         BOOST_CHECK(U - req < P);
-        BOOST_CHECK_EQUAL(
-            reinterpret_cast<uintptr_t>(protected_stack.MemChunkBegin()) % P, 0u);
+        BOOST_CHECK_EQUAL(reinterpret_cast<uintptr_t>(protected_stack.MemChunkBegin()) % P, 0u);
         BOOST_CHECK_EQUAL(protected_stack.MemChunkSize(), U + P);
         BOOST_CHECK(protected_stack.IsProtected());
-        BOOST_CHECK_EQUAL(protected_stack.StackBottom(),
-                          protected_stack.MemChunkBegin() + P);
+        BOOST_CHECK_EQUAL(protected_stack.StackBottom(), protected_stack.MemChunkBegin() + P);
 
         /* 正常可用区末端可写；保护页不属于登记的可用区（另行子进程验证不可读） */
         protected_stack.StackTop()[-1] = static_cast<char>(0x5a);
-        BOOST_CHECK_EQUAL(
-            static_cast<unsigned char>(protected_stack.StackTop()[-1]), 0x5au);
+        BOOST_CHECK_EQUAL(static_cast<unsigned char>(protected_stack.StackTop()[-1]), 0x5au);
 
         Stack unprotected_stack(req, false);
         BOOST_CHECK_EQUAL(unprotected_stack.UseableSize(), Stack::NormalizeSize(req));
         BOOST_CHECK(!unprotected_stack.IsProtected());
         BOOST_CHECK_EQUAL(unprotected_stack.MemChunkSize(), unprotected_stack.UseableSize());
         BOOST_CHECK_EQUAL(unprotected_stack.StackBottom(), unprotected_stack.MemChunkBegin());
-        BOOST_CHECK_EQUAL(
-            reinterpret_cast<uintptr_t>(unprotected_stack.MemChunkBegin()) % P, 0u);
+        BOOST_CHECK_EQUAL(reinterpret_cast<uintptr_t>(unprotected_stack.MemChunkBegin()) % P, 0u);
     }
 }
 
@@ -218,20 +209,19 @@ BOOST_AUTO_TEST_CASE(t_stack_guard_page_subprocess_sigsegv)
     const size_t P = static_cast<size_t>(getpagesize());
 
     /* 保护栈：读保护页必须让子进程收到 SIGSEGV */
-    std::fflush(nullptr);       // 子进程继承空缓冲：避免重复输出测试头
+    std::fflush(nullptr); // 子进程继承空缓冲：避免重复输出测试头
     pid_t pid = ::fork();
     BOOST_REQUIRE(pid >= 0);
-    if (pid == 0)
-    {
+    if (pid == 0) {
         /* Boost.Test 的 execution_monitor 默认接管 SIGSEGV 并把它转成「测试失败」而不是
          * 真实信号终止；子进程里先恢复默认处置，父进程才能核到真正的 WIFSIGNALED。 */
         ::signal(SIGSEGV, SIG_DFL);
         ::signal(SIGBUS, SIG_DFL);
         ::signal(SIGABRT, SIG_DFL);
         bbt::coroutine::detail::Stack stack(16 * 1024, true);
-        volatile char* guard = stack.MemChunkBegin() + P - 1;   // 保护页最后一字节
+        volatile char* guard = stack.MemChunkBegin() + P - 1; // 保护页最后一字节
         *guard = 1;
-        ::_exit(0);     // 不该到达：保护页可写就说明保护没生效
+        ::_exit(0); // 不该到达：保护页可写就说明保护没生效
     }
     int status = 0;
     BOOST_REQUIRE_EQUAL(::waitpid(pid, &status, 0), pid);
@@ -242,8 +232,7 @@ BOOST_AUTO_TEST_CASE(t_stack_guard_page_subprocess_sigsegv)
     std::fflush(nullptr);
     pid = ::fork();
     BOOST_REQUIRE(pid >= 0);
-    if (pid == 0)
-    {
+    if (pid == 0) {
         ::signal(SIGSEGV, SIG_DFL);
         bbt::coroutine::detail::Stack stack(16 * 1024, false);
         volatile char* first = stack.MemChunkBegin();
@@ -286,7 +275,7 @@ BOOST_AUTO_TEST_CASE(t_stack_clear_releases_and_is_idempotent)
 BOOST_AUTO_TEST_CASE(t_stack_move_transfers_ownership)
 {
     bbt::coroutine::detail::Stack a(1024 * 64);
-    char*  const p  = a.MemChunkBegin();
+    char* const p = a.MemChunkBegin();
     size_t const sz = a.MemChunkSize();
     BOOST_REQUIRE(p != nullptr);
     BOOST_REQUIRE(sz > 0);
@@ -312,8 +301,7 @@ BOOST_AUTO_TEST_CASE(t_stack_protect_layout_and_clear_resets_state)
     bbt::coroutine::detail::Stack s(1024 * 64, true);
     BOOST_REQUIRE(s.MemChunkBegin() != nullptr);
     BOOST_REQUIRE(s.UseableSize() > 0);
-    BOOST_CHECK_EQUAL(s.StackBottom(),
-                      s.MemChunkBegin() + static_cast<size_t>(getpagesize()));
+    BOOST_CHECK_EQUAL(s.StackBottom(), s.MemChunkBegin() + static_cast<size_t>(getpagesize()));
 
     s.Clear();
     BOOST_CHECK(s.MemChunkBegin() == nullptr);
@@ -334,20 +322,19 @@ BOOST_AUTO_TEST_CASE(t_stack_protect_layout_and_clear_resets_state)
 BOOST_AUTO_TEST_CASE(t_release_protect_failure_is_fail_stop)
 {
     const int kTerminateSentinel = 42;
-    const int kNormalExitCode    = 7;
+    const int kNormalExitCode = 7;
 
     std::fflush(nullptr);
     pid_t pid = ::fork();
     BOOST_REQUIRE(pid >= 0);
-    if (pid == 0)
-    {
+    if (pid == 0) {
         std::set_terminate([]() { ::_exit(kTerminateSentinel); });
         bbt::coroutine::detail::Stack::_TestFailNextReleaseProtect();
         {
             bbt::coroutine::detail::Stack stack(16 * 1024, true);
-            stack.Clear();          // 解除保护失败 → 不得继续 free → terminate
+            stack.Clear(); // 解除保护失败 → 不得继续 free → terminate
         }
-        ::_exit(0);                 // 普通返回：说明被当成可恢复成功，判失败
+        ::_exit(0); // 普通返回：说明被当成可恢复成功，判失败
     }
     int status = 0;
     BOOST_REQUIRE_EQUAL(::waitpid(pid, &status, 0), pid);
@@ -358,8 +345,7 @@ BOOST_AUTO_TEST_CASE(t_release_protect_failure_is_fail_stop)
     std::fflush(nullptr);
     pid = ::fork();
     BOOST_REQUIRE(pid >= 0);
-    if (pid == 0)
-    {
+    if (pid == 0) {
         std::set_terminate([]() { ::_exit(kTerminateSentinel); });
         bbt::coroutine::detail::Stack stack(16 * 1024, true);
         stack.Clear();
@@ -382,21 +368,20 @@ BOOST_AUTO_TEST_CASE(t_invalid_stack_size_rejected_before_alloc)
     using bbt::coroutine::detail::StackPool;
 
     const size_t pool_alloc = g_bbt_stackpoll->AllocSize();
-    const size_t pool_cur   = g_bbt_stackpoll->GetCurCoNum();
-    CoroutineCallback empty = [](){};
+    const size_t pool_cur = g_bbt_stackpoll->GetCurCoNum();
+    CoroutineCallback empty = []() {
+    };
 
     /* 0 与 resize 溢出类别 */
     BOOST_CHECK_THROW(Stack(0, true), std::invalid_argument);
     BOOST_CHECK_THROW(Stack(0, false), std::invalid_argument);
     /* 旧的 signed 调用转换后（-1）也必须被范围检查拒绝，不静默变小 */
     BOOST_CHECK_THROW(Stack(static_cast<size_t>(-1), false), std::length_error);
-    BOOST_CHECK_THROW(
-        Stack(static_cast<size_t>(std::numeric_limits<std::ptrdiff_t>::max()) - 1, false),
-        std::length_error);
+    BOOST_CHECK_THROW(Stack(static_cast<size_t>(std::numeric_limits<std::ptrdiff_t>::max()) - 1, false),
+                      std::length_error);
     /* 页取整加法回绕 */
     BOOST_CHECK_THROW(Stack(std::numeric_limits<size_t>::max(), false), std::length_error);
-    BOOST_CHECK_THROW(
-        Stack(std::numeric_limits<size_t>::max() - 1, true), std::length_error);
+    BOOST_CHECK_THROW(Stack(std::numeric_limits<size_t>::max() - 1, true), std::length_error);
 
     /* 创建/显式注册入口同样在分配前拒绝 */
     BOOST_CHECK_THROW(Coroutine::Create(0, empty), std::invalid_argument);
@@ -411,7 +396,7 @@ BOOST_AUTO_TEST_CASE(t_invalid_stack_size_rejected_before_alloc)
     BOOST_CHECK_EQUAL(g_bbt_stackpoll->GetCurCoNum(), pool_cur);
 
     /* Context 入口：0 也在借栈前被拒绝 */
-    BOOST_CHECK_THROW(Context(0, [](){}, false), std::invalid_argument);
+    BOOST_CHECK_THROW(Context(0, []() {}, false), std::invalid_argument);
     BOOST_CHECK_EQUAL(g_bbt_stackpoll->AllocSize(), pool_alloc);
 }
 
@@ -423,18 +408,18 @@ BOOST_AUTO_TEST_CASE(t_pool_capacity_exhaustion_contract)
 
     ConfigGuard guard;
     auto* cfg = g_bbt_coroutine_config.get();
-    cfg->m_cfg_max_coroutine = 0;   // m_cfg_stackpool_max_alloc_size 是它的引用
+    cfg->m_cfg_max_coroutine = 0; // m_cfg_stackpool_max_alloc_size 是它的引用
 
     StackPool pool;
     BOOST_CHECK(pool.Apply(4096, false) == nullptr);
-    BOOST_CHECK_THROW(Context(4096, [](){}, false), std::runtime_error);
+    BOOST_CHECK_THROW(Context(4096, []() {}, false), std::runtime_error);
 
     /* 无 worker 的注册拒绝：成功输出重载不抛、置 false，且不留借出对象 */
     bool succ = true;
-    g_scheduler->RegistCoroutineTask([](){}, succ);
+    g_scheduler->RegistCoroutineTask([]() {}, succ);
     BOOST_CHECK(!succ);
     succ = true;
-    g_scheduler->RegistCoroutineTask(64 * 1024, [](){}, succ);
+    g_scheduler->RegistCoroutineTask(64 * 1024, []() {}, succ);
     BOOST_CHECK(!succ);
     BOOST_CHECK_EQUAL(g_bbt_stackpoll->GetCurCoNum(), 0u);
 
@@ -466,7 +451,7 @@ BOOST_AUTO_TEST_CASE(t_pool_reuses_exact_bucket_and_isolates_attributes)
     BOOST_REQUIRE(b1 != nullptr);
     BOOST_CHECK_EQUAL(a1->UseableSize(), Ua);
     BOOST_CHECK_EQUAL(b1->UseableSize(), Ub);
-    BOOST_CHECK(a1 != b1);      // 不同尺寸不共用对象
+    BOOST_CHECK(a1 != b1); // 不同尺寸不共用对象
 
     const void* const a_addr = a1->MemChunkBegin();
     const void* const b_addr = b1->MemChunkBegin();
@@ -527,12 +512,12 @@ BOOST_AUTO_TEST_CASE(t_pool_reuses_exact_bucket_and_isolates_attributes)
     BOOST_REQUIRE(owned != nullptr);
     g_bbt_coroutine_config->m_cfg_stack_size = 99 * 1024;
     g_bbt_coroutine_config->m_cfg_stack_protect = false;
-    pool.Release(owned);            // 不读全局配置
+    pool.Release(owned); // 不读全局配置
     g_bbt_coroutine_config->m_cfg_stack_size = guard.stack_size;
     g_bbt_coroutine_config->m_cfg_stack_protect = guard.stack_protect;
 
     auto* again = pool.Apply(Ua, true);
-    BOOST_CHECK(again == owned);    // 回了原桶；若按全局配置回桶就会被当新桶销毁
+    BOOST_CHECK(again == owned); // 回了原桶；若按全局配置回桶就会被当新桶销毁
 
     BOOST_CHECK(again->IsProtected());
     pool.Release(again);
@@ -584,9 +569,8 @@ BOOST_AUTO_TEST_CASE(t_pool_capacity_is_cross_bucket_and_atomic)
 
     StackPool pool;
     const size_t kThreads = 8;
-    const size_t kSizes[kThreads] = {
-        8 * 1024, 12 * 1024, 16 * 1024, 20 * 1024,
-        24 * 1024, 28 * 1024, 32 * 1024, 40 * 1024};
+    const size_t kSizes[kThreads] = {8 * 1024,  12 * 1024, 16 * 1024, 20 * 1024,
+                                     24 * 1024, 28 * 1024, 32 * 1024, 40 * 1024};
 
     Barrier start_gate(kThreads);
     Barrier hold_gate(kThreads);
@@ -594,15 +578,14 @@ BOOST_AUTO_TEST_CASE(t_pool_capacity_is_cross_bucket_and_atomic)
     std::vector<StackPool::ItemType*> held(kThreads, nullptr);
     std::vector<std::thread> workers;
 
-    for (size_t i = 0; i < kThreads; ++i)
-    {
+    for (size_t i = 0; i < kThreads; ++i) {
         workers.emplace_back([&, i]() {
             start_gate.Wait();
             StackPool::ItemType* item = pool.Apply(kSizes[i], true);
             held[i] = item;
             if (item != nullptr)
                 granted.fetch_add(1, std::memory_order_relaxed);
-            hold_gate.Wait();       // 成功者持有到第二屏障，失败的也等到齐
+            hold_gate.Wait(); // 成功者持有到第二屏障，失败的也等到齐
             if (item != nullptr)
                 pool.Release(item);
         });
@@ -642,10 +625,10 @@ BOOST_AUTO_TEST_CASE(t_pool_concurrent_borrow_release_and_reclaim)
     pool.Release(spare); // 保证第一轮有空闲对象可真实销毁，不靠调度运气或 5s 定时器
     Barrier borrowed_gate(kThreads + 1);
     Barrier reclaimed_gate(kThreads + 1);
-    std::atomic<int>  violations{0};
+    std::atomic<int> violations{0};
     std::atomic<bool> stop_reclaim{false};
     std::atomic<size_t> reclaimed{0};
-    std::mutex        live_mutex;
+    std::mutex live_mutex;
     std::set<StackPool::ItemType*> live{held};
 
     std::thread reclaimer([&]() {
@@ -656,36 +639,31 @@ BOOST_AUTO_TEST_CASE(t_pool_concurrent_borrow_release_and_reclaim)
         reclaimed.fetch_add(pool.ReleaseUnused()); // 此时主线程和四个 worker 均持有借出栈
         if (!reclaimed_gate.Wait())
             violations.fetch_add(1);
-        while (!stop_reclaim.load(std::memory_order_acquire))
-        {
+        while (!stop_reclaim.load(std::memory_order_acquire)) {
             reclaimed.fetch_add(pool.ReleaseUnused());
             std::this_thread::yield();
         }
     });
 
     std::vector<std::thread> workers;
-    for (size_t t = 0; t < kThreads; ++t)
-    {
+    for (size_t t = 0; t < kThreads; ++t) {
         workers.emplace_back([&, t]() {
-            for (size_t i = 0; i < kIters; ++i)
-            {
+            for (size_t i = 0; i < kIters; ++i) {
                 auto* item = pool.Apply(kSizes[(t + i) % 4], true);
-                if (i == 0)
-                {
+                if (i == 0) {
                     if (!borrowed_gate.Wait())
                         violations.fetch_add(1);
                     if (!reclaimed_gate.Wait())
                         violations.fetch_add(1);
                 }
-                if (item == nullptr)
-                {
-                    violations.fetch_add(1);    // 总借出远低于上限，不应失败
+                if (item == nullptr) {
+                    violations.fetch_add(1); // 总借出远低于上限，不应失败
                     continue;
                 }
                 {
                     std::lock_guard<std::mutex> lk(live_mutex);
                     if (!live.insert(item).second)
-                        violations.fetch_add(1000);     // 同一对象被重复借出
+                        violations.fetch_add(1000); // 同一对象被重复借出
                 }
 
                 /* 借出期间栈必须有效可写 */
@@ -735,10 +713,10 @@ BOOST_AUTO_TEST_CASE(t_pool_preload_creates_distinct_default_stacks)
     cfg->m_cfg_stack_size = 16 * 1024;
     cfg->m_cfg_stack_protect = true;
     cfg->m_cfg_max_coroutine = 2;
-    cfg->m_cfg_static_coroutine = 5;        // 预热数 > 上限 → 裁剪到 2
+    cfg->m_cfg_static_coroutine = 5; // 预热数 > 上限 → 裁剪到 2
 
     const size_t global_alloc = g_bbt_stackpoll->AllocSize();
-    const size_t global_cur   = g_bbt_stackpoll->GetCurCoNum();
+    const size_t global_cur = g_bbt_stackpoll->GetCurCoNum();
 
     StackPool pool;
     BOOST_CHECK_EQUAL(pool.AllocSize(), 2u);
@@ -746,15 +724,15 @@ BOOST_AUTO_TEST_CASE(t_pool_preload_creates_distinct_default_stacks)
 
     auto* other = pool.Apply(32 * 1024, true);
     BOOST_REQUIRE(other != nullptr);
-    BOOST_CHECK_EQUAL(pool.AllocSize(), 3u);        // 只有默认桶预热，其他桶是真实新建
+    BOOST_CHECK_EQUAL(pool.AllocSize(), 3u); // 只有默认桶预热，其他桶是真实新建
     pool.Release(other);
     BOOST_CHECK_EQUAL(pool.GetCurCoNum(), 0u);
 
-    auto* a = pool.Apply();     // 默认入口：默认 U/保护桶
+    auto* a = pool.Apply(); // 默认入口：默认 U/保护桶
     auto* b = pool.Apply();
     BOOST_REQUIRE(a != nullptr);
     BOOST_REQUIRE(b != nullptr);
-    BOOST_CHECK(a != b);                                        // 独立对象
+    BOOST_CHECK(a != b); // 独立对象
     BOOST_CHECK(a->MemChunkBegin() != b->MemChunkBegin());
     BOOST_CHECK_EQUAL(a->UseableSize(), 16 * 1024);
     BOOST_CHECK(a->IsProtected());
@@ -769,8 +747,12 @@ BOOST_AUTO_TEST_CASE(t_pool_preload_creates_distinct_default_stacks)
     {
         bool threw_bad_alloc = false;
         Stack::_TestFailNextAlloc();
-        try { StackPool failing; (void)failing; }
-        catch (const std::bad_alloc&) { threw_bad_alloc = true; }
+        try {
+            StackPool failing;
+            (void)failing;
+        } catch (const std::bad_alloc&) {
+            threw_bad_alloc = true;
+        }
         BOOST_CHECK(threw_bad_alloc);
     }
     /* 失败后同一配置仍能正常预热（证明没有残留的共享状态） */
@@ -820,7 +802,7 @@ BOOST_AUTO_TEST_CASE(t_pool_release_unused_keeps_borrowed_and_onupdate_target)
     const size_t before = pool.AllocSize();
     BOOST_REQUIRE_EQUAL(before, 5u);
     const size_t released = pool.ReleaseUnused();
-    BOOST_CHECK_EQUAL(released, before - 1);        // 只释放空闲，不碰借出的 held
+    BOOST_CHECK_EQUAL(released, before - 1); // 只释放空闲，不碰借出的 held
     BOOST_CHECK_EQUAL(pool.AllocSize(), 1u);
 
     /* 借出栈跨显式清缓存仍有效 */
@@ -853,8 +835,7 @@ BOOST_AUTO_TEST_CASE(t_pool_release_unused_keeps_borrowed_and_onupdate_target)
 
     /* 等既有调整间隔（m_cfg_stackpool_adjust_interval 是编译期常量 5000ms） */
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
-    while (pool.AllocSize() > 2 && std::chrono::steady_clock::now() < deadline)
-    {
+    while (pool.AllocSize() > 2 && std::chrono::steady_clock::now() < deadline) {
         pool.OnUpdate();
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
@@ -888,12 +869,9 @@ BOOST_AUTO_TEST_CASE(t_pool_injected_failures_rollback_and_recover)
     /* 2) 建立保护失败 → 带 errno 的 system_error；该对象不记账 */
     Stack::_TestFailNextApplyProtect();
     bool caught_system_error = false;
-    try
-    {
+    try {
         pool.Apply(8 * 1024, true);
-    }
-    catch (const std::system_error& e)
-    {
+    } catch (const std::system_error& e) {
         caught_system_error = (e.code().value() == EACCES);
     }
     BOOST_CHECK(caught_system_error);
@@ -902,11 +880,11 @@ BOOST_AUTO_TEST_CASE(t_pool_injected_failures_rollback_and_recover)
 
     /* 3) Context 入口同样不发布半成品（走全局池） */
     Stack::_TestFailNextAlloc();
-    BOOST_CHECK_THROW(Context(4 * 1024, [](){}, false), std::bad_alloc);
+    BOOST_CHECK_THROW(Context(4 * 1024, []() {}, false), std::bad_alloc);
     BOOST_CHECK_EQUAL(g_bbt_stackpoll->GetCurCoNum(), 0u);
 
     /* 4) 缓存入队失败：撤回缓存并锁外销毁，计数不残留，后续申请成功 */
-    auto* item = pool.Apply(8 * 1024, false);       // 复用步骤 1 归还的空闲对象
+    auto* item = pool.Apply(8 * 1024, false); // 复用步骤 1 归还的空闲对象
     BOOST_REQUIRE(item != nullptr);
     const size_t live_before = pool.AllocSize();
     BOOST_REQUIRE_EQUAL(live_before, 1u);
@@ -920,23 +898,26 @@ BOOST_AUTO_TEST_CASE(t_pool_injected_failures_rollback_and_recover)
     pool.Release(again);
 
     /* 5) 构造失败（callable 拷贝抛出）不借栈、不泄漏 */
-    struct ThrowingCallable
-    {
-        ThrowingCallable() {}
-        ThrowingCallable(const ThrowingCallable&) { throw std::runtime_error("copy ctor"); }
-        void operator()() const {}
+    struct ThrowingCallable {
+        ThrowingCallable()
+        {
+        }
+        ThrowingCallable(const ThrowingCallable&)
+        {
+            throw std::runtime_error("copy ctor");
+        }
+        void operator()() const
+        {
+        }
     };
 
     const size_t alloc_before = pool.AllocSize();
     {
         bool threw = false;
         ThrowingCallable callable;
-        try
-        {
+        try {
             bbt::coroutine::detail::Context ctx(8 * 1024, callable, false);
-        }
-        catch (const std::runtime_error&)
-        {
+        } catch (const std::runtime_error&) {
             threw = true;
         }
         BOOST_CHECK(threw);
@@ -969,15 +950,13 @@ BOOST_AUTO_TEST_CASE(t_context_releases_callables_before_stack_return)
 
     /* 绑定 std::function 临时量：Context 构造仅从它拷贝一次到 m_user_main；临时量
      * 在本语句结束时销毁，随后清空外部 owner，令 m_user_main 成为唯一持有者。 */
-    Context* ctx = new Context(
-        1024 * 64, CoroutineCallback{[owner]() { (void)owner; }}, false);
+    Context* ctx = new Context(1024 * 64, CoroutineCallback{[owner]() { (void)owner; }}, false);
     owner.reset();
 
     delete ctx;
 
     BOOST_CHECK_EQUAL(g_probe_destroy_count.load(std::memory_order_relaxed), 1);
-    BOOST_CHECK_EQUAL(g_probe_cur_at_destroy.load(std::memory_order_relaxed),
-                      baseline + 1);
+    BOOST_CHECK_EQUAL(g_probe_cur_at_destroy.load(std::memory_order_relaxed), baseline + 1);
     BOOST_CHECK_EQUAL(g_bbt_stackpoll->GetCurCoNum(), baseline);
 }
 

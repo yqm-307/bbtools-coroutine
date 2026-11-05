@@ -4,24 +4,19 @@
 #include <bbt/coroutine/detail/GlobalConfig.hpp>
 #include <cstdio>
 
-
-namespace bbt::coroutine::detail
-{
+namespace bbt::coroutine::detail {
 
 std::unique_ptr<DebugMgr>& DebugMgr::GetInstance()
 {
     /* 进程寿命：运行期对象，不在静态退出期析构 */
-    static std::unique_ptr<DebugMgr>* _holder =
-        new std::unique_ptr<DebugMgr>(new DebugMgr());
-    
+    static std::unique_ptr<DebugMgr>* _holder = new std::unique_ptr<DebugMgr>(new DebugMgr());
+
     return *_holder;
 }
 
-void DebugMgr::ReportAllocFailed(const char* what, unsigned long long id,
-                                 const char* detail) noexcept
+void DebugMgr::ReportAllocFailed(const char* what, unsigned long long id, const char* detail) noexcept
 {
-    std::fprintf(stderr, "[bbtco] stringent-debug %s alloc failed id=%llu: %.200s\n",
-                 what, id, detail);
+    std::fprintf(stderr, "[bbtco] stringent-debug %s alloc failed id=%llu: %.200s\n", what, id, detail);
     g_bbt_coroutine_config->m_unhandled_exception_count.fetch_add(1, std::memory_order_relaxed);
 }
 
@@ -40,37 +35,25 @@ void DebugMgr::OnEvent_ResumeCo(Coroutine* co) noexcept
      * 无副作用，单次分配失败后有界重试一次真实登记即可恢复按 id 的精确
      * 条目；连续失败不承诺自愈（报告+计数后返回，协程继续），但不允许
      * 无界循环/跳诊断/抛出跨 worker。 */
-    try
-    {
+    try {
         RegistResumeCo(co);
         return;
-    }
-    catch (const std::bad_alloc& e)
-    {
+    } catch (const std::bad_alloc& e) {
         ReportAllocFailed("resume-co", co->GetId(), e.what());
-    }
-    catch (const std::exception& e)
-    {
+    } catch (const std::exception& e) {
         ReportAllocFailed("resume-co", co->GetId(), e.what());
         return;
-    }
-    catch (...)
-    {
+    } catch (...) {
         ReportAllocFailed("resume-co", co->GetId(), "unknown exception");
         return;
     }
 
     /* 单次 bad_alloc 后的有界重试：同一无副作用登记再做一次。 */
-    try
-    {
+    try {
         RegistResumeCo(co);
-    }
-    catch (const std::exception& e)
-    {
+    } catch (const std::exception& e) {
         ReportAllocFailed("resume-co", co->GetId(), e.what());
-    }
-    catch (...)
-    {
+    } catch (...) {
         ReportAllocFailed("resume-co", co->GetId(), "unknown exception");
     }
 }
@@ -104,15 +87,12 @@ void DebugMgr::Check_IsResumedCo(CoroutineId id)
 
 bool DebugMgr::TryRegistEvent(const std::shared_ptr<CoPollEvent>& event) noexcept
 {
-    try
-    {
+    try {
         std::lock_guard<std::mutex> _(m_event_map_mtx);
         AssertWithInfo(m_event_map.find(event->GetId()) == m_event_map.end(), "[error] repeat regist event!");
         m_event_map.insert(std::make_pair(event->GetId(), event));
         return true;
-    }
-    catch (const std::exception& e)
-    {
+    } catch (const std::exception& e) {
         /* map 节点的单次分配失败不得逃出本函数——调用点可位于
          * Context::Resume 的原生 worker 栈（挂起后注册回调），协程侧 catch
          * 不可达，出逃即 terminate。诊断清账按运行时契约的日志 + 计数口径交付，
@@ -121,9 +101,7 @@ bool DebugMgr::TryRegistEvent(const std::shared_ptr<CoPollEvent>& event) noexcep
                      static_cast<unsigned long long>(event->GetId()), e.what());
         g_bbt_coroutine_config->m_unhandled_exception_count.fetch_add(1, std::memory_order_relaxed);
         return false;
-    }
-    catch (...)
-    {
+    } catch (...) {
         std::fprintf(stderr, "[bbtco] stringent-debug regist-event alloc failed event=%llu: unknown exception\n",
                      static_cast<unsigned long long>(event->GetId()));
         g_bbt_coroutine_config->m_unhandled_exception_count.fetch_add(1, std::memory_order_relaxed);

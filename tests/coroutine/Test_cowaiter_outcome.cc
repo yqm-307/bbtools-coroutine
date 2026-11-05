@@ -28,25 +28,20 @@
 #include <bbt/coroutine/sync/CoWaiter.hpp>
 
 /* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。 */
-namespace
-{
+namespace {
 void EnsureRuntime()
 {
     static std::once_flag once;
-    std::call_once(once, [](){
-        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
-    });
+    std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
 }
 
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::detail;
 
-namespace
-{
+namespace {
 
-struct ConfigSnapshot
-{
+struct ConfigSnapshot {
     size_t threads{0};
     bool stack_protect{false};
     bool saved{false};
@@ -118,7 +113,8 @@ BOOST_AUTO_TEST_CASE(t_resume_reason_cancel_is_distinct_from_timeout)
 
         WaitOptions opt;
         opt.deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(60);
-        bbtco [&]() {
+        bbtco[&]()
+        {
             st.store(waiter->Wait(opt));
             mask.store(g_bbt_tls_coroutine_co->GetLastResumeEvent());
             done.Down();
@@ -138,9 +134,10 @@ BOOST_AUTO_TEST_CASE(t_resume_reason_cancel_is_distinct_from_timeout)
         std::atomic<WaitStatus> st{};
         std::atomic<int> mask{-1};
 
-        bbtco [&]() {
+        bbtco[&]()
+        {
             co_p.store(g_bbt_tls_coroutine_co);
-            st.store(waiter->Wait(WaitOptions{}));    /* 无期限：醒即取消 */
+            st.store(waiter->Wait(WaitOptions{})); /* 无期限：醒即取消 */
             mask.store(g_bbt_tls_coroutine_co->GetLastResumeEvent());
             done.Down();
         };
@@ -161,7 +158,8 @@ BOOST_AUTO_TEST_CASE(t_resume_reason_cancel_is_distinct_from_timeout)
         std::atomic<WaitStatus> st{};
         std::atomic<int> mask{-1};
 
-        bbtco [&]() {
+        bbtco[&]()
+        {
             co_p.store(g_bbt_tls_coroutine_co);
             st.store(waiter->Wait(WaitOptions{}));
             mask.store(g_bbt_tls_coroutine_co->GetLastResumeEvent());
@@ -186,22 +184,20 @@ BOOST_AUTO_TEST_CASE(t_register_before_complete_no_lost_wakeup)
         bbt::core::thread::CountDownLatch done{1};
         std::atomic<WaitStatus> st{};
 
-        bbtco [&]() {
+        bbtco[&]()
+        {
             st.store(waiter->Wait(WaitOptions{}));
             done.Down();
         };
 
         std::atomic_bool notified{false};
-        std::thread notifier([&]() {
-            notified.store(NotifyUntilSuccess(waiter));
-        });
+        std::thread notifier([&]() { notified.store(NotifyUntilSuccess(waiter)); });
 
         /* 唤醒丢失时 bounded 失败而非挂死整个用例 */
         BOOST_REQUIRE_MESSAGE(done.WaitTimeout(5000) == 0,
-            "round " << i << "：等待未在有界时间内返回（notified=" << notified.load() << ")");
+                              "round " << i << "：等待未在有界时间内返回（notified=" << notified.load() << ")");
         notifier.join();
-        BOOST_CHECK_MESSAGE(st.load() == WaitStatus::Completed,
-            "round " << i << "：登记前完成丢了通知");
+        BOOST_CHECK_MESSAGE(st.load() == WaitStatus::Completed, "round " << i << "：登记前完成丢了通知");
     }
 }
 
@@ -217,7 +213,8 @@ BOOST_AUTO_TEST_CASE(t_timeout_wins_then_complete_stays_timedout)
     WaitOptions opt;
     opt.deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(60);
 
-    bbtco [&]() {
+    bbtco[&]()
+    {
         st1.store(waiter->Wait(opt));
         mask1.store(g_bbt_tls_coroutine_co->GetLastResumeEvent());
         first_done.Down();
@@ -259,7 +256,8 @@ BOOST_AUTO_TEST_CASE(t_late_cancel_after_wait_returns)
     std::atomic<Coroutine*> co_p{nullptr};
     std::atomic<WaitStatus> st1{}, st2{}, st3{};
 
-    bbtco [&]() {
+    bbtco[&]()
+    {
         co_p.store(g_bbt_tls_coroutine_co);
         st1.store(waiter->Wait(WaitOptions{}));
         first_done.Down();
@@ -293,10 +291,10 @@ BOOST_AUTO_TEST_CASE(t_late_cancel_after_wait_returns)
 BOOST_AUTO_TEST_CASE(t_legacy_waiter_behavior_unchanged)
 {
     enum class Kind { Wait, WaitCb, Timeout, TimeoutCb };
-    const Kind kinds[] = { Kind::Wait, Kind::WaitCb, Kind::Timeout, Kind::TimeoutCb };
+    const Kind kinds[] = {Kind::Wait, Kind::WaitCb, Kind::Timeout, Kind::TimeoutCb};
     /* 取消借用超时位时期的返回值（改动前）：Wait 族 0，超时族 1 */
-    const int on_notify[] = { 0, 0, 0, 0 };
-    const int on_cancel[] = { 0, 0, 1, 1 };
+    const int on_notify[] = {0, 0, 0, 0};
+    const int on_cancel[] = {0, 0, 1, 1};
 
     /* 正常唤醒：Notify → 全 0 */
     for (int i = 0; i < 4; ++i) {
@@ -305,14 +303,23 @@ BOOST_AUTO_TEST_CASE(t_legacy_waiter_behavior_unchanged)
         std::atomic<Coroutine*> co_p{nullptr};
         std::atomic<int> ret{-99};
 
-        bbtco [&, i]() {
+        bbtco[&, i]()
+        {
             co_p.store(g_bbt_tls_coroutine_co);
             int r = -99;
             switch (kinds[i]) {
-            case Kind::Wait:      r = waiter->Wait(); break;
-            case Kind::WaitCb:    r = waiter->WaitWithCallback([] { return true; }); break;
-            case Kind::Timeout:   r = waiter->WaitWithTimeout(60000); break;
-            case Kind::TimeoutCb: r = waiter->WaitWithTimeoutAndCallback(60000, [] { return true; }); break;
+            case Kind::Wait:
+                r = waiter->Wait();
+                break;
+            case Kind::WaitCb:
+                r = waiter->WaitWithCallback([] { return true; });
+                break;
+            case Kind::Timeout:
+                r = waiter->WaitWithTimeout(60000);
+                break;
+            case Kind::TimeoutCb:
+                r = waiter->WaitWithTimeoutAndCallback(60000, [] { return true; });
+                break;
             }
             ret.store(r);
             done.Down();
@@ -329,7 +336,8 @@ BOOST_AUTO_TEST_CASE(t_legacy_waiter_behavior_unchanged)
         bbt::core::thread::CountDownLatch done{1};
         std::atomic<int> ret{-99};
 
-        bbtco [&, i]() {
+        bbtco[&, i]()
+        {
             int r = -99;
             if (kinds[i] == Kind::Timeout)
                 r = waiter->WaitWithTimeout(60);
@@ -349,14 +357,23 @@ BOOST_AUTO_TEST_CASE(t_legacy_waiter_behavior_unchanged)
         std::atomic<Coroutine*> co_p{nullptr};
         std::atomic<int> ret{-99};
 
-        bbtco [&, i]() {
+        bbtco[&, i]()
+        {
             co_p.store(g_bbt_tls_coroutine_co);
             int r = -99;
             switch (kinds[i]) {
-            case Kind::Wait:      r = waiter->Wait(); break;
-            case Kind::WaitCb:    r = waiter->WaitWithCallback([] { return true; }); break;
-            case Kind::Timeout:   r = waiter->WaitWithTimeout(60000); break;
-            case Kind::TimeoutCb: r = waiter->WaitWithTimeoutAndCallback(60000, [] { return true; }); break;
+            case Kind::Wait:
+                r = waiter->Wait();
+                break;
+            case Kind::WaitCb:
+                r = waiter->WaitWithCallback([] { return true; });
+                break;
+            case Kind::Timeout:
+                r = waiter->WaitWithTimeout(60000);
+                break;
+            case Kind::TimeoutCb:
+                r = waiter->WaitWithTimeoutAndCallback(60000, [] { return true; });
+                break;
             }
             ret.store(r);
             done.Down();
@@ -382,7 +399,8 @@ BOOST_AUTO_TEST_CASE(t_cancel_distinct_from_completed)
         std::atomic<WaitStatus> st{};
         std::atomic<int> mask{-1};
 
-        bbtco [&]() {
+        bbtco[&]()
+        {
             co_p.store(g_bbt_tls_coroutine_co);
             st.store(waiter->Wait(opt));
             mask.store(g_bbt_tls_coroutine_co->GetLastResumeEvent());
@@ -407,7 +425,8 @@ BOOST_AUTO_TEST_CASE(t_cancel_distinct_from_completed)
         std::atomic<WaitStatus> st{};
         std::atomic<int> mask{-1};
 
-        bbtco [&]() {
+        bbtco[&]()
+        {
             co_p.store(g_bbt_tls_coroutine_co);
             st.store(waiter->Wait(opt));
             mask.store(g_bbt_tls_coroutine_co->GetLastResumeEvent());
@@ -430,7 +449,8 @@ BOOST_AUTO_TEST_CASE(t_narrow_wait_rejections)
     std::atomic<Coroutine*> co_p{nullptr};
     std::atomic<WaitStatus> st_a{}, st_b{}, st_expired{};
 
-    bbtco [&]() {
+    bbtco[&]()
+    {
         co_p.store(g_bbt_tls_coroutine_co);
         st_a.store(waiter->Wait(WaitOptions{}));
         done.Down();
@@ -439,7 +459,8 @@ BOOST_AUTO_TEST_CASE(t_narrow_wait_rejections)
 
     /* 并发第二个等待者 → AlreadyWaiting */
     bbt::core::thread::CountDownLatch b_done{1};
-    bbtco [&]() {
+    bbtco[&]()
+    {
         st_b.store(waiter->Wait(WaitOptions{}));
         b_done.Down();
     };
@@ -454,7 +475,8 @@ BOOST_AUTO_TEST_CASE(t_narrow_wait_rejections)
     WaitOptions expired;
     expired.deadline = std::chrono::steady_clock::now() - std::chrono::milliseconds(1);
     bbt::core::thread::CountDownLatch e_done{1};
-    bbtco [&]() {
+    bbtco[&]()
+    {
         st_expired.store(waiter->Wait(expired));
         e_done.Down();
     };
@@ -482,7 +504,8 @@ BOOST_AUTO_TEST_CASE(t_notify_without_waiter_returns_failure)
     auto resolved = sync::CoWaiter::Create();
     bbt::core::thread::CountDownLatch done{1};
     std::atomic<WaitStatus> st{};
-    bbtco [&]() {
+    bbtco[&]()
+    {
         st.store(resolved->Wait(WaitOptions{}));
         done.Down();
     };
@@ -495,12 +518,12 @@ BOOST_AUTO_TEST_CASE(t_notify_without_waiter_returns_failure)
 BOOST_AUTO_TEST_CASE(t_end)
 {
     if (g_started.exchange(false))
-    if (g_cfg.saved) {
-        auto* cfg = g_bbt_coroutine_config.get();
-        cfg->m_cfg_static_thread_num = g_cfg.threads;
-        cfg->m_cfg_stack_protect = g_cfg.stack_protect;
-        g_cfg.saved = false;
-    }
+        if (g_cfg.saved) {
+            auto* cfg = g_bbt_coroutine_config.get();
+            cfg->m_cfg_static_thread_num = g_cfg.threads;
+            cfg->m_cfg_stack_protect = g_cfg.stack_protect;
+            g_cfg.saved = false;
+        }
 }
 
 BOOST_AUTO_TEST_SUITE_END()

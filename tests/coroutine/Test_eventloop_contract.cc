@@ -19,7 +19,7 @@ BOOST_AUTO_TEST_SUITE(EventLoopContractTest)
 BOOST_AUTO_TEST_CASE(t_timer)
 {
     std::atomic_int n{0};
-    auto event = CoPollEvent::Create(1, [&](auto, int, int){ n++; });
+    auto event = CoPollEvent::Create(1, [&](auto, int, int) { n++; });
 
     BOOST_REQUIRE_EQUAL(event->InitFdEvent(-1, bbt::pollevent::EventOpt::TIMEOUT, 40), 0);
     BOOST_REQUIRE_EQUAL(event->Regist(), 0);
@@ -40,7 +40,7 @@ BOOST_AUTO_TEST_CASE(t_fd)
     BOOST_REQUIRE_EQUAL(::pipe(fds), 0);
 
     std::atomic_int n{0};
-    auto event = CoPollEvent::Create(1, [&](auto, int, int){ n++; });
+    auto event = CoPollEvent::Create(1, [&](auto, int, int) { n++; });
 
     BOOST_REQUIRE_EQUAL(event->InitFdEvent(fds[0], bbt::pollevent::EventOpt::READABLE, 500), 0);
     BOOST_REQUIRE_EQUAL(event->Regist(), 0);
@@ -66,7 +66,7 @@ BOOST_AUTO_TEST_CASE(t_fd)
 BOOST_AUTO_TEST_CASE(t_wakeup)
 {
     std::atomic_int n{0};
-    auto event = CoPollEvent::Create(1, [&](auto, int flags, int){
+    auto event = CoPollEvent::Create(1, [&](auto, int flags, int) {
         n++;
         BOOST_CHECK_EQUAL(flags, POLL_EVENT_CUSTOM);
     });

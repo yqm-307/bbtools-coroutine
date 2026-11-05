@@ -9,14 +9,13 @@ void Pool()
     bbt::core::thread::CountDownLatch l{max_co};
 
     for (int i = 0; i < max_co; ++i) {
-        pool.Submit([&](){
+        pool.Submit([&]() {
             Assert(GetLocalCoroutineId() > 0);
             l.Down();
         });
     }
 
     l.Wait();
-
 }
 
 int main()
@@ -24,5 +23,4 @@ int main()
     g_scheduler->Start();
 
     Pool();
-
 }

@@ -11,8 +11,7 @@
 #include <bbt/coroutine/detail/Profiler.hpp>
 #include <bbt/coroutine/detail/GlobalConfig.hpp>
 
-namespace bbt::coroutine::detail
-{
+namespace bbt::coroutine::detail {
 
 fcontext_t& Context::GetCurThreadContext()
 {
@@ -22,29 +21,17 @@ fcontext_t& Context::GetCurThreadContext()
 
 void Context::_CoroutineMain(boost::context::detail::transfer_t transfer)
 {
-    Assert(transfer.data != nullptr); // 来源协程上下文
+    Assert(transfer.data != nullptr); // data 是 _Resume 传入的 Context*
     auto* context = reinterpret_cast<Context*>(transfer.data);
 
-    /**
-     * 保存来源线程的上下文。为了知道当前协程是从哪个
-     * 线程切换过来的在Yield时会用到这个上下文
-     */
+    /* 保存来源（worker）上下文：_Yield 切回时用它，所以每次切入都要重写本线程 TLS。 */
     context->GetCurThreadContext() = transfer.fctx;
 
-    /**
-     * 在这里执行用户协程的主函数。
-     *
-     * 用户协程内总是会调用 Yield() 来让出 CPU 控制权，同时
-     * 为了防止用户调用某些阻塞操作导致当前线程挂起，我们需要
-     * 提供一套非阻塞且使协程挂起的操作（bbt::co::sync提供了
-     * 相关类）。
-     *
-     */
+    /* 用户主函数在本协程栈上执行。协程内任何阻塞调用都必须经 bbt::co::sync 转成挂起，
+     * 否则会占死 worker 线程；异常不得逃出 fcontext，统一在这里收口。 */
     try {
         context->m_user_main();
-    }
-    catch (...)
-    {
+    } catch (...) {
         const auto eptr = std::current_exception();
         Coroutine* co = g_bbt_tls_coroutine_co;
         if (co != nullptr)
@@ -74,8 +61,8 @@ void Context::_CoroutineMain(boost::context::detail::transfer_t transfer)
              * 会打爆默认 4KB 协程栈；直接 fprintf 到 stderr，栈占用有界。
              * 日志带 co id：与 parked 现场串联定位是哪个协程。 */
             const CoroutineId co_id = (co != nullptr) ? co->GetId() : BBT_COROUTINE_INVALID_COROUTINE_ID;
-            std::fprintf(stderr, "[bbtco] unhandled exception co=%u: %.200s\n",
-                         static_cast<unsigned>(co_id), what.c_str());
+            std::fprintf(stderr, "[bbtco] unhandled exception co=%u: %.200s\n", static_cast<unsigned>(co_id),
+                         what.c_str());
             g_bbt_coroutine_config->m_unhandled_exception_count.fetch_add(1, std::memory_order_relaxed);
         }
     }
@@ -84,15 +71,11 @@ void Context::_CoroutineMain(boost::context::detail::transfer_t transfer)
     g_bbt_profiler->OnEvent_DoneCoroutine();
 #endif
 
-    /**
-     * 执行完后，切回到调度逻辑中去
-     */
+    /* 执行完后，切回到调度逻辑中去 */
     context->Yield();
 }
 
-
-Context::Context(size_t stack_size, const CoroutineCallback& co_func, bool stack_protect):
-    m_user_main(co_func)
+Context::Context(size_t stack_size, const CoroutineCallback& co_func, bool stack_protect) : m_user_main(co_func)
 {
     Assert(m_user_main != nullptr);
 
@@ -105,11 +88,12 @@ Context::Context(size_t stack_size, const CoroutineCallback& co_func, bool stack
         if (stack != nullptr)
             g_bbt_stackpoll->Release(stack);
     };
-    std::unique_ptr<Stack, decltype(stack_returner)> stack_guard(
-        g_bbt_stackpoll->Apply(stack_size, stack_protect), stack_returner);
+    std::unique_ptr<Stack, decltype(stack_returner)> stack_guard(g_bbt_stackpoll->Apply(stack_size, stack_protect),
+                                                                 stack_returner);
 
     if (stack_guard == nullptr) {
-        throw std::runtime_error("Coroutine stack not enough! Please try adjust the globalconfig 'm_cfg_stackpool_max_alloc_size'");
+        throw std::runtime_error(
+            "Coroutine stack not enough! Please try adjust the globalconfig 'm_cfg_stackpool_max_alloc_size'");
     }
 
     void* stack = stack_guard->StackTop();
@@ -120,9 +104,9 @@ Context::Context(size_t stack_size, const CoroutineCallback& co_func, bool stack
     /* make_fcontext 成功后、任何 jump 之前初始化采样边界：bottom/top 取真实
      * StackBottom/StackTop，min_sp 从 top 起计（尚无样本时 observed = 0）。
      * 复用栈池中的旧栈不继承上一任协程的历史样本。 */
-    m_stackBudgetState.bottom       = reinterpret_cast<uintptr_t>(m_stack->StackBottom());
-    m_stackBudgetState.top          = reinterpret_cast<uintptr_t>(m_stack->StackTop());
-    m_stackBudgetState.min_sp       = m_stackBudgetState.top;
+    m_stackBudgetState.bottom = reinterpret_cast<uintptr_t>(m_stack->StackBottom());
+    m_stackBudgetState.top = reinterpret_cast<uintptr_t>(m_stack->StackTop());
+    m_stackBudgetState.min_sp = m_stackBudgetState.top;
     m_stackBudgetState.sample_count = 0;
 #endif
 }
@@ -150,15 +134,9 @@ void Context::Yield()
 
 int Context::YieldWithCallback(const CoroutineOnYieldCallback& cb)
 {
-    /**
-     * 因为我们有CoEvent我们需要再协程挂起后再注册事件。
-     *
-     * 因为我们的CoEvent触发是在另外的线程执行的，如果挂起前
-     * 就注册了CoEvent，那么在尚未挂起，可能会触发CoEvent的回
-     * 调，CoEvent会尝试唤醒当前协程，这样就会导致一个协程尚未
-     * 被挂起就被唤醒出现异常。
-     *
-     */
+    /* CoEvent 的触发来自别的线程（poller 派发或其他 worker 的 Notify）。若在挂起前就
+     * 注册事件，回调可能在协程还没让出时把它唤醒——一个尚未挂起的协程被 Resume 会把
+     * 状态机打乱。所以注册动作放在 on-yield 回调里，由 Resume 在真正让出之后执行。 */
     int ret = 0;
 
     Assert(m_onyield_callback == nullptr);
@@ -186,23 +164,18 @@ int Context::YieldWithCallback(const CoroutineOnYieldCallback& cb)
     return ret;
 }
 
-
 void Context::Resume()
 {
     _Resume();
 
-    /* 执行on yield success。check 失败的重入会继续执行协程，其间协程
-     * 可能再次 YieldWithCallback 挂出新的 onyield 回调——必须循环处理
-     * 直到没有待执行回调。只重入一次的旧实现会丢掉新回调：协程带着未
-     * 注册的 await 事件停在 EVENT_WAIT，CommitYield 的 CommitPark 失败
-     * 后被 Processer 丢弃引用，协程永久悬挂且无回收点。
-     * 注：协程侧 YieldWithCallback 在 _Yield 返回后自行清空
-     * m_onyield_callback，本循环每次读到的是协程最新挂出的回调。 */
+    /* 执行 on-yield 检查。check 失败的重入会继续跑协程，其间可能再次挂出新回调，必须循环到没有
+     * 待执行回调：只重入一次的话新回调没有执行者，协程带着未注册的 await 事件停在 EVENT_WAIT，
+     * CommitPark 失败后被 Processer 丢弃引用，永久悬挂且无回收点。协程侧在 _Yield 返回后清空
+     * m_onyield_callback，本循环每次读到的是最新挂出的回调。 */
     while (m_onyield_callback) {
         const bool check_succ = m_onyield_callback();
         m_onyield_callback_result =
-            bbt_likely(check_succ) ? YieldCheckStatus::CHECK_SUCCESS
-                                 : YieldCheckStatus::CHECK_FAILED;
+            bbt_likely(check_succ) ? YieldCheckStatus::CHECK_SUCCESS : YieldCheckStatus::CHECK_FAILED;
         if (bbt_likely(check_succ))
             break;
         /* check失败就回到原本协程通知一下check失败了 */
@@ -210,15 +183,11 @@ void Context::Resume()
     }
 }
 
-
 int Context::_Yield()
 {
-    /**
-     * 调用jump后，切换回调度线程
-     *
-     * 当jump返回时，说明调度线程通过 Resume 返回了。trf中保存了调度协程的上下文
-     */
-    boost::context::detail::transfer_t transfer{fctx: nullptr, data: nullptr};
+    /* jump 回 TLS 记录的来源上下文。jump 返回说明来源线程又 Resume 了本协程，
+     * transfer.fctx 是本次的来源，写回 TLS 供下一次 _Yield 切回。 */
+    boost::context::detail::transfer_t transfer{fctx : nullptr, data : nullptr};
 
 #ifdef BBT_COROUTINE_STACK_DIAGNOSTICS
     /* 让出前先清零归属：jump 之后本线程跑的是 worker/调度逻辑（含
@@ -238,10 +207,9 @@ int Context::_Yield()
 
 int Context::_Resume()
 {
-    /**
-     * 调用jump后，将切换到当前协程
-     */
-    boost::context::detail::transfer_t transfer{fctx: nullptr, data: nullptr};
+    /* 切入本协程；jump 返回即协程又让出了。transfer.data 是上面传进去的 this，
+     * 协程侧把它当 void** 回写自己的返回 fctx（m_context 在偏移 0）。 */
+    boost::context::detail::transfer_t transfer{fctx : nullptr, data : nullptr};
 
 #ifdef BBT_COROUTINE_STACK_DIAGNOSTICS
     /* jump 前把本线程 TLS 挂到本协程状态：之后在协程栈上发生的插桩入口
@@ -261,7 +229,6 @@ int Context::_Resume()
      * 本线程不留本协程残留。 */
     ExchangeActiveStackBudgetState(prev_state);
 #endif
-
 
     // 保存来源协程，因为可能因为yield让出cpu，没有执行完
     auto context = transfer.data;
@@ -286,12 +253,10 @@ StackBudgetSample Context::GetStackBudgetSample() const noexcept
     if (m_stackBudgetState.sample_count == 0)
         return sample;
 
-    sample.observed_sample_bytes =
-        static_cast<size_t>(m_stackBudgetState.top - m_stackBudgetState.min_sp);
+    sample.observed_sample_bytes = static_cast<size_t>(m_stackBudgetState.top - m_stackBudgetState.min_sp);
     sample.sample_count = m_stackBudgetState.sample_count;
     return sample;
 }
 #endif
-
 
 }

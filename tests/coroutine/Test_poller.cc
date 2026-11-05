@@ -16,7 +16,6 @@
 #include <bbt/coroutine/detail/CoPoller.hpp>
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
 
-
 using namespace bbt::coroutine::detail;
 
 BOOST_AUTO_TEST_SUITE(CoPollerTest)
@@ -27,17 +26,14 @@ BOOST_AUTO_TEST_CASE(t_poller_timeout_event_single)
     const int stack_size = 4096;
     const int timeout_ms = 1000;
 
-    auto co_sptr = Coroutine::Create(stack_size, [](){});
-    auto event = CoPollEvent::Create(co_sptr->GetId(),[&](auto event, int, int){
-        count++;
-    });
+    auto co_sptr = Coroutine::Create(stack_size, []() {});
+    auto event = CoPollEvent::Create(co_sptr->GetId(), [&](auto event, int, int) { count++; });
 
     BOOST_ASSERT(event->InitFdEvent(-1, bbt::pollevent::EventOpt::TIMEOUT, timeout_ms) == 0);
     BOOST_ASSERT(event->Regist() == 0);
     BOOST_REQUIRE(!event->CommitPark());
 
-    while (count != 1)
-    {
+    while (count != 1) {
         CoPoller::GetInstance()->PollOnce();
         std::this_thread::sleep_for(bbt::core::clock::milliseconds(1));
     }
@@ -50,10 +46,8 @@ BOOST_AUTO_TEST_CASE(t_poller_evnet_cancel)
     const int stack_size = 4096;
     const int timeout_ms = 200;
 
-    auto co_sptr = Coroutine::Create(stack_size, [](){});
-    auto event = CoPollEvent::Create(co_sptr->GetId(), [&](auto event, int, int){
-        flag.exchange(true);
-    });
+    auto co_sptr = Coroutine::Create(stack_size, []() {});
+    auto event = CoPollEvent::Create(co_sptr->GetId(), [&](auto event, int, int) { flag.exchange(true); });
 
     Assert(event->InitFdEvent(-1, bbt::pollevent::EventOpt::TIMEOUT, timeout_ms) == 0);
     Assert(event->Regist() == 0);
@@ -70,12 +64,9 @@ BOOST_AUTO_TEST_CASE(t_poller_timerout_event_multi)
     std::vector<CoPollEvent::SPtr> events;
 
     /* 创建并注册1000个定时事件 */
-    for (int i = 0; i < 1000; ++i)
-    {
-        auto co_sptr = Coroutine::Create(4096, [](){});
-        auto event = CoPollEvent::Create(co_sptr->GetId(), [&count, co_sptr](auto, int, int){
-            count++;
-        });
+    for (int i = 0; i < 1000; ++i) {
+        auto co_sptr = Coroutine::Create(4096, []() {});
+        auto event = CoPollEvent::Create(co_sptr->GetId(), [&count, co_sptr](auto, int, int) { count++; });
 
         /* 初始化并注册事件 */
         BOOST_ASSERT(event->InitFdEvent(-1, bbt::pollevent::EventOpt::TIMEOUT, 500) == 0);
@@ -88,8 +79,7 @@ BOOST_AUTO_TEST_CASE(t_poller_timerout_event_multi)
     auto max_end_ts = bbt::core::clock::nowAfter(bbt::core::clock::seconds(2));
 
     /* 开始轮询，探测完成的事件并回调通知到协程事件完成 */
-    while (!bbt::core::clock::is_expired<bbt::core::clock::milliseconds>(max_end_ts))
-    {
+    while (!bbt::core::clock::is_expired<bbt::core::clock::milliseconds>(max_end_ts)) {
         CoPoller::GetInstance()->PollOnce();
         std::this_thread::sleep_for(bbt::core::clock::milliseconds(2));
     }
@@ -102,24 +92,20 @@ BOOST_AUTO_TEST_CASE(t_poller_timerout_event_multi_thread)
 {
     /* 多线程注册事件，单线程处理（reactor模型） */
 
-    std::atomic_int                 count = 0;
-    std::vector<std::thread*>       threads;
-    const int                       m_timeout_ms = 500;
+    std::atomic_int count = 0;
+    std::vector<std::thread*> threads;
+    const int m_timeout_ms = 500;
 
-    std::vector<CoPollEvent::SPtr>  events;
-    std::mutex                      events_mutex;
+    std::vector<CoPollEvent::SPtr> events;
+    std::mutex events_mutex;
     /* 工作线程只累计失败次数，由主线程统一断言（不在工作线程构造测试报告）。 */
-    std::atomic_int                 init_fail{0}, regist_fail{0}, park_true{0};
+    std::atomic_int init_fail{0}, regist_fail{0}, park_true{0};
 
-    for (int i = 0; i < 2; ++i)
-    {
-        auto t = new std::thread([&](){
-            for (int i = 0; i < 5000; ++i)
-            {
-                auto co_sptr = Coroutine::Create(4096, [](){}, false);
-                auto event = CoPollEvent::Create(co_sptr->GetId(), [&count, co_sptr](auto, int, int){
-                    count++;
-                });
+    for (int i = 0; i < 2; ++i) {
+        auto t = new std::thread([&]() {
+            for (int i = 0; i < 5000; ++i) {
+                auto co_sptr = Coroutine::Create(4096, []() {}, false);
+                auto event = CoPollEvent::Create(co_sptr->GetId(), [&count, co_sptr](auto, int, int) { count++; });
 
                 if (event->InitFdEvent(-1, bbt::pollevent::EventOpt::TIMEOUT, m_timeout_ms) != 0) {
                     init_fail.fetch_add(1);
@@ -140,8 +126,7 @@ BOOST_AUTO_TEST_CASE(t_poller_timerout_event_multi_thread)
         threads.push_back(t);
     }
 
-    for (auto&& item : threads)
-    {
+    for (auto&& item : threads) {
         if (item->joinable())
             item->join();
     }
@@ -150,8 +135,7 @@ BOOST_AUTO_TEST_CASE(t_poller_timerout_event_multi_thread)
     auto max_end_ts = bbt::core::clock::nowAfter(bbt::core::clock::seconds(2));
 
     /* 所有注册线程完成后，单线程轮询并回调通知到协程事件完成 */
-    while (!bbt::core::clock::is_expired<bbt::core::clock::milliseconds>(max_end_ts))
-    {
+    while (!bbt::core::clock::is_expired<bbt::core::clock::milliseconds>(max_end_ts)) {
         CoPoller::GetInstance()->PollOnce();
         std::this_thread::sleep_for(bbt::core::clock::microseconds(2));
     }
@@ -180,8 +164,7 @@ BOOST_AUTO_TEST_SUITE_END()
  */
 BOOST_AUTO_TEST_SUITE(CoPollerBoundedWaitTest)
 
-namespace
-{
+namespace {
 /* 只用于判「没有挂死」的宽松上界，不是性能论断。 */
 const auto kBoundedWaitCeiling = std::chrono::seconds(5);
 
@@ -189,11 +172,11 @@ const auto kBoundedWaitCeiling = std::chrono::seconds(5);
 std::shared_ptr<bbt::pollevent::Event> MakeReadableEvent(CoPoller& poller, int fd, std::atomic<int>& fired)
 {
     auto event = poller.CreateEvent(fd, bbt::pollevent::EventOpt::READABLE,
-        [&fired](int listen_fd, short, bbt::pollevent::EventId) {
-            char byte = '\0';
-            if (::read(listen_fd, &byte, 1) == 1 && byte == 'x')
-                fired.fetch_add(1);
-        });
+                                    [&fired](int listen_fd, short, bbt::pollevent::EventId) {
+                                        char byte = '\0';
+                                        if (::read(listen_fd, &byte, 1) == 1 && byte == 'x')
+                                            fired.fetch_add(1);
+                                    });
     if (event != nullptr)
         event->StartListen(0);
     return event;
@@ -202,7 +185,7 @@ std::shared_ptr<bbt::pollevent::Event> MakeReadableEvent(CoPoller& poller, int f
 std::shared_ptr<bbt::pollevent::Event> MakeTimerEvent(CoPoller& poller, std::atomic<int>& fired, uint64_t timeout_ms)
 {
     auto timer = poller.CreateEvent(-1, bbt::pollevent::EventOpt::TIMEOUT,
-        [&fired](int, short, bbt::pollevent::EventId) { fired.fetch_add(1); });
+                                    [&fired](int, short, bbt::pollevent::EventId) { fired.fetch_add(1); });
     if (timer != nullptr)
         timer->StartListen(timeout_ms);
     return timer;
@@ -462,22 +445,21 @@ BOOST_AUTO_TEST_CASE(t_wait_keeps_driver_and_in_poll_guard)
     std::atomic<uint64_t> in_poll_after{0};
     std::atomic<int> fired{0};
 
-    auto timer = poller.CreateEvent(-1, bbt::pollevent::EventOpt::TIMEOUT,
-        [&](int, short, bbt::pollevent::EventId) {
-            handler_on_driver.store(std::this_thread::get_id() == driver_tid);
-            in_poll_before.store(poller.GetDrainInPollCount());
-            /* handler 内嵌套 flush：等待期间必须与 poll 期间同样 no-op + 计数，
+    auto timer = poller.CreateEvent(-1, bbt::pollevent::EventOpt::TIMEOUT, [&](int, short, bbt::pollevent::EventId) {
+        handler_on_driver.store(std::this_thread::get_id() == driver_tid);
+        in_poll_before.store(poller.GetDrainInPollCount());
+        /* handler 内嵌套 flush：等待期间必须与 poll 期间同样 no-op + 计数，
                不能提前兑现延迟析构。 */
-            poller.FlushDeferredEvents();
-            in_poll_after.store(poller.GetDrainInPollCount());
-            fired.fetch_add(1);
-        });
+        poller.FlushDeferredEvents();
+        in_poll_after.store(poller.GetDrainInPollCount());
+        fired.fetch_add(1);
+    });
     BOOST_REQUIRE(timer != nullptr);
     BOOST_REQUIRE_EQUAL(timer->StartListen(20), 0);
 
     /* 进入等待前必须兑现积压：非驱动线程 flush 是 no-op，等待起点即释放。 */
-    auto deferred = poller.CreateEvent(-1, bbt::pollevent::EventOpt::TIMEOUT,
-        [](int, short, bbt::pollevent::EventId) {});
+    auto deferred =
+        poller.CreateEvent(-1, bbt::pollevent::EventOpt::TIMEOUT, [](int, short, bbt::pollevent::EventId) {});
     BOOST_REQUIRE(deferred != nullptr);
     std::weak_ptr<bbt::pollevent::Event> deferred_weak = deferred;
     poller.DeferDestroyEvent(std::move(deferred));
@@ -508,10 +490,9 @@ BOOST_AUTO_TEST_CASE(t_wait_handler_exception_resets_in_poll)
     CoPoller poller;
     const auto driver_tid = std::this_thread::get_id();
 
-    auto throwing = poller.CreateEvent(-1, bbt::pollevent::EventOpt::TIMEOUT,
-        [](int, short, bbt::pollevent::EventId) {
-            throw std::runtime_error{"handler throws"};
-        });
+    auto throwing = poller.CreateEvent(-1, bbt::pollevent::EventOpt::TIMEOUT, [](int, short, bbt::pollevent::EventId) {
+        throw std::runtime_error{"handler throws"};
+    });
     BOOST_REQUIRE(throwing != nullptr);
     BOOST_REQUIRE_EQUAL(throwing->StartListen(1), 0);
 
@@ -520,12 +501,9 @@ BOOST_AUTO_TEST_CASE(t_wait_handler_exception_resets_in_poll)
     const auto wait_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
 
     bool caught = false;
-    try
-    {
+    try {
         poller.PollOnceUntil(wait_deadline);
-    }
-    catch (const std::runtime_error&)
-    {
+    } catch (const std::runtime_error&) {
         caught = true;
     }
     BOOST_CHECK(caught);
@@ -584,8 +562,8 @@ BOOST_AUTO_TEST_CASE(t_wait_deadline_after_fd_destruction_flush)
 BOOST_AUTO_TEST_CASE(t_wait_unarmed_event_sleeps_and_context_is_reusable)
 {
     CoPoller poller;
-    auto unarmed = poller.CreateEvent(-1, bbt::pollevent::EventOpt::TIMEOUT,
-        [](int, short, bbt::pollevent::EventId) {});
+    auto unarmed =
+        poller.CreateEvent(-1, bbt::pollevent::EventOpt::TIMEOUT, [](int, short, bbt::pollevent::EventId) {});
     BOOST_REQUIRE(unarmed != nullptr);
     BOOST_CHECK(!poller.PollOnce());
 

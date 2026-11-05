@@ -9,14 +9,11 @@
 #include <bbt/coroutine/sync/CoCond.hpp>
 /* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
  * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。 */
-namespace
-{
+namespace {
 void EnsureRuntime()
 {
     static std::once_flag once;
-    std::call_once(once, [](){
-        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
-    });
+    std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
 }
 
@@ -35,12 +32,14 @@ BOOST_AUTO_TEST_CASE(t_cond_multi)
 {
     std::atomic_bool run_in_co{false};
 
-    bbtco [&run_in_co](){
+    bbtco[&run_in_co]()
+    {
         auto co1 = sync::CoWaiter::Create();
         auto co2 = sync::CoWaiter::Create();
         Assert(co1 != nullptr && co2 != nullptr);
 
-        bbtco [&run_in_co, co1, co2](){
+        bbtco[&run_in_co, co1, co2]()
+        {
             BOOST_ASSERT(!run_in_co.load());
             run_in_co = true;
             co1->Notify();
@@ -63,8 +62,7 @@ BOOST_AUTO_TEST_CASE(t_cond_multi)
     };
 
     auto max_end_ts = bbt::core::clock::nowAfter(bbt::core::clock::milliseconds(100));
-    while (!bbt::core::clock::is_expired<bbt::core::clock::milliseconds>(max_end_ts))
-    {
+    while (!bbt::core::clock::is_expired<bbt::core::clock::milliseconds>(max_end_ts)) {
         std::this_thread::sleep_for(bbt::core::clock::milliseconds(10));
     }
 }
@@ -73,7 +71,8 @@ BOOST_AUTO_TEST_CASE(t_cond_wait_with_timeout)
 {
     const int wait_ms = 200;
     int a = 0;
-    bbtco [&](){
+    bbtco[&]()
+    {
         auto cond = sync::CoWaiter::Create();
         auto begin = bbt::core::clock::gettime();
         cond->WaitWithTimeout(wait_ms);
@@ -97,11 +96,13 @@ BOOST_AUTO_TEST_CASE(t_cond_wait)
     std::atomic_int ncount{0};
     bbt::core::thread::CountDownLatch l2{nmax_co};
 
-    bbtco [&](){
+    bbtco[&]()
+    {
         auto cond = sync::CoCond::Create();
 
         for (int i = 0; i < nmax_co; ++i) {
-            bbtco [&](){
+            bbtco[&]()
+            {
                 cond->Wait();
                 ncount++;
                 l2.Down();
@@ -124,15 +125,16 @@ BOOST_AUTO_TEST_CASE(t_waitfor_timeout)
     bbt::core::thread::CountDownLatch l{1};
     int result = -999;
 
-    bbtco [&](){
+    bbtco[&]()
+    {
         auto cond = sync::CoCond::Create();
         auto begin = bbt::core::clock::gettime_mono();
         result = cond->WaitFor(100);
         auto elapsed = bbt::core::clock::gettime_mono() - begin;
 
-        BOOST_TEST(result != 0);     // 超时不应返回 0
-        BOOST_TEST(elapsed >= 90);    // 至少等了 ~100ms
-        BOOST_TEST(elapsed < 1000);   // 不应等太久
+        BOOST_TEST(result != 0);    // 超时不应返回 0
+        BOOST_TEST(elapsed >= 90);  // 至少等了 ~100ms
+        BOOST_TEST(elapsed < 1000); // 不应等太久
         l.Down();
     };
 
@@ -146,10 +148,12 @@ BOOST_AUTO_TEST_CASE(t_waitfor_notifyone)
     bbt::core::thread::CountDownLatch l{1};
     int result = -999;
 
-    bbtco [&](){
+    bbtco[&]()
+    {
         auto cond = sync::CoCond::Create();
 
-        bbtco [cond, &result, &l](){
+        bbtco[cond, &result, &l]()
+        {
             auto begin = bbt::core::clock::gettime_mono();
             result = cond->WaitFor(500);
             auto elapsed = bbt::core::clock::gettime_mono() - begin;
@@ -172,13 +176,16 @@ BOOST_AUTO_TEST_CASE(t_waitfor_notifyall)
     bbt::core::thread::CountDownLatch l{n};
     std::atomic_int woken{0};
 
-    bbtco [&](){
+    bbtco[&]()
+    {
         auto cond = sync::CoCond::Create();
 
         for (int i = 0; i < n; ++i) {
-            bbtco [cond, &woken, &l](){
+            bbtco[cond, &woken, &l]()
+            {
                 int ret = cond->WaitFor(500);
-                if (ret == 0) woken++;
+                if (ret == 0)
+                    woken++;
                 l.Down();
             };
         }
@@ -198,7 +205,8 @@ BOOST_AUTO_TEST_CASE(t_notifyone_empty)
 {
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco [&](){
+    bbtco[&]()
+    {
         auto cond = sync::CoCond::Create();
         int ret = cond->NotifyOne();
         BOOST_TEST(ret == -1); // 空队列返回 -1
@@ -213,7 +221,8 @@ BOOST_AUTO_TEST_CASE(t_notifyone_empty_then_use)
 {
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco [&](){
+    bbtco[&]()
+    {
         auto cond = sync::CoCond::Create();
 
         // 空队列 NotifyOne 应该返回 -1
@@ -221,7 +230,8 @@ BOOST_AUTO_TEST_CASE(t_notifyone_empty_then_use)
         BOOST_TEST(ret == -1);
 
         // 之后正常 WaitFor + NotifyOne 仍然工作
-        bbtco [cond](){
+        bbtco[cond]()
+        {
             bbtco_sleep(50);
             cond->NotifyOne();
         };
@@ -240,10 +250,12 @@ BOOST_AUTO_TEST_CASE(t_wait_notifyone_single)
     bbt::core::thread::CountDownLatch l{1};
     int woken = 0;
 
-    bbtco [&](){
+    bbtco[&]()
+    {
         auto cond = sync::CoCond::Create();
 
-        bbtco [cond, &woken, &l](){
+        bbtco[cond, &woken, &l]()
+        {
             cond->Wait();
             woken = 1;
             l.Down();

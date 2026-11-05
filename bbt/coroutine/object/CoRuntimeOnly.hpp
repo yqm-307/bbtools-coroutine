@@ -19,9 +19,15 @@ void RequireCoroutineContext();
 class CoRuntimeOnly {
 public:
     /// @brief 同自由函数 `IsInCoroutineContext()`。
-    static bool IsInCoroutineContext() { return bbt::coroutine::IsInCoroutineContext(); }
+    static bool IsInCoroutineContext()
+    {
+        return bbt::coroutine::IsInCoroutineContext();
+    }
     /// @brief 同自由函数 `RequireCoroutineContext()`。
-    static void RequireCoroutineContext() { bbt::coroutine::RequireCoroutineContext(); }
+    static void RequireCoroutineContext()
+    {
+        bbt::coroutine::RequireCoroutineContext();
+    }
 };
 
 } // namespace bbt::coroutine

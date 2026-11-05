@@ -9,8 +9,8 @@ using namespace bbt::coroutine::detail;
 
 int main()
 {
-    auto co_sptr = Coroutine::Create(4096, [](){});
-    auto event = CoPollEvent::Create(co_sptr->GetId(),[co_sptr](auto, int, int){
+    auto co_sptr = Coroutine::Create(4096, []() {});
+    auto event = CoPollEvent::Create(co_sptr->GetId(), [co_sptr](auto, int, int) {
         printf("timeout [%ld]\n", bbt::core::clock::now<>().time_since_epoch().count());
     });
 
@@ -19,8 +19,7 @@ int main()
     Assert(event->Regist() == 0);
 
     auto end_ts = bbt::core::clock::nowAfter(bbt::core::clock::seconds(2));
-    while (!bbt::core::clock::is_expired<bbt::core::clock::seconds>(end_ts))
-    {
+    while (!bbt::core::clock::is_expired<bbt::core::clock::seconds>(end_ts)) {
         CoPoller::GetInstance()->PollOnce();
     }
 }

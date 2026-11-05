@@ -7,8 +7,7 @@
 #include <bbt/coroutine/detail/Profiler.hpp>
 #include <bbt/coroutine/detail/DriverWakeDeferral.hpp>
 
-namespace bbt::coroutine::sync
-{
+namespace bbt::coroutine::sync {
 
 CoMutex::SPtr CoMutex::Create()
 {
@@ -17,16 +16,15 @@ CoMutex::SPtr CoMutex::Create()
 
 CoMutex::CoMutex(PrivateTag)
 {
-
 }
 
 CoMutex::~CoMutex()
 {
-
 }
 
 void CoMutex::Lock()
 {
+    // 返回时 m_mutex 已释放、m_locked_co 是本协程。
     _SysLock();
 
     AssertWithInfo(g_bbt_tls_helper->EnableUseCo(), "must use in coroutine!");
@@ -44,7 +42,11 @@ void CoMutex::Lock()
          * _NotifyOne 经 Trigger()==-1 跳扫清理，与既有队列语义一致。
          * 本重试只在登记恢复后终止等待循环；持续登记失败时持续让权，
          * 不承诺通用持续 OOM 恢复。 */
-        if (_WaitUnLock([this](){ _SysUnLock(); return true; }) == 0) {
+        if (_WaitUnLock([this]() {
+                _SysUnLock();
+                return true;
+            })
+            == 0) {
             _SysLock();
             continue;
         }
@@ -88,12 +90,16 @@ int CoMutex::TryLock()
 
 int CoMutex::TryLock(int ms)
 {
+    // 等待失败时锁仍在手，由下面唯一出口释放，不重入已释放的锁。
     int ret = 0;
     _SysLock();
     AssertWithInfo(m_locked_co != g_bbt_tls_coroutine_co, "comutex deadlock!");
 
     if (m_status == CoMutexStatus::COMUTEX_LOCKED) {
-        ret = _WaitUnLockUnitlTimeout(ms, [this](){ _SysUnLock(); return true; });
+        ret = _WaitUnLockUnitlTimeout(ms, [this]() {
+            _SysUnLock();
+            return true;
+        });
 
         /* 失败路径挂起回调未执行，锁仍在手不得重入；
          * 成功/超时路径回调已释放锁，必须重取后再看 m_status。 */
@@ -156,7 +162,7 @@ int CoMutex::_WaitUnLockUnitlTimeout(int timeout, const detail::CoroutineOnYield
             return -1;
         }
         m_wait_event_queue.push(event);
-        ret = coroutine->YieldWithCallback([coroutine, cb, &cb_ran](){
+        ret = coroutine->YieldWithCallback([coroutine, cb, &cb_ran]() {
             if (!coroutine->_RegistAwaitEvent())
                 return false;
             /* cb 一旦执行即已解锁 m_mutex（其语义就是挂起前放锁），
@@ -173,8 +179,7 @@ int CoMutex::_WaitUnLockUnitlTimeout(int timeout, const detail::CoroutineOnYield
          * 确证仍是本次节点时置空。 */
         if (!cb_ran) {
             coroutine->_SetAwaitEvent(nullptr);
-            if (event != nullptr && !m_wait_event_queue.empty() &&
-                m_wait_event_queue.back() == event)
+            if (event != nullptr && !m_wait_event_queue.empty() && m_wait_event_queue.back() == event)
                 m_wait_event_queue.back().reset();
             _SysUnLock();
         }
@@ -185,9 +190,8 @@ int CoMutex::_WaitUnLockUnitlTimeout(int timeout, const detail::CoroutineOnYield
      * 等待的旧值，不得参与超时/取消映射——否则失败会被误报为超时 1。
      * 兼容映射：协程级取消现以独立取消位唤醒（原借用超时位），
      * 本处把取消仍按超时上报 1，保持 TryLock(ms) 既有可观察行为不变。 */
-    if (ret == 0 &&
-        coroutine->GetLastResumeEvent() & (detail::POLL_EVENT_TIMEOUT | detail::POLL_EVENT_CANCELLED))
-        return 1;  // timeout
+    if (ret == 0 && coroutine->GetLastResumeEvent() & (detail::POLL_EVENT_TIMEOUT | detail::POLL_EVENT_CANCELLED))
+        return 1; // timeout
 
     return ret;
 }
@@ -205,7 +209,7 @@ int CoMutex::_WaitUnLock(const detail::CoroutineOnYieldCallback& cb)
         if (event == nullptr)
             return -1;
         m_wait_event_queue.push(event);
-        return coroutine->YieldWithCallback([coroutine, cb, &cb_ran](){
+        return coroutine->YieldWithCallback([coroutine, cb, &cb_ran]() {
             if (!coroutine->_RegistAwaitEvent())
                 return false;
             /* 同上：cb 一旦执行即已解锁，先于其返回值置位。 */
@@ -217,8 +221,7 @@ int CoMutex::_WaitUnLock(const detail::CoroutineOnYieldCallback& cb)
          * 置 tombstone 由 _NotifyOne 跳过；pop() 会误删队首健康节点。 */
         if (!cb_ran) {
             coroutine->_SetAwaitEvent(nullptr);
-            if (event != nullptr && !m_wait_event_queue.empty() &&
-                m_wait_event_queue.back() == event)
+            if (event != nullptr && !m_wait_event_queue.empty() && m_wait_event_queue.back() == event)
                 m_wait_event_queue.back().reset();
             _SysUnLock();
         }

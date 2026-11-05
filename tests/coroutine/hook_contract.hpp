@@ -18,22 +18,30 @@
 #include <sys/time.h>
 #include <unistd.h>
 
-namespace hook_contract
-{
+namespace hook_contract {
 
 /**
  * @brief fd 的 RAII 守卫，析构时 close
  *
  * WHY: 契约用例大量走失败断言路径，异常/提前返回时裸 fd 会泄漏并污染后续用例。
  */
-class FdGuard
-{
+class FdGuard {
 public:
-    explicit FdGuard(int fd = -1): m_fd(fd) {}
-    ~FdGuard() { if (m_fd >= 0) ::close(m_fd); }
+    explicit FdGuard(int fd = -1) : m_fd(fd)
+    {
+    }
+    ~FdGuard()
+    {
+        if (m_fd >= 0)
+            ::close(m_fd);
+    }
     FdGuard(const FdGuard&) = delete;
     FdGuard& operator=(const FdGuard&) = delete;
-    int Get() const { return m_fd; }
+    int Get() const
+    {
+        return m_fd;
+    }
+
 private:
     int m_fd;
 };
@@ -44,15 +52,29 @@ private:
  * WHY: socketpair 本身不在 hook 列表内，得到的是原生（阻塞）fd；
  * 协程用例必须先 SetNonblock，否则 hook 内部的原生 read 会阻塞执行线程而不是走挂起路径。
  */
-class SocketPair
-{
+class SocketPair {
 public:
-    SocketPair() { ::socketpair(AF_UNIX, SOCK_STREAM, 0, m_fds); }
-    ~SocketPair() { for (int& fd : m_fds) if (fd >= 0) ::close(fd); }
+    SocketPair()
+    {
+        ::socketpair(AF_UNIX, SOCK_STREAM, 0, m_fds);
+    }
+    ~SocketPair()
+    {
+        for (int& fd : m_fds)
+            if (fd >= 0)
+                ::close(fd);
+    }
     SocketPair(const SocketPair&) = delete;
     SocketPair& operator=(const SocketPair&) = delete;
-    int operator[](int i) const { return m_fds[i]; }
-    bool Ok() const { return m_fds[0] >= 0 && m_fds[1] >= 0; }
+    int operator[](int i) const
+    {
+        return m_fds[i];
+    }
+    bool Ok() const
+    {
+        return m_fds[0] >= 0 && m_fds[1] >= 0;
+    }
+
 private:
     int m_fds[2]{-1, -1};
 };
@@ -99,9 +121,13 @@ inline void RunInCo(const std::function<void()>& fn)
     bbt::core::thread::CountDownLatch latch{1};
     std::exception_ptr eptr;
 
-    bbtco [&]() {
-        try { fn(); }
-        catch (...) { eptr = std::current_exception(); }
+    bbtco[&]()
+    {
+        try {
+            fn();
+        } catch (...) {
+            eptr = std::current_exception();
+        }
         latch.Down();
     };
 
@@ -116,14 +142,13 @@ inline void RunInCo(const std::function<void()>& fn)
  * WHY: handler 用 sigaction 注册且不带 SA_RESTART，libc 才会让被中断的 read
  * 返回 -1/EINTR 而不是自动重启；析构时恢复原 handler 并取消定时器，不泄漏信号状态。
  */
-class EintrArm
-{
+class EintrArm {
 public:
     explicit EintrArm(unsigned int usec)
     {
         struct sigaction sa;
         std::memset(&sa, 0, sizeof(sa));
-        sa.sa_handler = &NopHandler;  // 空处理、无 SA_RESTART
+        sa.sa_handler = &NopHandler; // 空处理、无 SA_RESTART
         ::sigaction(SIGALRM, &sa, &m_old);
         ::ualarm(usec, 0);
     }
@@ -134,8 +159,11 @@ public:
     }
     EintrArm(const EintrArm&) = delete;
     EintrArm& operator=(const EintrArm&) = delete;
+
 private:
-    static void NopHandler(int) {}
+    static void NopHandler(int)
+    {
+    }
     struct sigaction m_old;
 };
 

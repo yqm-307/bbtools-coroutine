@@ -14,14 +14,11 @@
 #include <bbt/coroutine/sync/Chan.hpp>
 /* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
  * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。 */
-namespace
-{
+namespace {
 void EnsureRuntime()
 {
     static std::once_flag once;
-    std::call_once(once, [](){
-        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
-    });
+    std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
 }
 
@@ -43,18 +40,34 @@ BOOST_AUTO_TEST_CASE(t_chan_block)
      * 冒充完成；results 活在 main 栈上，失败路径不会遗留野引用。 */
     bbt::core::thread::CountDownLatch l{4};
     int results[3] = {0, 0, 0};
-    bbtco [l = &l, &results](){
+    bbtco[l = &l, &results]()
+    {
         auto c = Chan<int, 1>();
         int val;
 
-        bbtco [c, l](){ c << 12; l->Down(); };
-        c >> val; results[0] = val;
+        bbtco[c, l]()
+        {
+            c << 12;
+            l->Down();
+        };
+        c >> val;
+        results[0] = val;
 
-        bbtco [c, l](){ c << 14; l->Down(); };
-        c >> val; results[1] = val;
+        bbtco[c, l]()
+        {
+            c << 14;
+            l->Down();
+        };
+        c >> val;
+        results[1] = val;
 
-        bbtco [c, l](){ c << 42; l->Down(); };
-        c >> val; results[2] = val;
+        bbtco[c, l]()
+        {
+            c << 42;
+            l->Down();
+        };
+        c >> val;
+        results[2] = val;
 
         l->Down();
     };
@@ -70,10 +83,12 @@ BOOST_AUTO_TEST_CASE(t_chan_1_vs_1)
     BOOST_TEST_MESSAGE("enter t_chan_1_vs_1");
     std::atomic_int count = 0;
     bbt::core::thread::CountDownLatch l{1};
-    bbtco [&count, &l](){
+    bbtco[&count, &l]()
+    {
         auto c = Chan<int, 65535>();
 
-        bbtco [&c](){
+        bbtco[&c]()
+        {
             for (int i = 0; i < 100; ++i)
                 BOOST_ASSERT(c->Write(i) == 0);
         };
@@ -98,12 +113,13 @@ BOOST_AUTO_TEST_CASE(t_chan_1_vs_n)
     BOOST_TEST_MESSAGE("enter t_chan_1_vs_n");
     bbt::core::thread::CountDownLatch l{1};
     std::atomic_int count = 0;
-    bbtco [&](){
+    bbtco[&]()
+    {
         auto c = Chan<int, 65535>();
 
-        for (int i = 0; i < 1000; ++i)
-        {
-            bbtco [&c, i](){
+        for (int i = 0; i < 1000; ++i) {
+            bbtco[&c, i]()
+            {
                 for (int i = 0; i < 100; ++i) {
                     int ret = c->Write(i);
                     BOOST_ASSERT(ret == 0);
@@ -132,7 +148,8 @@ BOOST_AUTO_TEST_CASE(t_chan_operator_overload)
     int wait_ms = 100;
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco [&count, wait_ms, &l] () {
+    bbtco[&count, wait_ms, &l]()
+    {
         bool succ = false;
         auto chan = Chan<int, 65535>();
         int write_val = 1;
@@ -153,7 +170,8 @@ BOOST_AUTO_TEST_CASE(t_chan_operator_overload)
 
     l.Reset(1);
 
-    bbtco [&count, wait_ms, &l](){
+    bbtco[&count, wait_ms, &l]()
+    {
         bool succ = false;
         auto chan = sync::Chan<int, 65535>();
         int write_val = 1;
@@ -177,9 +195,11 @@ BOOST_AUTO_TEST_CASE(t_block_write)
 {
     BOOST_TEST_MESSAGE("enter t_block_write");
     bbt::core::thread::CountDownLatch l{1};
-    bbtco [&](){
+    bbtco[&]()
+    {
         auto chan = Chan<int, 100>();
-        bbtco [&](){
+        bbtco[&]()
+        {
             int val;
             chan >> val;
             l.Down();
@@ -201,11 +221,13 @@ BOOST_AUTO_TEST_CASE(t_block_write_n)
     std::atomic_int n_read_succ_num{0};
     std::set<int> results;
 
-    bbtco [&](){
+    bbtco[&]()
+    {
         auto chan = Chan<int, 1>();
 
         for (int i = 0; i < nwrite; ++i) {
-            bbtco [&chan, &n_read_succ_num, i](){
+            bbtco[&chan, &n_read_succ_num, i]()
+            {
                 chan << i;
                 n_read_succ_num++;
             };
@@ -215,8 +237,9 @@ BOOST_AUTO_TEST_CASE(t_block_write_n)
 
         int val;
         for (int i = 0; i < nwrite; ++i) {
-            while (!(chan >> val));
-                // detail::Hook_Sleep(1);
+            while (!(chan >> val))
+                ;
+            // detail::Hook_Sleep(1);
             results.insert(val);
         }
 
@@ -240,10 +263,12 @@ BOOST_AUTO_TEST_CASE(t_nocache_chan_1v1)
     bbt::core::thread::CountDownLatch l{1};
     std::atomic_bool flag{false};
 
-    bbtco [&](){
+    bbtco[&]()
+    {
         auto chan = Chan<int, 0>();
         auto cond = sync::CoWaiter::Create();
-        bbtco [&](){
+        bbtco[&]()
+        {
             detail::Hook_Sleep(100);
             cond->Notify();
             chan << 1;
@@ -267,14 +292,15 @@ BOOST_AUTO_TEST_CASE(t_nocache_chan_1vn)
     int ncount = 0;
     bbt::core::thread::CountDownLatch l{nwrite_co_num + 1};
 
-    bbtco [&](){
+    bbtco[&]()
+    {
         auto chan = Chan<int, 0>();
         for (int i = 0; i < nwrite_co_num; ++i)
-            bbtco [&](){
+            bbtco[&]()
+            {
                 chan << 1;
                 l.Down();
             };
-
 
         sleep(1);
         int val;
@@ -298,15 +324,18 @@ BOOST_AUTO_TEST_CASE(t_close)
     bbt::core::thread::CountDownLatch l{2};
 
     auto chan = Chan<int, 65535>();
-    bbtco [&flag, &chan, &l](){
-        bbtco [&chan, &l](){
+    bbtco[&flag, &chan, &l]()
+    {
+        bbtco[&chan, &l]()
+        {
             int block;
             chan->TryRead(block, 100); // 阻塞100ms
             chan->Close();
             l.Down();
         };
 
-        bbtco [&chan, &flag, &l](){
+        bbtco[&chan, &flag, &l]()
+        {
             int val;
             chan >> val;
             flag = true;
@@ -327,7 +356,8 @@ BOOST_AUTO_TEST_CASE(t_new_basic)
 {
     BOOST_TEST_MESSAGE("enter t_new_basic");
     bbt::core::thread::CountDownLatch l{1};
-    bbtco [&l]() {
+    bbtco[&l]()
+    {
         // string 类型
         {
             auto c = Chan<std::string, 10>();
@@ -338,7 +368,10 @@ BOOST_AUTO_TEST_CASE(t_new_basic)
         }
         // 自定义 struct
         {
-            struct TItem { int id; double val; };
+            struct TItem {
+                int id;
+                double val;
+            };
             auto c = Chan<TItem, 10>();
             TItem item{42, 3.14};
             BOOST_ASSERT(c->Write(item) == 0);
@@ -350,7 +383,9 @@ BOOST_AUTO_TEST_CASE(t_new_basic)
         // ReadAll 非空
         {
             auto c = Chan<int, 10>();
-            c->Write(1); c->Write(2); c->Write(3);
+            c->Write(1);
+            c->Write(2);
+            c->Write(3);
             std::vector<int> items;
             BOOST_ASSERT(c->ReadAll(items) == 0);
             BOOST_CHECK_EQUAL(items.size(), 3);
@@ -359,7 +394,12 @@ BOOST_AUTO_TEST_CASE(t_new_basic)
         // ReadAll 阻塞等待
         {
             auto c = Chan<int, 10>();
-            bbtco [c]() { detail::Hook_Sleep(50); c->Write(10); c->Write(20); };
+            bbtco[c]()
+            {
+                detail::Hook_Sleep(50);
+                c->Write(10);
+                c->Write(20);
+            };
             std::vector<int> items;
             BOOST_ASSERT(c->ReadAll(items) == 0);
             BOOST_CHECK_EQUAL(items.size(), 2);
@@ -367,7 +407,8 @@ BOOST_AUTO_TEST_CASE(t_new_basic)
         // ReadAll 读空后再写入
         {
             auto c = Chan<int, 10>();
-            c->Write(1); c->Write(2);
+            c->Write(1);
+            c->Write(2);
             std::vector<int> items;
             BOOST_ASSERT(c->ReadAll(items) == 0);
             BOOST_CHECK_EQUAL(items.size(), 2);
@@ -389,7 +430,8 @@ BOOST_AUTO_TEST_CASE(t_new_trywrite)
 {
     BOOST_TEST_MESSAGE("enter t_new_trywrite");
     bbt::core::thread::CountDownLatch l{1};
-    bbtco [&l]() {
+    bbtco[&l]()
+    {
         auto c = Chan<int, 10>();
         // 成功
         BOOST_CHECK_EQUAL(c->TryWrite(42), 0);
@@ -413,7 +455,12 @@ BOOST_AUTO_TEST_CASE(t_new_trywrite)
         {
             auto c2 = Chan<int, 1>();
             BOOST_ASSERT(c2->Write(1) == 0);
-            bbtco [c2]() { detail::Hook_Sleep(50); int v; c2->Read(v); };
+            bbtco[c2]()
+            {
+                detail::Hook_Sleep(50);
+                int v;
+                c2->Read(v);
+            };
             BOOST_CHECK_EQUAL(c2->TryWrite(2, 500), 0);
         }
         l.Down();
@@ -426,7 +473,8 @@ BOOST_AUTO_TEST_CASE(t_new_tryread)
 {
     BOOST_TEST_MESSAGE("enter t_new_tryread");
     bbt::core::thread::CountDownLatch l{1};
-    bbtco [&l]() {
+    bbtco[&l]()
+    {
         auto c = Chan<int, 10>();
         // 成功
         c->Write(42);
@@ -445,7 +493,11 @@ BOOST_AUTO_TEST_CASE(t_new_tryread)
         // 超时期间写入后成功 (使用独立 Chan)
         {
             auto tc = Chan<int, 10>();
-            bbtco [tc]() { detail::Hook_Sleep(50); tc->Write(99); };
+            bbtco[tc]()
+            {
+                detail::Hook_Sleep(50);
+                tc->Write(99);
+            };
             int v3 = 0;
             int ret = tc->TryRead(v3, 500);
             BOOST_CHECK_EQUAL(ret, 0);
@@ -460,7 +512,8 @@ BOOST_AUTO_TEST_CASE(t_new_tryread)
             c2->Write(2);
             int ret = c2->Read(tv);
             BOOST_TEST_MESSAGE("TryRead leak: Read after TryRead ret=" << ret << " (expect 0, !=0=leak)");
-            if (ret == 0) BOOST_CHECK_EQUAL(tv, 2);
+            if (ret == 0)
+                BOOST_CHECK_EQUAL(tv, 2);
         }
         // ⚠️ m_is_reading 泄露: TryRead(timeout) 后 Read 应可用
         {
@@ -469,8 +522,10 @@ BOOST_AUTO_TEST_CASE(t_new_tryread)
             BOOST_CHECK_NE(c2->TryRead(tv, 100), 0);
             c2->Write(42);
             int ret = c2->Read(tv);
-            BOOST_TEST_MESSAGE("TryRead timeout leak: Read after TryRead(timeout) ret=" << ret << " (expect 0, !=0=leak)");
-            if (ret == 0) BOOST_CHECK_EQUAL(tv, 42);
+            BOOST_TEST_MESSAGE("TryRead timeout leak: Read after TryRead(timeout) ret=" << ret
+                                                                                        << " (expect 0, !=0=leak)");
+            if (ret == 0)
+                BOOST_CHECK_EQUAL(tv, 42);
         }
         l.Down();
     };
@@ -482,7 +537,8 @@ BOOST_AUTO_TEST_CASE(t_new_close_lifecycle)
 {
     BOOST_TEST_MESSAGE("enter t_new_close_lifecycle");
     bbt::core::thread::CountDownLatch l{1};
-    bbtco [&l]() {
+    bbtco[&l]()
+    {
         // 关闭后所有操作返回 -1
         {
             auto c = Chan<int, 10>();
@@ -503,7 +559,13 @@ BOOST_AUTO_TEST_CASE(t_new_close_lifecycle)
             bbt::core::thread::CountDownLatch l2{2};
             std::atomic_bool read_done{false};
             auto c = Chan<int, 10>();
-            bbtco [c, &l2, &read_done]() { int v; c->Read(v); read_done.store(true); l2.Down(); };
+            bbtco[c, &l2, &read_done]()
+            {
+                int v;
+                c->Read(v);
+                read_done.store(true);
+                l2.Down();
+            };
             detail::Hook_Sleep(50);
             c->Close();
             l2.Down();
@@ -516,7 +578,13 @@ BOOST_AUTO_TEST_CASE(t_new_close_lifecycle)
             auto c = Chan<int, 1>();
             c->Write(1);
             std::atomic_bool write_done{false};
-            bbtco [c, &l2, &write_done]() { int r = c->Write(2); write_done.store(true); BOOST_CHECK_EQUAL(r, -1); l2.Down(); };
+            bbtco[c, &l2, &write_done]()
+            {
+                int r = c->Write(2);
+                write_done.store(true);
+                BOOST_CHECK_EQUAL(r, -1);
+                l2.Down();
+            };
             detail::Hook_Sleep(30);
             c->Close();
             l2.Down();
@@ -529,8 +597,19 @@ BOOST_AUTO_TEST_CASE(t_new_close_lifecycle)
             std::atomic_bool tr{false}, tw{false};
             auto c = Chan<int, 1>();
             c->Write(1); // 填满，使得 TryWrite 阻塞
-            bbtco [c, &l2, &tr]() { int v; int r = c->TryRead(v, 5000); tr.store(true); l2.Down(); };
-            bbtco [c, &l2, &tw]() { int r = c->TryWrite(2, 5000); tw.store(true); l2.Down(); };
+            bbtco[c, &l2, &tr]()
+            {
+                int v;
+                int r = c->TryRead(v, 5000);
+                tr.store(true);
+                l2.Down();
+            };
+            bbtco[c, &l2, &tw]()
+            {
+                int r = c->TryWrite(2, 5000);
+                tw.store(true);
+                l2.Down();
+            };
             detail::Hook_Sleep(30);
             c->Close();
             l2.Wait();
@@ -549,7 +628,13 @@ BOOST_AUTO_TEST_CASE(t_new_close_lifecycle)
             bbt::core::thread::CountDownLatch l2{2};
             std::atomic_bool wd{false};
             auto c = Chan<int, 0>();
-            bbtco [c, &l2, &wd]() { int r = c->Write(1); wd.store(true); BOOST_CHECK_EQUAL(r, 0); l2.Down(); };
+            bbtco[c, &l2, &wd]()
+            {
+                int r = c->Write(1);
+                wd.store(true);
+                BOOST_CHECK_EQUAL(r, 0);
+                l2.Down();
+            };
             detail::Hook_Sleep(30);
             c->Close();
             l2.Down();
@@ -557,7 +642,10 @@ BOOST_AUTO_TEST_CASE(t_new_close_lifecycle)
             BOOST_CHECK(wd.load());
         }
         // 析构自动 Close (验证不崩溃)
-        { auto c = Chan<int, 10>(); c->Write(1); /* 析构 */ }
+        {
+            auto c = Chan<int, 10>();
+            c->Write(1); /* 析构 */
+        }
         l.Down();
     };
     l.Wait();
@@ -568,17 +656,29 @@ BOOST_AUTO_TEST_CASE(t_new_concurrency)
 {
     BOOST_TEST_MESSAGE("enter t_new_concurrency");
     bbt::core::thread::CountDownLatch l{1};
-    bbtco [&l]() {
+    bbtco[&l]()
+    {
         // Read CAS: 两个协程同时 Read，第二个失败
         {
             bbt::core::thread::CountDownLatch l2{1};
             std::atomic_int r1{0}, r2{0};
             auto c = Chan<int, 10>();
-            bbtco [c, &r1]() { int v; r1.store(c->Read(v)); };
+            bbtco[c, &r1]()
+            {
+                int v;
+                r1.store(c->Read(v));
+            };
             detail::Hook_Sleep(30);
-            bbtco [c, &r2]() { int v; r2.store(c->Read(v)); };
+            bbtco[c, &r2]()
+            {
+                int v;
+                r2.store(c->Read(v));
+            };
             detail::Hook_Sleep(30);
-            bbtco [c]() { c->Write(42); };
+            bbtco[c]()
+            {
+                c->Write(42);
+            };
             detail::Hook_Sleep(100);
             l2.Down();
             l2.Wait();
@@ -592,8 +692,16 @@ BOOST_AUTO_TEST_CASE(t_new_concurrency)
             int v1 = 0, v2 = 0;
             auto c = Chan<int, 10>();
             c->Write(42);
-            bbtco [c, &r1, &v1, &l2]() { r1.store(c->TryRead(v1)); l2.Down(); };
-            bbtco [c, &r2, &v2, &l2]() { r2.store(c->TryRead(v2)); l2.Down(); };
+            bbtco[c, &r1, &v1, &l2]()
+            {
+                r1.store(c->TryRead(v1));
+                l2.Down();
+            };
+            bbtco[c, &r2, &v2, &l2]()
+            {
+                r2.store(c->TryRead(v2));
+                l2.Down();
+            };
             detail::Hook_Sleep(50);
             l2.Wait();
             BOOST_CHECK((r1.load() == 0 && r2.load() != 0) || (r1.load() != 0 && r2.load() == 0));
@@ -603,7 +711,8 @@ BOOST_AUTO_TEST_CASE(t_new_concurrency)
         // Read 完成后新 Read 可进入
         {
             auto c = Chan<int, 10>();
-            c->Write(1); c->Write(2);
+            c->Write(1);
+            c->Write(2);
             int v1, v2;
             BOOST_ASSERT(c->Read(v1) == 0);
             BOOST_CHECK_EQUAL(v1, 1);
@@ -614,9 +723,14 @@ BOOST_AUTO_TEST_CASE(t_new_concurrency)
         {
             const int N = 50;
             auto c = Chan<int, 100>();
-            for (int i = 0; i < N; ++i) BOOST_ASSERT(c->Write(i) == 0);
+            for (int i = 0; i < N; ++i)
+                BOOST_ASSERT(c->Write(i) == 0);
             std::set<int> result;
-            for (int i = 0; i < N; ++i) { int v; BOOST_ASSERT(c->Read(v) == 0); result.insert(v); }
+            for (int i = 0; i < N; ++i) {
+                int v;
+                BOOST_ASSERT(c->Read(v) == 0);
+                result.insert(v);
+            }
             BOOST_CHECK_EQUAL(result.size(), N);
         }
         l.Down();
@@ -629,7 +743,8 @@ BOOST_AUTO_TEST_CASE(t_new_operators)
 {
     BOOST_TEST_MESSAGE("enter t_new_operators");
     bbt::core::thread::CountDownLatch l{1};
-    bbtco [&l]() {
+    bbtco[&l]()
+    {
         // Close 后 << >> 返回 false
         {
             auto c = Chan<int, 10>();
@@ -649,16 +764,29 @@ BOOST_AUTO_TEST_CASE(t_new_operators)
         // FIFO 严格顺序
         {
             auto c = Chan<int, 100>();
-            for (int i = 0; i < 100; ++i) BOOST_ASSERT(c->Write(i) == 0);
-            for (int i = 0; i < 100; ++i) { int v; BOOST_ASSERT(c->Read(v) == 0); BOOST_CHECK_EQUAL(v, i); }
+            for (int i = 0; i < 100; ++i)
+                BOOST_ASSERT(c->Write(i) == 0);
+            for (int i = 0; i < 100; ++i) {
+                int v;
+                BOOST_ASSERT(c->Read(v) == 0);
+                BOOST_CHECK_EQUAL(v, i);
+            }
         }
         // 无缓冲值匹配
         {
             auto c = Chan<int, 0>();
-            bbtco [c]() { detail::Hook_Sleep(10); c->Write(10); detail::Hook_Sleep(10); c->Write(20); };
+            bbtco[c]()
+            {
+                detail::Hook_Sleep(10);
+                c->Write(10);
+                detail::Hook_Sleep(10);
+                c->Write(20);
+            };
             int v1, v2;
-            BOOST_ASSERT(c->Read(v1) == 0); BOOST_CHECK_EQUAL(v1, 10);
-            BOOST_ASSERT(c->Read(v2) == 0); BOOST_CHECK_EQUAL(v2, 20);
+            BOOST_ASSERT(c->Read(v1) == 0);
+            BOOST_CHECK_EQUAL(v1, 10);
+            BOOST_ASSERT(c->Read(v2) == 0);
+            BOOST_CHECK_EQUAL(v2, 20);
         }
         l.Down();
     };
@@ -671,13 +799,16 @@ BOOST_AUTO_TEST_CASE(t_new_multi_writer)
     BOOST_TEST_MESSAGE("enter t_new_multi_writer");
     bbt::core::thread::CountDownLatch l{1};
     std::set<int> result_set;
-    bbtco [&l, &result_set]() {
+    bbtco[&l, &result_set]()
+    {
         auto c = Chan<int, 65535>();
         const int nwriters = 3;
         const int n_per = 5;
         for (int w = 0; w < nwriters; ++w) {
-            bbtco [c, w]() {
-                for (int i = 0; i < n_per; ++i) BOOST_ASSERT(c->Write(w * 1000 + i) == 0);
+            bbtco[c, w]()
+            {
+                for (int i = 0; i < n_per; ++i)
+                    BOOST_ASSERT(c->Write(w * 1000 + i) == 0);
             };
         }
         int total = nwriters * n_per;
@@ -704,7 +835,8 @@ BOOST_AUTO_TEST_CASE(t_chan_custom_struct)
 {
     BOOST_TEST_MESSAGE("enter t_chan_custom_struct");
     bbt::core::thread::CountDownLatch l{1};
-    bbtco [&l]() {
+    bbtco[&l]()
+    {
         auto c = Chan<TestItem, 10>();
         TestItem item{42, 3.14};
         BOOST_ASSERT(c->Write(item) == 0);
@@ -722,9 +854,12 @@ BOOST_AUTO_TEST_CASE(t_readall_nonempty)
 {
     BOOST_TEST_MESSAGE("enter t_readall_nonempty");
     bbt::core::thread::CountDownLatch l{1};
-    bbtco [&l]() {
+    bbtco[&l]()
+    {
         auto c = Chan<int, 10>();
-        c->Write(1); c->Write(2); c->Write(3);
+        c->Write(1);
+        c->Write(2);
+        c->Write(3);
         std::vector<int> items;
         BOOST_ASSERT(c->ReadAll(items) == 0);
         BOOST_CHECK_EQUAL(items.size(), 3);
@@ -741,9 +876,11 @@ BOOST_AUTO_TEST_CASE(t_readall_block)
 {
     BOOST_TEST_MESSAGE("enter t_readall_block");
     bbt::core::thread::CountDownLatch l{1};
-    bbtco [&l]() {
+    bbtco[&l]()
+    {
         auto c = Chan<int, 10>();
-        bbtco [&c]() {
+        bbtco[&c]()
+        {
             detail::Hook_Sleep(100);
             c->Write(10);
             c->Write(20);
@@ -761,9 +898,11 @@ BOOST_AUTO_TEST_CASE(t_readall_refill)
 {
     BOOST_TEST_MESSAGE("enter t_readall_refill");
     bbt::core::thread::CountDownLatch l{1};
-    bbtco [&l]() {
+    bbtco[&l]()
+    {
         auto c = Chan<int, 10>();
-        c->Write(1); c->Write(2);
+        c->Write(1);
+        c->Write(2);
         std::vector<int> items;
         BOOST_ASSERT(c->ReadAll(items) == 0);
         BOOST_CHECK_EQUAL(items.size(), 2);
@@ -795,7 +934,8 @@ BOOST_AUTO_TEST_CASE(t_trywrite_success)
 {
     BOOST_TEST_MESSAGE("enter t_trywrite_success");
     bbt::core::thread::CountDownLatch l{1};
-    bbtco [&l]() {
+    bbtco[&l]()
+    {
         auto c = Chan<int, 10>();
         BOOST_CHECK_EQUAL(c->TryWrite(42), 0);
         int val = 0;
@@ -811,7 +951,8 @@ BOOST_AUTO_TEST_CASE(t_trywrite_full)
 {
     BOOST_TEST_MESSAGE("enter t_trywrite_full");
     bbt::core::thread::CountDownLatch l{1};
-    bbtco [&l]() {
+    bbtco[&l]()
+    {
         auto c = Chan<int, 1>();
         BOOST_ASSERT(c->Write(1) == 0);
         BOOST_CHECK_NE(c->TryWrite(2), 0);
@@ -825,13 +966,14 @@ BOOST_AUTO_TEST_CASE(t_trywrite_timeout)
 {
     BOOST_TEST_MESSAGE("enter t_trywrite_timeout");
     bbt::core::thread::CountDownLatch l{1};
-    bbtco [&l]() {
+    bbtco[&l]()
+    {
         auto c = Chan<int, 1>();
         BOOST_ASSERT(c->Write(1) == 0); // 填满
         auto t1 = bbt::core::clock::gettime<>();
         int ret = c->TryWrite(2, 100);
         auto t2 = bbt::core::clock::gettime<>();
-        BOOST_CHECK_EQUAL(ret, 1); // 超时返回 1（非 -1）
+        BOOST_CHECK_EQUAL(ret, 1);  // 超时返回 1（非 -1）
         BOOST_CHECK(t2 - t1 >= 90); // 至少等了 90ms
         l.Down();
     };
@@ -843,10 +985,12 @@ BOOST_AUTO_TEST_CASE(t_trywrite_timeout_success)
 {
     BOOST_TEST_MESSAGE("enter t_trywrite_timeout_success");
     bbt::core::thread::CountDownLatch l{1};
-    bbtco [&l]() {
+    bbtco[&l]()
+    {
         auto c = Chan<int, 1>();
         BOOST_ASSERT(c->Write(1) == 0); // 填满
-        bbtco [&c]() {
+        bbtco[&c]()
+        {
             detail::Hook_Sleep(50);
             int val;
             c->Read(val); // 消费掉，腾出空间
@@ -876,7 +1020,8 @@ BOOST_AUTO_TEST_CASE(t_tryread_success)
 {
     BOOST_TEST_MESSAGE("enter t_tryread_success");
     bbt::core::thread::CountDownLatch l{1};
-    bbtco [&l]() {
+    bbtco[&l]()
+    {
         auto c = Chan<int, 10>();
         c->Write(42);
         int val = 0;
@@ -892,7 +1037,8 @@ BOOST_AUTO_TEST_CASE(t_tryread_empty)
 {
     BOOST_TEST_MESSAGE("enter t_tryread_empty");
     bbt::core::thread::CountDownLatch l{1};
-    bbtco [&l]() {
+    bbtco[&l]()
+    {
         auto c = Chan<int, 10>();
         int val = 0;
         BOOST_CHECK_NE(c->TryRead(val), 0);
@@ -906,7 +1052,8 @@ BOOST_AUTO_TEST_CASE(t_tryread_timeout)
 {
     BOOST_TEST_MESSAGE("enter t_tryread_timeout");
     bbt::core::thread::CountDownLatch l{1};
-    bbtco [&l]() {
+    bbtco[&l]()
+    {
         auto c = Chan<int, 10>();
         int val = 0;
         auto t1 = bbt::core::clock::gettime<>();
@@ -924,9 +1071,11 @@ BOOST_AUTO_TEST_CASE(t_tryread_timeout_success)
 {
     BOOST_TEST_MESSAGE("enter t_tryread_timeout_success");
     bbt::core::thread::CountDownLatch l{1};
-    bbtco [&l]() {
+    bbtco[&l]()
+    {
         auto c = Chan<int, 10>();
-        bbtco [&c]() {
+        bbtco[&c]()
+        {
             detail::Hook_Sleep(50);
             c->Write(42);
         };
@@ -944,7 +1093,8 @@ BOOST_AUTO_TEST_CASE(t_tryread_m_is_reading_reset)
 {
     BOOST_TEST_MESSAGE("enter t_tryread_m_is_reading_reset");
     bbt::core::thread::CountDownLatch l{1};
-    bbtco [&l]() {
+    bbtco[&l]()
+    {
         auto c = Chan<int, 10>();
         c->Write(1);
         int val = 0;
@@ -967,7 +1117,8 @@ BOOST_AUTO_TEST_CASE(t_tryread_timeout_m_is_reading)
 {
     BOOST_TEST_MESSAGE("enter t_tryread_timeout_m_is_reading");
     bbt::core::thread::CountDownLatch l{1};
-    bbtco [&l]() {
+    bbtco[&l]()
+    {
         auto c = Chan<int, 10>();
         int val = 0;
         int ret1 = c->TryRead(val, 100);
@@ -1004,7 +1155,8 @@ BOOST_AUTO_TEST_CASE(t_close_all_ops)
 {
     BOOST_TEST_MESSAGE("enter t_close_all_ops");
     bbt::core::thread::CountDownLatch l{1};
-    bbtco [&l]() {
+    bbtco[&l]()
+    {
         auto c = Chan<int, 10>();
         BOOST_CHECK(!c->IsClosed());
         c->Close();
@@ -1029,10 +1181,12 @@ BOOST_AUTO_TEST_CASE(t_close_wake_read)
     BOOST_TEST_MESSAGE("enter t_close_wake_read");
     bbt::core::thread::CountDownLatch l{2};
     std::atomic_bool read_returned{false};
-    bbtco [&l, &read_returned]() {
+    bbtco[&l, &read_returned]()
+    {
         auto c = Chan<int, 10>();
         // 读端挂起
-        bbtco [c, &l, &read_returned]() {
+        bbtco[c, &l, &read_returned]()
+        {
             int val;
             int ret = c->Read(val);
             read_returned.store(true);
@@ -1054,11 +1208,13 @@ BOOST_AUTO_TEST_CASE(t_close_wake_write_single)
     BOOST_TEST_MESSAGE("enter t_close_wake_write_single");
     bbt::core::thread::CountDownLatch l{2};
     std::atomic_bool write_returned{false};
-    bbtco [&l, &write_returned]() {
+    bbtco[&l, &write_returned]()
+    {
         auto c = Chan<int, 1>();
         c->Write(1); // 填满
         // 写端挂起
-        bbtco [c, &l, &write_returned]() {
+        bbtco[c, &l, &write_returned]()
+        {
             int ret = c->Write(2); // 阻塞
             write_returned.store(true);
             BOOST_CHECK_EQUAL(ret, -1); // Close 唤醒后 Write 应返回 -1
@@ -1081,11 +1237,13 @@ BOOST_AUTO_TEST_CASE(t_close_wake_write_multi)
     BOOST_TEST_MESSAGE("Known issue: Close wakes all blocked writers, causing queue overflow crash with >1 writer");
     bbt::core::thread::CountDownLatch l{2};
     std::atomic_bool write_returned{false};
-    bbtco [&l, &write_returned]() {
+    bbtco[&l, &write_returned]()
+    {
         auto c = Chan<int, 1>();
         c->Write(1); // 填满
         // 单写者：避免多写者溢出崩溃
-        bbtco [c, &l, &write_returned]() {
+        bbtco[c, &l, &write_returned]()
+        {
             int ret = c->Write(2);
             write_returned.store(true);
             // ret=0: IsClosed 仅在入口检查，唤醒后 Write 仍成功
@@ -1106,9 +1264,11 @@ BOOST_AUTO_TEST_CASE(t_close_wake_tryread_timeout)
     BOOST_TEST_MESSAGE("enter t_close_wake_tryread_timeout");
     bbt::core::thread::CountDownLatch l{2};
     std::atomic_bool tryread_returned{false};
-    bbtco [&l, &tryread_returned]() {
+    bbtco[&l, &tryread_returned]()
+    {
         auto c = Chan<int, 10>();
-        bbtco [c, &l, &tryread_returned]() {
+        bbtco[c, &l, &tryread_returned]()
+        {
             int val;
             int ret = c->TryRead(val, 5000); // 长超时
             tryread_returned.store(true);
@@ -1129,10 +1289,12 @@ BOOST_AUTO_TEST_CASE(t_close_wake_trywrite_timeout)
     BOOST_TEST_MESSAGE("enter t_close_wake_trywrite_timeout");
     bbt::core::thread::CountDownLatch l{2};
     std::atomic_bool trywrite_returned{false};
-    bbtco [&l, &trywrite_returned]() {
+    bbtco[&l, &trywrite_returned]()
+    {
         auto c = Chan<int, 1>();
         c->Write(1); // 填满
-        bbtco [c, &l, &trywrite_returned]() {
+        bbtco[c, &l, &trywrite_returned]()
+        {
             int ret = c->TryWrite(2, 5000); // 长超时
             trywrite_returned.store(true);
             BOOST_CHECK_EQUAL(ret, -1); // Close 唤醒后 TryWrite 应返回 -1
@@ -1151,7 +1313,8 @@ BOOST_AUTO_TEST_CASE(t_nocache_close_ops)
 {
     BOOST_TEST_MESSAGE("enter t_nocache_close_ops");
     bbt::core::thread::CountDownLatch l{1};
-    bbtco [&l]() {
+    bbtco[&l]()
+    {
         auto c = Chan<int, 0>();
         c->Close();
         BOOST_CHECK_EQUAL(c->Write(1), -1);
@@ -1168,9 +1331,11 @@ BOOST_AUTO_TEST_CASE(t_nocache_close_wake_write)
     BOOST_TEST_MESSAGE("enter t_nocache_close_wake_write");
     bbt::core::thread::CountDownLatch l{2};
     std::atomic_bool write_returned{false};
-    bbtco [&l, &write_returned]() {
+    bbtco[&l, &write_returned]()
+    {
         auto c = Chan<int, 0>();
-        bbtco [c, &l, &write_returned]() {
+        bbtco[c, &l, &write_returned]()
+        {
             int ret = c->Write(1); // 无读者，阻塞
             write_returned.store(true);
             BOOST_CHECK_EQUAL(ret, 0); // IsClosed 仅在入口检查，Close 唤醒后 Write 仍成功
@@ -1189,7 +1354,8 @@ BOOST_AUTO_TEST_CASE(t_chan_dtor_close)
 {
     BOOST_TEST_MESSAGE("enter t_chan_dtor_close");
     bbt::core::thread::CountDownLatch l{1};
-    bbtco [&l]() {
+    bbtco[&l]()
+    {
         bool closed;
         {
             auto c = Chan<int, 10>();
@@ -1215,29 +1381,35 @@ BOOST_AUTO_TEST_CASE(t_concurrent_read_cas)
     bbt::core::thread::CountDownLatch l{1};
     std::atomic_int result1{0};
     std::atomic_int result2{0};
-    bbtco [&l, &result1, &result2]() {
+    bbtco[&l, &result1, &result2]()
+    {
         auto c = Chan<int, 10>();
         // Reader 1: 先进入 Read，CAS 成功，阻塞等待数据
-        bbtco [&c, &result1]() {
+        bbtco[&c, &result1]()
+        {
             int val;
             result1.store(c->Read(val));
         };
         // 等待 Reader 1 完成 CAS
         detail::Hook_Sleep(30);
         // Reader 2: CAS 应失败，立即返回 -1
-        bbtco [&c, &result2]() {
+        bbtco[&c, &result2]()
+        {
             int val;
             result2.store(c->Read(val));
         };
         // 写入数据唤醒 Reader 1
         detail::Hook_Sleep(30);
-        bbtco [&c]() { c->Write(42); };
+        bbtco[&c]()
+        {
+            c->Write(42);
+        };
         detail::Hook_Sleep(100);
         l.Down();
     };
     l.Wait();
-    BOOST_CHECK_EQUAL(result1.load(), 0);   // Reader 1 应成功
-    BOOST_CHECK_NE(result2.load(), 0);  // Reader 2 应因 CAS 失败
+    BOOST_CHECK_EQUAL(result1.load(), 0); // Reader 1 应成功
+    BOOST_CHECK_NE(result2.load(), 0);    // Reader 2 应因 CAS 失败
 }
 
 // 5.2 两个协程同时 TryRead CAS 竞争
@@ -1248,15 +1420,18 @@ BOOST_AUTO_TEST_CASE(t_concurrent_tryread_cas)
     std::atomic_int result1{0};
     std::atomic_int result2{0};
     int val1 = 0, val2 = 0;
-    bbtco [&l, &result1, &result2, &val1, &val2]() {
+    bbtco[&l, &result1, &result2, &val1, &val2]()
+    {
         auto c = Chan<int, 10>();
         c->Write(42);
         // 两个 TryRead 并发，CAS 只允许一个成功
-        bbtco [c, &result1, &val1, &l]() {
+        bbtco[c, &result1, &val1, &l]()
+        {
             result1.store(c->TryRead(val1));
             l.Down();
         };
-        bbtco [c, &result2, &val2, &l]() {
+        bbtco[c, &result2, &val2, &l]()
+        {
             result2.store(c->TryRead(val2));
             l.Down();
         };
@@ -1265,8 +1440,7 @@ BOOST_AUTO_TEST_CASE(t_concurrent_tryread_cas)
     };
     l.Wait();
     // 一个应成功 (0)，另一个应失败 (-1)
-    BOOST_CHECK((result1.load() == 0 && result2.load() != 0) ||
-                (result1.load() != 0 && result2.load() == 0));
+    BOOST_CHECK((result1.load() == 0 && result2.load() != 0) || (result1.load() != 0 && result2.load() == 0));
     int success_val = (result1.load() == 0) ? val1 : val2;
     BOOST_CHECK_EQUAL(success_val, 42);
 }
@@ -1276,7 +1450,8 @@ BOOST_AUTO_TEST_CASE(t_read_after_read)
 {
     BOOST_TEST_MESSAGE("enter t_read_after_read");
     bbt::core::thread::CountDownLatch l{1};
-    bbtco [&l]() {
+    bbtco[&l]()
+    {
         auto c = Chan<int, 10>();
         c->Write(1);
         c->Write(2);
@@ -1298,27 +1473,34 @@ BOOST_AUTO_TEST_CASE(t_multi_reader_integrity)
     bbt::core::thread::CountDownLatch l{3};
     std::set<int> r1_set, r2_set;
     std::atomic_int total_read{0};
-    bbtco [&l, &r1_set, &r2_set, &total_read]() {
+    bbtco[&l, &r1_set, &r2_set, &total_read]()
+    {
         auto c = Chan<int, 100>();
         for (int i = 0; i < N; ++i)
             BOOST_ASSERT(c->Write(i) == 0);
-        bbtco [c, &r1_set, &total_read, &l]() {
+        bbtco[c, &r1_set, &total_read, &l]()
+        {
             while (total_read.load() < N) {
                 int val;
                 if (c->Read(val) == 0) {
                     r1_set.insert(val);
                     total_read++;
-                } else { break; }
+                } else {
+                    break;
+                }
             }
             l.Down();
         };
-        bbtco [c, &r2_set, &total_read, &l]() {
+        bbtco[c, &r2_set, &total_read, &l]()
+        {
             while (total_read.load() < N) {
                 int val;
                 if (c->Read(val) == 0) {
                     r2_set.insert(val);
                     total_read++;
-                } else { break; }
+                } else {
+                    break;
+                }
             }
             l.Down();
         };
@@ -1337,26 +1519,33 @@ BOOST_AUTO_TEST_CASE(t_multi_reader_integrity)
         BOOST_CHECK(all.find(i) != all.end());
 }
 
-
 // 5.5 无缓冲 Chan 多读者场景
 BOOST_AUTO_TEST_CASE(t_nocache_multi_reader)
 {
     BOOST_TEST_MESSAGE("enter t_nocache_multi_reader");
     bbt::core::thread::CountDownLatch l{1};
-    bbtco [&l]() {
+    bbtco[&l]()
+    {
         auto c = Chan<int, 0>();
         std::atomic_int r1_ok{0}, r2_ok{0};
-        bbtco [c, &r1_ok]() {
+        bbtco[c, &r1_ok]()
+        {
             int val;
             r1_ok.store(c->Read(val));
         };
-        bbtco [c, &r2_ok]() {
+        bbtco[c, &r2_ok]()
+        {
             int val;
             r2_ok.store(c->Read(val));
         };
         detail::Hook_Sleep(50);
         // 写入一个元素后关闭，确保两个读者都能退出
-        bbtco [c]() { c->Write(1); detail::Hook_Sleep(10); c->Close(); };
+        bbtco[c]()
+        {
+            c->Write(1);
+            detail::Hook_Sleep(10);
+            c->Close();
+        };
         detail::Hook_Sleep(100);
         BOOST_TEST_MESSAGE("Chan<0> 2 readers: r1=" << r1_ok.load() << " r2=" << r2_ok.load());
         l.Down();
@@ -1373,7 +1562,8 @@ BOOST_AUTO_TEST_CASE(t_close_shift_write)
 {
     BOOST_TEST_MESSAGE("enter t_close_shift_write");
     bbt::core::thread::CountDownLatch l{1};
-    bbtco [&l]() {
+    bbtco[&l]()
+    {
         auto c = Chan<int, 10>();
         c->Close();
         BOOST_CHECK(!(c << 42));
@@ -1387,7 +1577,8 @@ BOOST_AUTO_TEST_CASE(t_close_shift_read)
 {
     BOOST_TEST_MESSAGE("enter t_close_shift_read");
     bbt::core::thread::CountDownLatch l{1};
-    bbtco [&l]() {
+    bbtco[&l]()
+    {
         auto c = Chan<int, 10>();
         c->Close();
         int val;
@@ -1402,7 +1593,8 @@ BOOST_AUTO_TEST_CASE(t_shared_ptr_shift_write)
 {
     BOOST_TEST_MESSAGE("enter t_shared_ptr_shift_write");
     bbt::core::thread::CountDownLatch l{1};
-    bbtco [&l]() {
+    bbtco[&l]()
+    {
         auto c = std::make_shared<sync::Chan<int, 10>>();
         BOOST_CHECK(c << 42);
         int val;
@@ -1418,7 +1610,8 @@ BOOST_AUTO_TEST_CASE(t_shared_ptr_shift_read)
 {
     BOOST_TEST_MESSAGE("enter t_shared_ptr_shift_read");
     bbt::core::thread::CountDownLatch l{1};
-    bbtco [&l]() {
+    bbtco[&l]()
+    {
         auto c = std::make_shared<sync::Chan<int, 10>>();
         c << 99;
         int val;
@@ -1434,7 +1627,8 @@ BOOST_AUTO_TEST_CASE(t_fifo_order)
 {
     BOOST_TEST_MESSAGE("enter t_fifo_order");
     bbt::core::thread::CountDownLatch l{1};
-    bbtco [&l]() {
+    bbtco[&l]()
+    {
         auto c = Chan<int, 100>();
         for (int i = 0; i < 100; ++i)
             BOOST_ASSERT(c->Write(i) == 0);
@@ -1453,9 +1647,11 @@ BOOST_AUTO_TEST_CASE(t_nocache_value_match)
 {
     BOOST_TEST_MESSAGE("enter t_nocache_value_match");
     bbt::core::thread::CountDownLatch l{1};
-    bbtco [&l]() {
+    bbtco[&l]()
+    {
         auto c = Chan<int, 0>();
-        bbtco [&c]() {
+        bbtco[&c]()
+        {
             detail::Hook_Sleep(10);
             c->Write(10);
             detail::Hook_Sleep(10);
@@ -1481,7 +1677,8 @@ BOOST_AUTO_TEST_CASE(t_multi_write_integrity)
     BOOST_TEST_MESSAGE("enter t_multi_write_integrity (simplified)");
     // 前序测试累积的协程数已接近调度器上限，此处简化为基本验证
     bbt::core::thread::CountDownLatch l{1};
-    bbtco [&l]() {
+    bbtco[&l]()
+    {
         auto c = Chan<int, 65535>();
         c->Write(42);
         int val;
@@ -1511,24 +1708,32 @@ BOOST_AUTO_TEST_CASE(t_chan_trywrite_timeout_does_not_steal_wakeup)
 {
     BOOST_TEST_MESSAGE("enter t_chan_trywrite_timeout_does_not_steal_wakeup");
     bbt::core::thread::CountDownLatch l{1};
-    bbtco [&l]() {
+    bbtco[&l]()
+    {
         auto c = Chan<int, 1>();
-        BOOST_CHECK_EQUAL(c->TryWrite(1), 0);  // 填满缓冲
+        BOOST_CHECK_EQUAL(c->TryWrite(1), 0); // 填满缓冲
 
         // A：写不进，80ms 后超时退出，留下失效 waiter
-        bbtco [c]() { BOOST_CHECK_EQUAL(c->TryWrite(2, 80), 1); };
+        bbtco[c]()
+        {
+            BOOST_CHECK_EQUAL(c->TryWrite(2, 80), 1);
+        };
 
         bbt::core::thread::CountDownLatch lb{1};
         std::atomic_int bret{-999};
-        detail::Hook_Sleep(20);  // 让 A 先入队，B 排在僵尸 waiter 之后
-        bbtco [c, &lb, &bret]() { bret = c->Write(3); lb.Down(); };
+        detail::Hook_Sleep(20); // 让 A 先入队，B 排在僵尸 waiter 之后
+        bbtco[c, &lb, &bret]()
+        {
+            bret = c->Write(3);
+            lb.Down();
+        };
 
-        detail::Hook_Sleep(120);  // 等 A 超时（其 waiter 已被 Cancel）
+        detail::Hook_Sleep(120); // 等 A 超时（其 waiter 已被 Cancel）
 
         int v = 0;
         BOOST_CHECK_EQUAL(c->Read(v), 0);
-        BOOST_CHECK_EQUAL(v, 1);  // 这次 Read 触发 _OnEnableWrite，应跳过僵尸唤醒 B
-        WaitLatch(lb, 1000);      // B 必须 1s 内完成，禁止死等
+        BOOST_CHECK_EQUAL(v, 1); // 这次 Read 触发 _OnEnableWrite，应跳过僵尸唤醒 B
+        WaitLatch(lb, 1000);     // B 必须 1s 内完成，禁止死等
         BOOST_CHECK_EQUAL(bret.load(), 0);
         BOOST_CHECK_EQUAL(c->Read(v), 0);
         BOOST_CHECK_EQUAL(v, 3);
@@ -1556,10 +1761,10 @@ BOOST_AUTO_TEST_CASE(t_chan_capacity_pressure_no_lost_wakeup)
      * 与 t_begin 完全同一路径，重复调用为空操作；单独 --run_test 过滤运行
      * 时也保证 runtime 已初始化，不改变 process-lifetime 语义。 */
     EnsureRuntime();
-    constexpr int kCap       = 16;
-    constexpr int kWriters   = 5;
+    constexpr int kCap = 16;
+    constexpr int kWriters = 5;
     constexpr int kPerWriter = 2000;
-    constexpr int kTotal     = kWriters * kPerWriter;   // 10000 >> 16
+    constexpr int kTotal = kWriters * kPerWriter; // 10000 >> 16
 
     for (int round = 0; round < 8; ++round) {
         auto c = Chan<int, kCap>();
@@ -1568,21 +1773,23 @@ BOOST_AUTO_TEST_CASE(t_chan_capacity_pressure_no_lost_wakeup)
         std::atomic_int writer_ok{0};
 
         for (int w = 0; w < kWriters; ++w) {
-            bbtco [c, &writers, &writer_ok, w]() {
+            bbtco[c, &writers, &writer_ok, w]()
+            {
                 for (int i = 0; i < kPerWriter; ++i) {
                     if (c->Write(w * kPerWriter + i) != 0)
-                        return;  // 非 0 = 关闭/等待失败：不 Down，本轮判 FAIL
+                        return; // 非 0 = 关闭/等待失败：不 Down，本轮判 FAIL
                 }
                 writer_ok.fetch_add(1);
                 writers.Down();
             };
         }
 
-        bbtco [c, &reader]() {
+        bbtco[c, &reader]()
+        {
             int v = 0;
             for (int i = 0; i < kTotal; ++i) {
                 if (c->Read(v) != 0)
-                    return;  // 不应发生：正常路径下队列会在写满前被消费
+                    return; // 不应发生：正常路径下队列会在写满前被消费
             }
             reader.Down();
         };

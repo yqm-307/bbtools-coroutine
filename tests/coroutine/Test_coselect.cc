@@ -12,14 +12,11 @@
 #include <bbt/coroutine/sync/CoSelect.hpp>
 /* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
  * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。 */
-namespace
-{
+namespace {
 void EnsureRuntime()
 {
     static std::once_flag once;
-    std::call_once(once, [](){
-        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
-    });
+    std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
 }
 
@@ -41,21 +38,19 @@ BOOST_AUTO_TEST_CASE(t_select_case_read)
     int out2 = 0;
     int elapsed_ms = -1;
 
-    bbtco [&](){
+    bbtco[&]()
+    {
         sync::Chan<int, 4> ch1;
         sync::Chan<int, 4> ch2;
 
-        bbtco [&ch1](){
-            bbtco_sleep(30);    // 等 select 挂起后再写，验证 watcher 唤醒路径
+        bbtco[&ch1]()
+        {
+            bbtco_sleep(30); // 等 select 挂起后再写，验证 watcher 唤醒路径
             BOOST_CHECK_EQUAL(ch1.TryWrite(42), 0);
         };
 
         auto begin = bbt::core::clock::gettime_mono();
-        index = sync::CoSelect()
-                    .CaseRead(ch1, out1)
-                    .CaseRead(ch2, out2)
-                    .CaseTimeout(2000)
-                    .Run();
+        index = sync::CoSelect().CaseRead(ch1, out1).CaseRead(ch2, out2).CaseTimeout(2000).Run();
         elapsed_ms = bbt::core::clock::gettime_mono() - begin;
         l.Down();
     };
@@ -75,16 +70,14 @@ BOOST_AUTO_TEST_CASE(t_select_both_ready_first_registered)
     int out1 = 0;
     int out2 = 0;
 
-    bbtco [&](){
+    bbtco[&]()
+    {
         sync::Chan<int, 4> ch1;
         sync::Chan<int, 4> ch2;
         BOOST_CHECK_EQUAL(ch1.TryWrite(11), 0);
         BOOST_CHECK_EQUAL(ch2.TryWrite(22), 0);
 
-        index = sync::CoSelect()
-                    .CaseRead(ch1, out1)
-                    .CaseRead(ch2, out2)
-                    .Run();
+        index = sync::CoSelect().CaseRead(ch1, out1).CaseRead(ch2, out2).Run();
         l.Down();
     };
 
@@ -101,14 +94,12 @@ BOOST_AUTO_TEST_CASE(t_select_default)
     int index = -999;
     int elapsed = -1;
 
-    bbtco [&](){
+    bbtco[&]()
+    {
         sync::Chan<int, 4> ch;
         int out = 0;
         auto begin = bbt::core::clock::gettime_mono();
-        index = sync::CoSelect()
-                    .CaseRead(ch, out)
-                    .Default()
-                    .Run();
+        index = sync::CoSelect().CaseRead(ch, out).Default().Run();
         elapsed = bbt::core::clock::gettime_mono() - begin;
         l.Down();
     };
@@ -125,14 +116,12 @@ BOOST_AUTO_TEST_CASE(t_select_timeout)
     int index = -999;
     int elapsed = -1;
 
-    bbtco [&](){
+    bbtco[&]()
+    {
         sync::Chan<int, 4> ch;
         int out = 0;
         auto begin = bbt::core::clock::gettime_mono();
-        index = sync::CoSelect()
-                    .CaseRead(ch, out)
-                    .CaseTimeout(50)
-                    .Run();
+        index = sync::CoSelect().CaseRead(ch, out).CaseTimeout(50).Run();
         elapsed = bbt::core::clock::gettime_mono() - begin;
         l.Down();
     };
@@ -150,21 +139,20 @@ BOOST_AUTO_TEST_CASE(t_select_case_write)
     int index = -999;
     int written = 0;
 
-    bbtco [&](){
+    bbtco[&]()
+    {
         sync::Chan<int, 1> ch;
-        BOOST_CHECK_EQUAL(ch.TryWrite(99), 0);   // 填满
+        BOOST_CHECK_EQUAL(ch.TryWrite(99), 0); // 填满
 
-        bbtco [&ch](){
-            bbtco_sleep(30);                    // 等 select 挂起后腾出缓冲
+        bbtco[&ch]()
+        {
+            bbtco_sleep(30); // 等 select 挂起后腾出缓冲
             int v = 0;
             BOOST_CHECK_EQUAL(ch.Read(v), 0);
             BOOST_CHECK_EQUAL(v, 99);
         };
 
-        index = sync::CoSelect()
-                    .CaseWrite(ch, 7)
-                    .CaseTimeout(2000)
-                    .Run();
+        index = sync::CoSelect().CaseWrite(ch, 7).CaseTimeout(2000).Run();
 
         // 写命中后 7 应在队列里
         int out = 0;
@@ -185,9 +173,11 @@ BOOST_AUTO_TEST_CASE(t_select_ticker_alive_while_waiting)
     int index = -999;
     std::atomic_int tick_count{0};
 
-    bbtco [&](){
+    bbtco[&]()
+    {
         std::atomic_bool ticker_done{false};
-        bbtco [&tick_count, &ticker_done](){
+        bbtco[&tick_count, &ticker_done]()
+        {
             for (int i = 0; i < 30; ++i) {
                 bbtco_sleep(10);
                 ++tick_count;
@@ -197,10 +187,7 @@ BOOST_AUTO_TEST_CASE(t_select_ticker_alive_while_waiting)
 
         sync::Chan<int, 4> ch;
         int out = 0;
-        index = sync::CoSelect()
-                    .CaseRead(ch, out)
-                    .CaseTimeout(200)
-                    .Run();
+        index = sync::CoSelect().CaseRead(ch, out).CaseTimeout(200).Run();
 
         // 等 ticker 收尾，避免栈上引用悬垂
         while (!ticker_done)
@@ -209,7 +196,7 @@ BOOST_AUTO_TEST_CASE(t_select_ticker_alive_while_waiting)
     };
 
     l.Wait();
-    BOOST_CHECK_EQUAL(index, -1);            // 无数据 → 超时
+    BOOST_CHECK_EQUAL(index, -1); // 无数据 → 超时
     BOOST_CHECK_GT(tick_count.load(), 0);
 }
 
@@ -220,26 +207,26 @@ BOOST_AUTO_TEST_CASE(t_select_close_wakeup)
     int index = -999;
     int elapsed = -1;
 
-    bbtco [&](){
+    bbtco[&]()
+    {
         sync::Chan<int, 4> ch;
         int out = 0;
 
-        bbtco [&ch](){
+        bbtco[&ch]()
+        {
             bbtco_sleep(30);
             ch.Close();
         };
 
         auto begin = bbt::core::clock::gettime_mono();
         // 故意不给 CaseTimeout：只能被 Close 唤醒
-        index = sync::CoSelect()
-                    .CaseRead(ch, out)
-                    .Run();
+        index = sync::CoSelect().CaseRead(ch, out).Run();
         elapsed = bbt::core::clock::gettime_mono() - begin;
         l.Down();
     };
 
     l.Wait();
-    BOOST_CHECK_EQUAL(index, 0);             // closed 视为就绪
+    BOOST_CHECK_EQUAL(index, 0); // closed 视为就绪
     BOOST_CHECK_LT(elapsed, 1000);
 }
 

@@ -101,11 +101,15 @@ BOOST_AUTO_TEST_CASE(concurrent_external_notifications)
             for (int round = 1; round <= 64; ++round) {
                 sync::CombinedWaitOptions options;
                 auto result = waiters[i].Wait(options, [&] {
-                    { std::lock_guard<std::mutex> lock(mutex); registered_round[i] = round; }
+                    {
+                        std::lock_guard<std::mutex> lock(mutex);
+                        registered_round[i] = round;
+                    }
                     changed.notify_all();
                     return true;
                 });
-                if (result != sync::CombinedWaitStatus::Completed) ++failures;
+                if (result != sync::CombinedWaitStatus::Completed)
+                    ++failures;
                 ++completions[i];
             }
             finished[i].set_value();
@@ -122,15 +126,20 @@ BOOST_AUTO_TEST_CASE(concurrent_external_notifications)
                     return;
                 }
                 lock.unlock();
-                if (round == 1) std::this_thread::sleep_for(std::chrono::milliseconds(50));
-                if (waiters[i].Notify(CoEventValue::From(round)) != 0) ++failures;
+                if (round == 1)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                if (waiters[i].Notify(CoEventValue::From(round)) != 0)
+                    ++failures;
             }
         });
     }
-    for (auto& notifier : notifiers) notifier.join();
-    for (auto& future : futures) RequireReady(future);
+    for (auto& notifier : notifiers)
+        notifier.join();
+    for (auto& future : futures)
+        RequireReady(future);
     BOOST_CHECK_EQUAL(failures.load(), 0);
-    for (auto& count : completions) BOOST_CHECK_EQUAL(count.load(), 64);
+    for (auto& count : completions)
+        BOOST_CHECK_EQUAL(count.load(), 64);
     // 64次周期的累计预算，不对单次OS唤醒作实时保证。旧版需约200ms轮询；
     // 50ms显式停放包含在内，候选有110ms余量，不靠亚毫秒阈值。
     BOOST_CHECK(Clock::now() - begin < std::chrono::milliseconds(160));
@@ -151,11 +160,17 @@ BOOST_AUTO_TEST_CASE(external_parked_progress)
     g_scheduler->RegistCoroutineTask(65536, [&] {
         for (int i = 0; i < 128; ++i) {
             sync::CombinedWaitOptions options;
-            if (waiter.Wait(options, [&] {
-                { std::lock_guard<std::mutex> lock(mutex); registered = i; }
-                changed.notify_one();
-                return true;
-            }) != sync::CombinedWaitStatus::Completed) ++failures;
+            if (waiter.Wait(options,
+                            [&] {
+                                {
+                                    std::lock_guard<std::mutex> lock(mutex);
+                                    registered = i;
+                                }
+                                changed.notify_one();
+                                return true;
+                            })
+                != sync::CombinedWaitStatus::Completed)
+                ++failures;
         }
         completed.set_value();
     });
