@@ -49,12 +49,11 @@
 #include <bbt/coroutine/sync/CoMutex.hpp>
 #include <bbt/coroutine/sync/CoWaiter.hpp>
 
-namespace
-{
+namespace {
 void EnsureRuntime()
 {
     static std::once_flag once;
-    std::call_once(once, [](){
+    std::call_once(once, []() {
         g_bbt_coroutine_config->m_cfg_static_thread_num = 1;
         g_bbt_coroutine_config->m_cfg_stack_size = 65536;
         g_bbt_coroutine_config->m_cfg_stack_protect = false;
@@ -69,11 +68,11 @@ inline void CoWaitFlag(const std::atomic_bool& flag)
 }
 
 /* ---- prep 域：直接驱动用的记序注入（TLS 在测试主线程，含原生栈分配） ---- */
-inline thread_local bool  d_armed = false;
-inline thread_local int   d_seen = 0;
-inline thread_local int   d_fail_on = 0;
-inline std::atomic<int>   d_hits{0};
-inline std::atomic<int>   d_hit_size{0};
+inline thread_local bool d_armed = false;
+inline thread_local int d_seen = 0;
+inline thread_local int d_fail_on = 0;
+inline std::atomic<int> d_hits{0};
+inline std::atomic<int> d_hit_size{0};
 
 /* ---- postyield 域：worker 侧注入（TLS 在 worker 线程） ----
  * w_fail_native_once：armed 期间命中的首个原生线程栈分配抛 bad_alloc——
@@ -84,18 +83,18 @@ inline std::atomic<int>   d_hit_size{0};
  * w_on_hit：可选命中动作，在抛 bad_alloc 之前于同一注入点同步执行——
  * 首胜回归用它把 Notify/RequestCancel 真实投递到「登记中」的
  * 事件上（ARMED 态 Trigger→PENDING 首胜），与独立探针同一时序。 */
-inline thread_local bool     w_armed = false;
-inline thread_local bool     w_fail_native_once = false;
+inline thread_local bool w_armed = false;
+inline thread_local bool w_fail_native_once = false;
 inline thread_local const void* w_victim = nullptr;
-inline thread_local uintptr_t  w_stack_begin = 0;
-inline thread_local uintptr_t  w_stack_end = 0;
-inline thread_local void     (*w_on_hit)() = nullptr;
-inline std::atomic<int>      w_hits{0};
-inline std::atomic<int>      w_hit_size{0};
-inline std::atomic<int>      w_seen_total{0};
-inline std::atomic<int>      w_native_seen{0};
+inline thread_local uintptr_t w_stack_begin = 0;
+inline thread_local uintptr_t w_stack_end = 0;
+inline thread_local void (*w_on_hit)() = nullptr;
+inline std::atomic<int> w_hits{0};
+inline std::atomic<int> w_hit_size{0};
+inline std::atomic<int> w_seen_total{0};
+inline std::atomic<int> w_native_seen{0};
 
-}  // namespace（operator new/delete 必须是全局重载，不可留在匿名命名空间）
+} // namespace（operator new/delete 必须是全局重载，不可留在匿名命名空间）
 
 void* operator new(std::size_t n)
 {
@@ -112,8 +111,7 @@ void* operator new(std::size_t n)
         char marker;
         const auto sp = reinterpret_cast<uintptr_t>(&marker);
         const bool native = sp >= w_stack_begin && sp < w_stack_end;
-        const bool victim_ok = (w_victim == nullptr) ||
-            (w_victim == g_bbt_tls_coroutine_co);
+        const bool victim_ok = (w_victim == nullptr) || (w_victim == g_bbt_tls_coroutine_co);
         if (victim_ok) {
             w_seen_total.fetch_add(1, std::memory_order_relaxed);
             if (native)
@@ -142,22 +140,50 @@ void* operator new(std::size_t n)
         return p;
     throw std::bad_alloc();
 }
-void* operator new[](std::size_t n) { return ::operator new(n); }
-void operator delete(void* p) noexcept { std::free(p); }
-void operator delete[](void* p) noexcept { std::free(p); }
-void operator delete(void* p, std::size_t) noexcept { std::free(p); }
-void operator delete[](void* p, std::size_t) noexcept { std::free(p); }
-
-namespace
+void* operator new[](std::size_t n)
 {
+    return ::operator new(n);
+}
+void operator delete(void* p) noexcept
+{
+    std::free(p);
+}
+void operator delete[](void* p) noexcept
+{
+    std::free(p);
+}
+void operator delete(void* p, std::size_t) noexcept
+{
+    std::free(p);
+}
+void operator delete[](void* p, std::size_t) noexcept
+{
+    std::free(p);
+}
+
+namespace {
 
 /* 直接驱动记序窗口：构造/析构在协程内（同一测试主线程 TLS）。 */
-struct DirectOrdinalGuard
-{
-    explicit DirectOrdinalGuard(int fail_on) { d_seen = 0; d_fail_on = fail_on; d_armed = true; }
-    ~DirectOrdinalGuard() { Disarm(); }
-    void Disarm() { d_armed = false; d_fail_on = 0; }
-    int Seen() const { return d_seen; }
+struct DirectOrdinalGuard {
+    explicit DirectOrdinalGuard(int fail_on)
+    {
+        d_seen = 0;
+        d_fail_on = fail_on;
+        d_armed = true;
+    }
+    ~DirectOrdinalGuard()
+    {
+        Disarm();
+    }
+    void Disarm()
+    {
+        d_armed = false;
+        d_fail_on = 0;
+    }
+    int Seen() const
+    {
+        return d_seen;
+    }
 };
 
 /* worker 注入窗口：必须在协程内构造——pthread_getattr_np(pthread_self())
@@ -165,8 +191,7 @@ struct DirectOrdinalGuard
  * 执行时据此判 native，prep 域协程栈分配判非 native。
  * fail_native_once=true：armed 期间首个原生栈分配（即挂起后回调窗口内
  * Regist() 顶部的 DebugMgr map insert）抛 bad_alloc 一次性消费。 */
-struct WorkerOrdinalGuard
-{
+struct WorkerOrdinalGuard {
     explicit WorkerOrdinalGuard(bool fail_native_once, void (*on_hit)() = nullptr)
     {
         if (w_stack_end == 0) {
@@ -187,18 +212,30 @@ struct WorkerOrdinalGuard
         w_victim = g_bbt_tls_coroutine_co;
         w_armed = true;
     }
-    ~WorkerOrdinalGuard() { Disarm(); }
-    void Disarm() { w_armed = false; w_fail_native_once = false; w_victim = nullptr; w_on_hit = nullptr; }
+    ~WorkerOrdinalGuard()
+    {
+        Disarm();
+    }
+    void Disarm()
+    {
+        w_armed = false;
+        w_fail_native_once = false;
+        w_victim = nullptr;
+        w_on_hit = nullptr;
+    }
 };
 
-struct LargeCallback
-{
+struct LargeCallback {
     char payload[64]{};
     int* invoked;
-    bool operator()() const { ++*invoked; return true; }
+    bool operator()() const
+    {
+        ++*invoked;
+        return true;
+    }
 };
 
-}  // namespace
+} // namespace
 
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::detail;
@@ -222,33 +259,36 @@ BOOST_AUTO_TEST_CASE(t_begin)
 BOOST_AUTO_TEST_CASE(t_pre_yield_log_alloc_rollback)
 {
     /* 单轮直接驱动：lambda 体与父探针同型（栈上 co 指针，非原子捕获）。 */
-    const auto drive_once = [](int fail_on, int* outcome, int* cb_calls,
-                               int* status_running, int* await_reusable, int* last_seen) {
+    const auto drive_once = [](int fail_on, int* outcome, int* cb_calls, int* status_running, int* await_reusable,
+                               int* last_seen) {
         Coroutine* co = nullptr;
-        co = Coroutine::Create(262144, [&]() {
-            auto ev = co->RegistCustom(POLL_EVENT_CUSTOM_COND);
-            BOOST_REQUIRE(ev != nullptr);
-            CoroutineOnYieldCallback cb = LargeCallback{{}, cb_calls};
-            try {
-                {
-                    DirectOrdinalGuard g(fail_on);
-                    co->YieldWithCallback(cb);
-                }
-                *outcome = 3;
-            } catch (const std::bad_alloc&) {
-                *outcome = 1;
-                *status_running = (co->GetStatus() == CoroutineStatus::CO_RUNNING) ? 1 : 0;
-                /* 唯一合法收口：bad_alloc 抛出时事务已完整回滚——await 已清，
+        co = Coroutine::Create(
+            262144,
+            [&]() {
+                auto ev = co->RegistCustom(POLL_EVENT_CUSTOM_COND);
+                BOOST_REQUIRE(ev != nullptr);
+                CoroutineOnYieldCallback cb = LargeCallback{{}, cb_calls};
+                try {
+                    {
+                        DirectOrdinalGuard g(fail_on);
+                        co->YieldWithCallback(cb);
+                    }
+                    *outcome = 3;
+                } catch (const std::bad_alloc&) {
+                    *outcome = 1;
+                    *status_running = (co->GetStatus() == CoroutineStatus::CO_RUNNING) ? 1 : 0;
+                    /* 唯一合法收口：bad_alloc 抛出时事务已完整回滚——await 已清，
                  * RegistCustom 必须能真实重建（返回非空）。不允许「旧 await
                  * 保留但协程仍宣称可复用」的第二态：原探针语义即
                  * await_reusable=1 ⟺ RegistCustom 成功。 */
-                auto ev2 = co->RegistCustom(POLL_EVENT_CUSTOM_COND);
-                *await_reusable = (ev2 != nullptr) ? 1 : 0;
-            } catch (...) {
-                *outcome = 2;
-            }
-            *last_seen = d_seen;   /* 故障轮：guard 已析构，记录命中前计数 */
-        }, false);
+                    auto ev2 = co->RegistCustom(POLL_EVENT_CUSTOM_COND);
+                    *await_reusable = (ev2 != nullptr) ? 1 : 0;
+                } catch (...) {
+                    *outcome = 2;
+                }
+                *last_seen = d_seen; /* 故障轮：guard 已析构，记录命中前计数 */
+            },
+            false);
         co->Resume();
         /* 协程真实挂起时（计量轮 fail_on=0 回调成功）构造在协程
          * 栈上的 DirectOrdinalGuard 永不析构，TLS d_armed 保持开启——
@@ -283,8 +323,8 @@ BOOST_AUTO_TEST_CASE(t_pre_yield_log_alloc_rollback)
         BOOST_CHECK_EQUAL(status_running, 1);
         BOOST_CHECK_EQUAL(await_reusable, 1);
     }
-    BOOST_CHECK_GE(d_hits.load(), total);   /* 每轮真实命中一次 */
-    BOOST_CHECK_GT(d_hit_size.load(), 0);   /* 命中分配尺寸已记录 */
+    BOOST_CHECK_GE(d_hits.load(), total); /* 每轮真实命中一次 */
+    BOOST_CHECK_GT(d_hit_size.load(), 0); /* 命中分配尺寸已记录 */
 }
 
 /* ============ 挂起后 DebugMgr 登记分配故障不逃出 worker ============ */
@@ -307,22 +347,22 @@ BOOST_AUTO_TEST_CASE(t_postyield_regist_map_oom_recovers)
     std::atomic<int> first_ret{-99}, second_ret{-99}, measure_ret{-99};
     std::atomic<int> successor_got{0};
     [[maybe_unused]] const int hits_before = w_hits.load();
-    [[maybe_unused]] const unsigned long long exc_before =
-        g_bbt_coroutine_config->m_unhandled_exception_count.load();
+    [[maybe_unused]] const unsigned long long exc_before = g_bbt_coroutine_config->m_unhandled_exception_count.load();
 
-    bbtco [mutex, &holding, &can_unlock, &done]() {
+    bbtco[mutex, &holding, &can_unlock, &done]()
+    {
         mutex->Lock();
         holding.store(true, std::memory_order_release);
-        CoWaitFlag(can_unlock);          /* 持锁贯穿 victim 两次尝试 */
+        CoWaitFlag(can_unlock); /* 持锁贯穿 victim 两次尝试 */
         mutex->UnLock();
         done.Down();
     };
 
-    bbtco [mutex, &holding, &can_unlock, &victim_done,
-          &first_ret, &second_ret, &measure_ret, &done]() {
+    bbtco[mutex, &holding, &can_unlock, &victim_done, &first_ret, &second_ret, &measure_ret, &done]()
+    {
         CoWaitFlag(holding);
 
-        measure_ret.store(mutex->TryLock(50));   /* 真实挂起→超时=1：路径预热 */
+        measure_ret.store(mutex->TryLock(50)); /* 真实挂起→超时=1：路径预热 */
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
         /* 注入：TryLock(60) 挂起后回调的首个 native 分配（DebugMgr map
          * insert）必败；修复后重试登记恢复，本轮等待真实挂起并在
@@ -347,7 +387,8 @@ BOOST_AUTO_TEST_CASE(t_postyield_regist_map_oom_recovers)
 
     /* 后继等待者：victim 全流程结束后真实获锁——证明锁对象与等待
      * 队列未受污染（放锁确实发生、内部状态可复用）。 */
-    bbtco [mutex, &victim_done, &successor_got, &done]() {
+    bbtco[mutex, &victim_done, &successor_got, &done]()
+    {
         CoWaitFlag(victim_done);
         if (mutex->TryLock(2000) == 0) {
             successor_got.store(1);
@@ -357,20 +398,19 @@ BOOST_AUTO_TEST_CASE(t_postyield_regist_map_oom_recovers)
     };
 
     done.Wait();
-    BOOST_CHECK_EQUAL(measure_ret.load(), 1);    /* 预热轮是真实挂起超时 */
+    BOOST_CHECK_EQUAL(measure_ret.load(), 1); /* 预热轮是真实挂起超时 */
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
-    BOOST_CHECK_EQUAL(first_ret.load(), 1);      /* 重试恢复后真实挂起→超时 */
-    BOOST_CHECK_EQUAL(w_hits.load(), hits_before + 1);  /* 真实命中一次 */
-    BOOST_CHECK_GT(w_hit_size.load(), 0);        /* 命中分配尺寸已记录 */
-    BOOST_CHECK_GT(w_native_seen.load(), 0);     /* 观察到 postyield 域分配 */
-    BOOST_CHECK_EQUAL(
-        g_bbt_coroutine_config->m_unhandled_exception_count.load(),
-        exc_before + 1);                          /* 单次失败已计数，重试不再计 */
+    BOOST_CHECK_EQUAL(first_ret.load(), 1);            /* 重试恢复后真实挂起→超时 */
+    BOOST_CHECK_EQUAL(w_hits.load(), hits_before + 1); /* 真实命中一次 */
+    BOOST_CHECK_GT(w_hit_size.load(), 0);              /* 命中分配尺寸已记录 */
+    BOOST_CHECK_GT(w_native_seen.load(), 0);           /* 观察到 postyield 域分配 */
+    BOOST_CHECK_EQUAL(g_bbt_coroutine_config->m_unhandled_exception_count.load(),
+                      exc_before + 1); /* 单次失败已计数，重试不再计 */
 #else
     BOOST_CHECK_EQUAL(first_ret.load(), 1);
 #endif
-    BOOST_CHECK_EQUAL(second_ret.load(), 0);     /* 锁可重获：放锁真实发生 */
-    BOOST_CHECK_EQUAL(successor_got.load(), 1);  /* 后继等待者真实进展 */
+    BOOST_CHECK_EQUAL(second_ret.load(), 0);    /* 锁可重获：放锁真实发生 */
+    BOOST_CHECK_EQUAL(successor_got.load(), 1); /* 后继等待者真实进展 */
 }
 
 /* ============ ResumeCo map insert OOM 有界单次重试恢复严格配对 ============ */
@@ -397,15 +437,15 @@ BOOST_AUTO_TEST_CASE(t_resumeco_map_insert_oom_bounded_retry)
     std::atomic_bool armed_ready{false}, yield_again{false};
     std::atomic<int> finished{0}, yields{0};
     [[maybe_unused]] const int hits_before = w_hits.load();
-    [[maybe_unused]] const unsigned long long exc_before =
-        g_bbt_coroutine_config->m_unhandled_exception_count.load();
+    [[maybe_unused]] const unsigned long long exc_before = g_bbt_coroutine_config->m_unhandled_exception_count.load();
 
-    bbtco [&armed_ready, &yield_again, &finished, &yields, &done]() {
+    bbtco[&armed_ready, &yield_again, &finished, &yields, &done]()
+    {
         /* 轨迹：worker Resume#1（登记） → 此处运行 → yield（核销） →
          * armed + yield → worker Resume#2（insert 注入一次 bad_alloc） →
          * 再 yield（配对核销 Resume#2 条目） → FINAL → CommitYield 核销。 */
         yields.fetch_add(1);
-        bbtco_yield;                          /* 配对 Resume#1 */
+        bbtco_yield; /* 配对 Resume#1 */
 
         /* 在协程栈上布防：w_stack 边界在此捕获（此时正跑在 worker 原生
          * 线程的协程栈上）；armed 后让出，等 worker 再次 Resume 本协程时
@@ -414,7 +454,7 @@ BOOST_AUTO_TEST_CASE(t_resumeco_map_insert_oom_bounded_retry)
             WorkerOrdinalGuard g(true);
             armed_ready.store(true, std::memory_order_release);
             yields.fetch_add(1);
-            bbtco_yield;                      /* 挂起 → 等待 Resume#2 注入 */
+            bbtco_yield; /* 挂起 → 等待 Resume#2 注入 */
         }
 
         /* Resume#2 完成（重试已恢复登记）：再让出一次配对核销 Resume#2
@@ -428,17 +468,15 @@ BOOST_AUTO_TEST_CASE(t_resumeco_map_insert_oom_bounded_retry)
     };
 
     done.Wait();
-    BOOST_CHECK_EQUAL(finished.load(), 1);          /* 协程唯一完成 */
-    BOOST_CHECK_GE(yields.load(), 3);               /* 真实经历两次让出 */
+    BOOST_CHECK_EQUAL(finished.load(), 1);             /* 协程唯一完成 */
+    BOOST_CHECK_GE(yields.load(), 3);                  /* 真实经历两次让出 */
     BOOST_CHECK_EQUAL(w_hits.load(), hits_before + 1); /* 恰好一次注入命中 */
-    BOOST_CHECK_GT(w_hit_size.load(), 0);           /* 命中分配尺寸已记录 */
-    BOOST_CHECK_GT(w_native_seen.load(), 0);        /* 观察到 worker 原生栈分配 */
+    BOOST_CHECK_GT(w_hit_size.load(), 0);              /* 命中分配尺寸已记录 */
+    BOOST_CHECK_GT(w_native_seen.load(), 0);           /* 观察到 worker 原生栈分配 */
     /* 恰好 +1：第一次 insert 的 bad_alloc 已报告；重试成功不再计数，
      * 配对 YieldCo/CommitYield 严格核销，无 "yield-co" 兜底报告（修复前
      * 是 +2：resume-co + yield-co 缺口放行各计一次）。 */
-    BOOST_CHECK_EQUAL(
-        g_bbt_coroutine_config->m_unhandled_exception_count.load(),
-        exc_before + 1);
+    BOOST_CHECK_EQUAL(g_bbt_coroutine_config->m_unhandled_exception_count.load(), exc_before + 1);
 #else
     BOOST_TEST(true);
 #endif
@@ -464,19 +502,19 @@ BOOST_AUTO_TEST_CASE(t_regist_pending_branch_oom_returns_fail)
     std::atomic_bool holding{false}, can_unlock{false}, victim_done{false};
     std::atomic<int> lock_ret{-99}, second_ret{-99}, successor_got{0};
     [[maybe_unused]] const int hits_before = w_hits.load();
-    [[maybe_unused]] const unsigned long long exc_before =
-        g_bbt_coroutine_config->m_unhandled_exception_count.load();
+    [[maybe_unused]] const unsigned long long exc_before = g_bbt_coroutine_config->m_unhandled_exception_count.load();
 
-    bbtco [mutex, &holding, &can_unlock, &done]() {
+    bbtco[mutex, &holding, &can_unlock, &done]()
+    {
         mutex->Lock();
         holding.store(true, std::memory_order_release);
-        CoWaitFlag(can_unlock);          /* 持锁贯穿 victim 的 TryLock 尝试 */
+        CoWaitFlag(can_unlock); /* 持锁贯穿 victim 的 TryLock 尝试 */
         mutex->UnLock();
         done.Down();
     };
 
-    bbtco [mutex, &holding, &can_unlock, &victim_done,
-          &lock_ret, &second_ret, &done]() {
+    bbtco[mutex, &holding, &can_unlock, &victim_done, &lock_ret, &second_ret, &done]()
+    {
         CoWaitFlag(holding);
         auto* co = g_bbt_tls_coroutine_co;
         /* 预取消：TryLock 无入口 cancel 检查，登记回调在 worker 栈执行
@@ -500,7 +538,8 @@ BOOST_AUTO_TEST_CASE(t_regist_pending_branch_oom_returns_fail)
         done.Down();
     };
 
-    bbtco [mutex, &victim_done, &successor_got, &done]() {
+    bbtco[mutex, &victim_done, &successor_got, &done]()
+    {
         CoWaitFlag(victim_done);
         if (mutex->TryLock(2000) == 0) {
             successor_got.store(1);
@@ -515,14 +554,13 @@ BOOST_AUTO_TEST_CASE(t_regist_pending_branch_oom_returns_fail)
     BOOST_CHECK_EQUAL(lock_ret.load(), 1);
     BOOST_CHECK_EQUAL(w_hits.load(), hits_before + 1);
     BOOST_CHECK_GT(w_hit_size.load(), 0);
-    BOOST_CHECK_EQUAL(
-        g_bbt_coroutine_config->m_unhandled_exception_count.load(),
-        exc_before + 1);                          /* 单次失败已计数，重试不再计 */
+    BOOST_CHECK_EQUAL(g_bbt_coroutine_config->m_unhandled_exception_count.load(),
+                      exc_before + 1); /* 单次失败已计数，重试不再计 */
     /* second_ret∈{0,1}：0=真实获锁，1=残留 CANCELLED 位被 TryLock 的
      * 超时/取消映射消费——二者都证明 await 已清账、协程可再次真实等待；
      * 唯一非法值是 -1（又一次登记失败）或 -99（未执行到）。 */
     BOOST_CHECK_GE(second_ret.load(), 0);
-    BOOST_CHECK_EQUAL(successor_got.load(), 1);/* 后继 waiter 真实进展 */
+    BOOST_CHECK_EQUAL(successor_got.load(), 1); /* 后继 waiter 真实进展 */
 #else
     BOOST_TEST(true);
 #endif
@@ -538,10 +576,8 @@ BOOST_AUTO_TEST_CASE(t_regist_armed_branch_oom_cancels_event)
 {
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
     const int hits_before = d_hits.load();
-    const unsigned long long exc_before =
-        g_bbt_coroutine_config->m_unhandled_exception_count.load();
-    auto event = CoPollEvent::Create(BBT_COROUTINE_INVALID_COROUTINE_ID,
-        [&](auto, int, int) {});
+    const unsigned long long exc_before = g_bbt_coroutine_config->m_unhandled_exception_count.load();
+    auto event = CoPollEvent::Create(BBT_COROUTINE_INVALID_COROUTINE_ID, [&](auto, int, int) {});
     BOOST_REQUIRE_EQUAL(event->InitCustomEvent(POLL_EVENT_CUSTOM_COND, nullptr), 0);
 
     int ret;
@@ -549,12 +585,11 @@ BOOST_AUTO_TEST_CASE(t_regist_armed_branch_oom_cancels_event)
         DirectOrdinalGuard g(1);
         ret = event->Regist();
     }
-    BOOST_CHECK_EQUAL(ret, 0);                       /* 重试恢复登记成功 */
-    BOOST_CHECK_EQUAL(d_hits.load(), hits_before + 1);   /* 本轮真实命中一次 */
-    BOOST_CHECK(event->IsListening());               /* ARMED 监听态 */
-    BOOST_CHECK_EQUAL(
-        g_bbt_coroutine_config->m_unhandled_exception_count.load(),
-        exc_before + 1);                          /* 单次失败已计数，重试不再计 */
+    BOOST_CHECK_EQUAL(ret, 0);                         /* 重试恢复登记成功 */
+    BOOST_CHECK_EQUAL(d_hits.load(), hits_before + 1); /* 本轮真实命中一次 */
+    BOOST_CHECK(event->IsListening());                 /* ARMED 监听态 */
+    BOOST_CHECK_EQUAL(g_bbt_coroutine_config->m_unhandled_exception_count.load(),
+                      exc_before + 1); /* 单次失败已计数，重试不再计 */
     /* 正常回收：已登记事件 UnRegist → CANCELLED 终态 + TriggerEvent 核销
      * 前的 map 清账走既有路径（_Complete 的 OnEvent_TriggerEvent 依赖
      * 重试后的真实条目）。 */
@@ -585,10 +620,8 @@ BOOST_AUTO_TEST_CASE(t_regist_armed_branch_oom_cancels_event)
  * cancel 模式 Cancelled + 无 payload + 回调一次。命中恰一次，异常计数
  * +1，无双完成/无重复 Regist 断言。 */
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
-namespace
-{
-struct FirstWinnerShared
-{
+namespace {
+struct FirstWinnerShared {
     sync::CoWaiter::SPtr waiter{sync::CoWaiter::Create()};
     Coroutine* co{nullptr};
     bbt::core::thread::CountDownLatch done{1};
@@ -602,16 +635,14 @@ thread_local FirstWinnerShared* t_first_winner = nullptr;
 
 void FirstWinnerNotifyHit()
 {
-    t_first_winner->notify_ret.store(
-        t_first_winner->waiter->Notify(CoEventValue::From(42)),
-        std::memory_order_release);
+    t_first_winner->notify_ret.store(t_first_winner->waiter->Notify(CoEventValue::From(42)), std::memory_order_release);
 }
 
 void FirstWinnerCancelHit()
 {
     t_first_winner->co->RequestCancel();
 }
-}  // namespace
+} // namespace
 #endif
 
 BOOST_AUTO_TEST_CASE(t_cowaiter_first_winner_oom_recovers)
@@ -622,7 +653,8 @@ BOOST_AUTO_TEST_CASE(t_cowaiter_first_winner_oom_recovers)
         auto state = std::make_shared<FirstWinnerShared>();
         const int hits_before = w_hits.load();
         const auto exc_before = g_bbt_coroutine_config->m_unhandled_exception_count.load();
-        bbtco [state, mode]() {
+        bbtco[state, mode]()
+        {
             state->co = g_bbt_tls_coroutine_co;
             t_first_winner = state.get();
             CoEventValue value;
@@ -631,10 +663,8 @@ BOOST_AUTO_TEST_CASE(t_cowaiter_first_winner_oom_recovers)
                 return true;
             };
             {
-                WorkerOrdinalGuard guard(true,
-                    mode == 0 ? &FirstWinnerNotifyHit : &FirstWinnerCancelHit);
-                state->status.store(static_cast<int>(
-                    state->waiter->WaitWithCallback(WaitOptions{}, cb, &value)));
+                WorkerOrdinalGuard guard(true, mode == 0 ? &FirstWinnerNotifyHit : &FirstWinnerCancelHit);
+                state->status.store(static_cast<int>(state->waiter->WaitWithCallback(WaitOptions{}, cb, &value)));
             }
             int out = -99;
             state->has_payload.store(value.Get(out) ? 1 : 0);
@@ -650,8 +680,7 @@ BOOST_AUTO_TEST_CASE(t_cowaiter_first_winner_oom_recovers)
         BOOST_CHECK_GT(w_hit_size.load(), 0);
         BOOST_CHECK_GT(w_native_seen.load(), 0);
         BOOST_CHECK_EQUAL(state->callbacks.load(), 1);
-        BOOST_CHECK_EQUAL(g_bbt_coroutine_config->m_unhandled_exception_count.load(),
-                          exc_before + 1);
+        BOOST_CHECK_EQUAL(g_bbt_coroutine_config->m_unhandled_exception_count.load(), exc_before + 1);
         if (mode == 0) {
             BOOST_CHECK_EQUAL(state->notify_ret.load(), 0);
             BOOST_CHECK_EQUAL(state->status.load(), static_cast<int>(WaitStatus::Completed));

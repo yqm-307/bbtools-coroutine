@@ -2,8 +2,7 @@
 #include <bbt/coroutine/detail/Profiler.hpp>
 #include <bbt/coroutine/detail/StackPool.hpp>
 
-namespace bbt::coroutine::detail
-{
+namespace bbt::coroutine::detail {
 
 Profiler::UPtr& Profiler::GetInstance()
 {
@@ -21,7 +20,6 @@ void Profiler::OnEvent_DoneCoroutine()
 {
     m_total_done_co_count++;
 }
-
 
 void Profiler::OnEvent_CreateCoroutine()
 {
@@ -95,7 +93,6 @@ void Profiler::OnEvent_CoMutexLockYield()
     m_comutex_lock_count++;
 }
 
-
 void Profiler::Reset()
 {
     m_total_regist_co_count.store(0);
@@ -120,18 +117,20 @@ void Profiler::ProfileInfo(std::string& info)
 
     info.clear();
     info += "================== Scheduler ProfileInfo ==================\n";
-    info += "已运行时间(ms)："  + std::to_string(elapsed_ms) + '\n';
-    info += "完成协程数："      + std::to_string(m_total_done_co_count.load())  + '\n';
-    info += "注册协程数："      + std::to_string(m_total_regist_co_count.load()) + '\n';
-    info += "执行速率(n/ms)："  + std::to_string(m_total_done_co_count.load() / elapsed_ms) + '\n';
-    info += "未释放协程数："    + std::to_string(m_create_coroutine_count.load() - m_destory_coroutine_count.load()) + '\n';
-    info += "Steal数量："       + std::to_string(m_total_steal_count.load()) + '\n';
-    info += "StackPool大小："   + std::to_string(g_bbt_stackpoll->AllocSize()) + '\n';
-    info += "StackPool Rtts："  + std::to_string(g_bbt_stackpoll->GetCoAvgCount()) + '\n';
-    info += "CoEvent 注册数量："  + std::to_string(m_regist_event_count.load()) + '\n';
-    info += "CoEvent 触发数量："  + std::to_string(m_trigger_event_count.load()) + '\n';
+    info += "已运行时间(ms)：" + std::to_string(elapsed_ms) + '\n';
+    info += "完成协程数：" + std::to_string(m_total_done_co_count.load()) + '\n';
+    info += "注册协程数：" + std::to_string(m_total_regist_co_count.load()) + '\n';
+    info += "执行速率(n/ms)：" + std::to_string(m_total_done_co_count.load() / elapsed_ms) + '\n';
+    info +=
+        "未释放协程数：" + std::to_string(m_create_coroutine_count.load() - m_destory_coroutine_count.load()) + '\n';
+    info += "Steal数量：" + std::to_string(m_total_steal_count.load()) + '\n';
+    info += "StackPool大小：" + std::to_string(g_bbt_stackpoll->AllocSize()) + '\n';
+    info += "StackPool Rtts：" + std::to_string(g_bbt_stackpoll->GetCoAvgCount()) + '\n';
+    info += "CoEvent 注册数量：" + std::to_string(m_regist_event_count.load()) + '\n';
+    info += "CoEvent 触发数量：" + std::to_string(m_trigger_event_count.load()) + '\n';
     info += "CoMutex竞争导致挂起次数：" + std::to_string(m_comutex_lock_count.load()) + '\n';
-    info += "StackPool 指标, alloc_count=" + std::to_string(m_stack_alloc_count.load()) + "\trelease_count=" + std::to_string(m_stack_release_count.load()) + '\n';
+    info += "StackPool 指标, alloc_count=" + std::to_string(m_stack_alloc_count.load())
+            + "\trelease_count=" + std::to_string(m_stack_release_count.load()) + '\n';
 
     /* 锁内只拷贝稳定强引用，锁外格式化：扩容/退役与 ProfileInfo 并发时
      * registry 仍受保护，退役 P 由 reaper 在 join 后移除。 */
@@ -142,42 +141,34 @@ void Profiler::ProfileInfo(std::string& info)
         for (auto&& kv : m_processer_map)
             processers.push_back(kv.second);
     }
-    for (auto&& processer : processers)
-    {
+    for (auto&& processer : processers) {
         if (processer == nullptr)
             continue;
-        info += "\tPID："                    + std::to_string(processer->GetId()) +
-                "\t本地队列任务数："          + std::to_string(processer->GetExecutableNum()) +
-                "\t上下文切换次数："          + std::to_string(processer->GetContextSwapTimes()) +
-                "\t挂起时间(ms)："            + std::to_string(processer->GetSuspendCostTime() / 1000) +
-                "\tSteal数量(偷/被偷)："           + std::to_string(processer->GetStealSuccTimes()) + "/" + std::to_string(processer->GetStealCount()) +
-                "\t空队列循环数："                 + std::to_string(processer->GetStallLoopCount()) +
-                '\n';
+        info += "\tPID：" + std::to_string(processer->GetId()) + "\t本地队列任务数："
+                + std::to_string(processer->GetExecutableNum()) + "\t上下文切换次数："
+                + std::to_string(processer->GetContextSwapTimes()) + "\t挂起时间(ms)："
+                + std::to_string(processer->GetSuspendCostTime() / 1000) + "\tSteal数量(偷/被偷)："
+                + std::to_string(processer->GetStealSuccTimes()) + "/" + std::to_string(processer->GetStealCount())
+                + "\t空队列循环数：" + std::to_string(processer->GetStallLoopCount()) + '\n';
     }
 }
 
 void Profiler::DumpStderr()
 {
     auto elapsed_ms = (bbt::core::clock::now<>() - m_scheduler_begin_timestamp).count();
-    fprintf(stderr,
-        "[PROFILE] t=%llums event_reg=%llu event_trig=%llu steal=%llu co_done=%llu\n",
-        (unsigned long long)elapsed_ms,
-        (unsigned long long)m_regist_event_count.load(),
-        (unsigned long long)m_trigger_event_count.load(),
-        (unsigned long long)m_total_steal_count.load(),
-        (unsigned long long)m_total_done_co_count.load());
+    fprintf(stderr, "[PROFILE] t=%llums event_reg=%llu event_trig=%llu steal=%llu co_done=%llu\n",
+            (unsigned long long)elapsed_ms, (unsigned long long)m_regist_event_count.load(),
+            (unsigned long long)m_trigger_event_count.load(), (unsigned long long)m_total_steal_count.load(),
+            (unsigned long long)m_total_done_co_count.load());
 
     std::unique_lock<std::mutex> _(m_processer_map_mutex);
     for (auto&& proc : m_processer_map) {
-        fprintf(stderr,
-            "  PID=%llu q=%zu swap=%llu steal=%llu/%llu suspend_ms=%llu stall=%llu\n",
-            (unsigned long long)proc.second->GetId(),
-            proc.second->GetExecutableNum(),
-            (unsigned long long)proc.second->GetContextSwapTimes(),
-            (unsigned long long)proc.second->GetStealSuccTimes(),
-            (unsigned long long)proc.second->GetStealCount(),
-            (unsigned long long)(proc.second->GetSuspendCostTime() / 1000),
-            (unsigned long long)proc.second->GetStallLoopCount());
+        fprintf(stderr, "  PID=%llu q=%zu swap=%llu steal=%llu/%llu suspend_ms=%llu stall=%llu\n",
+                (unsigned long long)proc.second->GetId(), proc.second->GetExecutableNum(),
+                (unsigned long long)proc.second->GetContextSwapTimes(),
+                (unsigned long long)proc.second->GetStealSuccTimes(), (unsigned long long)proc.second->GetStealCount(),
+                (unsigned long long)(proc.second->GetSuspendCostTime() / 1000),
+                (unsigned long long)proc.second->GetStallLoopCount());
     }
 }
 

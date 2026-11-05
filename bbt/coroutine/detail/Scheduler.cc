@@ -20,8 +20,7 @@
 #include <bbt/coroutine/detail/StackPool.hpp>
 #include <bbt/coroutine/detail/debug/DebugMgr.hpp>
 
-namespace bbt::coroutine::detail
-{
+namespace bbt::coroutine::detail {
 
 Scheduler::UPtr& Scheduler::GetInstance()
 {
@@ -56,11 +55,9 @@ void Scheduler::_Init(const ProcesserScalingBounds& bounds)
     m_min_num = bounds.m_min_num;
     m_max_num = bounds.m_max_num;
     m_target_num.store(bounds.m_initial_num, std::memory_order_release);
-    m_scaling_mode.store(
-        g_bbt_coroutine_config->m_cfg_processer_auto_scale
-            ? ProcesserScalingMode::Auto
-            : ProcesserScalingMode::Manual,
-        std::memory_order_release);
+    m_scaling_mode.store(g_bbt_coroutine_config->m_cfg_processer_auto_scale ? ProcesserScalingMode::Auto
+                                                                            : ProcesserScalingMode::Manual,
+                         std::memory_order_release);
 
     m_scale_interval_ms = g_bbt_coroutine_config->m_cfg_processer_scale_interval_ms;
     m_scale_up_samples = g_bbt_coroutine_config->m_cfg_processer_scale_up_samples;
@@ -100,14 +97,10 @@ void Scheduler::RegistCoroutineTask(size_t stack_size, const CoroutineCallback& 
     Processer::SPtr proc = nullptr;
     {
         std::lock_guard<std::mutex> lock(m_global_queue_mutex);
-        coroutine = Coroutine::Create(
-            stack_size,
-            handle,
-            g_bbt_coroutine_config->m_cfg_stack_protect,
-            desc);
+        coroutine = Coroutine::Create(stack_size, handle, g_bbt_coroutine_config->m_cfg_stack_protect, desc);
         proc = _LoadBlance2Proc(CO_PRIORITY_NORMAL, coroutine);
         if (proc != nullptr)
-            coroutine = nullptr;    // 已交接给 worker：发布后不再读取可能被销毁的对象
+            coroutine = nullptr; // 已交接给 worker：发布后不再读取可能被销毁的对象
     }
 
     if (coroutine != nullptr) {
@@ -128,7 +121,8 @@ void Scheduler::RegistCoroutineTaskOn(ProcesserId target, const CoroutineCallbac
     RegistCoroutineTaskOn(target, g_bbt_coroutine_config->m_cfg_stack_size, handle, desc);
 }
 
-void Scheduler::RegistCoroutineTaskOn(ProcesserId target, size_t stack_size, const CoroutineCallback& handle, const char* desc)
+void Scheduler::RegistCoroutineTaskOn(ProcesserId target, size_t stack_size, const CoroutineCallback& handle,
+                                      const char* desc)
 {
     if (!IsInitialized())
         throw std::logic_error{"Scheduler::RegistCoroutineTaskOn: runtime not initialized"};
@@ -149,11 +143,7 @@ void Scheduler::RegistCoroutineTaskOn(ProcesserId target, size_t stack_size, con
     bool admitted = false;
     {
         std::lock_guard<std::mutex> lock(m_global_queue_mutex);
-        coroutine = Coroutine::Create(
-            stack_size,
-            handle,
-            g_bbt_coroutine_config->m_cfg_stack_protect,
-            desc);
+        coroutine = Coroutine::Create(stack_size, handle, g_bbt_coroutine_config->m_cfg_stack_protect, desc);
         /* 只是初次入目标队列的偏好；steal 与恢复全局路径不改。
          * 目标可能在 map 查找后、入队前提交退役；admission gate 会拒绝，
          * 此时协程仍归本调用方，必须显式拒绝而不是写入 retired 队列。 */
@@ -194,10 +184,8 @@ std::vector<ProcesserId> Scheduler::GetWorkerProcesserIds()
     return ids;
 }
 
-ProcesserDriverStatus Scheduler::RegisterProcesserDriver(
-    ProcesserId target,
-    std::shared_ptr<IProcesserDriver> driver,
-    ProcesserDriverToken& out_token)
+ProcesserDriverStatus Scheduler::RegisterProcesserDriver(ProcesserId target, std::shared_ptr<IProcesserDriver> driver,
+                                                         ProcesserDriverToken& out_token)
 {
     if (!IsInitialized())
         return ProcesserDriverStatus::NotInitialized;
@@ -229,9 +217,7 @@ ProcesserDriverStatus Scheduler::RegisterProcesserDriver(
     return status;
 }
 
-ProcesserDriverStatus Scheduler::QueryProcesserDriver(
-    ProcesserId target,
-    ProcesserDriverSnapshot& out_snapshot)
+ProcesserDriverStatus Scheduler::QueryProcesserDriver(ProcesserId target, ProcesserDriverSnapshot& out_snapshot)
 {
     if (!IsInitialized())
         return ProcesserDriverStatus::NotInitialized;
@@ -293,8 +279,7 @@ ProcesserResizeResult Scheduler::SetProcesserNum(size_t num)
     {
         std::unique_lock<std::mutex> lock(m_lifecycle_mutex);
         result = _ApplyTargetLocked(num, notify, lock);
-        if (result == ProcesserResizeResult::Ok ||
-            result == ProcesserResizeResult::Pending) {
+        if (result == ProcesserResizeResult::Ok || result == ProcesserResizeResult::Pending) {
             /* 合法手动请求（包括 same-target）一律切 Manual 并复位样本；
              * 拒绝路径保持 target/mode/样本不变。 */
             m_scaling_mode.store(ProcesserScalingMode::Manual, std::memory_order_release);
@@ -317,9 +302,7 @@ ProcesserResizeResult Scheduler::SetProcesserAutoScale(bool enable)
         return ProcesserResizeResult::NotInitialized;
 
     std::lock_guard<std::mutex> lock(m_lifecycle_mutex);
-    m_scaling_mode.store(
-        enable ? ProcesserScalingMode::Auto : ProcesserScalingMode::Manual,
-        std::memory_order_release);
+    m_scaling_mode.store(enable ? ProcesserScalingMode::Auto : ProcesserScalingMode::Manual, std::memory_order_release);
     _ResetScalingSamplesLocked();
     return ProcesserResizeResult::Ok;
 }
@@ -343,11 +326,9 @@ size_t Scheduler::GetProcesserRetiringNum()
 
     std::lock_guard<std::mutex> lock(m_processer_map_mutex);
     size_t count = 0;
-    for (const auto& record : m_workers)
-    {
-        if (record->m_processer != nullptr &&
-            record->m_processer->m_lifecycle.load(std::memory_order_acquire) ==
-                ProcesserLifecycleState::Retiring)
+    for (const auto& record : m_workers) {
+        if (record->m_processer != nullptr
+            && record->m_processer->m_lifecycle.load(std::memory_order_acquire) == ProcesserLifecycleState::Retiring)
             ++count;
     }
     return count;
@@ -360,11 +341,9 @@ size_t Scheduler::GetProcesserExitedUnjoinedNum()
 
     std::lock_guard<std::mutex> lock(m_processer_map_mutex);
     size_t count = 0;
-    for (const auto& record : m_workers)
-    {
-        if (record->m_processer != nullptr &&
-            record->m_processer->m_lifecycle.load(std::memory_order_acquire) ==
-                ProcesserLifecycleState::Exited)
+    for (const auto& record : m_workers) {
+        if (record->m_processer != nullptr
+            && record->m_processer->m_lifecycle.load(std::memory_order_acquire) == ProcesserLifecycleState::Exited)
             ++count;
     }
     return count;
@@ -395,13 +374,10 @@ void Scheduler::_WakeProcesserDrivers()
 
 void Scheduler::RegistCoroutineTask(const CoroutineCallback& handle, bool& succ) noexcept
 {
-    try
-    {
+    try {
         RegistCoroutineTask(handle);
         succ = true;
-    }
-    catch(...)
-    {
+    } catch (...) {
         succ = false;
         return;
     }
@@ -409,18 +385,14 @@ void Scheduler::RegistCoroutineTask(const CoroutineCallback& handle, bool& succ)
 
 void Scheduler::RegistCoroutineTask(size_t stack_size, const CoroutineCallback& handle, bool& succ) noexcept
 {
-    try
-    {
+    try {
         RegistCoroutineTask(stack_size, handle);
         succ = true;
-    }
-    catch(...)
-    {
+    } catch (...) {
         succ = false;
         return;
     }
 }
-
 
 void Scheduler::OnActiveCoroutine(CoroutinePriority priority, Coroutine::Ptr coroutine)
 {
@@ -432,8 +404,7 @@ void Scheduler::OnActiveCoroutine(CoroutinePriority priority, Coroutine::Ptr cor
     /* 当前 worker 的 admission 成功时就地入队，避免唤醒任务绕行 global；
      * notify=false 保持当前 worker 的通知语义，关闭 admission 仍回退 global。 */
     auto local_processer = Processer::TryGetLocalProcesser();
-    if (local_processer != nullptr &&
-        local_processer->_EnqueueAdmitted(priority, coroutine, false))
+    if (local_processer != nullptr && local_processer->_EnqueueAdmitted(priority, coroutine, false))
         return;
 
     /* 无停机、无代际：激活的协程一律回全局队列；没有需要 reclaim 的
@@ -477,8 +448,7 @@ void Scheduler::_FixTimingScan()
     const uint64_t threshold_us = (uint64_t)warn_ms * 1000;
 
     std::vector<WorkerStallInfo> pending;
-    for (const auto& proc : *snapshot)
-    {
+    for (const auto& proc : *snapshot) {
         if (proc == nullptr)
             continue;
         /* 一致性快照：与写者共用 m_exec_mutex，临界区内整组复制，
@@ -490,20 +460,20 @@ void Scheduler::_FixTimingScan()
         {
             std::lock_guard<std::mutex> lock(proc->m_exec_mutex);
             if (!proc->m_executing)
-                continue;   // worker 空闲/协程已让出，不算停顿
+                continue; // worker 空闲/协程已让出，不算停顿
             begin_us = proc->m_exec_begin_us;
             co_id = proc->m_exec_co_id;
             backlog = proc->m_exec_backlog;
             memcpy(desc, proc->m_exec_desc, sizeof(desc));
         }
         if (begin_us == 0)
-            continue;   // 尚未发布过快照
+            continue; // 尚未发布过快照
 
         if (now_us < begin_us || now_us - begin_us < threshold_us)
             continue;
 
         if (proc->m_last_stall_report_begin == begin_us)
-            continue;   // 同一停顿只报一次（协程仍在死循环中）
+            continue; // 同一停顿只报一次（协程仍在死循环中）
         proc->m_last_stall_report_begin = begin_us;
 
         WorkerStallInfo info;
@@ -515,17 +485,17 @@ void Scheduler::_FixTimingScan()
         pending.push_back(std::move(info));
     }
 
-    for (auto& info : pending)
-    {
+    for (auto& info : pending) {
         if (g_bbt_coroutine_config->m_ext_worker_stall_callback) {
-            try { g_bbt_coroutine_config->m_ext_worker_stall_callback(info); }
-            catch (...) { /* 回调契约：不得抛出；抛出吞掉保调度线程 */ }
+            try {
+                g_bbt_coroutine_config->m_ext_worker_stall_callback(info);
+            } catch (...) { /* 回调契约：不得抛出；抛出吞掉保调度线程 */
+            }
         } else {
             /* 无回调 = stderr 告警一行 */
             fprintf(stderr, "[bbtco] worker stall: worker=%llu co=%llu desc='%s' running=%llums backlog=%llu\n",
-                    (unsigned long long)info.m_worker_id, (unsigned long long)info.m_co_id,
-                    info.m_desc.c_str(), (unsigned long long)(info.m_running_us / 1000),
-                    (unsigned long long)info.m_backlog);
+                    (unsigned long long)info.m_worker_id, (unsigned long long)info.m_co_id, info.m_desc.c_str(),
+                    (unsigned long long)(info.m_running_us / 1000), (unsigned long long)info.m_backlog);
         }
     }
 }
@@ -544,9 +514,9 @@ void Scheduler::_OnUpdate()
         _ReapRetiredWorkers();
 
 #ifdef BBT_COROUTINE_PROFILE
-        if (g_bbt_coroutine_config->m_cfg_profile_printf_ms > 0 &&
-            bbt::core::clock::is_expired<bbt::core::clock::ms>((prev_profile_timepoint + bbt::core::clock::ms(g_bbt_coroutine_config->m_cfg_profile_printf_ms))))
-        {
+        if (g_bbt_coroutine_config->m_cfg_profile_printf_ms > 0
+            && bbt::core::clock::is_expired<bbt::core::clock::ms>(
+                (prev_profile_timepoint + bbt::core::clock::ms(g_bbt_coroutine_config->m_cfg_profile_printf_ms)))) {
             std::string info = "";
             g_bbt_profiler->ProfileInfo(info);
             bbt::core::log::DebugPrint(info.c_str());
@@ -559,8 +529,7 @@ void Scheduler::_OnUpdate()
         actived = g_bbt_poller->PollOnce();
         _FixTimingScan();
         g_bbt_stackpoll->OnUpdate();
-    } while(actived);
-
+    } while (actived);
 }
 
 void Scheduler::_Run()
@@ -581,8 +550,7 @@ void Scheduler::_Run()
     g_bbt_profiler->OnEvent_StartScheudler();
 #endif
     /* 进程寿命：调度循环不设退出条件——没有业务停机入口，退出即进程结束 */
-    for (;;)
-    {
+    for (;;) {
         _OnUpdate();
 
         const size_t interval_ms = g_bbt_coroutine_config->m_cfg_scan_interval_ms;
@@ -634,15 +602,14 @@ void Scheduler::Start(SchedulerStartOpt opt)
 
     switch (opt) {
 
-    case SCHE_START_OPT_SCHE_THREAD:
-    {
+    case SCHE_START_OPT_SCHE_THREAD: {
         Assert(m_sche_thread == nullptr);
         bbt::core::thread::CountDownLatch wg{1};
         std::shared_ptr<std::atomic_bool> created;
         const size_t initial_num = bounds.m_initial_num;
         try {
             created = std::make_shared<std::atomic_bool>(false);
-            m_sche_thread = new std::thread([this, &wg, created, initial_num](){
+            m_sche_thread = new std::thread([this, &wg, created, initial_num]() {
                 const bool ok = _CreateProcessers(initial_num);
                 created->store(ok, std::memory_order_release);
                 /* 初始化标志先于运行循环发布；latch 放行表示 Start 即将返回 */
@@ -699,7 +666,6 @@ void Scheduler::Start(SchedulerStartOpt opt)
     default:
         break;
     };
-
 }
 
 void Scheduler::LoopOnce()
@@ -715,7 +681,7 @@ size_t Scheduler::GetCoroutineFromGlobal(CoroutinePriority priority, size_t size
     size_t count = 0;
     Coroutine::Ptr item = nullptr;
     while (count < size && m_global_coroutine_queue[priority].try_dequeue(item)) {
-        if (!owner._EnqueueAdmitted(priority, item, /*notify*/false)) {
+        if (!owner._EnqueueAdmitted(priority, item, /*notify*/ false)) {
             // 睡前复查可能持 run_cond，不能嵌套 global mutex；底层队列自身支持 MPMC。
             // 未发布前保有任务，归还成功才结束，不把 retired P 当临时收件箱。
             while (!m_global_coroutine_queue[priority].enqueue(item))
@@ -759,9 +725,7 @@ void Scheduler::_WorkerMain(WorkerRecordSPtr record, std::shared_ptr<BatchStartG
         gate->m_cv.notify_all();
         if (!ready)
             return;
-        gate->m_cv.wait(lock, [&] {
-            return gate->m_started || gate->m_cancel;
-        });
+        gate->m_cv.wait(lock, [&] { return gate->m_started || gate->m_cancel; });
         if (gate->m_cancel)
             return;
     }
@@ -771,8 +735,7 @@ void Scheduler::_WorkerMain(WorkerRecordSPtr record, std::shared_ptr<BatchStartG
     record->m_processer->_Run();
 }
 
-void Scheduler::_CancelBatch(std::shared_ptr<BatchStartGate>& gate,
-                             std::vector<WorkerRecordSPtr>& records)
+void Scheduler::_CancelBatch(std::shared_ptr<BatchStartGate>& gate, std::vector<WorkerRecordSPtr>& records)
 {
     {
         std::lock_guard<std::mutex> lock(gate->m_mutex);
@@ -780,13 +743,14 @@ void Scheduler::_CancelBatch(std::shared_ptr<BatchStartGate>& gate,
     }
     gate->m_cv.notify_all();
 
-    for (auto& record : records)
-    {
+    for (auto& record : records) {
         if (record == nullptr || record->m_thread == nullptr)
             continue;
         if (record->m_thread->joinable()) {
-            try { record->m_thread->join(); }
-            catch (...) { /* 未公开批次：join 失败也不改变旧 active/target */ }
+            try {
+                record->m_thread->join();
+            } catch (...) { /* 未公开批次：join 失败也不改变旧 active/target */
+            }
         }
         delete record->m_thread;
         record->m_thread = nullptr;
@@ -818,9 +782,7 @@ bool Scheduler::_PrepareExpansionLocked(size_t need, std::vector<Processer::SPtr
 
             auto record = std::make_shared<WorkerRecord>();
             record->m_processer = proc;
-            record->m_thread = new std::thread([this, record, gate](){
-                _WorkerMain(record, gate);
-            });
+            record->m_thread = new std::thread([this, record, gate]() { _WorkerMain(record, gate); });
 
             records.push_back(record);
             out_new.push_back(proc);
@@ -875,7 +837,6 @@ bool Scheduler::_PrepareExpansionLocked(size_t need, std::vector<Processer::SPtr
         return false;
     }
 
-
     {
         std::lock_guard<std::mutex> lock(gate->m_mutex);
         gate->m_started = true;
@@ -888,9 +849,7 @@ ProcesserResizeResult Scheduler::_CommitShrinkLocked(size_t need, size_t target,
                                                      std::vector<Processer::SPtr>& out_notify)
 {
     Processer::SPtr self = Processer::TryGetLocalProcesser();
-    const ProcesserId self_id = self != nullptr
-        ? self->GetId()
-        : BBT_COROUTINE_INVALID_PROCESSER_ID;
+    const ProcesserId self_id = self != nullptr ? self->GetId() : BBT_COROUTINE_INVALID_PROCESSER_ID;
 
     std::lock_guard<std::mutex> lock(m_processer_map_mutex);
     const ProcesserList& active = *m_active_snapshot;
@@ -901,12 +860,10 @@ ProcesserResizeResult Scheduler::_CommitShrinkLocked(size_t need, size_t target,
     std::vector<Processer::SPtr> selected;
     try {
         candidates.reserve(active.size());
-        for (const auto& proc : active)
-        {
+        for (const auto& proc : active) {
             if (proc == nullptr)
                 continue;
-            if (proc->m_lifecycle.load(std::memory_order_acquire) !=
-                ProcesserLifecycleState::Active)
+            if (proc->m_lifecycle.load(std::memory_order_acquire) != ProcesserLifecycleState::Active)
                 continue;
             if (proc->_HasDriverOwnership())
                 continue;
@@ -919,8 +876,7 @@ ProcesserResizeResult Scheduler::_CommitShrinkLocked(size_t need, size_t target,
         /* worker 上下文调用时，若必须退役自身，返回 SelfRetire 且无副作用；
          * 其余候选足够时仍允许本次缩容。 */
         selected.reserve(need);
-        for (const auto& proc : candidates)
-        {
+        for (const auto& proc : candidates) {
             if (selected.size() >= need)
                 break;
             if (proc->GetId() == self_id)
@@ -942,8 +898,7 @@ ProcesserResizeResult Scheduler::_CommitShrinkLocked(size_t need, size_t target,
         auto new_map = m_processer_map;
         ProcesserList new_vec;
         new_vec.reserve(active.size() - need);
-        for (const auto& proc : active)
-        {
+        for (const auto& proc : active) {
             if (selected_ids.count(proc->GetId()) == 0)
                 new_vec.push_back(proc);
         }
@@ -964,8 +919,7 @@ ProcesserResizeResult Scheduler::_CommitShrinkLocked(size_t need, size_t target,
     return ProcesserResizeResult::Pending;
 }
 
-ProcesserResizeResult Scheduler::_ApplyTargetLocked(size_t target,
-                                                    std::vector<Processer::SPtr>& out_notify,
+ProcesserResizeResult Scheduler::_ApplyTargetLocked(size_t target, std::vector<Processer::SPtr>& out_notify,
                                                     std::unique_lock<std::mutex>& lifecycle_lock)
 {
     const size_t active = _ActiveCountLocked();
@@ -994,13 +948,11 @@ size_t Scheduler::_ActiveCountLocked()
 size_t Scheduler::_CountOutstandingRetireLocked()
 {
     size_t count = 0;
-    for (const auto& record : m_workers)
-    {
+    for (const auto& record : m_workers) {
         if (record->m_processer == nullptr)
             continue;
         const auto state = record->m_processer->m_lifecycle.load(std::memory_order_acquire);
-        if (state == ProcesserLifecycleState::Retiring ||
-            state == ProcesserLifecycleState::Exited)
+        if (state == ProcesserLifecycleState::Retiring || state == ProcesserLifecycleState::Exited)
             ++count;
     }
     return count;
@@ -1213,18 +1165,15 @@ void Scheduler::_ReapRetiredWorkers()
     /* 一次只认领一个已完成 TLS 析构的线程，无临时 vector 分配：OOM 不会
      * 留下“已认领但没有收据”的记录。Exited 仍是未 join 的可观察状态；
      * 退出 future 未就绪时跳过，不能阻塞 S/LoopOnce 等待用户 TLS。 */
-    for (size_t reaped = 0; reaped < kMaxReapPerTick; ++reaped)
-    {
+    for (size_t reaped = 0; reaped < kMaxReapPerTick; ++reaped) {
         WorkerRecordSPtr claimed;
         {
             std::lock_guard<std::mutex> lock(m_processer_map_mutex);
-            for (const auto& record : m_workers)
-            {
-                if (record->m_claimed.load(std::memory_order_acquire) ||
-                    record->m_processer->m_lifecycle.load(std::memory_order_acquire) !=
-                        ProcesserLifecycleState::Exited ||
-                    record->m_thread_exited.wait_for(std::chrono::seconds(0)) !=
-                        std::future_status::ready)
+            for (const auto& record : m_workers) {
+                if (record->m_claimed.load(std::memory_order_acquire)
+                    || record->m_processer->m_lifecycle.load(std::memory_order_acquire)
+                           != ProcesserLifecycleState::Exited
+                    || record->m_thread_exited.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
                     continue;
                 record->m_claimed.store(true, std::memory_order_release);
                 claimed = record;
@@ -1249,8 +1198,7 @@ void Scheduler::_ReapRetiredWorkers()
         claimed->m_processer->_MarkJoined();
         {
             std::lock_guard<std::mutex> lock(m_processer_map_mutex);
-            for (auto it = m_workers.begin(); it != m_workers.end(); ++it)
-            {
+            for (auto it = m_workers.begin(); it != m_workers.end(); ++it) {
                 if (it->get() == claimed.get()) {
                     m_workers.erase(it);
                     break;

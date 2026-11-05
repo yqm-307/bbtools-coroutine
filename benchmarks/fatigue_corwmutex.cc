@@ -13,7 +13,8 @@ volatile int in_writing = 0;
 void fatigue_rwmutex()
 {
     for (int i = 0; i < nread_co; ++i) {
-        bbtco []() {
+        bbtco[]()
+        {
             while (true) {
                 rwlock->RLock();
                 Assert(in_writing == 0);
@@ -25,7 +26,8 @@ void fatigue_rwmutex()
     }
 
     for (int i = 0; i < nwrite_co; ++i) {
-        bbtco []() {
+        bbtco[]()
+        {
             while (true) {
                 rwlock->WLock();
                 in_writing = 1;
@@ -39,7 +41,8 @@ void fatigue_rwmutex()
     }
 
     for (int i = 0; i < 5; ++i) {
-        bbtco []() {
+        bbtco[]()
+        {
             while (true) {
                 if (rwlock->TryRLock() == 0) {
                     Assert(in_writing == 0);
@@ -50,7 +53,8 @@ void fatigue_rwmutex()
         };
     }
 
-    bbtco []() {
+    bbtco[]()
+    {
         while (true) {
             printf("[fatigue_corwmutex] rlock=%d wlock=%d\n", nread, nwrite);
             sleep(1);

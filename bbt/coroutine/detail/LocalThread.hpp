@@ -1,14 +1,12 @@
 #pragma once
 #include <bbt/coroutine/detail/Define.hpp>
 
-namespace bbt::coroutine::detail
-{
+namespace bbt::coroutine::detail {
 
 /**
  * @brief 线程局部数据辅助类
  */
-class LocalThread
-{
+class LocalThread {
 public:
     typedef std::unique_ptr<LocalThread> UPtr;
     ~LocalThread() noexcept;
@@ -44,9 +42,9 @@ public:
      * @return false 
      */
     bool EnableUseCo();
-private:
-    volatile bool               m_enable_use_co{false};
 
+private:
+    volatile bool m_enable_use_co{false};
 };
 
 }

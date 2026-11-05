@@ -9,11 +9,9 @@
 #include <bbt/coroutine/detail/Scheduler.hpp>
 #include <bbt/coroutine/detail/GlobalConfig.hpp>
 
-namespace bbt::coroutine::detail
-{
+namespace bbt::coroutine::detail {
 
-namespace
-{
+namespace {
 
 /**
  * @brief 单代 driver callback lease（栈上 RAII，不可移动）。
@@ -28,19 +26,17 @@ namespace
  * Unregister 检测「当前线程持有该代任一 lease」（含外线程 Wake 与
  * 嵌套调用），不引入额外分配。
  */
-class DriverCallbackLease
-{
+class DriverCallbackLease {
 public:
     /* 普通 callback 构造：锁内按状态授予并 ++inflight */
-    DriverCallbackLease(const std::shared_ptr<ProcesserDriverBinding>& binding, bool terminal)
-        : m_binding(binding)
+    DriverCallbackLease(const std::shared_ptr<ProcesserDriverBinding>& binding, bool terminal) : m_binding(binding)
     {
         auto& b = *m_binding;
         std::lock_guard<std::mutex> lock(b.m_mutex);
-        const bool granted = !b.m_detached &&
-            (b.m_state == ProcesserDriverState::Bound ||
-             (terminal && b.m_state == ProcesserDriverState::Detaching) ||
-             (terminal && b.m_state == ProcesserDriverState::Failed));
+        const bool granted =
+            !b.m_detached
+            && (b.m_state == ProcesserDriverState::Bound || (terminal && b.m_state == ProcesserDriverState::Detaching)
+                || (terminal && b.m_state == ProcesserDriverState::Failed));
         if (!granted)
             return;
 
@@ -55,8 +51,7 @@ public:
      * 析构照常 pop 与 --/notify。终止 Wake 必须走此入口，否则嵌套同代
      * Unregister 会绕过 lease 检测等待自身。 */
     struct AdoptReservedTag {};
-    DriverCallbackLease(const std::shared_ptr<ProcesserDriverBinding>& binding, AdoptReservedTag)
-        : m_binding(binding)
+    DriverCallbackLease(const std::shared_ptr<ProcesserDriverBinding>& binding, AdoptReservedTag) : m_binding(binding)
     {
         m_prev = _TlsHead();
         _TlsHead() = this;
@@ -83,16 +78,20 @@ public:
         b.m_cv.notify_all();
     }
 
-    bool                        Acquired() const { return m_acquired; }
+    bool Acquired() const
+    {
+        return m_acquired;
+    }
 
     /* 当前线程是否持有该 binding（同代）的任一 lease */
-    static bool                 ThreadHolds(const ProcesserDriverBinding* binding) noexcept
+    static bool ThreadHolds(const ProcesserDriverBinding* binding) noexcept
     {
         for (auto* p = _TlsHead(); p != nullptr; p = p->m_prev)
             if (p->m_binding.get() == binding)
                 return true;
         return false;
     }
+
 private:
     static DriverCallbackLease*& _TlsHead() noexcept
     {
@@ -101,17 +100,16 @@ private:
     }
 
     std::shared_ptr<ProcesserDriverBinding> m_binding;
-    DriverCallbackLease*                  m_prev{nullptr};
-    bool                                  m_acquired{false};
+    DriverCallbackLease* m_prev{nullptr};
+    bool m_acquired{false};
 };
 
 /* 轻量 busy 信号的作用域守卫：只覆盖用户协程 Resume 本身，不依赖
  * m_cfg_worker_stall_warn_ms。异常退出也必须复位，否则自动缩容会
  * 把该 worker 永久认为忙。 */
-class BusyScope
-{
+class BusyScope {
 public:
-    explicit BusyScope(std::atomic_bool& busy): m_busy(busy)
+    explicit BusyScope(std::atomic_bool& busy) : m_busy(busy)
     {
         m_busy.store(true, std::memory_order_release);
     }
@@ -121,6 +119,7 @@ public:
     }
     BusyScope(const BusyScope&) = delete;
     BusyScope& operator=(const BusyScope&) = delete;
+
 private:
     std::atomic_bool& m_busy;
 };
@@ -170,8 +169,7 @@ ProcesserId Processer::_GenProcesserId()
     return (++_generate_id);
 }
 
-Processer::Processer():
-    m_id(_GenProcesserId())
+Processer::Processer() : m_id(_GenProcesserId())
 {
     m_run_status = ProcesserStatus::PROC_SUSPEND;
 }
@@ -195,7 +193,6 @@ size_t Processer::GetExecutableNum()
     return m_coroutine_queue.Size();
 }
 
-
 ProcesserId Processer::GetId()
 {
     return m_id;
@@ -204,7 +201,7 @@ ProcesserId Processer::GetId()
 bool Processer::AddCoroutineTask(CoroutinePriority priority, Coroutine::Ptr coroutine)
 {
     /* 外部普通投递：入队后需要 _PublishRunnable 唤醒 worker。 */
-    return _EnqueueAdmitted(priority, coroutine, /*notify*/true);
+    return _EnqueueAdmitted(priority, coroutine, /*notify*/ true);
 }
 
 bool Processer::_EnqueueAdmitted(CoroutinePriority priority, Coroutine::Ptr coroutine, bool notify)
@@ -223,11 +220,12 @@ bool Processer::_EnqueueAdmitted(CoroutinePriority priority, Coroutine::Ptr coro
         return false;
     }
 
-    const bool enqueued = m_coroutine_queue.Enqueue(coroutine->m_cfs, coroutine, priority,
-        g_bbt_coroutine_config->m_cfg_processer_priority_runtime_budget_us[priority]);
+    const bool enqueued =
+        m_coroutine_queue.Enqueue(coroutine->m_cfs, coroutine, priority,
+                                  g_bbt_coroutine_config->m_cfg_processer_priority_runtime_budget_us[priority]);
     _ReleaseEnqueueSlot();
     if (!enqueued)
-        return false;   // 调用方仍持有协程所有权，可重试/显式拒绝
+        return false; // 调用方仍持有协程所有权，可重试/显式拒绝
 
     /* 锁内只发布 latch/cond：driver Wake 由调用方在退出调用链锁后
      * 经 _NotifyRunnable/_WakeDriver 触发（deferral 生效时只记 pending）。
@@ -240,8 +238,8 @@ bool Processer::_EnqueueAdmitted(CoroutinePriority priority, Coroutine::Ptr coro
 
 void Processer::_ReleaseEnqueueSlot()
 {
-    if (m_enqueue_inflight.fetch_sub(1, std::memory_order_acq_rel) == 1 &&
-        !m_admission_open.load(std::memory_order_acquire)) {
+    if (m_enqueue_inflight.fetch_sub(1, std::memory_order_acq_rel) == 1
+        && !m_admission_open.load(std::memory_order_acquire)) {
         /* 与 _WaitEnqueueQuiescent 的谓词共用 mutex，避免丢唤醒 */
         std::lock_guard<std::mutex> lock(m_enqueue_wait_mutex);
         m_enqueue_wait_cv.notify_all();
@@ -251,9 +249,7 @@ void Processer::_ReleaseEnqueueSlot()
 void Processer::_WaitEnqueueQuiescent()
 {
     std::unique_lock<std::mutex> lock(m_enqueue_wait_mutex);
-    m_enqueue_wait_cv.wait(lock, [this] {
-        return m_enqueue_inflight.load(std::memory_order_seq_cst) == 0;
-    });
+    m_enqueue_wait_cv.wait(lock, [this] { return m_enqueue_inflight.load(std::memory_order_seq_cst) == 0; });
 }
 
 void Processer::_PublishRunnable()
@@ -279,15 +275,14 @@ void Processer::_WaitForWork()
     if (m_retire_requested.load(std::memory_order_acquire))
         return;
 
-    const auto timeout_us = bbt::core::clock::us(
-        g_bbt_coroutine_config->m_cfg_processer_proc_interval_us);
+    const auto timeout_us = bbt::core::clock::us(g_bbt_coroutine_config->m_cfg_processer_proc_interval_us);
 
     /* lease 在 run_cond 锁外获取，不建立 binding→run_cond 嵌套锁序；
      * 没有 binding 或 lease 被 Failed/Detaching 拒绝时走原有分支，
      * 不加新的本地 approx 门控（避免 size_approx 假阳性忙等）。 */
     auto binding = _GetDriverBinding();
     if (binding != nullptr) {
-        DriverCallbackLease lease(binding, /*terminal*/false);
+        DriverCallbackLease lease(binding, /*terminal*/ false);
         if (lease.Acquired()) {
             bool should_wait = false;
             {
@@ -295,9 +290,8 @@ void Processer::_WaitForWork()
                 /* 发布在加锁前：在此取得实际全局任务；发布在复查后：通知者
                  * 必须等复查线程退出锁后才能置位 latch。driver Wait 只在
                  * 本地/global 复查均无 runnable 且无待处理 latch 时进入。 */
-                if (_TryGetCoroutineFromGlobal() == 0 &&
-                    GetExecutableNum() <= 0 &&
-                    m_run_cond_notify.load(std::memory_order_acquire))
+                if (_TryGetCoroutineFromGlobal() == 0 && GetExecutableNum() <= 0
+                    && m_run_cond_notify.load(std::memory_order_acquire))
                     should_wait = true;
                 else
                     m_run_cond_notify.store(true, std::memory_order_release);
@@ -306,12 +300,9 @@ void Processer::_WaitForWork()
                 /* 锁外执行 driver Wait；之间到达的 Wake 由 driver 持久记忆，
                  * latch 通知照常置位、下一轮复查不会丢。 */
                 ProcesserDriverResult ret = ProcesserDriverResult::Ok;
-                try
-                {
+                try {
                     ret = binding->m_driver->Wait(timeout_us);
-                }
-                catch (...)
-                {
+                } catch (...) {
                     _DriverFail(binding, ProcesserDriverFailure::Wait, std::current_exception());
                     return;
                 }
@@ -326,12 +317,10 @@ void Processer::_WaitForWork()
      * 睡前 global/实际本地队列复查 + 锁内 latch 等待。 */
     std::unique_lock<std::mutex> lock(m_run_cond_mutex);
     if (_TryGetCoroutineFromGlobal() == 0 && GetExecutableNum() == 0)
-        m_run_cond.wait_for(lock, timeout_us,
-                   [this] {
-                       return !m_is_running.load(std::memory_order_acquire) ||
-                           !m_run_cond_notify.load(std::memory_order_acquire) ||
-                           m_retire_requested.load(std::memory_order_acquire);
-                   });
+        m_run_cond.wait_for(lock, timeout_us, [this] {
+            return !m_is_running.load(std::memory_order_acquire) || !m_run_cond_notify.load(std::memory_order_acquire)
+                   || m_retire_requested.load(std::memory_order_acquire);
+        });
     m_run_cond_notify.store(true, std::memory_order_release);
 }
 
@@ -381,9 +370,8 @@ void Processer::_MarkJoined()
 void Processer::Start(bool background_thread)
 {
     _Init();
-    if (background_thread)
-    {
-        auto t = new std::thread([this](){_Run();});
+    if (background_thread) {
+        auto t = new std::thread([this]() { _Run(); });
         t->detach();
         return;
     }
@@ -410,8 +398,7 @@ void Processer::_Run()
      *      - 是否在空闲的时候降低调度频率？
      */
     // 每轮至多 64 次 Resume，给 driver/global/退役检查确定的调度机会。
-    while (m_is_running.load(std::memory_order_acquire))
-    {
+    while (m_is_running.load(std::memory_order_acquire)) {
         /* 退役只在完整 disposition 之后、新一轮取工作之前确认：
          * 已提交的 Resume 不会被中断，parked 协程栈也不会被展开。 */
         if (m_retire_requested.load(std::memory_order_acquire))
@@ -429,8 +416,7 @@ void Processer::_Run()
 
         bool any_dequeued = false;
         bool retire_now = false;
-        for (unsigned turn = 0; turn < 64; ++turn)
-        {
+        for (unsigned turn = 0; turn < 64; ++turn) {
             if (m_retire_requested.load(std::memory_order_acquire)) {
                 retire_now = true;
                 break;
@@ -441,7 +427,9 @@ void Processer::_Run()
             m_running_coroutine = selected->Task();
             any_dequeued = true;
 
-            AssertWithInfo(m_running_coroutine->GetStatus() != CO_RUNNING && m_running_coroutine->GetStatus() != CO_FINAL, "bad coroutine status!");
+            AssertWithInfo(m_running_coroutine->GetStatus() != CO_RUNNING
+                               && m_running_coroutine->GetStatus() != CO_FINAL,
+                           "bad coroutine status!");
 
             // 执行前设置当前协程缓存（预算单位为微秒，计时必须显式 us）
             m_running_coroutine_begin.exchange(bbt::core::clock::gettime_mono<bbt::core::clock::us>());
@@ -452,8 +440,7 @@ void Processer::_Run()
              * 读到 false = 协程已让出，不算停顿。整组字段在
              * m_exec_mutex 临界区内一次提交，读者同锁整组复制，
              * 一致性由互斥保证（诊断路径，允许极短锁占用）。 */
-            if (g_bbt_coroutine_config->m_cfg_worker_stall_warn_ms > 0)
-            {
+            if (g_bbt_coroutine_config->m_cfg_worker_stall_warn_ms > 0) {
                 std::lock_guard<std::mutex> lock(m_exec_mutex);
                 m_exec_co_id = m_running_coroutine->GetId();
                 m_exec_begin_us = m_running_coroutine_begin.load(std::memory_order_relaxed);
@@ -473,19 +460,18 @@ void Processer::_Run()
                 BusyScope busy_scope(m_busy);
                 m_running_coroutine->Resume();
             }
-            if (g_bbt_coroutine_config->m_cfg_worker_stall_warn_ms > 0)
-            {
+            if (g_bbt_coroutine_config->m_cfg_worker_stall_warn_ms > 0) {
                 std::lock_guard<std::mutex> lock(m_exec_mutex);
                 m_executing = false;
             }
             // MLFQ: 记录运行时长（微秒），供后续降级判断
-            m_running_coroutine->SetLastRunTimeUs(
-                bbt::core::clock::gettime_mono<bbt::core::clock::us>() - m_running_coroutine_begin.load());
+            m_running_coroutine->SetLastRunTimeUs(bbt::core::clock::gettime_mono<bbt::core::clock::us>()
+                                                  - m_running_coroutine_begin.load());
 
             // elapsed monotonic us，不是线程 CPU 时间。发布 park 前先结清账目。
-            m_coroutine_queue.Account(m_running_coroutine->m_cfs,
-                m_running_coroutine->GetLastRunTimeUs(),
-                m_running_coroutine->m_yield_disposition == CoroutineYieldDisposition::EVENT_WAIT);
+            m_coroutine_queue.Account(m_running_coroutine->m_cfs, m_running_coroutine->GetLastRunTimeUs(),
+                                      m_running_coroutine->m_yield_disposition
+                                          == CoroutineYieldDisposition::EVENT_WAIT);
 
             /* 先移交再发布：CommitYield（EVENT_WAIT 的 CommitPark）与
              * READY 入队都可能让该协程被其它 worker
@@ -496,14 +482,13 @@ void Processer::_Run()
             const auto disposition = yielded->CommitYield();
             if (disposition == CoroutineYieldDisposition::READY) {
                 // READY 保留既有 NORMAL 策略；退役门禁拒收时可靠归还 global。
-                if (!_EnqueueAdmitted(CO_PRIORITY_NORMAL, yielded, /*notify*/false)) {
+                if (!_EnqueueAdmitted(CO_PRIORITY_NORMAL, yielded, /*notify*/ false)) {
                     while (!g_scheduler->_EnqueueGlobal(CO_PRIORITY_NORMAL, yielded))
                         std::this_thread::yield();
                     g_scheduler->_WakeActiveWorkers();
                 }
-                yielded = nullptr;  // 发布后绝不再读 Coroutine
-            }
-            else if (disposition == CoroutineYieldDisposition::FINAL) {
+                yielded = nullptr; // 发布后绝不再读 Coroutine
+            } else if (disposition == CoroutineYieldDisposition::FINAL) {
                 delete yielded;
             }
         }
@@ -546,17 +531,16 @@ void Processer::_Run()
         m_steal_succ_times += steal_num;
 #endif
 
-        if (steal_num <= 0)
-        {
+        if (steal_num <= 0) {
 #ifdef BBT_COROUTINE_PROFILE
             auto begin = bbt::core::clock::now<bbt::core::clock::microseconds>();
 #endif
             _WaitForWork();
 #ifdef BBT_COROUTINE_PROFILE
-            m_suspend_cost_times.fetch_add(
-                std::chrono::duration_cast<bbt::core::clock::us>(
-                    bbt::core::clock::now<bbt::core::clock::microseconds>() - begin).count(),
-                std::memory_order_relaxed);
+            m_suspend_cost_times.fetch_add(std::chrono::duration_cast<bbt::core::clock::us>(
+                                               bbt::core::clock::now<bbt::core::clock::microseconds>() - begin)
+                                               .count(),
+                                           std::memory_order_relaxed);
 #endif
         }
     }
@@ -572,7 +556,6 @@ void Processer::_Run()
 
     m_run_status = ProcesserStatus::PROC_EXIT;
 }
-
 
 size_t Processer::_TryGetCoroutineFromGlobal()
 {
@@ -654,8 +637,7 @@ size_t Processer::Steal(Processer::SPtr thief)
      * 两者都通过 admission/lifecycle gate 判断，不依赖近似队长。 */
     if (thief == nullptr)
         return 0;
-    if (!m_admission_open.load(std::memory_order_acquire) ||
-        !_IsActive())
+    if (!m_admission_open.load(std::memory_order_acquire) || !_IsActive())
         return 0;
     if (!thief->_IsActive())
         return 0;
@@ -674,25 +656,25 @@ size_t Processer::Steal(Processer::SPtr thief)
      * 在 Start 发布初始化前固定，运行期只读。双方 admission 门禁仍不变。 */
     if (g_scheduler->m_min_num == g_scheduler->m_max_num) {
         const uint64_t prev_run = m_running_coroutine_begin.load();
-        const auto already_run_time_us =
-            bbt::core::clock::gettime_mono<bbt::core::clock::us>() - prev_run;
-        if (already_run_time_us <
-            static_cast<uint64_t>(g_bbt_coroutine_config->m_cfg_processer_worksteal_timeout_ms) * 1000)
+        const auto already_run_time_us = bbt::core::clock::gettime_mono<bbt::core::clock::us>() - prev_run;
+        if (already_run_time_us
+            < static_cast<uint64_t>(g_bbt_coroutine_config->m_cfg_processer_worksteal_timeout_ms) * 1000)
             return steal_num;
     }
 
     /* 计算下需要偷多少个 */
-    expect_size = g_bbt_coroutine_config->m_cfg_processer_steal_once_min_task_num > size / 2 ? g_bbt_coroutine_config->m_cfg_processer_steal_once_min_task_num : size / 2;
+    expect_size = g_bbt_coroutine_config->m_cfg_processer_steal_once_min_task_num > size / 2
+                      ? g_bbt_coroutine_config->m_cfg_processer_steal_once_min_task_num
+                      : size / 2;
 
-    while (steal_num < expect_size)
-    {
+    while (steal_num < expect_size) {
         auto* entity = m_coroutine_queue.Take();
         if (entity == nullptr)
             break;
         item = entity->Task();
         const auto priority = static_cast<CoroutinePriority>(entity->Priority());
         // Take 已释放 victim 锁；目标接纳失败仍由当前线程保有 item。
-        if (!thief->_EnqueueAdmitted(priority, item, /*notify*/false)) {
+        if (!thief->_EnqueueAdmitted(priority, item, /*notify*/ false)) {
             while (!g_scheduler->_EnqueueGlobal(priority, item))
                 std::this_thread::yield();
             item = nullptr;
@@ -716,8 +698,7 @@ void Processer::_DrainLocalToGlobal()
      * 不可能再有人写入本地队列。近似队长不作排空证明。 */
     _WaitEnqueueQuiescent();
 
-    while (auto* entity = m_coroutine_queue.Take())
-    {
+    while (auto* entity = m_coroutine_queue.Take()) {
         auto* item = entity->Task();
         const auto priority = static_cast<CoroutinePriority>(entity->Priority());
         while (!g_scheduler->_EnqueueGlobal(priority, item))
@@ -746,17 +727,14 @@ void Processer::_DriverOnTick(ProcesserDriverPhase phase)
     if (binding == nullptr)
         return;
 
-    DriverCallbackLease lease(binding, /*terminal*/false);
+    DriverCallbackLease lease(binding, /*terminal*/ false);
     if (!lease.Acquired())
         return;
 
     ProcesserDriverResult ret = ProcesserDriverResult::Ok;
-    try
-    {
+    try {
         ret = binding->m_driver->OnTick(phase);
-    }
-    catch (...)
-    {
+    } catch (...) {
         _DriverFail(binding, ProcesserDriverFailure::Tick, std::current_exception());
         return;
     }
@@ -765,8 +743,7 @@ void Processer::_DriverOnTick(ProcesserDriverPhase phase)
         _DriverFail(binding, ProcesserDriverFailure::Tick, nullptr);
 }
 
-void Processer::_DriverFail(const std::shared_ptr<ProcesserDriverBinding>& binding,
-                            ProcesserDriverFailure source,
+void Processer::_DriverFail(const std::shared_ptr<ProcesserDriverBinding>& binding, ProcesserDriverFailure source,
                             std::exception_ptr err)
 {
     std::lock_guard<std::mutex> lock(binding->m_mutex);
@@ -798,16 +775,15 @@ void Processer::_WakeDriver()
     if (binding == nullptr)
         return;
 
-    DriverCallbackLease lease(binding, /*terminal*/false);
+    DriverCallbackLease lease(binding, /*terminal*/ false);
     if (!lease.Acquired())
         return;
 
     binding->m_driver->Wake();
 }
 
-ProcesserDriverStatus Processer::_BindDriver(
-    const std::shared_ptr<IProcesserDriver>& driver,
-    ProcesserDriverToken& out_token)
+ProcesserDriverStatus Processer::_BindDriver(const std::shared_ptr<IProcesserDriver>& driver,
+                                             ProcesserDriverToken& out_token)
 {
     /* 调用方（Scheduler::RegisterProcesserDriver）持有 lifecycle 互斥，与
      * 退役提交共用同一线性化点：绑定先到则该 P 被 pin，退役跳过；退役先到
@@ -859,7 +835,7 @@ ProcesserDriverStatus Processer::_QueryDriver(ProcesserDriverSnapshot& out_snaps
         tmp.m_failure = binding->m_failure;
         tmp.m_exception = binding->m_exception;
     }
-    out_snapshot = std::move(tmp);   // 锁外写调用方对象（旧值在此析构）
+    out_snapshot = std::move(tmp); // 锁外写调用方对象（旧值在此析构）
     return ProcesserDriverStatus::Ok;
 }
 
@@ -881,8 +857,7 @@ ProcesserDriverStatus Processer::_UnregisterDriver(uint64_t generation)
      *    会穿透 guard 在 runtime 锁内执行，拒绝；
      *  - 当前线程持有该代任一 lease（含外线程 Wake、嵌套 callback）时
      *    同步等待会等自己，拒绝。 */
-    if (DriverWakeDeferral::IsActive() ||
-        DriverCallbackLease::ThreadHolds(binding.get()))
+    if (DriverWakeDeferral::IsActive() || DriverCallbackLease::ThreadHolds(binding.get()))
         return ProcesserDriverStatus::SelfDetach;
 
     /* leader/joiner：首个到达的控制线程在锁内完成 Detaching 并预留
@@ -912,7 +887,7 @@ ProcesserDriverStatus Processer::_UnregisterDriver(uint64_t generation)
     {
         DriverCallbackLease terminal_lease(binding, DriverCallbackLease::AdoptReservedTag{});
         binding->m_driver->Wake();
-    }   // 析构：TLS pop + --inflight + notify
+    } // 析构：TLS pop + --inflight + notify
 
     /* 等该代全部 lease（普通 Tick/Wait/Wake 与并发外调）自然归零 */
     {
@@ -931,7 +906,7 @@ ProcesserDriverStatus Processer::_UnregisterDriver(uint64_t generation)
                 m_driver_binding = nullptr;
             }
         }
-        released.reset();   // 锁外释放（可能是最后一个 driver 强引用）
+        released.reset(); // 锁外释放（可能是最后一个 driver 强引用）
     }
 
     {

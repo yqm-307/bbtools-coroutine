@@ -1,8 +1,7 @@
 #include <bbt/coroutine/utils/DebugPrint.hpp>
 #include <stdarg.h>
 
-namespace bbt::coroutine::utils
-{
+namespace bbt::coroutine::utils {
 
 void VPrint(const char* fmt, ...)
 {

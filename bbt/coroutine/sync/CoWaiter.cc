@@ -11,8 +11,7 @@
 #include <bbt/coroutine/detail/LocalThread.hpp>
 #include <bbt/coroutine/detail/DriverWakeDeferral.hpp>
 
-namespace bbt::coroutine::sync
-{
+namespace bbt::coroutine::sync {
 
 using namespace bbt::coroutine::detail;
 
@@ -21,9 +20,7 @@ CoWaiter::SPtr CoWaiter::Create()
     return std::make_shared<CoWaiter>();
 }
 
-
-CoWaiter::CoWaiter():
-    m_run_status(COND_FREE)
+CoWaiter::CoWaiter() : m_run_status(COND_FREE)
 {
 }
 
@@ -62,9 +59,7 @@ int CoWaiter::Wait()
      * bad_alloc；此时协程未挂起、挂起回调未执行，须把已占的等待位与
      * await 登记完整回滚，否则下一次 Wait 被拒且等待位泄漏。 */
     try {
-        coroutine->YieldWithCallback([coroutine](){
-            return coroutine->_RegistAwaitEvent();
-        });
+        coroutine->YieldWithCallback([coroutine]() { return coroutine->_RegistAwaitEvent(); });
     } catch (...) {
         coroutine->_SetAwaitEvent(nullptr);
         {
@@ -116,7 +111,7 @@ int CoWaiter::WaitWithCallback(const detail::CoroutineOnYieldCallback& cb)
     /* 同 Wait() 的回滚约定——装配抛异常时协程未挂起、回调
      * 未执行，清 await 与等待位后原样上抛。 */
     try {
-        ret = coroutine->YieldWithCallback([coroutine, cb](){
+        ret = coroutine->YieldWithCallback([coroutine, cb]() {
             if (!coroutine->_RegistAwaitEvent())
                 return false;
             cb();
@@ -170,9 +165,7 @@ int CoWaiter::WaitWithTimeout(int ms)
 
     /* 同 Wait() 的回滚约定。 */
     try {
-        ret = coroutine->YieldWithCallback([coroutine](){
-            return coroutine->_RegistAwaitEvent();
-        });
+        ret = coroutine->YieldWithCallback([coroutine]() { return coroutine->_RegistAwaitEvent(); });
     } catch (...) {
         coroutine->_SetAwaitEvent(nullptr);
         {
@@ -229,7 +222,7 @@ int CoWaiter::WaitWithTimeoutAndCallback(int ms, const detail::CoroutineOnYieldC
 
     /* 同 Wait() 的回滚约定。 */
     try {
-        ret = coroutine->YieldWithCallback([coroutine, cb](){
+        ret = coroutine->YieldWithCallback([coroutine, cb]() {
             if (!coroutine->_RegistAwaitEvent())
                 return false;
             cb();
@@ -267,10 +260,8 @@ WaitStatus CoWaiter::Wait(const WaitOptions& options)
     return WaitWithCallback(options, {}, nullptr);
 }
 
-WaitStatus CoWaiter::WaitWithCallback(
-    const WaitOptions& options,
-    const detail::CoroutineOnYieldCallback& on_registered,
-    CoEventValue* value)
+WaitStatus CoWaiter::WaitWithCallback(const WaitOptions& options, const detail::CoroutineOnYieldCallback& on_registered,
+                                      CoEventValue* value)
 {
     /* 环境检查先于一切（对齐运行时契约）：非协程上下文一律拒绝 */
     if (!g_bbt_tls_helper->EnableUseCo())
@@ -289,7 +280,7 @@ WaitStatus CoWaiter::WaitWithCallback(
         if (coroutine->IsCancelRequested())
             return WaitStatus::Cancelled;
         if (options.deadline <= std::chrono::steady_clock::now())
-            return WaitStatus::TimedOut;    /* 已过期：不注册事件（对齐运行时契约） */
+            return WaitStatus::TimedOut; /* 已过期：不注册事件（对齐运行时契约） */
         if (m_co_event != nullptr) {
             /* 终态残留不占等待位：前一等待的结果已在事件状态机定死，
              * 但等待者可能尚未恢复出账——若认占位，单 worker 下自旋
@@ -304,17 +295,16 @@ WaitStatus CoWaiter::WaitWithCallback(
 
         /* deadline 转毫秒定时：粒度上取整保证不提前超时；剩余期限达到
          * INT_MAX 毫秒（含 max() 无期限）即不挂定时器。 */
-        const auto remain_ms = std::chrono::ceil<std::chrono::milliseconds>(
-            options.deadline - std::chrono::steady_clock::now()).count();
+        const auto remain_ms =
+            std::chrono::ceil<std::chrono::milliseconds>(options.deadline - std::chrono::steady_clock::now()).count();
         const bool has_timer = remain_ms < std::numeric_limits<int>::max();
         if (has_timer)
             timeout_ms = static_cast<int>(remain_ms);
 
         /* 与 Wait 族同一等待位与登记路径：RegistCustom 只建事件不挂起，
          * 真正注册在挂起成功后的 _RegistAwaitEvent 中完成。 */
-        wait_event = has_timer
-            ? coroutine->RegistCustom(detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND, timeout_ms)
-            : coroutine->RegistCustom(detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND);
+        wait_event = has_timer ? coroutine->RegistCustom(detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND, timeout_ms)
+                               : coroutine->RegistCustom(detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND);
         if (wait_event == nullptr)
             return WaitStatus::RuntimeUnavailable;
 
@@ -329,7 +319,7 @@ WaitStatus CoWaiter::WaitWithCallback(
     try {
         yield_ret = coroutine->YieldWithCallback([coroutine, on_registered]() {
             if (!coroutine->_RegistAwaitEvent())
-                return false;   /* 登记失败不投递回调，调用方按 RuntimeUnavailable 收尾 */
+                return false; /* 登记失败不投递回调，调用方按 RuntimeUnavailable 收尾 */
             if (on_registered)
                 on_registered();
             return true;
@@ -390,17 +380,14 @@ CombinedWaitStatus CoWaiter::Wait(const CombinedWaitOptions& options)
     return Wait(options, {}, nullptr);
 }
 
-CombinedWaitStatus CoWaiter::Wait(
-    const CombinedWaitOptions& options,
-    const detail::CoroutineOnYieldCallback& on_registered)
+CombinedWaitStatus CoWaiter::Wait(const CombinedWaitOptions& options,
+                                  const detail::CoroutineOnYieldCallback& on_registered)
 {
     return Wait(options, on_registered, nullptr);
 }
 
-CombinedWaitStatus CoWaiter::Wait(
-    const CombinedWaitOptions& options,
-    const detail::CoroutineOnYieldCallback& on_registered,
-    CoEventValue* value)
+CombinedWaitStatus CoWaiter::Wait(const CombinedWaitOptions& options,
+                                  const detail::CoroutineOnYieldCallback& on_registered, CoEventValue* value)
 {
     /* 环境检查先于一切（对齐窄接口）：非协程上下文一律拒绝 */
     if (!g_bbt_tls_helper->EnableUseCo())
@@ -415,9 +402,8 @@ CombinedWaitStatus CoWaiter::Wait(
     if (want_fd && options.fd < 0)
         return CombinedWaitStatus::InvalidOptions;
 
-    const short fd_listen_events =
-        (options.want_readable ? pollevent::EventOpt::READABLE : 0) |
-        (options.want_writeable ? pollevent::EventOpt::WRITEABLE : 0);
+    const short fd_listen_events = (options.want_readable ? pollevent::EventOpt::READABLE : 0)
+                                   | (options.want_writeable ? pollevent::EventOpt::WRITEABLE : 0);
 
     int timeout_ms = -1;
     std::shared_ptr<detail::CoPollEvent> wait_event;
@@ -427,7 +413,7 @@ CombinedWaitStatus CoWaiter::Wait(
         if (coroutine->IsCancelRequested())
             return CombinedWaitStatus::Cancelled;
         if (options.deadline <= std::chrono::steady_clock::now())
-            return CombinedWaitStatus::TimedOut;    /* 已过期：不注册事件 */
+            return CombinedWaitStatus::TimedOut; /* 已过期：不注册事件 */
         if (m_co_event != nullptr) {
             /* 终态残留不占等待位（同窄接口 Wait）：避免恢复前占位互饿 */
             if (!m_co_event->IsFinal())
@@ -436,8 +422,8 @@ CombinedWaitStatus CoWaiter::Wait(
             m_run_status = COND_FREE;
         }
 
-        const auto remain_ms = std::chrono::ceil<std::chrono::milliseconds>(
-            options.deadline - std::chrono::steady_clock::now()).count();
+        const auto remain_ms =
+            std::chrono::ceil<std::chrono::milliseconds>(options.deadline - std::chrono::steady_clock::now()).count();
         /* 上方过期检查与 remain 计算之间可能刚好耗尽剩余期限：remain<=0
          * 时定时器口径为 0ms 不挂定时器，fd 等待会永久悬挂，按已过期拒绝 */
         if (remain_ms <= 0)
@@ -455,10 +441,8 @@ CombinedWaitStatus CoWaiter::Wait(
         if (wait_event == nullptr)
             return CombinedWaitStatus::RuntimeUnavailable;
 
-        const short listen_events = fd_listen_events |
-            (has_timer ? pollevent::EventOpt::TIMEOUT : 0);
-        if (listen_events != 0 &&
-            wait_event->InitFdEvent(options.fd, listen_events, has_timer ? timeout_ms : 0) != 0) {
+        const short listen_events = fd_listen_events | (has_timer ? pollevent::EventOpt::TIMEOUT : 0);
+        if (listen_events != 0 && wait_event->InitFdEvent(options.fd, listen_events, has_timer ? timeout_ms : 0) != 0) {
             /* 事件建立失败：事件未注册，清掉 await 登记防协程悬挂 */
             coroutine->_SetAwaitEvent(nullptr);
             m_co_event = nullptr;
@@ -553,7 +537,7 @@ int CoWaiter::Notify(const CoEventValue& value)
     /* 与无参 Notify 同语义：fresh / 无等待位 / 已决议都返回 -1，不保存
      * 载荷。载荷只在本次等待确实被本事件唤醒时交付，因此不存在「把旧
      * 载荷留给下一轮等待」的问题。 */
-    detail::DriverWakeDeferral _defer;   // 同无参 Notify：外调推迟到锁外
+    detail::DriverWakeDeferral _defer; // 同无参 Notify：外调推迟到锁外
     std::lock_guard<std::mutex> lock(m_notify_mutex);
 
     if (m_co_event == nullptr || m_run_status != COND_WAIT) {

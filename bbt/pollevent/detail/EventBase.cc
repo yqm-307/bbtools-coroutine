@@ -1,7 +1,6 @@
 #include <bbt/pollevent/detail/EventBase.hpp>
 
-namespace bbt::pollevent::detail
-{
+namespace bbt::pollevent::detail {
 
 EventBase::EventBase(int32_t flag)
 {
@@ -22,12 +21,10 @@ int EventBase::GetEventNum() const
 int EventBase::GetTimeOfDayCache(struct timeval* tv) const
 {
     auto now = std::chrono::system_clock::now();
-    auto secs = std::chrono::duration_cast<std::chrono::seconds>(
-        now.time_since_epoch());
-    auto usecs = std::chrono::duration_cast<std::chrono::microseconds>(
-        now.time_since_epoch() - secs);
+    auto secs = std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch());
+    auto usecs = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch() - secs);
 
-    tv->tv_sec  = secs.count();
+    tv->tv_sec = secs.count();
     tv->tv_usec = usecs.count();
     return 0;
 }

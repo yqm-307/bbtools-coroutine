@@ -41,8 +41,7 @@
 
 using namespace bbt::pollevent;
 
-namespace
-{
+namespace {
 
 /* 只驱动已就绪的完成，不做阻塞等待（等价 EventLoopOpt::LOOP_NONBLOCK）。 */
 void PollAll(boost::asio::io_context& ctx)
@@ -54,9 +53,9 @@ void PollAll(boost::asio::io_context& ctx)
 int CountOpenFds()
 {
     int n = 0;
-    if (auto* d = ::opendir("/proc/self/fd"))
-    {
-        while (::readdir(d) != nullptr) ++n;
+    if (auto* d = ::opendir("/proc/self/fd")) {
+        while (::readdir(d) != nullptr)
+            ++n;
         ::closedir(d);
     }
     return n;
@@ -65,8 +64,7 @@ int CountOpenFds()
 /* 预热 reactor 基建 fd（epoll/eventfd/timerfd），使后续 fd 计数只反映 Event 自身。 */
 void WarmupReactor(detail::EventBase& base)
 {
-    auto timer = std::make_shared<Event>(&base, -1,
-        static_cast<short>(EventOpt::TIMEOUT), [](int, short, EventId) {});
+    auto timer = std::make_shared<Event>(&base, -1, static_cast<short>(EventOpt::TIMEOUT), [](int, short, EventId) {});
     BOOST_REQUIRE_EQUAL(timer->StartListen(1), 0);
     PollAll(base.GetContext());
 }
@@ -93,14 +91,13 @@ std::pair<int, int> MakeReadySocketPair()
 
 /* 两个 fd+EV_TIMEOUT Event 的配对夹具：第一份 timer 成功完成由 run_one 派发，
  * 第二份留在 io_context 队列里（已排队的成功完成）。 */
-struct TimerEventPair
-{
+struct TimerEventPair {
     std::shared_ptr<Event> a;
     std::shared_ptr<Event> b;
-    std::atomic<int>       hits_a{0};
-    std::atomic<int>       hits_b{0};
-    std::pair<int, int>    fds_a{-1, -1};
-    std::pair<int, int>    fds_b{-1, -1};
+    std::atomic<int> hits_a{0};
+    std::atomic<int> hits_b{0};
+    std::pair<int, int> fds_a{-1, -1};
+    std::pair<int, int> fds_b{-1, -1};
 };
 
 /* 挂两个 1 ms timer；两次 StartListen 返回后再等待同一 interval，真实 expiry 均已到期，
@@ -111,10 +108,8 @@ void ArmQueuedTimerPair(detail::EventBase& base, TimerEventPair& p)
     p.fds_b = MakePipe();
 
     const short events = static_cast<short>(EventOpt::READABLE | EventOpt::TIMEOUT);
-    p.a = std::make_shared<Event>(&base, p.fds_a.first, events,
-        [&p](int, short, EventId) { p.hits_a.fetch_add(1); });
-    p.b = std::make_shared<Event>(&base, p.fds_b.first, events,
-        [&p](int, short, EventId) { p.hits_b.fetch_add(1); });
+    p.a = std::make_shared<Event>(&base, p.fds_a.first, events, [&p](int, short, EventId) { p.hits_a.fetch_add(1); });
+    p.b = std::make_shared<Event>(&base, p.fds_b.first, events, [&p](int, short, EventId) { p.hits_b.fetch_add(1); });
 
     constexpr uint64_t timeout_ms = 1;
     constexpr auto interval = std::chrono::milliseconds(timeout_ms);
@@ -133,14 +128,13 @@ void ArmQueuedTimerPair(detail::EventBase& base, TimerEventPair& p)
 
 /* 装配/完成交错同步点：hook 由 Event 在持锁（装配方）或取锁前（完成方）调用，
  * 这里只做线程同步，不重入 Event。 */
-struct InterleaveGate
-{
-    std::mutex              m;
+struct InterleaveGate {
+    std::mutex m;
     std::condition_variable cv;
-    bool                    driver_ready{false};
-    bool                    completion_entered{false};
-    bool                    overlap{false};
-    bool                    delivered{false};
+    bool driver_ready{false};
+    bool completion_entered{false};
+    bool overlap{false};
+    bool delivered{false};
 };
 
 InterleaveGate* g_interleave_gate = nullptr;
@@ -151,8 +145,7 @@ void InterleaveHook(Event*, Event::TestHookPoint point)
     if (gate == nullptr)
         return;
 
-    if (point == Event::TestHookPoint::FdCompletionEnter)
-    {
+    if (point == Event::TestHookPoint::FdCompletionEnter) {
         {
             std::lock_guard<std::mutex> lock(gate->m);
             gate->completion_entered = true;
@@ -163,8 +156,7 @@ void InterleaveHook(Event*, Event::TestHookPoint point)
 
     /* 装配方：等完成方进入回调（随后它会阻塞在 m_mutex 上），再继续挂 timer。 */
     std::unique_lock<std::mutex> lock(gate->m);
-    gate->overlap = gate->cv.wait_for(lock, std::chrono::seconds(5),
-        [gate] { return gate->completion_entered; });
+    gate->overlap = gate->cv.wait_for(lock, std::chrono::seconds(5), [gate] { return gate->completion_entered; });
 }
 
 } // namespace
@@ -179,15 +171,14 @@ BOOST_AUTO_TEST_CASE(t_restart_listen_keeps_single_round)
     auto [rfd, wfd] = MakeReadySocketPair();
 
     std::atomic<int> hits{0};
-    auto ev = std::make_shared<Event>(&base, rfd,
-        static_cast<short>(EventOpt::READABLE | EventOpt::WRITEABLE),
-        [&hits](int, short, EventId) { hits.fetch_add(1); });
+    auto ev = std::make_shared<Event>(&base, rfd, static_cast<short>(EventOpt::READABLE | EventOpt::WRITEABLE),
+                                      [&hits](int, short, EventId) { hits.fetch_add(1); });
 
     BOOST_REQUIRE_EQUAL(ev->StartListen(0), 0);
-    BOOST_REQUIRE_EQUAL(ev->StartListen(0), 0);   // 新一轮覆盖上一轮
+    BOOST_REQUIRE_EQUAL(ev->StartListen(0), 0); // 新一轮覆盖上一轮
 
     PollAll(base.GetContext());
-    BOOST_CHECK_EQUAL(hits.load(), 2);            // 两个方向各一次
+    BOOST_CHECK_EQUAL(hits.load(), 2); // 两个方向各一次
 
     ::close(rfd);
     ::close(wfd);
@@ -202,14 +193,13 @@ BOOST_AUTO_TEST_CASE(t_reentrant_startlisten_does_not_duplicate_wait)
 
     std::atomic<int> hits{0};
     std::shared_ptr<Event> ev;
-    ev = std::make_shared<Event>(&base, rfd,
-        static_cast<short>(EventOpt::READABLE | EventOpt::PERSIST),
-        [&hits, &ev](int fd, short, EventId) {
-            char byte = '\0';
-            (void)::read(fd, &byte, 1);         // 先消费就绪数据，重挂时不带就绪
-            if (hits.fetch_add(1) == 0)
-                ev->StartListen(0);             // 回调内启动新一轮
-        });
+    ev = std::make_shared<Event>(&base, rfd, static_cast<short>(EventOpt::READABLE | EventOpt::PERSIST),
+                                 [&hits, &ev](int fd, short, EventId) {
+                                     char byte = '\0';
+                                     (void)::read(fd, &byte, 1); // 先消费就绪数据，重挂时不带就绪
+                                     if (hits.fetch_add(1) == 0)
+                                         ev->StartListen(0); // 回调内启动新一轮
+                                 });
 
     BOOST_REQUIRE_EQUAL(ev->StartListen(0), 0);
     const char byte = 'x';
@@ -239,14 +229,13 @@ BOOST_AUTO_TEST_CASE(t_release_in_callback_ignores_persist_rearm)
     std::atomic<int> hits{0};
     std::shared_ptr<Event> ev;
     std::weak_ptr<Event> weak_ev;
-    ev = std::make_shared<Event>(&base, rfd,
-        static_cast<short>(EventOpt::READABLE | EventOpt::PERSIST),
-        [&hits, &ev](int fd, short, EventId) {
-            char byte = '\0';
-            (void)::read(fd, &byte, 1);
-            hits.fetch_add(1);
-            ev.reset();                          // 回调内释放最后一个外部引用
-        });
+    ev = std::make_shared<Event>(&base, rfd, static_cast<short>(EventOpt::READABLE | EventOpt::PERSIST),
+                                 [&hits, &ev](int fd, short, EventId) {
+                                     char byte = '\0';
+                                     (void)::read(fd, &byte, 1);
+                                     hits.fetch_add(1);
+                                     ev.reset(); // 回调内释放最后一个外部引用
+                                 });
     weak_ev = ev;
 
     BOOST_REQUIRE_EQUAL(ev->StartListen(0), 0);
@@ -254,10 +243,10 @@ BOOST_AUTO_TEST_CASE(t_release_in_callback_ignores_persist_rearm)
     BOOST_REQUIRE_EQUAL(::write(wfd, &byte, 1), 1);
     PollAll(base.GetContext());
     BOOST_CHECK_EQUAL(hits.load(), 1);
-    BOOST_CHECK(weak_ev.expired());              // 回调返回后对象已释放
+    BOOST_CHECK(weak_ev.expired()); // 回调返回后对象已释放
 
     BOOST_REQUIRE_EQUAL(::write(wfd, &byte, 1), 1);
-    PollAll(base.GetContext());                  // 无主回调：不崩溃、不交付
+    PollAll(base.GetContext()); // 无主回调：不崩溃、不交付
     BOOST_CHECK_EQUAL(hits.load(), 1);
 
     ::close(rfd);
@@ -276,16 +265,13 @@ BOOST_AUTO_TEST_CASE(t_cancellisten_does_not_drive_context)
     bool other_dispatched_inside_cancel = false;
     std::atomic<int> other_hits{0};
 
-    auto ev_a = std::make_shared<Event>(&base, rfd_a,
-        static_cast<short>(EventOpt::READABLE),
-        [&](int, short, EventId) {
-            other_hits.fetch_add(1);
-            if (in_cancel)
-                other_dispatched_inside_cancel = true;
-        });
-    auto ev_b = std::make_shared<Event>(&base, rfd_b,
-        static_cast<short>(EventOpt::READABLE),
-        [](int, short, EventId) {});
+    auto ev_a = std::make_shared<Event>(&base, rfd_a, static_cast<short>(EventOpt::READABLE), [&](int, short, EventId) {
+        other_hits.fetch_add(1);
+        if (in_cancel)
+            other_dispatched_inside_cancel = true;
+    });
+    auto ev_b =
+        std::make_shared<Event>(&base, rfd_b, static_cast<short>(EventOpt::READABLE), [](int, short, EventId) {});
 
     BOOST_REQUIRE_EQUAL(ev_a->StartListen(0), 0);
     BOOST_REQUIRE_EQUAL(ev_b->StartListen(0), 0);
@@ -297,10 +283,10 @@ BOOST_AUTO_TEST_CASE(t_cancellisten_does_not_drive_context)
     BOOST_REQUIRE_EQUAL(ev_b->CancelListen(), 0);
     in_cancel = false;
 
-    BOOST_CHECK(!other_dispatched_inside_cancel);   // 取消期间未派发别的回调
+    BOOST_CHECK(!other_dispatched_inside_cancel); // 取消期间未派发别的回调
     BOOST_CHECK_EQUAL(other_hits.load(), 0);
 
-    PollAll(base.GetContext());                     // 之后由驱动方正常派发
+    PollAll(base.GetContext()); // 之后由驱动方正常派发
     BOOST_CHECK_EQUAL(other_hits.load(), 1);
 
     ::close(rfd_a);
@@ -319,15 +305,14 @@ BOOST_AUTO_TEST_CASE(t_queued_completion_after_cancel_and_destroy)
     std::atomic<int> hits{0};
     const int fds_before = CountOpenFds();
     {
-        auto ev = std::make_shared<Event>(&base, rfd,
-            static_cast<short>(EventOpt::READABLE | EventOpt::WRITEABLE),
-            [&hits](int, short, EventId) { hits.fetch_add(1); });
+        auto ev = std::make_shared<Event>(&base, rfd, static_cast<short>(EventOpt::READABLE | EventOpt::WRITEABLE),
+                                          [&hits](int, short, EventId) { hits.fetch_add(1); });
         BOOST_REQUIRE_EQUAL(ev->StartListen(0), 0);
         BOOST_REQUIRE_EQUAL(ev->CancelListen(), 0);
     }
-    BOOST_CHECK_EQUAL(CountOpenFds(), fds_before);      // 内部 dup fd 已释放
+    BOOST_CHECK_EQUAL(CountOpenFds(), fds_before); // 内部 dup fd 已释放
 
-    PollAll(base.GetContext());                          // 排队完成此刻无主：丢弃
+    PollAll(base.GetContext()); // 排队完成此刻无主：丢弃
     BOOST_CHECK_EQUAL(hits.load(), 0);
 
     ::close(rfd);
@@ -343,25 +328,24 @@ BOOST_AUTO_TEST_CASE(t_persist_cancel_in_callback_does_not_resurrect)
     std::atomic<int> hits{0};
     std::shared_ptr<Event> ev;
     const size_t cb_before = Event::CallbackEntryCount();
-    ev = std::make_shared<Event>(&base, rfd,
-        static_cast<short>(EventOpt::READABLE | EventOpt::PERSIST),
-        [&hits, &ev](int fd, short, EventId) {
-            char byte = '\0';
-            (void)::read(fd, &byte, 1);
-            hits.fetch_add(1);
-            ev->CancelListen();                  // 回调内重入取消
-        });
+    ev = std::make_shared<Event>(&base, rfd, static_cast<short>(EventOpt::READABLE | EventOpt::PERSIST),
+                                 [&hits, &ev](int fd, short, EventId) {
+                                     char byte = '\0';
+                                     (void)::read(fd, &byte, 1);
+                                     hits.fetch_add(1);
+                                     ev->CancelListen(); // 回调内重入取消
+                                 });
 
     BOOST_REQUIRE_EQUAL(ev->StartListen(0), 0);
     const char byte = 'x';
     BOOST_REQUIRE_EQUAL(::write(wfd, &byte, 1), 1);
     PollAll(base.GetContext());
     BOOST_CHECK_EQUAL(hits.load(), 1);
-    BOOST_CHECK_EQUAL(Event::CallbackEntryCount(), cb_before);  // 回调已摘除
+    BOOST_CHECK_EQUAL(Event::CallbackEntryCount(), cb_before); // 回调已摘除
 
-    BOOST_REQUIRE_EQUAL(::write(wfd, &byte, 1), 1);             // 数据仍在管道里
+    BOOST_REQUIRE_EQUAL(::write(wfd, &byte, 1), 1); // 数据仍在管道里
     PollAll(base.GetContext());
-    BOOST_CHECK_EQUAL(hits.load(), 1);                          // 不复活
+    BOOST_CHECK_EQUAL(hits.load(), 1); // 不复活
 
     ::close(rfd);
     ::close(wfd);
@@ -373,11 +357,10 @@ BOOST_AUTO_TEST_CASE(t_two_queued_triggers_are_both_delivered)
     detail::EventBase base;
     std::atomic<int> hits{0};
     std::atomic<int> flags{0};
-    auto ev = std::make_shared<Event>(&base, -1, 0,
-        [&hits, &flags](int, short flag, EventId) {
-            flags.fetch_or(flag);
-            hits.fetch_add(1);
-        });
+    auto ev = std::make_shared<Event>(&base, -1, 0, [&hits, &flags](int, short flag, EventId) {
+        flags.fetch_or(flag);
+        hits.fetch_add(1);
+    });
 
     BOOST_REQUIRE_EQUAL(ev->StartListen(0), 0);
     BOOST_REQUIRE_EQUAL(ev->Trigger(EventOpt::READABLE), 0);
@@ -396,18 +379,17 @@ BOOST_AUTO_TEST_CASE(t_trigger_after_cancel_not_delivered)
 {
     detail::EventBase base;
     std::atomic<int> hits{0};
-    auto ev = std::make_shared<Event>(&base, -1, 0,
-        [&hits](int, short, EventId) { hits.fetch_add(1); });
+    auto ev = std::make_shared<Event>(&base, -1, 0, [&hits](int, short, EventId) { hits.fetch_add(1); });
 
     BOOST_REQUIRE_EQUAL(ev->StartListen(0), 0);
     BOOST_REQUIRE_EQUAL(ev->Trigger(EventOpt::READABLE), 0);
     PollAll(base.GetContext());
-    BOOST_CHECK_EQUAL(hits.load(), 1);          // 正例：投递确实交付
+    BOOST_CHECK_EQUAL(hits.load(), 1); // 正例：投递确实交付
 
     BOOST_REQUIRE_EQUAL(ev->Trigger(EventOpt::READABLE), 0);
     BOOST_REQUIRE_EQUAL(ev->CancelListen(), 0);
     PollAll(base.GetContext());
-    BOOST_CHECK_EQUAL(hits.load(), 1);          // 取消后落地的那次被丢弃
+    BOOST_CHECK_EQUAL(hits.load(), 1); // 取消后落地的那次被丢弃
 }
 
 /* 栈上 Event 不能进入监听：异步登记要求 shared ownership 才能保活；
@@ -419,8 +401,7 @@ BOOST_AUTO_TEST_CASE(t_stack_event_startlisten_rejected)
     const size_t cb_before = Event::CallbackEntryCount();
 
     {
-        Event ev(&base, rfd, static_cast<short>(EventOpt::READABLE),
-                 [](int, short, EventId) {});
+        Event ev(&base, rfd, static_cast<short>(EventOpt::READABLE), [](int, short, EventId) {});
         BOOST_CHECK_EQUAL(Event::CallbackEntryCount(), cb_before + 1);
         BOOST_CHECK_EQUAL(ev.StartListen(0), -1);
         BOOST_CHECK_EQUAL(ev.CancelListen(), 0);
@@ -440,7 +421,7 @@ BOOST_AUTO_TEST_CASE(t_queued_timer_success_after_cancel_and_destroy)
 {
     detail::EventBase base;
     WarmupReactor(base);
-    base.GetContext().run();    // 兑现预热 timer 的完成，run_one 只面对本用例的完成
+    base.GetContext().run(); // 兑现预热 timer 的完成，run_one 只面对本用例的完成
 
     /* 对照：不取消时第二份成功完成确实交付。 */
     {
@@ -507,33 +488,32 @@ BOOST_AUTO_TEST_CASE(t_startlisten_assembly_races_ready_fd)
 {
     detail::EventBase base;
     WarmupReactor(base);
-    base.GetContext().run();    // 兑现预热 timer 的完成
+    base.GetContext().run(); // 兑现预热 timer 的完成
 
-    auto [rfd, wfd] = MakeReadySocketPair();    // StartListen 之前 fd 已就绪
+    auto [rfd, wfd] = MakeReadySocketPair(); // StartListen 之前 fd 已就绪
 
     InterleaveGate gate;
     g_interleave_gate = &gate;
     Event::SetTestHook(&InterleaveHook);
 
-    std::atomic<int>   hits{0};
+    std::atomic<int> hits{0};
     std::atomic<short> seen_flag{0};
     auto ctx_guard = boost::asio::make_work_guard(base.GetContext());
     bool driver_ok = false;
     bool delivered = false;
-    int  start_rc  = -1;
+    int start_rc = -1;
 
     {
-        auto ev = std::make_shared<Event>(&base, rfd,
-            static_cast<short>(EventOpt::READABLE | EventOpt::TIMEOUT),
-            [&](int, short flag, EventId) {
-                seen_flag.store(flag);
-                hits.fetch_add(1);
-                {
-                    std::lock_guard<std::mutex> lock(gate.m);
-                    gate.delivered = true;
-                }
-                gate.cv.notify_all();
-            });
+        auto ev = std::make_shared<Event>(&base, rfd, static_cast<short>(EventOpt::READABLE | EventOpt::TIMEOUT),
+                                          [&](int, short flag, EventId) {
+                                              seen_flag.store(flag);
+                                              hits.fetch_add(1);
+                                              {
+                                                  std::lock_guard<std::mutex> lock(gate.m);
+                                                  gate.delivered = true;
+                                              }
+                                              gate.cv.notify_all();
+                                          });
 
         std::thread driver([&] {
             {
@@ -547,18 +527,15 @@ BOOST_AUTO_TEST_CASE(t_startlisten_assembly_races_ready_fd)
 
         {
             std::unique_lock<std::mutex> lock(gate.m);
-            driver_ok = gate.cv.wait_for(lock, std::chrono::seconds(5),
-                                         [&] { return gate.driver_ready; });
+            driver_ok = gate.cv.wait_for(lock, std::chrono::seconds(5), [&] { return gate.driver_ready; });
         }
 
         if (driver_ok)
             start_rc = ev->StartListen(20);
 
-        if (driver_ok)
-        {
+        if (driver_ok) {
             std::unique_lock<std::mutex> lock(gate.m);
-            delivered = gate.cv.wait_for(lock, std::chrono::seconds(5),
-                                         [&] { return gate.delivered; });
+            delivered = gate.cv.wait_for(lock, std::chrono::seconds(5), [&] { return gate.delivered; });
         }
 
         ctx_guard.reset();
@@ -575,7 +552,7 @@ BOOST_AUTO_TEST_CASE(t_startlisten_assembly_races_ready_fd)
         std::lock_guard<std::mutex> lock(gate.m);
         BOOST_CHECK_MESSAGE(gate.overlap, "完成回调没有与 StartListen 装配重叠");
     }
-    BOOST_CHECK_EQUAL(hits.load(), 1);      // timer 已撤销：join 后没有第二次交付
+    BOOST_CHECK_EQUAL(hits.load(), 1); // timer 已撤销：join 后没有第二次交付
     BOOST_CHECK_EQUAL(seen_flag.load(), static_cast<short>(EventOpt::READABLE));
 
     ::close(rfd);

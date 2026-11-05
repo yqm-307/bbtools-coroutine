@@ -9,8 +9,7 @@
 #include <functional>
 #include <future>
 
-namespace bbt::coroutine::pool
-{
+namespace bbt::coroutine::pool {
 
 /**
  * @brief 协程池，池子会创建固定数量的协程来处理任务
@@ -27,9 +26,7 @@ namespace bbt::coroutine::pool
  * - SubmitWithFuture 提交的任务异常通过返回的 std::future 交付；
  * - 异常回调自身抛出异常同样被隔离（记录后继续）。
  */
-class CoPool:
-    boost::noncopyable
-{
+class CoPool : boost::noncopyable {
 public:
     static std::shared_ptr<CoPool> Create(int max_co);
 
@@ -37,8 +34,8 @@ public:
     explicit CoPool(int co_max);
     virtual ~CoPool();
 
-    virtual int             Submit(const CoPoolWorkCallback& workfunc);
-    virtual int             Submit(CoPoolWorkCallback&& workfunc);
+    virtual int Submit(const CoPoolWorkCallback& workfunc);
+    virtual int Submit(CoPoolWorkCallback&& workfunc);
 
     /**
      * @brief 提交任务并返回携带结果的 future
@@ -52,46 +49,45 @@ public:
      * @brief 设置任务异常回调。设置后异常交付回调（不再仅计数）；
      *        传 nullptr 恢复默认（仅计数）。
      */
-    virtual void            SetExceptionCallback(std::function<void(std::exception_ptr)> callback);
+    virtual void SetExceptionCallback(std::function<void(std::exception_ptr)> callback);
 
     /**
      * @brief 未被回调/future 处理的异常数量（"忽略"策略的观测值）
      */
-    virtual uint64_t        GetUnhandledExceptionCount() const noexcept;
+    virtual uint64_t GetUnhandledExceptionCount() const noexcept;
 
     /**
      * @brief 停止接收新任务（Submit* 返回 -1/空 future），等待池中协程退出，
      *        并取消式排空队列滞留任务（不执行；带 future 的任务以
      *        broken_promise 兑现，调用方不会永挂）。幂等，可重复调用。
      */
-    virtual void            Release();
+    virtual void Release();
+
 protected:
-    void                    _Start();
+    void _Start();
     /* 工作协程 */
-    void                    _WorkCo();
+    void _WorkCo();
     /* 监控协程 */
-    void                    _MonitorCo();
+    void _MonitorCo();
+
 private:
     /* 处理单个任务的异常（统一隔离入口） */
-    void                    _HandleWorkException(class Work* work, const std::exception_ptr& eptr) noexcept;
+    void _HandleWorkException(class Work* work, const std::exception_ptr& eptr) noexcept;
 
-    std::atomic_bool        m_is_running{true};
-    const int               m_max_co_num{0};
-    moodycamel::ConcurrentQueue<Work*> 
-                            m_works_queue;
-    std::atomic_int         m_running_co_num{0};
+    std::atomic_bool m_is_running{true};
+    const int m_max_co_num{0};
+    moodycamel::ConcurrentQueue<Work*> m_works_queue;
+    std::atomic_int m_running_co_num{0};
 
-    std::shared_ptr<sync::CoCond>
-                            m_cond{nullptr};
-    std::mutex              m_cond_mtx;
+    std::shared_ptr<sync::CoCond> m_cond{nullptr};
+    std::mutex m_cond_mtx;
 
-    std::mutex              m_exception_cb_mtx;
+    std::mutex m_exception_cb_mtx;
     std::function<void(std::exception_ptr)> m_exception_callback{nullptr};
 
-    std::atomic_uint64_t    m_unhandled_exception_count{0};
+    std::atomic_uint64_t m_unhandled_exception_count{0};
 
     bbt::core::thread::CountDownLatch m_latch;
-
 };
 
 }; // namespace bbt::coroutine::pool

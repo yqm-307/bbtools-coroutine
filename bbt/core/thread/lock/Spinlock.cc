@@ -2,8 +2,7 @@
 #include <bbt/core/util/Assert.hpp>
 #include <bbt/core/thread/lock/Spinlock.hpp>
 
-namespace bbt::core::thread
-{
+namespace bbt::core::thread {
 
 Spinlock::Spinlock()
 {

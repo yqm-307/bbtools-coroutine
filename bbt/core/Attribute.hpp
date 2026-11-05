@@ -11,8 +11,6 @@
 #pragma once
 #include <sys/cdefs.h>
 
-
-
 //---------------------------- 函数注解 ----------------------------//
 /**
  * 函数注解需要加载函数声明的末尾
@@ -71,7 +69,6 @@
 #else
 #error "not exist attribute [__deprecated__]"
 #endif
-
 
 /**
  * @brief 此函数的作用是将构造函数标记为隐藏的。

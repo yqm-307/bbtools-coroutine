@@ -33,9 +33,9 @@
 
 namespace fatigue {
 
-inline uint64_t now_us() {
-    return std::chrono::duration_cast<std::chrono::microseconds>(
-               std::chrono::steady_clock::now().time_since_epoch())
+inline uint64_t now_us()
+{
+    return std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch())
         .count();
 }
 
@@ -86,27 +86,32 @@ struct Metrics {
     std::atomic<bool> reporter_running{false};
     std::thread reporter_thread;
 
-    explicit Metrics(const std::string& n)
-        : name(n), start_us(now_us()) {}
+    explicit Metrics(const std::string& n) : name(n), start_us(now_us())
+    {
+    }
 
     Metrics(const Metrics&) = delete;
     Metrics& operator=(const Metrics&) = delete;
 
-    double elapsed_s() const {
+    double elapsed_s() const
+    {
         return (now_us() - start_us) / 1e6;
     }
 
-    void record_lock_latency_us(uint64_t lat_us) {
+    void record_lock_latency_us(uint64_t lat_us)
+    {
         lock_latency_sum_us += lat_us;
         lock_latency_count++;
     }
-    void record_cond_latency_us(uint64_t lat_us) {
+    void record_cond_latency_us(uint64_t lat_us)
+    {
         cond_latency_sum_us += lat_us;
         cond_latency_count++;
     }
 
     // ── JSON 输出 ──
-    void dump_json() {
+    void dump_json()
+    {
         double elapsed = elapsed_s();
         uint64_t ops = ops_total.load();
         uint64_t err = errors.load();
@@ -138,67 +143,47 @@ struct Metrics {
 
         // fprintf 逐字段输出，避免 snprintf 转义地狱
         fprintf(stdout,
-            "FATIGUE_METRIC:{"
-            "\"ts\":%.1f,"
-            "\"name\":\"%s\","
-            "\"elapsed_s\":%.1f,"
-            "\"ops_total\":%lu,"
-            "\"errors\":%lu,"
-            "\"lock_ops\":%lu,"
-            "\"trylock_success\":%lu,"
-            "\"trylock_timeout\":%lu,"
-            "\"lock_avg_us\":%.1f,"
-            "\"lock_latency_count\":%lu,"
-            "\"rlock_ops\":%lu,"
-            "\"wlock_ops\":%lu,"
-            "\"try_rlock_timeout\":%lu,"
-            "\"try_wlock_timeout\":%lu,"
-            "\"cond_waits\":%lu,"
-            "\"cond_signals\":%lu,"
-            "\"cond_timeouts\":%lu,"
-            "\"cond_avg_us\":%.1f,"
-            "\"chan_reads\":%lu,"
-            "\"chan_writes\":%lu,"
-            "\"chan_read_blocks\":%lu,"
-            "\"chan_write_blocks\":%lu,"
-            "\"pool_tasks\":%lu,"
-            "\"pool_completed\":%lu,"
-            "\"pool_dropped\":%lu,"
-            "\"co_spawns\":%lu,"
-            "\"co_switches\":%lu"
-            "}\n",
-            elapsed,
-            name.c_str(),
-            elapsed,
-            (unsigned long)ops,
-            (unsigned long)err,
-            (unsigned long)lo,
-            (unsigned long)ts_ok,
-            (unsigned long)ts_to,
-            lock_avg_us,
-            (unsigned long)lcnt,
-            (unsigned long)rlo,
-            (unsigned long)wlo,
-            (unsigned long)rt_to,
-            (unsigned long)wt_to,
-            (unsigned long)cw,
-            (unsigned long)cs,
-            (unsigned long)ct,
-            cond_avg_us,
-            (unsigned long)cr,
-            (unsigned long)cw_ch,
-            (unsigned long)crb,
-            (unsigned long)cwb,
-            (unsigned long)pt,
-            (unsigned long)pc,
-            (unsigned long)pd,
-            (unsigned long)cs_sp,
-            (unsigned long)cs_sw);
+                "FATIGUE_METRIC:{"
+                "\"ts\":%.1f,"
+                "\"name\":\"%s\","
+                "\"elapsed_s\":%.1f,"
+                "\"ops_total\":%lu,"
+                "\"errors\":%lu,"
+                "\"lock_ops\":%lu,"
+                "\"trylock_success\":%lu,"
+                "\"trylock_timeout\":%lu,"
+                "\"lock_avg_us\":%.1f,"
+                "\"lock_latency_count\":%lu,"
+                "\"rlock_ops\":%lu,"
+                "\"wlock_ops\":%lu,"
+                "\"try_rlock_timeout\":%lu,"
+                "\"try_wlock_timeout\":%lu,"
+                "\"cond_waits\":%lu,"
+                "\"cond_signals\":%lu,"
+                "\"cond_timeouts\":%lu,"
+                "\"cond_avg_us\":%.1f,"
+                "\"chan_reads\":%lu,"
+                "\"chan_writes\":%lu,"
+                "\"chan_read_blocks\":%lu,"
+                "\"chan_write_blocks\":%lu,"
+                "\"pool_tasks\":%lu,"
+                "\"pool_completed\":%lu,"
+                "\"pool_dropped\":%lu,"
+                "\"co_spawns\":%lu,"
+                "\"co_switches\":%lu"
+                "}\n",
+                elapsed, name.c_str(), elapsed, (unsigned long)ops, (unsigned long)err, (unsigned long)lo,
+                (unsigned long)ts_ok, (unsigned long)ts_to, lock_avg_us, (unsigned long)lcnt, (unsigned long)rlo,
+                (unsigned long)wlo, (unsigned long)rt_to, (unsigned long)wt_to, (unsigned long)cw, (unsigned long)cs,
+                (unsigned long)ct, cond_avg_us, (unsigned long)cr, (unsigned long)cw_ch, (unsigned long)crb,
+                (unsigned long)cwb, (unsigned long)pt, (unsigned long)pc, (unsigned long)pd, (unsigned long)cs_sp,
+                (unsigned long)cs_sw);
 
         fflush(stdout);
     }
 
-    void reporter_loop(int interval_s) {
+    void reporter_loop(int interval_s)
+    {
         while (reporter_running.load(std::memory_order_relaxed)) {
             // 用小步长睡眠，快速响应 stop 信号
             auto step = std::chrono::milliseconds(100);
@@ -214,12 +199,14 @@ struct Metrics {
         }
     }
 
-    void start_reporter(int interval_s = 10) {
+    void start_reporter(int interval_s = 10)
+    {
         reporter_running.store(true, std::memory_order_relaxed);
         reporter_thread = std::thread(&Metrics::reporter_loop, this, interval_s);
     }
 
-    void stop_reporter() {
+    void stop_reporter()
+    {
         reporter_running.store(false, std::memory_order_relaxed);
         if (reporter_thread.joinable()) {
             reporter_thread.join();

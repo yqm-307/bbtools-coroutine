@@ -4,13 +4,11 @@
 #include <mutex>
 #include <bbt/coroutine/sync/CoWaiter.hpp>
 
-namespace bbt::coroutine::sync
-{
+namespace bbt::coroutine::sync {
 
-class CoCond:
-    public std::enable_shared_from_this<CoCond>
-{
+class CoCond : public std::enable_shared_from_this<CoCond> {
     struct PrivateTag {};
+
 public:
     typedef std::shared_ptr<CoCond> SPtr;
 
@@ -25,7 +23,7 @@ public:
      * 
      * @return int 是否成功挂起
      */
-    int                         Wait();
+    int Wait();
 
     /**
      * @brief 使当前Coroutine挂起，直到被Notify或超时（只能在Coroutine中使用）
@@ -33,28 +31,36 @@ public:
      * @param ms 超时时间
      * @return int 是否成功挂起
      */
-    int                         WaitFor(int ms);
+    int WaitFor(int ms);
 
     /**
      * @brief 唤醒一个在此CoCond上挂起的Coroutine
      * 
      * @return int 如果有Coroutine被唤醒，返回0；否则返回-1
      */
-    int                         NotifyOne();
+    int NotifyOne();
 
     /**
      * @brief 唤醒所有在此CoCond上挂起的Coroutine
      * 
      */
-    void                        NotifyAll();
+    void NotifyAll();
+
 protected:
-    int                         _NotifyOne();
+    int _NotifyOne();
+
 private:
-    void                        _SysLock()   { m_mutex.lock(); }
-    void                        _SysUnLock() { m_mutex.unlock(); }
+    void _SysLock()
+    {
+        m_mutex.lock();
+    }
+    void _SysUnLock()
+    {
+        m_mutex.unlock();
+    }
 
     std::queue<std::shared_ptr<CoWaiter>> m_waiter_queue;
-    std::mutex                            m_mutex;
+    std::mutex m_mutex;
 };
 
 } // namespace bbt::coroutine::sync

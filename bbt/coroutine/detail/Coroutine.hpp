@@ -10,25 +10,21 @@
 #include <bbt/coroutine/detail/interface/ICoroutine.hpp>
 #include <bbt/coroutine/detail/Context.hpp>
 
-namespace bbt::coroutine::sync
-{
+namespace bbt::coroutine::sync {
 class CoWaiter;
 class CoMutex;
 }
 
-namespace bbt::coroutine::detail
-{
+namespace bbt::coroutine::detail {
 
-enum FollowEventStatus
-{
+enum FollowEventStatus {
     DEFAULT = 0,
     TIMEOUT = 1,
     READABLE = 2,
 };
 
 /* 仅用于 Processer 在上下文切回后决定 Coroutine 的交接方式。 */
-enum class CoroutineYieldDisposition
-{
+enum class CoroutineYieldDisposition {
     MANUAL,
     READY,
     EVENT_WAIT,
@@ -54,9 +50,7 @@ enum class CoroutineYieldDisposition
  * YieldWithCallback、YieldAndPushGCoQueue、CommitYield 属调度内部。
  * RequestCancel / GetException 分别由后续工作补齐。
  */
-class Coroutine:
-    public ICoroutine
-{
+class Coroutine : public ICoroutine {
 public:
     typedef Coroutine* Ptr;
 
@@ -70,19 +64,19 @@ public:
 
     Coroutine(size_t stack_size, const CoroutineCallback& co_func, bool need_protect);
     virtual ~Coroutine();
-    
+
     /* 注册时携带描述：bbtco_desc 落库真源；空 desc 与不带参数等价 */
     static Ptr Create(size_t stack_size, const CoroutineCallback& co_func, bool need_protect = true,
-                                           const char* desc = nullptr);
+                      const char* desc = nullptr);
     /**
      * @brief 唤醒协程。切换到协程的上下文中执行。
      */
-    virtual void                    Resume() override;
+    virtual void Resume() override;
 
     /**
      * @brief 挂起协程。保存协程上下文，并回到调用Resume的上下文中
      */
-    virtual void                    Yield() override;
+    virtual void Yield() override;
 
     /**
      * @brief 挂起协程，并在挂起成功后执行函数
@@ -97,29 +91,31 @@ public:
      * @param cb 在挂起成功后执行的函数
      * @return int 成功返回0，cb执行失败返回-1
      */
-    virtual int                     YieldWithCallback(const CoroutineOnYieldCallback& cb) override;
+    virtual int YieldWithCallback(const CoroutineOnYieldCallback& cb) override;
     /* 手动挂起co并加入到全局队列中，和事件触发挂起无冲突，因为一个协程内逻辑串行 */
 
     /**
      * @brief 挂起协程，并将协程加入到全局就绪队列中去
      */
-    virtual void                    YieldAndPushGCoQueue();
+    virtual void YieldAndPushGCoQueue();
 
     /* Processer 完成运行统计后调用；发布后不得再次访问 Coroutine。 */
-    CoroutineYieldDisposition       CommitYield();
+    CoroutineYieldDisposition CommitYield();
 
-    virtual CoroutineId             GetId() const noexcept override;
-    virtual CoroutineStatus         GetStatus() const noexcept override;
-    int                             GetLastResumeEvent() const noexcept;
-    size_t                          GetStackSize() const noexcept;
+    virtual CoroutineId GetId() const noexcept override;
+    virtual CoroutineStatus GetStatus() const noexcept override;
+    int GetLastResumeEvent() const noexcept;
+    size_t GetStackSize() const noexcept;
 
 #ifdef BBT_COROUTINE_STACK_DIAGNOSTICS
     /* 同 Context::GetStackBudgetSample 的安全点前置条件：owner 协程在自身
      * 同步安全点调用，或调用方已同步确认协程不在运行（Resume 已返回/协程
      * 已让出或终态）；无同步的并发读禁止。PARTIAL 观测样本，不是栈用量
      * 上下界。 */
-    StackBudgetSample               GetStackBudgetSample() const noexcept
-    { return m_context.GetStackBudgetSample(); }
+    StackBudgetSample GetStackBudgetSample() const noexcept
+    {
+        return m_context.GetStackBudgetSample();
+    }
 #endif
 
     /**
@@ -130,7 +126,7 @@ public:
      * 不得对 fd 数字再发起 syscall（可能已复用为新对象）。
      * 仅协程自身线程调用。
      */
-    bool                            FdWaitEpochValid(int fd) const noexcept;
+    bool FdWaitEpochValid(int fd) const noexcept;
 
     /**
      * @brief 诊断现场（运行时契约观测性要求）
@@ -139,24 +135,42 @@ public:
      * GetWaitInfo：仅协程**自身**（同 Processer 线程）可安全读取——parked
      * 现场成员无锁，跨线程统一快照由 WorkerStallInfo 承载。未处于事件等待时返回 -1。
      */
-    const std::string&              GetDescription() const noexcept { return m_desc; }
-    int                             GetWaitInfo(CoroutineWaitInfo& out) const noexcept;
-    void                            OnException(std::exception_ptr eptr = nullptr) noexcept;
-    std::exception_ptr              GetException() const noexcept;
+    const std::string& GetDescription() const noexcept
+    {
+        return m_desc;
+    }
+    int GetWaitInfo(CoroutineWaitInfo& out) const noexcept;
+    void OnException(std::exception_ptr eptr = nullptr) noexcept;
+    std::exception_ptr GetException() const noexcept;
 
     /**
      * 协作式取消：只置位并唤醒等待中的协程，不强杀运行中的用户代码。
      * 运行中的协程在检查点（IsCancelRequested / 等待返回后）自行退出，RAII 照常展开。
      */
-    void                            RequestCancel() noexcept;
-    bool                            IsCancelRequested() const noexcept;
+    void RequestCancel() noexcept;
+    bool IsCancelRequested() const noexcept;
 
     /** MLFQ 调度支持 */
-    uint64_t                        GetLastRunTimeUs() const noexcept { return m_last_run_us; }
-    void                            SetLastRunTimeUs(uint64_t us) { m_last_run_us = us; }
-    int                             GetMlfqDemotions() const noexcept { return m_mlfq_demotions; }
-    void                            IncrementDemotions() { m_mlfq_demotions++; }
-    void                            ResetDemotions() { m_mlfq_demotions = 0; }
+    uint64_t GetLastRunTimeUs() const noexcept
+    {
+        return m_last_run_us;
+    }
+    void SetLastRunTimeUs(uint64_t us)
+    {
+        m_last_run_us = us;
+    }
+    int GetMlfqDemotions() const noexcept
+    {
+        return m_mlfq_demotions;
+    }
+    void IncrementDemotions()
+    {
+        m_mlfq_demotions++;
+    }
+    void ResetDemotions()
+    {
+        m_mlfq_demotions = 0;
+    }
 
     /**
      * YieldUnitl事件
@@ -186,14 +200,14 @@ public:
      * 
      */
 
-    int                             YieldUntilTimeout(int ms);
-    std::shared_ptr<CoPollEvent>    RegistCustom(int key);
-    std::shared_ptr<CoPollEvent>    RegistCustom(int key, int timeout_ms);
-    int                             YieldUntilFdReadable(int fd);
-    int                             YieldUntilFdReadable(int fd, int timeout_ms);
-    int                             YieldUntilFdWriteable(int fd);
-    int                             YieldUntilFdWriteable(int fd, int timeout_ms);
-    int                             YieldUntilFdEx(int fd, short events, int timeout_ms = 0);
+    int YieldUntilTimeout(int ms);
+    std::shared_ptr<CoPollEvent> RegistCustom(int key);
+    std::shared_ptr<CoPollEvent> RegistCustom(int key, int timeout_ms);
+    int YieldUntilFdReadable(int fd);
+    int YieldUntilFdReadable(int fd, int timeout_ms);
+    int YieldUntilFdWriteable(int fd);
+    int YieldUntilFdWriteable(int fd, int timeout_ms);
+    int YieldUntilFdEx(int fd, short events, int timeout_ms = 0);
 
     /**
      * @brief 单测故障注入：置位后本进程下一次带 await 事件的
@@ -205,27 +219,27 @@ public:
      *  只应在单测中使用；标志一次性消费（exchange 清零），不影响后续
      *  等待。无任何并发语义保证之外的副作用，生产路径代价是一次原子读。
      */
-    static void                     _TestFailNextAwaitRegist() noexcept;
+    static void _TestFailNextAwaitRegist() noexcept;
 
 protected:
-    void                            OnCoPollEvent(int event, int custom_key);
+    void OnCoPollEvent(int event, int custom_key);
 
 protected:
-    static CoroutineId              _GenCoroutineId();
+    static CoroutineId _GenCoroutineId();
 
 private:
-    bool                            _RegistAwaitEvent();
-    std::shared_ptr<CoPollEvent>    _AwaitEvent() const;
-    void                            _SetAwaitEvent(std::shared_ptr<CoPollEvent> ev);
+    bool _RegistAwaitEvent();
+    std::shared_ptr<CoPollEvent> _AwaitEvent() const;
+    void _SetAwaitEvent(std::shared_ptr<CoPollEvent> ev);
 
     /* 单测故障注入标志：见 _TestFailNextAwaitRegist 注释 */
-    static std::atomic_bool                     s_test_fail_await_regist;
+    static std::atomic_bool s_test_fail_await_regist;
 
 private:
-    CfsEntity                       m_cfs;
-    Context                         m_context;
-    const CoroutineId               m_id{BBT_COROUTINE_INVALID_COROUTINE_ID};
-    volatile CoroutineStatus        m_run_status{CoroutineStatus::CO_DEFAULT};
+    CfsEntity m_cfs;
+    Context m_context;
+    const CoroutineId m_id{BBT_COROUTINE_INVALID_COROUTINE_ID};
+    volatile CoroutineStatus m_run_status{CoroutineStatus::CO_DEFAULT};
 
     /**
      * 这是协程调度的核心
@@ -240,23 +254,23 @@ private:
      *  4. 可写事件（当fd可写时触发，libevent提供）
      * 
      */
-    std::shared_ptr<CoPollEvent>    m_await_event{nullptr};
-    mutable std::mutex              m_await_mu;
-    std::atomic_bool                m_cancel_requested{false};
-    std::exception_ptr              m_exception;
-    CoroutineOnYieldCallback        m_co_onyield_callback{nullptr};
-    CoroutineYieldDisposition       m_yield_disposition{CoroutineYieldDisposition::MANUAL};
+    std::shared_ptr<CoPollEvent> m_await_event{nullptr};
+    mutable std::mutex m_await_mu;
+    std::atomic_bool m_cancel_requested{false};
+    std::exception_ptr m_exception;
+    CoroutineOnYieldCallback m_co_onyield_callback{nullptr};
+    CoroutineYieldDisposition m_yield_disposition{CoroutineYieldDisposition::MANUAL};
 
-    int                             m_last_resume_event{-1};    // 最后一次导致此协程唤醒的事件（PollEventType 归一化掩码）
+    int m_last_resume_event{-1}; // 最后一次导致此协程唤醒的事件（PollEventType 归一化掩码）
     /* 恢复时由 OnCoPollEvent 从消费掉的 await_event 捕获，供
      * FdWaitEpochValid 在重试 syscall 前比对；仅协程自身线程读写。 */
-    int                             m_last_wait_fd{-1};
-    uint64_t                        m_last_wait_epoch{0};
-    uint64_t                        m_last_run_us{0};           // 上次运行时长（微秒），用于 MLFQ
-    int                             m_mlfq_demotions{0};        // MLFQ 连续降级次数
+    int m_last_wait_fd{-1};
+    uint64_t m_last_wait_epoch{0};
+    uint64_t m_last_run_us{0}; // 上次运行时长（微秒），用于 MLFQ
+    int m_mlfq_demotions{0};   // MLFQ 连续降级次数
 
-    std::string                     m_desc{};                   // bbtco_desc 任务描述
-    uint64_t                        m_parked_us{0};             // 进入事件等待的时刻
+    std::string m_desc{};    // bbtco_desc 任务描述
+    uint64_t m_parked_us{0}; // 进入事件等待的时刻
 };
 
 }

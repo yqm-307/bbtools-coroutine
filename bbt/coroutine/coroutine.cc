@@ -5,8 +5,7 @@
 #include <bbt/coroutine/detail/Scheduler.hpp>
 #include <bbt/coroutine/detail/CoPoller.hpp>
 
-namespace bbt::coroutine
-{
+namespace bbt::coroutine {
 
 detail::AwaitHelper::AwaitHelper()
 {
@@ -14,11 +13,13 @@ detail::AwaitHelper::AwaitHelper()
         throw std::logic_error("bbt_co_await requires a coroutine context");
 }
 
-bool IsInCoroutineContext() {
+bool IsInCoroutineContext()
+{
     return GetLocalCoroutineId() != 0;
 }
 
-void RequireCoroutineContext() {
+void RequireCoroutineContext()
+{
     if (!IsInCoroutineContext())
         throw std::logic_error("operation requires a coroutine context");
 }
@@ -56,6 +57,5 @@ size_t GetLocalCoroutineStackSize()
 
     return coroutine->GetStackSize();
 }
-
 
 }

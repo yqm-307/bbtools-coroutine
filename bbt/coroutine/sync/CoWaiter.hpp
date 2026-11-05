@@ -6,8 +6,7 @@
 #include <bbt/coroutine/sync/WaitTypes.hpp>
 #include <bbt/coroutine/sync/CoEventValue.hpp>
 
-namespace bbt::coroutine::sync
-{
+namespace bbt::coroutine::sync {
 
 /**
  * @brief 单个等待位上的协程等待/唤醒原语。
@@ -15,12 +14,11 @@ namespace bbt::coroutine::sync
  * 一个 Waiter 同时只容纳一个等待者：Wait 族重复进入会失败，Notify 是「尝试
  * 唤醒」而非计数信号。Chan、CoCond、CoSelect 都建立在它之上。
  */
-class CoWaiter
-{
+class CoWaiter {
 public:
     typedef std::shared_ptr<CoWaiter> SPtr;
     /// @brief 创建一个空闲 Waiter（无等待者、未决议）。
-    static SPtr                         Create();
+    static SPtr Create();
 
     /// @brief 创建空闲 Waiter：无等待者、未决议。
     CoWaiter();
@@ -31,7 +29,7 @@ public:
      * @brief 挂起当前协程，直到此 Waiter 被通知。
      * @return 被唤醒返回 0；等待位已占用或事件创建失败返回 -1。
      */
-    int                                 Wait();
+    int Wait();
 
     /**
      * @brief 挂起当前协程，直到被唤醒。如果有多个协程调用Wait族函数只有第一个成功
@@ -39,7 +37,7 @@ public:
      * @param cb 协程挂起成功后、恢复前调用一次；不可为空，需要无回调等待请用 Wait()
      * @return 0表示被唤醒，-1表示失败
      */
-    int                                 WaitWithCallback(const detail::CoroutineOnYieldCallback& cb);
+    int WaitWithCallback(const detail::CoroutineOnYieldCallback& cb);
 
     /**
      * @brief 挂起当前协程，直到被唤醒或者超时。如果有多个
@@ -47,7 +45,7 @@ public:
      * @param ms 超时毫秒
      * @return int 0表示触发事件，-1表示失败，1表示超时或协程级取消（兼容映射）
      */
-    int                                 WaitWithTimeout(int ms);
+    int WaitWithTimeout(int ms);
 
     /**
      * @brief 挂起当前协程，直到被唤醒或者超时。如果有多个
@@ -56,7 +54,7 @@ public:
      * @param cb 协程挂起成功后、恢复前调用一次；不可为空
      * @return int 0表示触发事件，-1表示失败，1表示超时或协程级取消（兼容映射）
      */
-    int                                 WaitWithTimeoutAndCallback(int ms, const detail::CoroutineOnYieldCallback& cb);
+    int WaitWithTimeoutAndCallback(int ms, const detail::CoroutineOnYieldCallback& cb);
 
     /**
      * @brief 窄接口：一次等待返回可区分的 WaitStatus。
@@ -74,7 +72,7 @@ public:
      * @param options deadline 使用单调时钟
      * @return 首胜原因对应的 WaitStatus
      */
-    WaitStatus                          Wait(const WaitOptions& options);
+    WaitStatus Wait(const WaitOptions& options);
 
     /**
      * @brief 带挂起后回调与载荷输出的状态等待。
@@ -90,10 +88,8 @@ public:
      * @param on_registered 挂起成功后的投递回调，可为空
      * @param value 载荷输出，可空；指向对象由调用方保活
      */
-    WaitStatus                          WaitWithCallback(
-        const WaitOptions& options,
-        const detail::CoroutineOnYieldCallback& on_registered,
-        CoEventValue* value = nullptr);
+    WaitStatus WaitWithCallback(const WaitOptions& options, const detail::CoroutineOnYieldCallback& on_registered,
+                                CoEventValue* value = nullptr);
 
     /**
      * @brief 等待 fd、Notify、deadline 或协程取消中的首个事件。
@@ -104,16 +100,14 @@ public:
      * @param options fd interest 与 deadline 设置；deadline 使用单调时钟
      * @return 命中的组合等待状态
      */
-    CombinedWaitStatus                  Wait(const CombinedWaitOptions& options);
+    CombinedWaitStatus Wait(const CombinedWaitOptions& options);
     /**
      * @brief 挂起成功后、恢复前调用回调的组合等待重载。
      * @param options fd interest 与 deadline 设置
      * @param on_registered 挂起成功后的回调
      * @return 命中的组合等待状态
      */
-    CombinedWaitStatus                  Wait(
-        const CombinedWaitOptions& options,
-        const detail::CoroutineOnYieldCallback& on_registered);
+    CombinedWaitStatus Wait(const CombinedWaitOptions& options, const detail::CoroutineOnYieldCallback& on_registered);
 
     /**
      * @brief 组合等待并输出首个胜出 Notify 的载荷。
@@ -124,10 +118,8 @@ public:
      * @param value 首胜 Notify 的载荷输出，可为空
      * @return 命中的组合等待状态
      */
-    CombinedWaitStatus                  Wait(
-        const CombinedWaitOptions& options,
-        const detail::CoroutineOnYieldCallback& on_registered,
-        CoEventValue* value);
+    CombinedWaitStatus Wait(const CombinedWaitOptions& options, const detail::CoroutineOnYieldCallback& on_registered,
+                            CoEventValue* value);
 
     /**
      * @brief 尝试唤醒当前等待者；没有有效等待者时不保存通知状态。
@@ -136,7 +128,7 @@ public:
      * 由调用方持有的持久完成谓词关闭（登记后复查）。
      * @return  0表示成功，-1表示无有效等待者或事件已经触发
      */
-    int                                 Notify();
+    int Notify();
 
     /**
      * @brief 带载荷唤醒：与 Notify() 同语义，额外把 value 随本次首胜交付。
@@ -147,7 +139,7 @@ public:
      * @param value 与本次通知关联的载荷
      * @return  0表示成功，-1表示无有效等待者
      */
-    int                                 Notify(const CoEventValue& value);
+    int Notify(const CoEventValue& value);
 
     /**
      * @brief 标记此 Waiter 为已取消，使后续 Notify 跳过；不唤醒当前等待者。
@@ -155,11 +147,15 @@ public:
      * 这不表达业务取消；业务取消由 adapter 经带载荷 Notify 表达，再由上层
      * 把 Completed 解释成 Cancelled/Closed。
      */
-    void                                Cancel() { m_run_status = COND_FREE; }
+    void Cancel()
+    {
+        m_run_status = COND_FREE;
+    }
+
 protected:
-    std::mutex                          m_notify_mutex;
+    std::mutex m_notify_mutex;
     std::shared_ptr<detail::CoPollEvent> m_co_event{nullptr};
-    volatile CoCondStatus               m_run_status{COND_DEFAULT};
+    volatile CoCondStatus m_run_status{COND_DEFAULT};
     /* 载荷不放在本共享槽：首胜 Notify 的载荷落在本轮 CoPollEvent 上
      *（CoPollEvent::SetNotifyValue / GetNotifyValue），各轮等待互不覆写。 */
 };

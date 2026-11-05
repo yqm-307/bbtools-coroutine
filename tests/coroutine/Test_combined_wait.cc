@@ -33,22 +33,18 @@
 #include <bbt/coroutine/sync/CoWaiter.hpp>
 
 /* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。 */
-namespace
-{
+namespace {
 void EnsureRuntime()
 {
     static std::once_flag once;
-    std::call_once(once, [](){
-        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
-    });
+    std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
 }
 
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::detail;
 
-namespace
-{
+namespace {
 
 bool WaitUntil(const std::function<bool()>& pred, int budget_ms = 10000)
 {
@@ -63,8 +59,7 @@ bool WaitUntil(const std::function<bool()>& pred, int budget_ms = 10000)
 
 }
 
-namespace
-{
+namespace {
 
 /* 公共注册入口固定 NORMAL 优先级：改动的 wake/预算路径下，
  * 公共 NORMAL 注册的任务必须全部被调度（无饥饿/卡死）。
@@ -79,8 +74,7 @@ BOOST_AUTO_TEST_CASE(t_normal_tasks_complete_without_starvation)
     std::atomic_int completed{0};
 
     for (int i = 0; i < kTotal; ++i) {
-        g_scheduler->RegistCoroutineTask(
-            [&completed]() { completed.fetch_add(1); });
+        g_scheduler->RegistCoroutineTask([&completed]() { completed.fetch_add(1); });
     }
 
     BOOST_REQUIRE(WaitUntil([&]() { return completed.load() == kTotal; }));
@@ -88,11 +82,9 @@ BOOST_AUTO_TEST_CASE(t_normal_tasks_complete_without_starvation)
 
 }
 
-namespace
-{
+namespace {
 
-struct ConfigSnapshot
-{
+struct ConfigSnapshot {
     size_t threads{0};
     bool stack_protect{false};
     bool saved{false};
@@ -117,8 +109,7 @@ bool NotifyUntilSuccess(const sync::CoWaiter::SPtr& waiter, int budget_ms = 1000
     return true;
 }
 
-struct PipeFds
-{
+struct PipeFds {
     int read{-1};
     int write{-1};
 };
@@ -179,7 +170,8 @@ BOOST_AUTO_TEST_CASE(t_fd_readable_first_win)
     opt.want_readable = true;
     opt.fd = pipe.read;
 
-    bbtco [&]() {
+    bbtco[&]()
+    {
         co_p.store(g_bbt_tls_coroutine_co);
         st.store(waiter->Wait(opt));
         mask.store(g_bbt_tls_coroutine_co->GetLastResumeEvent());
@@ -211,7 +203,8 @@ BOOST_AUTO_TEST_CASE(t_fd_writeable_first_win)
     opt.want_writeable = true;
     opt.fd = fds[1];
 
-    bbtco [&]() {
+    bbtco[&]()
+    {
         co_p.store(g_bbt_tls_coroutine_co);
         st.store(waiter->Wait(opt));
         mask.store(g_bbt_tls_coroutine_co->GetLastResumeEvent());
@@ -241,7 +234,8 @@ BOOST_AUTO_TEST_CASE(t_notify_first_win)
     opt.want_readable = true;
     opt.fd = pipe.read;
 
-    bbtco [&]() {
+    bbtco[&]()
+    {
         co_p.store(g_bbt_tls_coroutine_co);
         st.store(waiter->Wait(opt));
         done.Down();
@@ -267,7 +261,8 @@ BOOST_AUTO_TEST_CASE(t_timeout_first_win)
     opt.fd = pipe.read;
     opt.deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(60);
 
-    bbtco [&]() {
+    bbtco[&]()
+    {
         st.store(waiter->Wait(opt));
         mask.store(g_bbt_tls_coroutine_co->GetLastResumeEvent());
         done.Down();
@@ -291,7 +286,8 @@ BOOST_AUTO_TEST_CASE(t_request_cancel_first_win)
     opt.want_readable = true;
     opt.fd = pipe.read;
 
-    bbtco [&]() {
+    bbtco[&]()
+    {
         co_p.store(g_bbt_tls_coroutine_co);
         st.store(waiter->Wait(opt));
         done.Down();
@@ -300,8 +296,7 @@ BOOST_AUTO_TEST_CASE(t_request_cancel_first_win)
     co_p.load()->RequestCancel();
     done.Wait();
     ClosePipe(pipe);
-    BOOST_CHECK_MESSAGE(st.load() == sync::CombinedWaitStatus::Cancelled,
-        "actual=" << static_cast<int>(st.load()));
+    BOOST_CHECK_MESSAGE(st.load() == sync::CombinedWaitStatus::Cancelled, "actual=" << static_cast<int>(st.load()));
 }
 
 /* 6. 取消令牌首胜：挂起中 RequestCancel → Cancelled；入口预取消不挂起 */
@@ -320,7 +315,8 @@ BOOST_AUTO_TEST_CASE(t_cancel_first_win)
         opt.want_readable = true;
         opt.fd = pipe.read;
 
-        bbtco [&]() {
+        bbtco[&]()
+        {
             co_p.store(g_bbt_tls_coroutine_co);
             st.store(waiter->Wait(opt));
             done.Down();
@@ -343,7 +339,8 @@ BOOST_AUTO_TEST_CASE(t_cancel_first_win)
         opt.want_readable = true;
         opt.fd = pipe.read;
 
-        bbtco [&]() {
+        bbtco[&]()
+        {
             g_bbt_tls_coroutine_co->RequestCancel();
             st.store(waiter->Wait(opt));
             done.Down();
@@ -363,17 +360,16 @@ BOOST_AUTO_TEST_CASE(t_notify_before_park_no_lost_wakeup)
         bbt::core::thread::CountDownLatch done{1};
         std::atomic<sync::CombinedWaitStatus> st{};
 
-        bbtco [&]() {
+        bbtco[&]()
+        {
             st.store(waiter->Wait(sync::CombinedWaitOptions{}));
             done.Down();
         };
 
         std::thread notifier([&]() { NotifyUntilSuccess(waiter); });
-        BOOST_REQUIRE_MESSAGE(done.WaitTimeout(5000) == 0,
-            "round " << i << "：等待未在有界时间内返回");
+        BOOST_REQUIRE_MESSAGE(done.WaitTimeout(5000) == 0, "round " << i << "：等待未在有界时间内返回");
         notifier.join();
-        BOOST_CHECK_MESSAGE(st.load() == sync::CombinedWaitStatus::Completed,
-            "round " << i << "：park 前通知丢失");
+        BOOST_CHECK_MESSAGE(st.load() == sync::CombinedWaitStatus::Completed, "round " << i << "：park 前通知丢失");
     }
 }
 
@@ -390,9 +386,10 @@ BOOST_AUTO_TEST_CASE(t_invalid_options_rejected)
     bbt::core::thread::CountDownLatch done{1};
     std::atomic<sync::CombinedWaitStatus> st{};
 
-    bbtco [&]() {
+    bbtco[&]()
+    {
         sync::CombinedWaitOptions bad_fd;
-        bad_fd.want_readable = true;    /* fd 缺省 -1 */
+        bad_fd.want_readable = true; /* fd 缺省 -1 */
         st.store(waiter_bad_probe(bad_fd));
         done.Down();
     };
@@ -415,7 +412,8 @@ BOOST_AUTO_TEST_CASE(t_read_write_interest_combined)
     opt.want_writeable = true;
     opt.fd = pipe.read;
 
-    bbtco [&]() {
+    bbtco[&]()
+    {
         co_p.store(g_bbt_tls_coroutine_co);
         st.store(waiter->Wait(opt));
         done.Down();
@@ -438,7 +436,8 @@ BOOST_AUTO_TEST_CASE(t_repeated_wait_slot_reuse)
     sync::CombinedWaitOptions opt;
     opt.deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(60);
 
-    bbtco [&]() {
+    bbtco[&]()
+    {
         first_co.store(g_bbt_tls_coroutine_co);
         st1.store(waiter->Wait(opt));
         first_done.Down();
@@ -447,7 +446,8 @@ BOOST_AUTO_TEST_CASE(t_repeated_wait_slot_reuse)
     BOOST_REQUIRE(WaitUntil([&]() { return CoroutineSuspended(first_co); }));
 
     /* 第一个等待者仍占用事件槽时，另一协程必须立即得到 AlreadyWaiting。 */
-    bbtco [&]() {
+    bbtco[&]()
+    {
         st2.store(waiter->Wait(sync::CombinedWaitOptions{}));
         second_done.Down();
     };
@@ -458,7 +458,8 @@ BOOST_AUTO_TEST_CASE(t_repeated_wait_slot_reuse)
     BOOST_CHECK(st1.load() == sync::CombinedWaitStatus::TimedOut);
 
     /* 前一等待恢复并出账后，同一个 waiter 可被新协程复用。 */
-    bbtco [&]() {
+    bbtco[&]()
+    {
         third_co.store(g_bbt_tls_coroutine_co);
         st3.store(waiter->Wait(sync::CombinedWaitOptions{}));
         third_done.Down();
@@ -475,17 +476,20 @@ BOOST_AUTO_TEST_CASE(t_parked_combined_wait_does_not_block_process_lifetime)
 {
     // 无 deadline 的任务会活过测试作用域；waiter 和 fd 必须由任务持有，
     // 不能在 entered（尚未登记）后销毁，也不能靠 Close 唤醒冒充 parked。
-    struct ParkedState
-    {
+    struct ParkedState {
         sync::CoWaiter::SPtr waiter{sync::CoWaiter::Create()};
         PipeFds pipe{MakePipe()};
         std::atomic_bool registered{false};
         std::atomic_bool returned{false};
-        ~ParkedState() { ClosePipe(pipe); }
+        ~ParkedState()
+        {
+            ClosePipe(pipe);
+        }
     };
     auto state = std::make_shared<ParkedState>();
 
-    bbtco [state]() {
+    bbtco[state]()
+    {
         sync::CombinedWaitOptions opt;
         opt.want_readable = true;
         opt.fd = state->pipe.read;
@@ -508,12 +512,12 @@ BOOST_AUTO_TEST_CASE(t_parked_combined_wait_does_not_block_process_lifetime)
 BOOST_AUTO_TEST_CASE(t_end)
 {
     if (g_started.exchange(false))
-    if (g_cfg.saved) {
-        auto* cfg = g_bbt_coroutine_config.get();
-        cfg->m_cfg_static_thread_num = g_cfg.threads;
-        cfg->m_cfg_stack_protect = g_cfg.stack_protect;
-        g_cfg.saved = false;
-    }
+        if (g_cfg.saved) {
+            auto* cfg = g_bbt_coroutine_config.get();
+            cfg->m_cfg_static_thread_num = g_cfg.threads;
+            cfg->m_cfg_stack_protect = g_cfg.stack_protect;
+            g_cfg.saved = false;
+        }
 }
 
 BOOST_AUTO_TEST_SUITE_END()

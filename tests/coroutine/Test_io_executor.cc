@@ -27,14 +27,11 @@
 #include <bbt/coroutine/detail/Scheduler.hpp>
 
 /* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。 */
-namespace
-{
+namespace {
 void EnsureRuntime()
 {
     static std::once_flag once;
-    std::call_once(once, [](){
-        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
-    });
+    std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
 }
 
@@ -42,11 +39,9 @@ using namespace bbt::coroutine;
 
 BOOST_AUTO_TEST_SUITE(IoExecutorTest)
 
-namespace
-{
+namespace {
 
-struct CoFixture
-{
+struct CoFixture {
     CoFixture()
     {
         auto* cfg = g_bbt_coroutine_config.get();
@@ -69,8 +64,7 @@ struct CoFixture
 size_t CountSelfThreads()
 {
     size_t n = 0;
-    for (const auto& entry : std::filesystem::directory_iterator("/proc/self/task"))
-    {
+    for (const auto& entry : std::filesystem::directory_iterator("/proc/self/task")) {
         (void)entry;
         ++n;
     }
@@ -104,7 +98,7 @@ BOOST_AUTO_TEST_CASE(t_executor_identity_stable_no_new_thread)
 
     const auto ex1 = io::GetExecutor();
     const auto ex2 = io::GetExecutor();
-    BOOST_CHECK(ex1 == ex2);    // 同一 io_context，无独立事件循环
+    BOOST_CHECK(ex1 == ex2); // 同一 io_context，无独立事件循环
 
 #if defined(__linux__)
     const size_t before = CountSelfThreads();
@@ -116,7 +110,7 @@ BOOST_AUTO_TEST_CASE(t_executor_identity_stable_no_new_thread)
         boost::asio::post(io::GetExecutor(), [&]() { done.fetch_add(1); });
 
 #if defined(__linux__)
-    BOOST_CHECK_EQUAL(CountSelfThreads(), before);   // post 不新增线程
+    BOOST_CHECK_EQUAL(CountSelfThreads(), before); // post 不新增线程
 #endif
 
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
@@ -124,10 +118,10 @@ BOOST_AUTO_TEST_CASE(t_executor_identity_stable_no_new_thread)
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     // 通用断言：64 个 handler 由运行时的 PollOnce 驱动排空，无独立事件循环
     BOOST_CHECK_EQUAL(done.load(), 64);
-    BOOST_CHECK(io::GetExecutor() == ex1);      // 身份稳定
+    BOOST_CHECK(io::GetExecutor() == ex1); // 身份稳定
 
 #if defined(__linux__)
-    BOOST_CHECK_EQUAL(CountSelfThreads(), before);  // 运行期线程数不变
+    BOOST_CHECK_EQUAL(CountSelfThreads(), before); // 运行期线程数不变
 #endif
 }
 

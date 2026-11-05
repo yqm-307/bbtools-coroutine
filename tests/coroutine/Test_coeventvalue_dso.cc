@@ -19,8 +19,7 @@ extern "C" bbt::coroutine::CoEventValue dso_a_store(std::int64_t seq, std::uint3
 extern "C" std::uint32_t dso_a_payload_type_id();
 extern "C" bbt::coroutine::CoEventValue dso_a_store_opaque(const void* p);
 extern "C" std::uint32_t dso_a_opaque_type_id();
-extern "C" bool dso_b_read(
-    const bbt::coroutine::CoEventValue& value, std::int64_t* seq, std::uint32_t* code);
+extern "C" bool dso_b_read(const bbt::coroutine::CoEventValue& value, std::int64_t* seq, std::uint32_t* code);
 extern "C" bool dso_b_read_wrong_type(const bbt::coroutine::CoEventValue& value);
 extern "C" std::uint32_t dso_b_payload_type_id();
 extern "C" bool dso_b_read_as_pointer_slot(const bbt::coroutine::CoEventValue& value);
@@ -32,8 +31,7 @@ BOOST_AUTO_TEST_SUITE(CoEventValueDsoTest)
 BOOST_AUTO_TEST_CASE(t_type_id_identical_across_dso)
 {
     BOOST_CHECK_EQUAL(dso_a_payload_type_id(), dso_b_payload_type_id());
-    BOOST_CHECK_EQUAL(dso_a_payload_type_id(),
-                      bbt::coroutine::CoEventValueTraits<CoroutineWakePayload>::id);
+    BOOST_CHECK_EQUAL(dso_a_payload_type_id(), bbt::coroutine::CoEventValueTraits<CoroutineWakePayload>::id);
 }
 
 BOOST_AUTO_TEST_CASE(t_store_in_a_read_in_b)
@@ -61,14 +59,13 @@ BOOST_AUTO_TEST_CASE(t_store_in_a_read_in_b)
 BOOST_AUTO_TEST_CASE(t_void_family_identity_across_dso)
 {
     BOOST_CHECK_EQUAL(dso_a_opaque_type_id(), dso_b_opaque_type_id());
-    BOOST_CHECK(dso_a_opaque_type_id() !=
-                bbt::coroutine::CoEventValueTraits<void* const*>::id);
+    BOOST_CHECK(dso_a_opaque_type_id() != bbt::coroutine::CoEventValueTraits<void* const*>::id);
 
     int dummy = 0;
     const auto opaque = dso_a_store_opaque(&dummy);
 
-    BOOST_CHECK(dso_b_read_as_pointer_slot(opaque));   // 拒绝且 out 未被改写
-    BOOST_CHECK(dso_b_read_opaque(opaque));            // 同类型可读回
+    BOOST_CHECK(dso_b_read_as_pointer_slot(opaque)); // 拒绝且 out 未被改写
+    BOOST_CHECK(dso_b_read_opaque(opaque));          // 同类型可读回
 }
 
 BOOST_AUTO_TEST_SUITE_END()

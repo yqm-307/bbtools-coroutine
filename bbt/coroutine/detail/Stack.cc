@@ -16,17 +16,14 @@
 #include <valgrind/valgrind.h>
 #endif
 
-namespace bbt::coroutine::detail
-{
-namespace
-{
+namespace bbt::coroutine::detail {
+namespace {
 /* 实测页大小。用余数法做页对齐，不假定页大小必为二次幂。 */
 size_t PageSize()
 {
     const long page_size = ::sysconf(_SC_PAGESIZE);
     if (page_size <= 0)
-        throw std::system_error(errno != 0 ? errno : EINVAL,
-                                std::generic_category(), "sysconf(_SC_PAGESIZE)");
+        throw std::system_error(errno != 0 ? errno : EINVAL, std::generic_category(), "sysconf(_SC_PAGESIZE)");
     return static_cast<size_t>(page_size);
 }
 
@@ -78,20 +75,16 @@ size_t Stack::NormalizeSize(size_t stack_size)
 }
 
 Stack::Stack(size_t stack_size, bool stack_protect)
-    : m_stack_protect_flag(stack_protect),
-      m_useable_size(NormalizeSize(stack_size))
+    : m_stack_protect_flag(stack_protect), m_useable_size(NormalizeSize(stack_size))
 {
     const size_t page_size = PageSize();
 
-    if (m_stack_protect_flag)
-    {
+    if (m_stack_protect_flag) {
         /* 保护页额外分配，不计入可用区 U；总量不得越过指针差范围 */
         if (m_useable_size > PointerDiffLimit() - page_size)
             throw std::length_error("coroutine stack guard page size overflow");
         m_mem_chunk_size = m_useable_size + page_size;
-    }
-    else
-    {
+    } else {
         m_mem_chunk_size = m_useable_size;
     }
 
@@ -99,8 +92,7 @@ Stack::Stack(size_t stack_size, bool stack_protect)
     if (m_mem_chunk == nullptr)
         throw std::bad_alloc();
 
-    if (m_stack_protect_flag && _ApplyStackProtect(m_mem_chunk) != 0)
-    {
+    if (m_stack_protect_flag && _ApplyStackProtect(m_mem_chunk) != 0) {
         /* 不允许日志后继续创建一个声称有保护的栈：保存 errno、释放尚未保护
          * 成功的块、清空临时所有权，再抛出。 */
         const int saved_errno = errno != 0 ? errno : EINVAL;
@@ -109,8 +101,7 @@ Stack::Stack(size_t stack_size, bool stack_protect)
         m_mem_chunk_size = 0;
         m_useable_size = 0;
         m_stack_protect_flag = false;
-        throw std::system_error(saved_errno, std::generic_category(),
-                                "mprotect coroutine stack guard page");
+        throw std::system_error(saved_errno, std::generic_category(), "mprotect coroutine stack guard page");
     }
 
 #ifdef BBT_COROUTINE_VALGRIND
@@ -131,8 +122,7 @@ Stack::~Stack()
 int Stack::_ApplyStackProtect(char* mem_chunk)
 {
 #ifdef BBT_COROUTINE_STACK_TESTING
-    if (s_test_fail_apply_protect.exchange(false, std::memory_order_acq_rel))
-    {
+    if (s_test_fail_apply_protect.exchange(false, std::memory_order_acq_rel)) {
         errno = EACCES;
         return -1;
     }
@@ -146,8 +136,7 @@ int Stack::_ApplyStackProtect(char* mem_chunk)
 int Stack::_ReleaseStackProtect()
 {
 #ifdef BBT_COROUTINE_STACK_TESTING
-    if (s_test_fail_release_protect.exchange(false, std::memory_order_acq_rel))
-    {
+    if (s_test_fail_release_protect.exchange(false, std::memory_order_acq_rel)) {
         errno = EACCES;
         return -1;
     }
@@ -173,14 +162,12 @@ void Stack::_Release()
     _DeregisterValgrindStack();
 #endif
 
-    if (m_stack_protect_flag && _ReleaseStackProtect() != 0)
-    {
+    if (m_stack_protect_flag && _ReleaseStackProtect() != 0) {
         /* 解除保护失败属于不可安全 free 的系统故障：继续 free 可能仍在
          * PROT_NONE 的 malloc 块上做写操作。不从析构抛异常（析构默认
          * noexcept，抛出即 terminate），也不冒险继续 free，直接 fail-stop；
          * 仅用隔离子进程验证，不把它当成可恢复失败。 */
-        bbt::core::log::WarnPrint("%s, errno : %d %s", __FUNCTION__, errno,
-                                  std::strerror(errno));
+        bbt::core::log::WarnPrint("%s, errno : %d %s", __FUNCTION__, errno, std::strerror(errno));
         std::terminate();
     }
 
@@ -210,9 +197,7 @@ char* Stack::StackBottom() const
         return nullptr;
 
     /* 有保护区时栈底是保护页之后的位置；没有保护区就是内存块起始位置 */
-    return m_stack_protect_flag
-        ? m_mem_chunk + PageSize()
-        : m_mem_chunk;
+    return m_stack_protect_flag ? m_mem_chunk + PageSize() : m_mem_chunk;
 }
 
 char* Stack::MemChunkBegin()
@@ -283,8 +268,7 @@ void Stack::_RegisterValgrindStack()
 
 void Stack::_DeregisterValgrindStack()
 {
-    if (m_vg_stack_id != 0)
-    {
+    if (m_vg_stack_id != 0) {
         VALGRIND_STACK_DEREGISTER(m_vg_stack_id);
         m_vg_stack_id = 0;
     }

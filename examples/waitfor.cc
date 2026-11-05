@@ -18,7 +18,8 @@ void CoReadable()
     }
     printf("co_%lu write succ time<%ld>\n", bbt::co::GetLocalCoroutineId(), bbt::core::clock::gettime<>());
 
-    bbtco_ref {
+    bbtco_ref
+    {
         printf("CoReadable: %d, now<%lu>\n", pipefd[0], bbt::core::clock::gettime<>());
         bbtco_wait_for(pipefd[0], bbtco_emev_readable, 0);
         char rlt[12] = {0};
@@ -36,12 +37,14 @@ void CoReadable()
 
 void CoTimeout()
 {
-    bbtco_ref {
+    bbtco_ref
+    {
         printf("CoTimeout: %lu, now<%lu>\n", bbt::co::GetLocalCoroutineId(), bbt::core::clock::gettime<>());
         bbtco_wait_for(0, bbtco_emev_timeout, 500); // 等待0.5秒超时
         printf("CoTimeout: %lu, now<%lu>, timeout\n", bbt::co::GetLocalCoroutineId(), bbt::core::clock::gettime<>());
         bbtco_wait_for(0, bbtco_emev_timeout, 100); // 等待0.1秒超时
-        printf("CoTimeout: %lu, now<%lu>, timeout again\n", bbt::co::GetLocalCoroutineId(), bbt::core::clock::gettime<>());
+        printf("CoTimeout: %lu, now<%lu>, timeout again\n", bbt::co::GetLocalCoroutineId(),
+               bbt::core::clock::gettime<>());
     };
 
     sleep(1);

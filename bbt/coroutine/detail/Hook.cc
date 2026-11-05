@@ -16,11 +16,9 @@
 #include <bbt/coroutine/detail/LocalThread.hpp>
 #include <bbt/coroutine/detail/Coroutine.hpp>
 
-namespace bbt::coroutine::detail
-{
+namespace bbt::coroutine::detail {
 
-namespace
-{
+namespace {
 
 /**
  * @brief accept4 降级路径：对 accept 出的新 fd 补 SOCK_CLOEXEC/SOCK_NONBLOCK
@@ -34,8 +32,7 @@ int ApplyAccept4Flags(int fd, int flags)
         if (fl < 0 || ::fcntl(fd, F_SETFD, fl | FD_CLOEXEC) != 0)
             return -1;
     }
-    if ((flags & SOCK_NONBLOCK) &&
-        ::fcntl(fd, F_SETFL, ::fcntl(fd, F_GETFL, 0) | O_NONBLOCK) != 0)
+    if ((flags & SOCK_NONBLOCK) && ::fcntl(fd, F_SETFL, ::fcntl(fd, F_GETFL, 0) | O_NONBLOCK) != 0)
         return -1;
     return 0;
 }
@@ -44,8 +41,7 @@ int ApplyAccept4Flags(int fd, int flags)
 void RawSleepMs(long ms) noexcept
 {
     struct timespec req{ms / 1000, (ms % 1000) * 1000000L};
-    while (::syscall(SYS_nanosleep, &req, &req) != 0 && errno == EINTR)
-    {
+    while (::syscall(SYS_nanosleep, &req, &req) != 0 && errno == EINTR) {
     }
 }
 
@@ -55,13 +51,19 @@ void RawSleepMs(long ms) noexcept
  * WHY: PollCore 的挂起路径有多个提前返回点，手写 ::close 容易漏；
  * epfd 是本函数自建的普通 fd，直接 ::close（同 TU 的 hook close→dlsym 直通，无递归）。
  */
-class EpGuard
-{
+class EpGuard {
 public:
-    explicit EpGuard(int fd): m_fd(fd) {}
-    ~EpGuard() { if (m_fd >= 0) ::close(m_fd); }
+    explicit EpGuard(int fd) : m_fd(fd)
+    {
+    }
+    ~EpGuard()
+    {
+        if (m_fd >= 0)
+            ::close(m_fd);
+    }
     EpGuard(const EpGuard&) = delete;
     EpGuard& operator=(const EpGuard&) = delete;
+
 private:
     int m_fd;
 };
@@ -88,13 +90,21 @@ void ResetConnectState(int fd) noexcept
  * 调用方看到的不应是协程内部 errno，而是原始系统调用的 errno。
  * 异常路径恢复 errno 后重新抛出（对调用方透明）。
  */
-class ErrnoGuard
-{
+class ErrnoGuard {
 public:
-    explicit ErrnoGuard(int sys_errno): m_sys_errno(sys_errno) {}
-    ~ErrnoGuard() { errno = m_sys_errno; }
+    explicit ErrnoGuard(int sys_errno) : m_sys_errno(sys_errno)
+    {
+    }
+    ~ErrnoGuard()
+    {
+        errno = m_sys_errno;
+    }
     /* fd 代际失配等特殊退出路径用别的 errno 覆盖原始 syscall errno */
-    void Override(int e) noexcept { m_sys_errno = e; }
+    void Override(int e) noexcept
+    {
+        m_sys_errno = e;
+    }
+
 private:
     int m_sys_errno;
 };
@@ -104,10 +114,9 @@ private:
  * 设不了非阻塞则失败返回，禁止在 blocking fd 上卡住 worker。
  * ponytail: 按次还原；多协程共享同一 blocking fd 可能竞态。
  */
-class CoIoNonblockGuard
-{
+class CoIoNonblockGuard {
 public:
-    explicit CoIoNonblockGuard(int fd): m_fd(fd)
+    explicit CoIoNonblockGuard(int fd) : m_fd(fd)
     {
         m_old = ::fcntl(fd, F_GETFL, 0);
         if (m_old < 0) {
@@ -132,13 +141,20 @@ public:
     }
     CoIoNonblockGuard(const CoIoNonblockGuard&) = delete;
     CoIoNonblockGuard& operator=(const CoIoNonblockGuard&) = delete;
-    bool ok() const { return m_ok; }
+    bool ok() const
+    {
+        return m_ok;
+    }
     /* fd 已在挂起期间换代（可能复用为新对象）时调用，禁止把旧 fd 的
      * flags 回写到同号新对象上。 */
-    void Dismiss() noexcept { m_restore = false; }
+    void Dismiss() noexcept
+    {
+        m_restore = false;
+    }
+
 private:
-    int  m_fd{-1};
-    int  m_old{0};
+    int m_fd{-1};
+    int m_old{0};
     bool m_ok{false};
     bool m_restore{false};
 };
@@ -151,9 +167,8 @@ private:
  * 内核 timeout 不再触发，必须由 Hook 自己兜底，否则有界等待静默变无限。
  * ponytail: 1ms 粒度，亚毫秒超时向上取整；EINTR 后剩余量按 deadline 收缩。
  */
-struct IoTimeout
-{
-    int                                 m_ms{0};
+struct IoTimeout {
+    int m_ms{0};
     std::chrono::steady_clock::time_point m_deadline;
 
     IoTimeout(int fd, int optname)
@@ -161,17 +176,16 @@ struct IoTimeout
         struct timeval tv;
         std::memset(&tv, 0, sizeof(tv));
         socklen_t len = sizeof(tv);
-        if (::getsockopt(fd, SOL_SOCKET, optname, &tv, &len) == 0 &&
-            (tv.tv_sec > 0 || tv.tv_usec > 0))
-            m_ms = static_cast<int>(tv.tv_sec) * 1000 +
-                   static_cast<int>((tv.tv_usec + 999) / 1000);
+        if (::getsockopt(fd, SOL_SOCKET, optname, &tv, &len) == 0 && (tv.tv_sec > 0 || tv.tv_usec > 0))
+            m_ms = static_cast<int>(tv.tv_sec) * 1000 + static_cast<int>((tv.tv_usec + 999) / 1000);
         m_deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(m_ms);
     }
 
     int remain_ms() const
     {
-        const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(
-            m_deadline - std::chrono::steady_clock::now()).count();
+        const auto left =
+            std::chrono::duration_cast<std::chrono::milliseconds>(m_deadline - std::chrono::steady_clock::now())
+                .count();
         return left > 0 ? static_cast<int>(left) : 0;
     }
 };
@@ -200,8 +214,7 @@ static int CoWaitFdReady(Coroutine* co, int fd, bool writable, const IoTimeout& 
         const int remain = iot.remain_ms();
         if (remain <= 0)
             return -1;
-        yret = writable ? co->YieldUntilFdWriteable(fd, remain)
-                        : co->YieldUntilFdReadable(fd, remain);
+        yret = writable ? co->YieldUntilFdWriteable(fd, remain) : co->YieldUntilFdReadable(fd, remain);
     }
     if (yret != 0)
         return yret;
@@ -217,8 +230,7 @@ static int CoWaitFdReady(Coroutine* co, int fd, bool writable, const IoTimeout& 
  * 仅当 fd 是常规文件且可 seek 时记录初始偏移；析构时若尚未解除
  * （异常路径）则回退偏移，保证 hook 内部异常不会造成偏移前进。
  */
-class FileOffsetGuard
-{
+class FileOffsetGuard {
 public:
     explicit FileOffsetGuard(int fd)
     {
@@ -241,12 +253,15 @@ public:
     }
 
     /* 正常完成时解除，保留系统调用自身推进的偏移 */
-    void Dismiss() noexcept { m_active = false; }
+    void Dismiss() noexcept
+    {
+        m_active = false;
+    }
 
 private:
-    int     m_fd{-1};
-    off_t   m_offset{0};
-    bool    m_active{false};
+    int m_fd{-1};
+    off_t m_offset{0};
+    bool m_active{false};
 };
 
 } // namespace
@@ -267,7 +282,7 @@ int Hook_Socket(int domain, int type, int protocol)
     return fd;
 }
 
-int Hook_Connect(int socket, const struct sockaddr *address, socklen_t address_len)
+int Hook_Connect(int socket, const struct sockaddr* address, socklen_t address_len)
 {
     CoIoNonblockGuard io{socket};
     if (!io.ok())
@@ -362,7 +377,7 @@ int Hook_Sleep(int ms)
     return g_bbt_tls_coroutine_co->YieldUntilTimeout(ms);
 }
 
-ssize_t Hook_Read(int fd, void *buf, size_t nbytes)
+ssize_t Hook_Read(int fd, void* buf, size_t nbytes)
 {
     CoIoNonblockGuard io{fd};
     if (!io.ok())
@@ -401,7 +416,7 @@ ssize_t Hook_Read(int fd, void *buf, size_t nbytes)
     return read_len;
 }
 
-ssize_t Hook_Write(int fd, const void *buf, size_t n)
+ssize_t Hook_Write(int fd, const void* buf, size_t n)
 {
     CoIoNonblockGuard io{fd};
     if (!io.ok())
@@ -440,7 +455,7 @@ ssize_t Hook_Write(int fd, const void *buf, size_t n)
     return write_len;
 }
 
-int Hook_Accept(int fd, struct sockaddr *addr, socklen_t *len)
+int Hook_Accept(int fd, struct sockaddr* addr, socklen_t* len)
 {
     CoIoNonblockGuard io{fd};
     if (!io.ok())
@@ -481,7 +496,7 @@ int Hook_Accept(int fd, struct sockaddr *addr, socklen_t *len)
     return new_cli_fd;
 }
 
-ssize_t Hook_Send(int fd, const void *buf, size_t n, int flags)
+ssize_t Hook_Send(int fd, const void* buf, size_t n, int flags)
 {
     /* MSG_DONTWAIT：调用方明确要求不等待，直通原函数（内核按次非阻塞） */
     if (flags & MSG_DONTWAIT)
@@ -519,7 +534,7 @@ ssize_t Hook_Send(int fd, const void *buf, size_t n, int flags)
     return send_len;
 }
 
-ssize_t Hook_Recv(int fd, void *buf, size_t n, int flags)
+ssize_t Hook_Recv(int fd, void* buf, size_t n, int flags)
 {
     /* MSG_DONTWAIT：直通，立即 -1/EAGAIN */
     if (flags & MSG_DONTWAIT)
@@ -557,7 +572,7 @@ ssize_t Hook_Recv(int fd, void *buf, size_t n, int flags)
     return recv_len;
 }
 
-ssize_t Hook_SendTo(int fd, const void *buf, size_t len, int flags, const struct sockaddr* dest_addr, socklen_t addrlen)
+ssize_t Hook_SendTo(int fd, const void* buf, size_t len, int flags, const struct sockaddr* dest_addr, socklen_t addrlen)
 {
     /* MSG_DONTWAIT：直通，立即 -1/EAGAIN */
     if (flags & MSG_DONTWAIT)
@@ -594,7 +609,7 @@ ssize_t Hook_SendTo(int fd, const void *buf, size_t len, int flags, const struct
     return send_len;
 }
 
-ssize_t Hook_RecvFrom(int fd, void *buf, size_t len, int flags, struct sockaddr* src_addr, socklen_t* addrlen)
+ssize_t Hook_RecvFrom(int fd, void* buf, size_t len, int flags, struct sockaddr* src_addr, socklen_t* addrlen)
 {
     /* MSG_DONTWAIT：直通，立即 -1/EAGAIN */
     if (flags & MSG_DONTWAIT)
@@ -631,7 +646,7 @@ ssize_t Hook_RecvFrom(int fd, void *buf, size_t len, int flags, struct sockaddr*
     return recv_len;
 }
 
-ssize_t Hook_RecvMsg(int fd, struct msghdr *msg, int flags)
+ssize_t Hook_RecvMsg(int fd, struct msghdr* msg, int flags)
 {
     /* MSG_DONTWAIT：调用方明确要求不等待，协程内也直通原函数 */
     if (flags & MSG_DONTWAIT)
@@ -668,7 +683,7 @@ ssize_t Hook_RecvMsg(int fd, struct msghdr *msg, int flags)
     return recv_len;
 }
 
-ssize_t Hook_SendMsg(int fd, const struct msghdr *msg, int flags)
+ssize_t Hook_SendMsg(int fd, const struct msghdr* msg, int flags)
 {
     /* 同 Hook_RecvMsg：MSG_DONTWAIT 直通 */
     if (flags & MSG_DONTWAIT)
@@ -705,7 +720,7 @@ ssize_t Hook_SendMsg(int fd, const struct msghdr *msg, int flags)
     return send_len;
 }
 
-ssize_t Hook_Readv(int fd, const struct iovec *iov, int iovcnt)
+ssize_t Hook_Readv(int fd, const struct iovec* iov, int iovcnt)
 {
     CoIoNonblockGuard io{fd};
     if (!io.ok())
@@ -743,7 +758,7 @@ ssize_t Hook_Readv(int fd, const struct iovec *iov, int iovcnt)
     return read_len;
 }
 
-ssize_t Hook_Writev(int fd, const struct iovec *iov, int iovcnt)
+ssize_t Hook_Writev(int fd, const struct iovec* iov, int iovcnt)
 {
     CoIoNonblockGuard io{fd};
     if (!io.ok())
@@ -786,7 +801,7 @@ ssize_t Hook_Writev(int fd, const struct iovec *iov, int iovcnt)
  * dlsym 取不到 accept4 时降级为 accept 后再补 SOCK_CLOEXEC/SOCK_NONBLOCK。
  * 成功路径与 Hook_Accept 一致：新 fd 强制 O_NONBLOCK，供后续协程 IO 走挂起路径。
  */
-int Hook_Accept4(int fd, struct sockaddr *addr, socklen_t *len, int flags)
+int Hook_Accept4(int fd, struct sockaddr* addr, socklen_t* len, int flags)
 {
     CoIoNonblockGuard io{fd};
     if (!io.ok())
@@ -859,7 +874,7 @@ int Hook_USleep(unsigned int usec)
  * 成功睡完返回 0；不写 rem——POSIX 规定成功路径 rem 内容未定义，
  * 且协程定时器不会以 EINTR 提前结束，没有剩余时间可报告。
  */
-int Hook_Nanosleep(const struct timespec *req, struct timespec *rem)
+int Hook_Nanosleep(const struct timespec* req, struct timespec* rem)
 {
     AssertWithInfo(g_bbt_tls_coroutine_co != nullptr, "must be in coroutine context");
     if (req == nullptr)
@@ -880,7 +895,7 @@ int Hook_Nanosleep(const struct timespec *req, struct timespec *rem)
  * TIMER_ABSTIME 先用 clock_gettime 折算成相对剩余时间，已到期立即返回 0。
  * 注意 clock_nanosleep 以返回值报告错误、不设置 errno，直通路径原样透传。
  */
-int Hook_ClockNanosleep(clockid_t clock_id, int flags, const struct timespec *req, struct timespec *rem)
+int Hook_ClockNanosleep(clockid_t clock_id, int flags, const struct timespec* req, struct timespec* rem)
 {
     AssertWithInfo(g_bbt_tls_coroutine_co != nullptr, "must be in coroutine context");
     if (req == nullptr)
@@ -894,8 +909,8 @@ int Hook_ClockNanosleep(clockid_t clock_id, int flags, const struct timespec *re
         struct timespec now;
         if (clock_gettime(clock_id, &now) != 0)
             return errno;
-        long long remain_ns = ((long long)req->tv_sec - now.tv_sec) * 1000000000LL
-                            + ((long long)req->tv_nsec - now.tv_nsec);
+        long long remain_ns =
+            ((long long)req->tv_sec - now.tv_sec) * 1000000000LL + ((long long)req->tv_nsec - now.tv_nsec);
         if (remain_ns <= 0)
             return 0;
         ms = (remain_ns + 999999LL) / 1000000LL;
@@ -953,7 +968,7 @@ static int PollCore(struct pollfd* fds, nfds_t nfds, int timeout_ms)
     int epfd = ::epoll_create1(EPOLL_CLOEXEC);
     if (epfd < 0)
         return -1;
-    EpGuard ep_guard{epfd};  // RAII 关 epoll
+    EpGuard ep_guard{epfd}; // RAII 关 epoll
 
     int ep_count = 0;
     for (nfds_t i = 0; i < nfds; ++i) {
@@ -974,9 +989,8 @@ static int PollCore(struct pollfd* fds, nfds_t nfds, int timeout_ms)
 
     if (ep_count > 0) {
         /* timeout<0 无限等；timeout>0 带协程定时器。醒来（或定时器到期）后统一走快照收尾 */
-        int yret = timeout_ms < 0
-            ? g_bbt_tls_coroutine_co->YieldUntilFdReadable(epfd)
-            : g_bbt_tls_coroutine_co->YieldUntilFdReadable(epfd, timeout_ms);
+        int yret = timeout_ms < 0 ? g_bbt_tls_coroutine_co->YieldUntilFdReadable(epfd)
+                                  : g_bbt_tls_coroutine_co->YieldUntilFdReadable(epfd, timeout_ms);
         if (yret != 0)
             return -1;
     }
@@ -1066,8 +1080,7 @@ int Hook_Select(int nfds, fd_set* read_fds, fd_set* write_fds, fd_set* except_fd
     AssertWithInfo(g_bbt_tls_coroutine_co != nullptr, "must be in coroutine context");
     int timeout_ms = -1;
     if (timeout != nullptr)
-        timeout_ms = static_cast<int>(timeout->tv_sec) * 1000 +
-                     static_cast<int>((timeout->tv_usec + 999) / 1000);
+        timeout_ms = static_cast<int>(timeout->tv_sec) * 1000 + static_cast<int>((timeout->tv_usec + 999) / 1000);
     return SelectCore(nfds, read_fds, write_fds, except_fds, timeout_ms);
 }
 
@@ -1077,14 +1090,14 @@ int Hook_Select(int nfds, fd_set* read_fds, fd_set* write_fds, fd_set* except_fd
  * ponytail: 协程路径忽略 sigmask——worker 线程 pthread_sigmask 会伤同核其它协程；
  * 要按 fd 精确屏蔽再加。timeout NULL 表示无限等待。
  */
-int Hook_PSelect(int nfds, fd_set* read_fds, fd_set* write_fds, fd_set* except_fds, const struct timespec* timeout, const sigset_t* sigmask)
+int Hook_PSelect(int nfds, fd_set* read_fds, fd_set* write_fds, fd_set* except_fds, const struct timespec* timeout,
+                 const sigset_t* sigmask)
 {
     (void)sigmask;
     AssertWithInfo(g_bbt_tls_coroutine_co != nullptr, "must be in coroutine context");
     int timeout_ms = -1;
     if (timeout != nullptr)
-        timeout_ms = static_cast<int>(timeout->tv_sec) * 1000 +
-                     static_cast<int>((timeout->tv_nsec + 999999) / 1000000);
+        timeout_ms = static_cast<int>(timeout->tv_sec) * 1000 + static_cast<int>((timeout->tv_nsec + 999999) / 1000000);
     return SelectCore(nfds, read_fds, write_fds, except_fds, timeout_ms);
 }
 
@@ -1097,14 +1110,13 @@ int Hook_PSelect(int nfds, fd_set* read_fds, fd_set* write_fds, fd_set* except_f
  * 存储放在 TLS 而非协程栈：gethostbyname 契约是"结果有效直到下次调用"，
  * 协程栈在 hook 返回后即析构。
  */
-struct TlsHostentStorage
-{
-    struct hostent      ent;
-    std::string         name;
+struct TlsHostentStorage {
+    struct hostent ent;
+    std::string name;
     std::vector<std::string> aliases;
-    std::vector<char*>  alias_ptrs;
-    std::vector<std::string> addrs;     // 每个元素是一条原始地址字节
-    std::vector<char*>  addr_ptrs;
+    std::vector<char*> alias_ptrs;
+    std::vector<std::string> addrs; // 每个元素是一条原始地址字节
+    std::vector<char*> addr_ptrs;
 
     void Clear()
     {
@@ -1169,13 +1181,12 @@ static struct hostent* FillHostentFromAddrInfo(struct addrinfo* ai)
  * 且协程恢复执行的线程不确定，必须把内容拷进调用方栈上的这份结构，
  * 恢复后由调用线程再搬进自己的 TLS 存储。
  */
-struct HostentCopy
-{
-    bool                ok{false};
-    int                 h_err{0};
-    int                 addrtype{0};
-    int                 length{0};
-    std::string         name;
+struct HostentCopy {
+    bool ok{false};
+    int h_err{0};
+    int addrtype{0};
+    int length{0};
+    std::string name;
     std::vector<std::string> aliases;
     std::vector<std::string> addrs;
 };
@@ -1183,10 +1194,14 @@ struct HostentCopy
 static int GaiErrToHErrno(int gai)
 {
     switch (gai) {
-    case EAI_NONAME:      return HOST_NOT_FOUND;
-    case EAI_AGAIN:       return TRY_AGAIN;
-    case EAI_FAIL:        return NO_RECOVERY;
-    default:              return NO_DATA;
+    case EAI_NONAME:
+        return HOST_NOT_FOUND;
+    case EAI_AGAIN:
+        return TRY_AGAIN;
+    case EAI_FAIL:
+        return NO_RECOVERY;
+    default:
+        return NO_DATA;
     }
 }
 
@@ -1204,9 +1219,8 @@ int Hook_GetAddrInfo(const char* node, const char* service, const struct addrinf
 
     int ret = EAI_FAIL;
     *res = nullptr;
-    DnsResolver::GetInstance()->Await([&ret, res, node, service, req]() {
-        ret = g_bbt_sys_hook_getaddrinfo_func(node, service, req, res);
-    });
+    DnsResolver::GetInstance()->Await(
+        [&ret, res, node, service, req]() { ret = g_bbt_sys_hook_getaddrinfo_func(node, service, req, res); });
     return ret;
 }
 
@@ -1215,7 +1229,8 @@ int Hook_GetAddrInfo(const char* node, const char* service, const struct addrinf
  *
  * host/serv 是调用方缓冲，挂起期间有效；入队失败返回预置 EAI_FAIL。
  */
-int Hook_GetNameInfo(const struct sockaddr* sa, socklen_t salen, char* host, socklen_t hostlen, char* serv, socklen_t servlen, int flags)
+int Hook_GetNameInfo(const struct sockaddr* sa, socklen_t salen, char* host, socklen_t hostlen, char* serv,
+                     socklen_t servlen, int flags)
 {
     AssertWithInfo(g_bbt_tls_coroutine_co != nullptr, "must be in coroutine context");
     int ret = EAI_FAIL;
@@ -1241,9 +1256,8 @@ struct hostent* Hook_GetHostByName(const char* name)
 
     int gai = EAI_FAIL;
     struct addrinfo* ai = nullptr;
-    DnsResolver::GetInstance()->Await([&gai, &ai, name, &hints]() {
-        gai = g_bbt_sys_hook_getaddrinfo_func(name, nullptr, &hints, &ai);
-    });
+    DnsResolver::GetInstance()->Await(
+        [&gai, &ai, name, &hints]() { gai = g_bbt_sys_hook_getaddrinfo_func(name, nullptr, &hints, &ai); });
 
     if (gai != 0 || ai == nullptr) {
         if (ai != nullptr)
@@ -1322,7 +1336,7 @@ int socket(int domain, int type, int protocol)
     return bbt::coroutine::detail::Hook_Socket(domain, type, protocol);
 }
 
-int connect(int socket, const struct sockaddr *address, socklen_t address_len)
+int connect(int socket, const struct sockaddr* address, socklen_t address_len)
 {
     if (!g_bbt_tls_helper->EnableUseCo())
         return g_bbt_sys_hook_connect_func(socket, address, address_len);
@@ -1343,7 +1357,7 @@ unsigned int sleep(unsigned int sec)
     return bbt::coroutine::detail::Hook_Sleep(sec * 1000);
 }
 
-ssize_t read(int fd, void *buf, size_t nbytes)
+ssize_t read(int fd, void* buf, size_t nbytes)
 {
     if (!g_bbt_tls_helper->EnableUseCo())
         return g_bbt_sys_hook_read_func(fd, buf, nbytes);
@@ -1351,7 +1365,7 @@ ssize_t read(int fd, void *buf, size_t nbytes)
     return bbt::coroutine::detail::Hook_Read(fd, buf, nbytes);
 }
 
-ssize_t write(int fd, const void *buf, size_t n)
+ssize_t write(int fd, const void* buf, size_t n)
 {
     if (!g_bbt_tls_helper->EnableUseCo())
         return g_bbt_sys_hook_write_func(fd, buf, n);
@@ -1359,7 +1373,7 @@ ssize_t write(int fd, const void *buf, size_t n)
     return bbt::coroutine::detail::Hook_Write(fd, buf, n);
 }
 
-int accept(int fd, __SOCKADDR_ARG addr, socklen_t *__restrict addr_len)
+int accept(int fd, __SOCKADDR_ARG addr, socklen_t* __restrict addr_len)
 {
     if (!g_bbt_tls_helper->EnableUseCo())
         return g_bbt_sys_hook_accept_func(fd, addr, addr_len);
@@ -1367,29 +1381,27 @@ int accept(int fd, __SOCKADDR_ARG addr, socklen_t *__restrict addr_len)
     return bbt::coroutine::detail::Hook_Accept(fd, addr, addr_len);
 }
 
-ssize_t send(int fd, const void *buf, size_t len, int flags)
+ssize_t send(int fd, const void* buf, size_t len, int flags)
 {
 
-    if (!g_bbt_tls_helper->EnableUseCo())
-    {
+    if (!g_bbt_tls_helper->EnableUseCo()) {
         return g_bbt_sys_hook_send_func(fd, buf, len, flags);
     }
 
     return bbt::coroutine::detail::Hook_Send(fd, buf, len, flags);
 }
 
-ssize_t recv(int fd, void *buf, size_t len, int flags)
+ssize_t recv(int fd, void* buf, size_t len, int flags)
 {
 
-    if (!g_bbt_tls_helper->EnableUseCo())
-    {
+    if (!g_bbt_tls_helper->EnableUseCo()) {
         return g_bbt_sys_hook_recv_func(fd, buf, len, flags);
     }
 
     return bbt::coroutine::detail::Hook_Recv(fd, buf, len, flags);
 }
 
-ssize_t sendto(int fd, const void *buf, size_t len, int flags, const struct sockaddr* dest_addr, socklen_t addrlen)
+ssize_t sendto(int fd, const void* buf, size_t len, int flags, const struct sockaddr* dest_addr, socklen_t addrlen)
 {
     if (!g_bbt_tls_helper->EnableUseCo())
         return g_bbt_sys_hook_sendto_func(fd, buf, len, flags, dest_addr, addrlen);
@@ -1397,7 +1409,7 @@ ssize_t sendto(int fd, const void *buf, size_t len, int flags, const struct sock
     return bbt::coroutine::detail::Hook_SendTo(fd, buf, len, flags, dest_addr, addrlen);
 }
 
-ssize_t recvfrom(int fd, void *buf, size_t len, int flags, struct sockaddr* src_addr, socklen_t* addrlen)
+ssize_t recvfrom(int fd, void* buf, size_t len, int flags, struct sockaddr* src_addr, socklen_t* addrlen)
 {
     if (!g_bbt_tls_helper->EnableUseCo())
         return g_bbt_sys_hook_recvfrom_func(fd, buf, len, flags, src_addr, addrlen);
@@ -1405,7 +1417,7 @@ ssize_t recvfrom(int fd, void *buf, size_t len, int flags, struct sockaddr* src_
     return bbt::coroutine::detail::Hook_RecvFrom(fd, buf, len, flags, src_addr, addrlen);
 }
 
-ssize_t recvmsg(int fd, struct msghdr *message, int flags)
+ssize_t recvmsg(int fd, struct msghdr* message, int flags)
 {
     if (!g_bbt_tls_helper->EnableUseCo())
         return g_bbt_sys_hook_recvmsg_func(fd, message, flags);
@@ -1413,7 +1425,7 @@ ssize_t recvmsg(int fd, struct msghdr *message, int flags)
     return bbt::coroutine::detail::Hook_RecvMsg(fd, message, flags);
 }
 
-ssize_t sendmsg(int fd, const struct msghdr *message, int flags)
+ssize_t sendmsg(int fd, const struct msghdr* message, int flags)
 {
     if (!g_bbt_tls_helper->EnableUseCo())
         return g_bbt_sys_hook_sendmsg_func(fd, message, flags);
@@ -1421,7 +1433,7 @@ ssize_t sendmsg(int fd, const struct msghdr *message, int flags)
     return bbt::coroutine::detail::Hook_SendMsg(fd, message, flags);
 }
 
-ssize_t readv(int fd, const struct iovec *iov, int iovcnt)
+ssize_t readv(int fd, const struct iovec* iov, int iovcnt)
 {
     if (!g_bbt_tls_helper->EnableUseCo())
         return g_bbt_sys_hook_readv_func(fd, iov, iovcnt);
@@ -1429,7 +1441,7 @@ ssize_t readv(int fd, const struct iovec *iov, int iovcnt)
     return bbt::coroutine::detail::Hook_Readv(fd, iov, iovcnt);
 }
 
-ssize_t writev(int fd, const struct iovec *iov, int iovcnt)
+ssize_t writev(int fd, const struct iovec* iov, int iovcnt)
 {
     if (!g_bbt_tls_helper->EnableUseCo())
         return g_bbt_sys_hook_writev_func(fd, iov, iovcnt);
@@ -1437,7 +1449,7 @@ ssize_t writev(int fd, const struct iovec *iov, int iovcnt)
     return bbt::coroutine::detail::Hook_Writev(fd, iov, iovcnt);
 }
 
-int accept4(int fd, __SOCKADDR_ARG addr, socklen_t *__restrict addr_len, int flags)
+int accept4(int fd, __SOCKADDR_ARG addr, socklen_t* __restrict addr_len, int flags)
 {
     if (!g_bbt_tls_helper->EnableUseCo()) {
         if (g_bbt_sys_hook_accept4_func)
@@ -1462,7 +1474,7 @@ int usleep(useconds_t usec)
     return bbt::coroutine::detail::Hook_USleep(usec);
 }
 
-int nanosleep(const struct timespec *req, struct timespec *rem)
+int nanosleep(const struct timespec* req, struct timespec* rem)
 {
     if (!g_bbt_tls_helper->EnableUseCo())
         return g_bbt_sys_hook_nanosleep_func(req, rem);
@@ -1470,7 +1482,7 @@ int nanosleep(const struct timespec *req, struct timespec *rem)
     return bbt::coroutine::detail::Hook_Nanosleep(req, rem);
 }
 
-int clock_nanosleep(clockid_t clock_id, int flags, const struct timespec *req, struct timespec *rem)
+int clock_nanosleep(clockid_t clock_id, int flags, const struct timespec* req, struct timespec* rem)
 {
     if (!g_bbt_tls_helper->EnableUseCo())
         return g_bbt_sys_hook_clock_nanosleep_func(clock_id, flags, req, rem);
@@ -1478,7 +1490,7 @@ int clock_nanosleep(clockid_t clock_id, int flags, const struct timespec *req, s
     return bbt::coroutine::detail::Hook_ClockNanosleep(clock_id, flags, req, rem);
 }
 
-int poll(struct pollfd *fds, nfds_t nfds, int timeout_ms)
+int poll(struct pollfd* fds, nfds_t nfds, int timeout_ms)
 {
     if (!g_bbt_tls_helper->EnableUseCo())
         return g_bbt_sys_hook_poll_func(fds, nfds, timeout_ms);
@@ -1486,7 +1498,7 @@ int poll(struct pollfd *fds, nfds_t nfds, int timeout_ms)
     return bbt::coroutine::detail::Hook_Poll(fds, nfds, timeout_ms);
 }
 
-int select(int nfds, fd_set *read_fds, fd_set *write_fds, fd_set *except_fds, struct timeval *timeout)
+int select(int nfds, fd_set* read_fds, fd_set* write_fds, fd_set* except_fds, struct timeval* timeout)
 {
     if (!g_bbt_tls_helper->EnableUseCo())
         return g_bbt_sys_hook_select_func(nfds, read_fds, write_fds, except_fds, timeout);
@@ -1494,7 +1506,8 @@ int select(int nfds, fd_set *read_fds, fd_set *write_fds, fd_set *except_fds, st
     return bbt::coroutine::detail::Hook_Select(nfds, read_fds, write_fds, except_fds, timeout);
 }
 
-int pselect(int nfds, fd_set *read_fds, fd_set *write_fds, fd_set *except_fds, const struct timespec *timeout, const sigset_t *sigmask)
+int pselect(int nfds, fd_set* read_fds, fd_set* write_fds, fd_set* except_fds, const struct timespec* timeout,
+            const sigset_t* sigmask)
 {
     /* 非协程直通原函数（含 sigmask 语义） */
     if (!g_bbt_tls_helper->EnableUseCo())
@@ -1503,7 +1516,7 @@ int pselect(int nfds, fd_set *read_fds, fd_set *write_fds, fd_set *except_fds, c
     return bbt::coroutine::detail::Hook_PSelect(nfds, read_fds, write_fds, except_fds, timeout, sigmask);
 }
 
-int getaddrinfo(const char *node, const char *service, const struct addrinfo *req, struct addrinfo **res)
+int getaddrinfo(const char* node, const char* service, const struct addrinfo* req, struct addrinfo** res)
 {
     if (!g_bbt_tls_helper->EnableUseCo())
         return g_bbt_sys_hook_getaddrinfo_func(node, service, req, res);
@@ -1511,7 +1524,8 @@ int getaddrinfo(const char *node, const char *service, const struct addrinfo *re
     return bbt::coroutine::detail::Hook_GetAddrInfo(node, service, req, res);
 }
 
-int getnameinfo(const struct sockaddr *sa, socklen_t salen, char *host, socklen_t hostlen, char *serv, socklen_t servlen, int flags)
+int getnameinfo(const struct sockaddr* sa, socklen_t salen, char* host, socklen_t hostlen, char* serv,
+                socklen_t servlen, int flags)
 {
     if (!g_bbt_tls_helper->EnableUseCo())
         return g_bbt_sys_hook_getnameinfo_func(sa, salen, host, hostlen, serv, servlen, flags);
@@ -1519,7 +1533,7 @@ int getnameinfo(const struct sockaddr *sa, socklen_t salen, char *host, socklen_
     return bbt::coroutine::detail::Hook_GetNameInfo(sa, salen, host, hostlen, serv, servlen, flags);
 }
 
-struct hostent *gethostbyname(const char *name)
+struct hostent* gethostbyname(const char* name)
 {
     if (!g_bbt_tls_helper->EnableUseCo())
         return g_bbt_sys_hook_gethostbyname_func(name);
@@ -1527,7 +1541,7 @@ struct hostent *gethostbyname(const char *name)
     return bbt::coroutine::detail::Hook_GetHostByName(name);
 }
 
-struct hostent *gethostbyaddr(const void *addr, socklen_t len, int type)
+struct hostent* gethostbyaddr(const void* addr, socklen_t len, int type)
 {
     if (!g_bbt_tls_helper->EnableUseCo())
         return g_bbt_sys_hook_gethostbyaddr_func(addr, len, type);

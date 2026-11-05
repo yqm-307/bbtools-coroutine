@@ -7,14 +7,11 @@
 
 /* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
  * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。 */
-namespace
-{
+namespace {
 void EnsureRuntime()
 {
     static std::once_flag once;
-    std::call_once(once, [](){
-        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
-    });
+    std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
 }
 
@@ -31,7 +28,8 @@ BOOST_AUTO_TEST_CASE(t_regist_event_timeout)
     bbt::core::thread::CountDownLatch l{1};
     auto begin = bbt::core::clock::gettime();
 
-    bbtco_ev_t(100) [&](int fd, short event){
+    bbtco_ev_t(100)[&](int fd, short event)
+    {
         BOOST_CHECK(bbt::core::clock::gettime() - begin >= 100);
         l.Down();
         return false;
@@ -51,7 +49,8 @@ BOOST_AUTO_TEST_CASE(t_regist_event_fd_ev_readable)
     int rfd = fds[0];
     int wfd = fds[1];
 
-    bbtco_ev_r(fds[0]) [=, &l](int fd, short event){
+    bbtco_ev_r(fds[0])[=, &l](int fd, short event)
+    {
         char buf[10];
         memset(buf, '\0', sizeof(buf));
         int size = ::read(fd, buf, sizeof(buf));
@@ -67,7 +66,6 @@ BOOST_AUTO_TEST_CASE(t_regist_event_fd_ev_readable)
     ::close(wfd);
 }
 
-
 /* fd可写事件 */
 BOOST_AUTO_TEST_CASE(t_regist_event_fd_ev_writeable)
 {
@@ -80,7 +78,7 @@ BOOST_AUTO_TEST_CASE(t_regist_event_fd_ev_writeable)
     int rfd = fds[0];
     int wfd = fds[1];
 
-    bbtco_ev_w(fds[1]) [&](int fd, short event)
+    bbtco_ev_w(fds[1])[&](int fd, short event)
     {
         BOOST_CHECK_EQUAL(::write(fd, msg, strlen(msg)), strlen(msg));
     };
@@ -99,17 +97,17 @@ BOOST_AUTO_TEST_CASE(t_regist_event_with_copool)
     auto cocond = bbtco_make_cocond();
     auto chan = bbt::co::sync::Chan<int, 10>();
 
-    auto succ = bbtco_ev_t_with_copool(10, copool) [&](auto, auto){
-        for (int i = 0; i < 100; ++i)
-        {
+    auto succ = bbtco_ev_t_with_copool(10, copool)[&](auto, auto)
+    {
+        for (int i = 0; i < 100; ++i) {
             chan << i;
         }
     };
     Assert(succ == 0);
 
-    bbtco [&](){
-        while (true)
-        {
+    bbtco[&]()
+    {
+        while (true) {
             int val = 0;
             chan >> val;
             // printf("read: %d\n", val);
@@ -133,7 +131,7 @@ BOOST_AUTO_TEST_CASE(t_regist_event_fd_timeout)
     int wfd = fds[1];
     auto start_time = bbt::core::clock::gettime();
 
-    bbtco_ev_rt(fds[1], 100) [&](int fd, short event)
+    bbtco_ev_rt(fds[1], 100)[&](int fd, short event)
     {
         BOOST_CHECK_GE(bbt::core::clock::gettime() - 100, start_time);
         l.Down();

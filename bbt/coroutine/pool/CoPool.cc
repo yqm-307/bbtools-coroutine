@@ -5,19 +5,15 @@
 #include <bbt/coroutine/detail/LocalThread.hpp>
 #include <bbt/coroutine/syntax/SyntaxMacro.hpp>
 
-
-namespace bbt::coroutine::pool
-{
+namespace bbt::coroutine::pool {
 
 std::shared_ptr<CoPool> CoPool::Create(int max_co)
 {
     return std::make_shared<CoPool>(max_co);
 }
 
-CoPool::CoPool(int max):
-    m_max_co_num(max),
-    m_cond(sync::CoCond::Create()),
-    m_latch(m_max_co_num + 1) // monitor co + work co
+CoPool::CoPool(int max)
+    : m_max_co_num(max), m_cond(sync::CoCond::Create()), m_latch(m_max_co_num + 1) // monitor co + work co
 {
     Assert(m_max_co_num > 0);
     _Start();
@@ -172,7 +168,7 @@ void CoPool::Release()
             bbtco_sleep(5);
         else
             std::this_thread::sleep_for(bbt::core::clock::ms(5));
-    } 
+    }
 
     m_latch.Wait();
 
@@ -188,13 +184,15 @@ void CoPool::_Start()
 {
     /* 启动工作协程 */
     for (int i = 0; i < m_max_co_num; ++i)
-        bbtco_desc("work co") [=](){
+        bbtco_desc("work co")[=]()
+        {
             _WorkCo();
             m_latch.Down();
         };
 
     /* 启动监视协程 */
-    bbtco_desc("monitor co") [=](){
+    bbtco_desc("monitor co")[=]()
+    {
         _MonitorCo();
         m_latch.Down();
     };
@@ -235,7 +233,7 @@ void CoPool::_MonitorCo()
     m_running_co_num++;
 
     while (m_is_running.load(std::memory_order_acquire)) {
-        
+
         auto remain_works_num = m_works_queue.size_approx();
 
         for (int i = 0; i < remain_works_num; ++i) {

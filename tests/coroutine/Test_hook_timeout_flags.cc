@@ -25,14 +25,11 @@
 #include <bbt/coroutine/detail/Scheduler.hpp>
 
 /* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。 */
-namespace
-{
+namespace {
 void EnsureRuntime()
 {
     static std::once_flag once;
-    std::call_once(once, [](){
-        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
-    });
+    std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
 }
 
@@ -41,11 +38,9 @@ using namespace bbt::coroutine::detail;
 
 BOOST_AUTO_TEST_SUITE(HookTimeoutFlagsTest)
 
-namespace
-{
+namespace {
 
-struct CoFixture
-{
+struct CoFixture {
     CoFixture()
     {
         auto* cfg = g_bbt_coroutine_config.get();
@@ -70,21 +65,22 @@ struct CoFixture
 
 // 在协程内跑 fn，同时一个 ticker 协程自旋证明 worker 未被占死；
 // done 由 fn 置位后 ticker 退出。返回 ticker 次数。
-template <typename Fn>
-int RunWithTicker(Fn fn)
+template <typename Fn> int RunWithTicker(Fn fn)
 {
     bbt::core::thread::CountDownLatch done{1};
     std::atomic_int ticker{0};
     std::atomic_bool finished{false};
 
-    bbtco [&]() {
+    bbtco[&]()
+    {
         while (!finished.load()) {
             ticker.fetch_add(1);
             bbtco_yield;
         }
         done.Down();
     };
-    bbtco [&]() {
+    bbtco[&]()
+    {
         fn();
         finished.store(true);
     };
@@ -110,7 +106,8 @@ void FillSocketBuffer(int fd)
     const struct timeval fill_tv{0, 100 * 1000};
     ::setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &fill_tv, sizeof(fill_tv));
     std::vector<char> big(64 * 1024, 'x');
-    while (::syscall(SYS_write, fd, big.data(), big.size()) > 0) {}
+    while (::syscall(SYS_write, fd, big.data(), big.size()) > 0) {
+    }
 }
 
 } // namespace
@@ -171,10 +168,10 @@ BOOST_AUTO_TEST_CASE(t_rcvtimeo_bounded_eagain)
         BOOST_CHECK_EQUAL(r, -1);
         BOOST_CHECK_EQUAL(errno, EAGAIN);
     });
-    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::steady_clock::now() - t0).count();
-    BOOST_CHECK_GE(ms, 40);     // 确实等过，不是立即假成功
-    BOOST_CHECK_LT(ms, 5000);   // 有界返回，不是无限等待
+    const auto ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
+    BOOST_CHECK_GE(ms, 40);   // 确实等过，不是立即假成功
+    BOOST_CHECK_LT(ms, 5000); // 有界返回，不是无限等待
     BOOST_CHECK_GT(ticks, 0);
     ::close(fds[0]);
     ::close(fds[1]);
@@ -198,8 +195,8 @@ BOOST_AUTO_TEST_CASE(t_sndtimeo_bounded_eagain)
         BOOST_CHECK_EQUAL(r, -1);
         BOOST_CHECK_EQUAL(errno, EAGAIN);
     });
-    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::steady_clock::now() - t0).count();
+    const auto ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
     BOOST_CHECK_GE(ms, 40);
     BOOST_CHECK_LT(ms, 5000);
     BOOST_CHECK_GT(ticks, 0);
@@ -217,7 +214,8 @@ BOOST_AUTO_TEST_CASE(t_rcvtimeo_data_arrives_returns_data)
     BOOST_REQUIRE_EQUAL(::setsockopt(fds[0], SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)), 0);
 
     const int ticks = RunWithTicker([&]() {
-        bbtco [&]() {
+        bbtco[&]()
+        {
             bbtco_sleep(20);
             char c = 'x';
             BOOST_CHECK_EQUAL(::syscall(SYS_write, fds[1], &c, 1), 1);
@@ -249,8 +247,8 @@ BOOST_AUTO_TEST_CASE(t_rcvtimeo_applies_to_read)
         BOOST_CHECK_EQUAL(r, -1);
         BOOST_CHECK_EQUAL(errno, EAGAIN);
     });
-    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::steady_clock::now() - t0).count();
+    const auto ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
     BOOST_CHECK_GE(ms, 40);
     BOOST_CHECK_LT(ms, 5000);
     BOOST_CHECK_GT(ticks, 0);

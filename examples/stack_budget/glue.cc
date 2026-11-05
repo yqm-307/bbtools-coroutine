@@ -15,8 +15,7 @@ int main()
     // bound capacity constant.
     StackBudgetRegister(bbt_stack_budget::ExampleEntry);
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
-    while (__atomic_load_n(&stack_budget_done, __ATOMIC_ACQUIRE) == 0)
-    {
+    while (__atomic_load_n(&stack_budget_done, __ATOMIC_ACQUIRE) == 0) {
         if (std::chrono::steady_clock::now() >= deadline)
             std::_Exit(2);
         std::this_thread::sleep_for(std::chrono::milliseconds(1));

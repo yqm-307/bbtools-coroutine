@@ -3,8 +3,7 @@
 #include <bbt/coroutine/detail/Scheduler.hpp>
 #include <bbt/coroutine/detail/LocalThread.hpp>
 
-namespace bbt::coroutine
-{
+namespace bbt::coroutine {
 
 _WaitForHelper::_WaitForHelper(int fd, short event, int ms)
 {

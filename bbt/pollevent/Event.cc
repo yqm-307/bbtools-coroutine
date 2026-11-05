@@ -9,11 +9,9 @@
 #include <bbt/pollevent/detail/EventBase.hpp>
 #include <bbt/core/clock/Clock.hpp>
 
-namespace bbt::pollevent
-{
+namespace bbt::pollevent {
 
-struct Event::CallbackRegistry
-{
+struct Event::CallbackRegistry {
     std::unordered_map<EventId, OnEventCallback> m_callbacks;
     std::mutex m_mutex;
 };
@@ -27,8 +25,7 @@ Event::CallbackRegistry& Event::_Registry()
 }
 
 #ifdef BBT_POLLEVENT_TESTING
-namespace
-{
+namespace {
 /* 测试串行设置：测试在启动装配/完成线程之前写入，线程 join 之后才清除。 */
 void (*g_test_hook)(Event*, Event::TestHookPoint) = nullptr;
 } // namespace
@@ -45,12 +42,8 @@ void Event::RunTestHook(Event* self, TestHookPoint point)
 }
 #endif
 
-Event::Event(detail::EventBase* base, evutil_socket_t fd, short listen_events,
-             const OnEventCallback& onevent_cb)
-    :m_id(GenerateId()),
-     m_ref_base(base),
-     m_fd(fd),
-     m_listen_events(listen_events)
+Event::Event(detail::EventBase* base, evutil_socket_t fd, short listen_events, const OnEventCallback& onevent_cb)
+    : m_id(GenerateId()), m_ref_base(base), m_fd(fd), m_listen_events(listen_events)
 {
     Assert(base != nullptr);
 
@@ -60,7 +53,7 @@ Event::Event(detail::EventBase* base, evutil_socket_t fd, short listen_events,
      * 留下孤儿回调条目）。 */
     // 判断事件类型并创建 ASIO 对象（fd 和 timer 可共存）
     bool is_fd_event = (fd >= 0) && (listen_events & (EV_READ | EV_WRITE | EV_CLOSED));
-    bool is_timer   = (listen_events & EV_TIMEOUT);
+    bool is_timer = (listen_events & EV_TIMEOUT);
 
     if (is_fd_event) {
         Assert(fd >= 0);
@@ -77,13 +70,10 @@ Event::Event(detail::EventBase* base, evutil_socket_t fd, short listen_events,
          * 负 fd 的行为未定义。抛异常交由 InitFdEvent 的既有重试/失败路径
          * 收敛为「等待建立失败 -1」，协程存活。 */
         if (m_internal_fd < 0)
-            throw std::system_error(errno, std::generic_category(),
-                                    "pollevent dup fd failed");
+            throw std::system_error(errno, std::generic_category(), "pollevent dup fd failed");
         try {
-            m_sd = std::make_unique<boost::asio::posix::stream_descriptor>(
-                base->GetContext(), m_internal_fd);
-        }
-        catch (...) {
+            m_sd = std::make_unique<boost::asio::posix::stream_descriptor>(base->GetContext(), m_internal_fd);
+        } catch (...) {
             ::close(m_internal_fd);
             m_internal_fd = -1;
             throw;
@@ -92,8 +82,7 @@ Event::Event(detail::EventBase* base, evutil_socket_t fd, short listen_events,
     if (is_timer) {
         try {
             m_timer = std::make_unique<boost::asio::steady_timer>(base->GetContext());
-        }
-        catch (...) {
+        } catch (...) {
             /* fd 事件先于 timer 创建：timer 构造抛异常时回收内部 dup fd。
              * m_sd 自构造起即持有 m_internal_fd（adopt 语义），destroy 会对
              * 仍 open 的 descriptor 再 close 一次——先 release() 剥离所有权
@@ -156,8 +145,7 @@ int Event::StartListen(uint64_t timeout)
     if (!EnsureWeakSelfLocked()) {
         static std::atomic_bool reported{false};
         if (!reported.exchange(true))
-            std::fprintf(stderr,
-                         "[pollevent] StartListen requires shared_ptr ownership of Event id=%lld\n",
+            std::fprintf(stderr, "[pollevent] StartListen requires shared_ptr ownership of Event id=%lld\n",
                          static_cast<long long>(m_id));
         return -1;
     }
@@ -166,9 +154,7 @@ int Event::StartListen(uint64_t timeout)
     const uint64_t round = ++m_round;
 
     if (timeout > 0) {
-        m_timeout = bbt::core::clock::nowAfter(
-            bbt::core::clock::milliseconds(timeout + 1))
-            .time_since_epoch().count();
+        m_timeout = bbt::core::clock::nowAfter(bbt::core::clock::milliseconds(timeout + 1)).time_since_epoch().count();
     } else {
         m_timeout = -1;
     }
@@ -198,8 +184,7 @@ int Event::StartListen(uint64_t timeout)
 
     // 自定义事件：无 fd 无 timer，由 Trigger() 驱动；仅超时需要在此时建 timer
     if (timeout > 0 && m_fd < 0) {
-        m_timer = std::make_unique<boost::asio::steady_timer>(
-            m_ref_base->GetContext());
+        m_timer = std::make_unique<boost::asio::steady_timer>(m_ref_base->GetContext());
         ArmTimerLocked(timeout, round);
     }
 
@@ -224,20 +209,18 @@ void Event::DoAsyncWaitLocked(short event_flag, uint64_t round)
     if (!m_sd)
         return;
 
-    auto wait_type = (event_flag == EV_READ)
-        ? boost::asio::posix::stream_descriptor::wait_read
-        : boost::asio::posix::stream_descriptor::wait_write;
+    auto wait_type = (event_flag == EV_READ) ? boost::asio::posix::stream_descriptor::wait_read
+                                             : boost::asio::posix::stream_descriptor::wait_write;
 
     const int fd = m_fd;
     std::weak_ptr<Event> weak_self = m_self;
 
-    m_sd->async_wait(wait_type,
-        [weak_self, round, event_flag, fd](boost::system::error_code ec) {
-            if (ec == boost::asio::error::operation_aborted)
-                return;
-            if (auto self = weak_self.lock())
-                self->OnFdWaitCompleted(round, event_flag, fd);
-        });
+    m_sd->async_wait(wait_type, [weak_self, round, event_flag, fd](boost::system::error_code ec) {
+        if (ec == boost::asio::error::operation_aborted)
+            return;
+        if (auto self = weak_self.lock())
+            self->OnFdWaitCompleted(round, event_flag, fd);
+    });
 }
 
 void Event::OnFdWaitCompleted(uint64_t round, short event_flag, int fd)
@@ -253,7 +236,7 @@ void Event::OnFdWaitCompleted(uint64_t round, short event_flag, int fd)
         if (round != m_round || !m_sd)
             return;
         if (m_timer)
-            m_timer->cancel();      // fd 已交付：撤销定时器，防止 double-fire
+            m_timer->cancel(); // fd 已交付：撤销定时器，防止 double-fire
         /* m_listen_events 构造后只读；仍在锁内取快照，回调路径不直接读成员。 */
         persist = (m_listen_events & EV_PERSIST) != 0;
     }
@@ -279,7 +262,7 @@ void Event::OnTimerFired(uint64_t round)
             return;
         if (m_sd) {
             boost::system::error_code ignored;
-            m_sd->cancel(ignored);  // timer 已交付：撤销 fd 等待，防止 double-fire
+            m_sd->cancel(ignored); // timer 已交付：撤销 fd 等待，防止 double-fire
         }
     }
 
@@ -291,7 +274,7 @@ int Event::CancelListen(bool need_close_fd)
     int user_fd = -1;
     {
         std::lock_guard<std::mutex> lock(m_mutex);
-        ++m_round;              // 之后到达的完成回调一律作废
+        ++m_round; // 之后到达的完成回调一律作废
         m_timeout = -1;
         if (need_close_fd && m_fd >= 0) {
             /* need_close_fd 语义：由调用方要求连用户 fd 一起关（保留旧行为）。
@@ -328,8 +311,7 @@ int Event::Trigger(int flag)
         if (!EnsureWeakSelfLocked()) {
             static std::atomic_bool reported{false};
             if (!reported.exchange(true))
-                std::fprintf(stderr,
-                             "[pollevent] Trigger requires shared_ptr ownership of Event id=%lld\n",
+                std::fprintf(stderr, "[pollevent] Trigger requires shared_ptr ownership of Event id=%lld\n",
                              static_cast<long long>(m_id));
             return -1;
         }
@@ -344,11 +326,10 @@ int Event::Trigger(int flag)
     }
 
     const auto events = static_cast<short>(flag);
-    boost::asio::post(m_ref_base->GetContext(),
-        [weak_self, round, fd, events]() {
-            if (auto self = weak_self.lock())
-                self->OnCustomTriggered(round, fd, events);
-        });
+    boost::asio::post(m_ref_base->GetContext(), [weak_self, round, fd, events]() {
+        if (auto self = weak_self.lock())
+            self->OnCustomTriggered(round, fd, events);
+    });
     return 0;
 }
 
@@ -449,7 +430,8 @@ void Event::CallEventCallback(EventId id, int fd, short events)
         if (it != reg.m_callbacks.end())
             cb = it->second;
     }
-    if (cb) cb(fd, events, id);
+    if (cb)
+        cb(fd, events, id);
 }
 
 } // namespace bbt::pollevent

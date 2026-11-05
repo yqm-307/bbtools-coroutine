@@ -4,8 +4,7 @@
 #include <memory>
 #include <bbt/coroutine/detail/Define.hpp>
 
-namespace bbt::coroutine::detail
-{
+namespace bbt::coroutine::detail {
 
 /**
  * @brief Processer driver 通用 adapter（B1，契约见
@@ -16,28 +15,24 @@ namespace bbt::coroutine::detail
  * 线程调用。接口不暴露任何第三方类型。
  */
 
-enum class ProcesserDriverPhase
-{
+enum class ProcesserDriverPhase {
     BeforeSchedule, // 每轮调度前
     AfterSchedule,  // 每轮调度后（公平轮次 continue 同样经过）
 };
 
-enum class ProcesserDriverResult
-{
+enum class ProcesserDriverResult {
     Ok,
     Failed,
 };
 
-enum class ProcesserDriverState
-{
+enum class ProcesserDriverState {
     Unbound,
     Bound,
     Failed,
     Detaching,
 };
 
-enum class ProcesserDriverStatus
-{
+enum class ProcesserDriverStatus {
     Ok,
     NotInitialized, // runtime 未初始化
     InvalidTarget,  // 目标不是已登记 worker
@@ -47,31 +42,31 @@ enum class ProcesserDriverStatus
     SelfDetach,     // 目标 worker 线程、受管业务协程或持该代 lease 的线程
 };
 
-enum class ProcesserDriverFailure
-{
+enum class ProcesserDriverFailure {
     None,
     Tick,
     Wait,
 };
 
-struct ProcesserDriverToken
-{
-    ProcesserId     m_processer_id{BBT_COROUTINE_INVALID_PROCESSER_ID};
-    uint64_t        m_generation{0};
+struct ProcesserDriverToken {
+    ProcesserId m_processer_id{BBT_COROUTINE_INVALID_PROCESSER_ID};
+    uint64_t m_generation{0};
 
     bool operator==(const ProcesserDriverToken& rhs) const noexcept
     {
         return m_processer_id == rhs.m_processer_id && m_generation == rhs.m_generation;
     }
-    bool operator!=(const ProcesserDriverToken& rhs) const noexcept { return !(*this == rhs); }
+    bool operator!=(const ProcesserDriverToken& rhs) const noexcept
+    {
+        return !(*this == rhs);
+    }
 };
 
-struct ProcesserDriverSnapshot
-{
-    ProcesserDriverState    m_state{ProcesserDriverState::Unbound};
-    ProcesserDriverToken    m_token{};
-    ProcesserDriverFailure  m_failure{ProcesserDriverFailure::None};
-    std::exception_ptr      m_exception{};
+struct ProcesserDriverSnapshot {
+    ProcesserDriverState m_state{ProcesserDriverState::Unbound};
+    ProcesserDriverToken m_token{};
+    ProcesserDriverFailure m_failure{ProcesserDriverFailure::None};
+    std::exception_ptr m_exception{};
 };
 
 /**
@@ -88,14 +83,13 @@ struct ProcesserDriverSnapshot
  *  - 所有回调均在整条调用链的 runtime 锁之外执行；driver 不得持有
  *    Processer 强引用。
  */
-class IProcesserDriver
-{
+class IProcesserDriver {
 public:
     virtual ~IProcesserDriver() = default;
 
-    virtual ProcesserDriverResult   OnTick(ProcesserDriverPhase phase) = 0;
-    virtual ProcesserDriverResult   Wait(std::chrono::microseconds timeout) = 0;
-    virtual void                    Wake() noexcept = 0;
+    virtual ProcesserDriverResult OnTick(ProcesserDriverPhase phase) = 0;
+    virtual ProcesserDriverResult Wait(std::chrono::microseconds timeout) = 0;
+    virtual void Wake() noexcept = 0;
 };
 
 }

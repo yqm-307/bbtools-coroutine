@@ -15,23 +15,21 @@
 #define CHECK(x) do { if (!(x)) { \
     std::fprintf(stderr, "FAIL line=%d %s\n", __LINE__, #x); return 1; } } while (0)
 
-namespace
-{
+namespace {
 
 constexpr int kExitCodeStaticDtorHit = 42;
 
-struct Sentinel
-{
+struct Sentinel {
     ~Sentinel()
     {
         m_destructorCount.fetch_add(1, std::memory_order_acq_rel);
         if (m_mainReturned.load(std::memory_order_acquire))
             ::_exit(kExitCodeStaticDtorHit);
     }
-    static std::atomic<int>  m_destructorCount;
+    static std::atomic<int> m_destructorCount;
     static std::atomic<bool> m_mainReturned;
 };
-std::atomic<int>  Sentinel::m_destructorCount{0};
+std::atomic<int> Sentinel::m_destructorCount{0};
 std::atomic<bool> Sentinel::m_mainReturned{false};
 
 bbt::pollevent::detail::EventBase* GetEventBase()
@@ -50,10 +48,8 @@ int RunExitLiveEvent()
     int fds[2];
     CHECK(::pipe(fds) == 0);
 
-    auto* ev = new pe::Event(
-        base, fds[0],
-        static_cast<short>(pe::EventOpt::READABLE),
-        [sentinel = std::make_shared<Sentinel>()](int, short, pe::EventId) {});
+    auto* ev = new pe::Event(base, fds[0], static_cast<short>(pe::EventOpt::READABLE),
+                             [sentinel = std::make_shared<Sentinel>()](int, short, pe::EventId) {});
     (void)ev;
 
     CHECK(pe::Event::CallbackEntryCount() >= 1);
@@ -73,7 +69,7 @@ int RunNormalReclaim()
     CHECK(::pipe(fds) == 0);
 
     const auto cb_before = pe::Event::CallbackEntryCount();
-    const int  dtor_before = Sentinel::m_destructorCount.load();
+    const int dtor_before = Sentinel::m_destructorCount.load();
 
     std::weak_ptr<Sentinel> wp;
     {
@@ -81,8 +77,7 @@ int RunNormalReclaim()
         wp = sentinel;
         CHECK(sentinel.use_count() == 1);
         {
-            pe::Event ev(base, fds[0],
-                         static_cast<short>(pe::EventOpt::READABLE),
+            pe::Event ev(base, fds[0], static_cast<short>(pe::EventOpt::READABLE),
                          [sentinel](int, short, pe::EventId) {});
             CHECK(pe::Event::CallbackEntryCount() == cb_before + 1);
             CHECK(sentinel.use_count() == 2);
@@ -113,15 +108,14 @@ int RunCancelReclaim()
     CHECK(::pipe(fds) == 0);
 
     const auto cb_before = pe::Event::CallbackEntryCount();
-    const int  dtor_before = Sentinel::m_destructorCount.load();
+    const int dtor_before = Sentinel::m_destructorCount.load();
 
     std::weak_ptr<Sentinel> wp;
     {
         auto sentinel = std::make_shared<Sentinel>();
         wp = sentinel;
         {
-            pe::Event ev(base, fds[0],
-                         static_cast<short>(pe::EventOpt::READABLE),
+            pe::Event ev(base, fds[0], static_cast<short>(pe::EventOpt::READABLE),
                          [sentinel](int, short, pe::EventId) {});
             CHECK(pe::Event::CallbackEntryCount() == cb_before + 1);
 

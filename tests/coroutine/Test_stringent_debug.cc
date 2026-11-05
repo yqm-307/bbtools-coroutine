@@ -24,14 +24,11 @@
 #include <bbt/coroutine/detail/debug/DebugMgr.hpp>
 
 /* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。 */
-namespace
-{
+namespace {
 void EnsureRuntime()
 {
     static std::once_flag once;
-    std::call_once(once, [](){
-        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
-    });
+    std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
 
 /* 析构探针：以值捕获进协程 lambda，随 Coroutine 对象（其 Context::
@@ -41,10 +38,14 @@ void EnsureRuntime()
  * 检查时序严格成立，不依赖任何 sleep 窗口。
  * 用法注意：调用方持有的那份 shared_ptr 必须 reset() 之后再 Wait()，
  * 否则测试自身占用最后一引用，探针永不析构。 */
-struct DestructionProbe
-{
-    explicit DestructionProbe(bbt::core::thread::CountDownLatch* l): latch(l) {}
-    ~DestructionProbe() { latch->Down(); }
+struct DestructionProbe {
+    explicit DestructionProbe(bbt::core::thread::CountDownLatch* l) : latch(l)
+    {
+    }
+    ~DestructionProbe()
+    {
+        latch->Down();
+    }
     bbt::core::thread::CountDownLatch* latch;
 };
 }
@@ -71,7 +72,8 @@ BOOST_AUTO_TEST_CASE(t_ready_yield_resume_pairs)
     bbt::core::thread::CountDownLatch done{1};
     std::atomic_int rounds{0};
 
-    bbtco [&]() {
+    bbtco[&]()
+    {
         for (int i = 0; i < 8; ++i) {
             bbtco_yield;
             rounds.fetch_add(1);
@@ -91,7 +93,8 @@ BOOST_AUTO_TEST_CASE(t_event_wait_resume_pairs)
     bbt::core::thread::CountDownLatch done{1};
     std::atomic_int wakes{0};
 
-    bbtco [&]() {
+    bbtco[&]()
+    {
         for (int i = 0; i < 4; ++i) {
             bbtco_sleep(10);
             wakes.fetch_add(1);
@@ -112,7 +115,8 @@ BOOST_AUTO_TEST_CASE(t_concurrent_cos_independent_pairs)
     std::atomic_int finished{0};
 
     for (int i = 0; i < kCoNum; ++i) {
-        bbtco [&, i]() {
+        bbtco[&, i]()
+        {
             for (int j = 0; j <= i; ++j)
                 bbtco_sleep(5 + i * 5);
             finished.fetch_add(1);
@@ -135,15 +139,16 @@ BOOST_AUTO_TEST_CASE(t_final_coroutine_not_stuck_as_resumed)
     std::atomic<CoroutineId> seen{BBT_COROUTINE_INVALID_COROUTINE_ID};
     auto probe = std::make_shared<DestructionProbe>(&destroyed);
 
-    bbtco [&, probe]() {
+    bbtco[&, probe]()
+    {
         seen.store(g_bbt_tls_coroutine_co->GetId());
-    };  // 协程体结束走 FINAL；探针随 Coroutine 析构 Down latch
+    }; // 协程体结束走 FINAL；探针随 Coroutine 析构 Down latch
 
-    probe.reset();  // 释放测试侧引用，delete 协程时探针成为最后所有者
+    probe.reset(); // 释放测试侧引用，delete 协程时探针成为最后所有者
     destroyed.Wait();
     BOOST_REQUIRE(seen.load() != BBT_COROUTINE_INVALID_COROUTINE_ID);
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
-    g_bbt_dbgmgr->Check_IsResumedCo(seen.load());   // 残留则断言中止
+    g_bbt_dbgmgr->Check_IsResumedCo(seen.load()); // 残留则断言中止
 #endif
     BOOST_TEST(true);
 }
@@ -156,7 +161,8 @@ BOOST_AUTO_TEST_CASE(t_exception_final_not_stuck_as_resumed)
     std::atomic<CoroutineId> seen{BBT_COROUTINE_INVALID_COROUTINE_ID};
     auto probe = std::make_shared<DestructionProbe>(&destroyed);
 
-    bbtco [&, probe]() {
+    bbtco[&, probe]()
+    {
         seen.store(g_bbt_tls_coroutine_co->GetId());
         throw std::runtime_error{"stringent-debug probe exception"};
     };
@@ -182,7 +188,8 @@ BOOST_AUTO_TEST_CASE(t_regist_fail_reentry_pairs)
     std::atomic_int fail_ret{-2};
     auto probe = std::make_shared<DestructionProbe>(&destroyed);
 
-    bbtco [&, probe]() {
+    bbtco[&, probe]()
+    {
         seen.store(g_bbt_tls_coroutine_co->GetId());
         Coroutine::_TestFailNextAwaitRegist();
         fail_ret.store(g_bbt_tls_coroutine_co->YieldUntilTimeout(5));
@@ -208,7 +215,7 @@ BOOST_AUTO_TEST_CASE(t_regist_fail_reentry_pairs)
  * SIGABRT）。测试线程直接 Resume 属既有合法用法（见 Test_coroutine.cc）。 */
 BOOST_AUTO_TEST_CASE(t_direct_drive_final_cleanup)
 {
-    auto* co = Coroutine::Create(64 * 1024, [](){}, false);
+    auto* co = Coroutine::Create(64 * 1024, []() {}, false);
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
     const CoroutineId id = co->GetId();
 #endif
@@ -216,7 +223,7 @@ BOOST_AUTO_TEST_CASE(t_direct_drive_final_cleanup)
     BOOST_REQUIRE(co->GetStatus() == CoroutineStatus::CO_FINAL);
     delete co;
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
-    g_bbt_dbgmgr->Check_IsResumedCo(id);   // 残留则断言中止
+    g_bbt_dbgmgr->Check_IsResumedCo(id); // 残留则断言中止
 #endif
     BOOST_TEST(true);
 }
@@ -226,9 +233,7 @@ BOOST_AUTO_TEST_CASE(t_direct_drive_final_cleanup)
 BOOST_AUTO_TEST_CASE(t_direct_drive_exception_final_cleanup)
 {
     const auto before = g_bbt_coroutine_config->m_unhandled_exception_count.load();
-    auto* co = Coroutine::Create(64 * 1024, [](){
-        throw std::runtime_error{"direct drive final probe"};
-    }, false);
+    auto* co = Coroutine::Create(64 * 1024, []() { throw std::runtime_error{"direct drive final probe"}; }, false);
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
     const CoroutineId id = co->GetId();
 #endif
@@ -248,17 +253,27 @@ BOOST_AUTO_TEST_CASE(t_fd_rejected_registration_pairs)
 {
     struct PipeGuard {
         int fd[2]{-1, -1};
-        ~PipeGuard() { for (int value : fd) if (value >= 0) ::close(value); }
+        ~PipeGuard()
+        {
+            for (int value : fd)
+                if (value >= 0)
+                    ::close(value);
+        }
     } pipe;
     BOOST_REQUIRE_EQUAL(::pipe(pipe.fd), 0);
     std::atomic_int completed{0}, flags{0};
-    auto event = CoPollEvent::Create(BBT_COROUTINE_INVALID_COROUTINE_ID,
-        [&](auto, int result, int) { flags.store(result); completed.fetch_add(1); });
+    auto event = CoPollEvent::Create(BBT_COROUTINE_INVALID_COROUTINE_ID, [&](auto, int result, int) {
+        flags.store(result);
+        completed.fetch_add(1);
+    });
     BOOST_REQUIRE_EQUAL(event->InitFdEvent(pipe.fd[0], bbt::pollevent::EventOpt::READABLE, 0), 0);
     BOOST_REQUIRE(CoPollEvent::BeginFdClose(pipe.fd[0]));
     struct CloseClaimGuard {
         int fd;
-        ~CloseClaimGuard() { CoPollEvent::EndFdClose(fd); }
+        ~CloseClaimGuard()
+        {
+            CoPollEvent::EndFdClose(fd);
+        }
     } claim{pipe.fd[0]};
     BOOST_REQUIRE_EQUAL(event->Regist(), 0);
     BOOST_REQUIRE(event->CommitPark());

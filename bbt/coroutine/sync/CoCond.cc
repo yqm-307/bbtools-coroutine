@@ -2,8 +2,7 @@
 #include <bbt/coroutine/detail/DriverWakeDeferral.hpp>
 #include <bbt/coroutine/utils/DebugPrint.hpp>
 
-namespace bbt::coroutine::sync
-{
+namespace bbt::coroutine::sync {
 
 CoCond::SPtr CoCond::Create()
 {
@@ -18,7 +17,8 @@ CoCond::~CoCond()
 {
     _SysLock();
     if (!m_waiter_queue.empty())
-        g_bbt_dbgp_full((std::to_string(m_waiter_queue.size()) + " coroutine maybe have been lost permanently!").c_str());
+        g_bbt_dbgp_full(
+            (std::to_string(m_waiter_queue.size()) + " coroutine maybe have been lost permanently!").c_str());
     _SysUnLock();
 }
 
@@ -26,7 +26,7 @@ int CoCond::Wait()
 {
     auto waiter = CoWaiter::Create();
 
-    return waiter->WaitWithCallback([waiter, this](){
+    return waiter->WaitWithCallback([waiter, this]() {
         _SysLock();
         m_waiter_queue.push(waiter);
         _SysUnLock();
@@ -38,7 +38,7 @@ int CoCond::WaitFor(int ms)
 {
     auto waiter = CoWaiter::Create();
 
-    return waiter->WaitWithTimeoutAndCallback(ms, [waiter, this](){
+    return waiter->WaitWithTimeoutAndCallback(ms, [waiter, this]() {
         _SysLock();
         m_waiter_queue.push(waiter);
         _SysUnLock();

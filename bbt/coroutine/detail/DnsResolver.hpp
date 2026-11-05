@@ -9,8 +9,7 @@
 #include <queue>
 #include <thread>
 
-namespace bbt::coroutine::detail
-{
+namespace bbt::coroutine::detail {
 
 /**
  * @brief DNS 阻塞解析的单线程任务池
@@ -32,8 +31,7 @@ namespace bbt::coroutine::detail
  *
  * ponytail: 单 worker，QPS 不够再加池。无解析缓存。
  */
-class DnsResolver
-{
+class DnsResolver {
 public:
     static DnsResolver* GetInstance();
 
@@ -56,16 +54,13 @@ public:
      *       晚到的 work 结果由调用方负责丢弃。
      *       队列满时返回 RuntimeUnavailable，work 不执行。
      */
-    sync::CombinedWaitStatus AwaitBounded(
-        const std::function<void()>& work,
-        const sync::CombinedWaitOptions& options);
+    sync::CombinedWaitStatus AwaitBounded(const std::function<void()>& work, const sync::CombinedWaitOptions& options);
 
 private:
     static constexpr std::size_t kMaxPendingJobs = 256;
-    struct Job
-    {
+    struct Job {
         std::function<void()> work;
-        sync::CoWaiter::SPtr  waiter;
+        sync::CoWaiter::SPtr waiter;
     };
 
     DnsResolver() = default;
@@ -74,9 +69,9 @@ private:
     bool Enqueue(Job job);
     void _Worker();
 
-    std::mutex                m_mutex;
-    std::condition_variable   m_cv;
-    std::queue<Job>           m_queue;
+    std::mutex m_mutex;
+    std::condition_variable m_cv;
+    std::queue<Job> m_queue;
     std::unique_ptr<std::thread> m_thread;
 };
 

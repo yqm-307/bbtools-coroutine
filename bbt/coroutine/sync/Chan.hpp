@@ -10,9 +10,7 @@
 #include <bbt/coroutine/sync/interface/IChan.hpp>
 #include <bbt/coroutine/sync/CoWaiter.hpp>
 
-namespace bbt::coroutine::sync
-{
-
+namespace bbt::coroutine::sync {
 
 /**
  * @brief 有缓冲队列的Chan
@@ -29,11 +27,7 @@ namespace bbt::coroutine::sync
  * @tparam TItem 元素类型，建议不要使用平凡类类型，推荐使用指针类型 
  * @tparam Max 缓冲队列最大长度，0 < Max < (1 << 32 - 1)
  */
-template<class TItem, int Max>
-class Chan:
-    public IChan<TItem>,
-    boost::noncopyable
-{
+template <class TItem, int Max> class Chan : public IChan<TItem>, boost::noncopyable {
 public:
     typedef TItem ItemType;
     typedef std::shared_ptr<Chan> SPtr;
@@ -48,7 +42,7 @@ public:
      * @param item 要写入Chan的元素
      * @return 0表示成功，-1表示Chan已关闭且无数据，-2表示错误
      */
-    virtual int                             Write(const ItemType& item) override;
+    virtual int Write(const ItemType& item) override;
 
     /**
      * @brief 从Chan（有缓冲队列）中读取一个元素
@@ -57,7 +51,7 @@ public:
      * @param item 读取元素
      * @return 0表示成功，-1表示Chan已关闭且无数据，-2表示错误
      */
-    virtual int                             Read(ItemType& item) override;
+    virtual int Read(ItemType& item) override;
 
     /**
      * @brief 从Chan（有缓冲队列）中读取所有元素
@@ -65,14 +59,14 @@ public:
      * @param items 读取元素数组
      * @return 0表示成功，-1表示Chan已关闭且无数据，-2表示错误
      */
-    virtual int                             ReadAll(std::vector<ItemType>& items) override;
+    virtual int ReadAll(std::vector<ItemType>& items) override;
 
     /**
      * @brief 尝试从Chan（有缓存）中读取一个元素，失败立即返回
      * @param item 读取元素对象
      * @return 0表示成功，-1表示Chan已关闭且无数据，-2表示错误
      */
-    virtual int                             TryRead(ItemType& item) override;
+    virtual int TryRead(ItemType& item) override;
 
     /**
      * @brief 尝试从Chan（有缓存）中读取一个元素，如果无法立即读取挂起直到超时
@@ -80,14 +74,14 @@ public:
      * @param timeout 最大挂起时间
      * @return 0表示成功，1表示超时，-1表示Chan已关闭且无数据，-2表示错误
      */
-    virtual int                             TryRead(ItemType& item, int timeout) override;
+    virtual int TryRead(ItemType& item, int timeout) override;
 
     /**
      * @brief 尝试向Chan（有缓存）中写入一个元素，失败立即返回
      * @param item 
      * @return 0表示成功，-1表示Chan已关闭且无数据，-2表示错误 
      */
-    virtual int                             TryWrite(const ItemType& item) override;
+    virtual int TryWrite(const ItemType& item) override;
 
     /**
      * @brief 尝试向Chan（有缓存）中写入一个元素，如果无法立即写入挂起直到超时
@@ -95,9 +89,9 @@ public:
      * @param timeout 
      * @return 0表示成功，1表示超时，-1表示Chan已关闭且无数据，-2表示错误
      */
-    virtual int                             TryWrite(const ItemType& item, int timeout) override;
-    virtual void                            Close() override;
-    virtual bool                            IsClosed() override;
+    virtual int TryWrite(const ItemType& item, int timeout) override;
+    virtual void Close() override;
+    virtual bool IsClosed() override;
 
     /**
      * @brief CoSelect 观察者：状态变化（可读/可写/关闭）时额外 Notify 这些 waiter。
@@ -106,33 +100,41 @@ public:
      *  该 waiter 则返回 -1（忽略即可）。注册后调用方须自行再 Try 一次，
      *  补上"Try 失败与注册之间"的丢唤醒窗口（CoSelect 回调里已处理）。
      */
-    void                                    AddReadWatcher(const CoWaiter::SPtr& waiter);
-    void                                    RemoveReadWatcher(const CoWaiter::SPtr& waiter);
-    void                                    AddWriteWatcher(const CoWaiter::SPtr& waiter);
-    void                                    RemoveWriteWatcher(const CoWaiter::SPtr& waiter);
+    void AddReadWatcher(const CoWaiter::SPtr& waiter);
+    void RemoveReadWatcher(const CoWaiter::SPtr& waiter);
+    void AddWriteWatcher(const CoWaiter::SPtr& waiter);
+    void RemoveWriteWatcher(const CoWaiter::SPtr& waiter);
 
     /**
      * @brief 当前缓冲队列中的元素数量
      */
-    size_t                                  size() const { std::lock_guard<std::mutex> lock(m_item_queue_mutex); return m_item_queue.size(); }
+    size_t size() const
+    {
+        std::lock_guard<std::mutex> lock(m_item_queue_mutex);
+        return m_item_queue.size();
+    }
 
     /**
      * @brief 缓冲队列最大容量
      */
-    size_t                                  capacity() const { return (size_t)m_max_size; }
+    size_t capacity() const
+    {
+        return (size_t)m_max_size;
+    }
+
 protected:
     /**
      * @brief 挂起协程直到可读或者eof
      * @return 0表示可读，-1表示失败 
      */
-    int                                     _WaitUntilEnableRead(const detail::CoroutineOnYieldCallback& cb = nullptr);
+    int _WaitUntilEnableRead(const detail::CoroutineOnYieldCallback& cb = nullptr);
 
     /**
      * @brief 挂起协程直到可读或超时
      * @param timeout_ms 最大等待的超时时间，超过此时间后即使没有可读数据，阻塞协程也会被唤醒
      * @return 0表示可读，-1表示失败，1表示超时
      */
-    int                                     _WaitUntilEnableReadOrTimeout(int timeout_ms, const detail::CoroutineOnYieldCallback& cb = nullptr);
+    int _WaitUntilEnableReadOrTimeout(int timeout_ms, const detail::CoroutineOnYieldCallback& cb = nullptr);
 
     /**
      * @brief 挂起协程直到可写
@@ -140,7 +142,7 @@ protected:
      * @param cb   当协程挂起成功后执行的回调事件
      * @return 0表示可写，-1表示失败
      */
-    int                                     _WaitUntilEnableWrite(CoWaiter::SPtr cond, const detail::CoroutineOnYieldCallback& cb = nullptr);
+    int _WaitUntilEnableWrite(CoWaiter::SPtr cond, const detail::CoroutineOnYieldCallback& cb = nullptr);
 
     /**
      * @brief 挂起协程直到可写或超时
@@ -149,19 +151,20 @@ protected:
      * @param cb 协程挂起后回调
      * @return 0表示可写，-1表示失败，1表示超时
      */
-    int                                     _WaitUntilEnableWriteOrTimeout(CoWaiter::SPtr cond, int timeout_ms, const detail::CoroutineOnYieldCallback& cb = nullptr);
+    int _WaitUntilEnableWriteOrTimeout(CoWaiter::SPtr cond, int timeout_ms,
+                                       const detail::CoroutineOnYieldCallback& cb = nullptr);
 
     /* 可读事件 */
-    int                                     _OnEnableRead();
+    int _OnEnableRead();
 
     /**
      * @brief 
      * @return 0表示成功触发一个可写事件或没有可写事件需要触发，-1表示触发失败 
      */
-    int                                     _OnEnableWrite();
+    int _OnEnableWrite();
 
     /* 创建一个可写等待者（未入队）；入队时机由 _RegisterEnableWriteCond 决定 */
-    CoWaiter::SPtr                          _CreateEnableWriteCond();
+    CoWaiter::SPtr _CreateEnableWriteCond();
 
     /**
      * @brief 可写等待者的「注册后入队」协议（对齐 CoCond::Wait 的 callback 入队）。
@@ -173,9 +176,7 @@ protected:
      * 这样 waiter 绝不会在「已入队但尚未可 Notify」的窗口被 pop，
      * 消除 Notify 返回 -1 造成的永久丢唤醒。
      */
-    void                                    _RegisterEnableWriteCond(
-                                                const CoWaiter::SPtr& waiter,
-                                                const std::function<bool()>& need_wait);
+    void _RegisterEnableWriteCond(const CoWaiter::SPtr& waiter, const std::function<bool()>& need_wait);
 
     /**
      * @brief 读侧注册后复查：ready() 为真（已可读/已关闭）则自唤醒当前读等待者。
@@ -184,31 +185,31 @@ protected:
      * ready，与写端 push+_OnEnableRead 串行化，封闭「检查→登记」窗口的数据
      * 到达丢唤醒（否则退化为 500ms 假超时）。
      */
-    void                                    _RecheckEnableRead(const std::function<bool()>& ready);
+    void _RecheckEnableRead(const std::function<bool()>& ready);
+
 protected:
-    const int                               m_max_size{-1};
-    std::queue<ItemType>                    m_item_queue;
-    mutable std::mutex                      m_item_queue_mutex;   // mutable：size() const 需持锁读
-    std::atomic<ChanStatus>                 m_run_status{ChanStatus::CHAN_DEFAUTL};
-    std::atomic_bool                        m_is_reading{false};
+    const int m_max_size{-1};
+    std::queue<ItemType> m_item_queue;
+    mutable std::mutex m_item_queue_mutex; // mutable：size() const 需持锁读
+    std::atomic<ChanStatus> m_run_status{ChanStatus::CHAN_DEFAUTL};
+    std::atomic_bool m_is_reading{false};
 
     /* 用来实现读写时挂起和可读写时唤醒协程 */
-    CoWaiter::SPtr                            m_enable_read_cond{nullptr};
-    std::queue<CoWaiter::SPtr>                m_enable_write_conds;
+    CoWaiter::SPtr m_enable_read_cond{nullptr};
+    std::queue<CoWaiter::SPtr> m_enable_write_conds;
 
     /* CoSelect 观察者，锁语义同 m_item_queue_mutex 保护的其余成员 */
-    std::vector<CoWaiter::SPtr>               m_read_watchers;
-    std::vector<CoWaiter::SPtr>               m_write_watchers;
+    std::vector<CoWaiter::SPtr> m_read_watchers;
+    std::vector<CoWaiter::SPtr> m_write_watchers;
 };
-
 
 /**
  * @brief 无缓冲队列的Chan
  *  
  * @tparam TItem 
  */
-template<class TItem>
-class Chan<TItem, 0>:
+template <class TItem>
+class Chan<TItem, 0> :
     /** 
      * XXX 这里使用了取巧的方式。
      * 
@@ -218,12 +219,11 @@ class Chan<TItem, 0>:
      * 为什么不在带缓冲队列的Chan适配？
      * 感觉代码会不好看，而且如何暴露接口也是个问题。
      */
-    private Chan<TItem, 1>
-{
+    private Chan<TItem, 1> {
 public:
-    typedef Chan<TItem, 1>                      BaseType;
-    typedef typename BaseType::ItemType         ItemType;
-    typedef std::shared_ptr<Chan<TItem, 0>>     SPtr;
+    typedef Chan<TItem, 1> BaseType;
+    typedef typename BaseType::ItemType ItemType;
+    typedef std::shared_ptr<Chan<TItem, 0>> SPtr;
 
     using BaseType::TryRead;
     using BaseType::TryWrite;
@@ -234,21 +234,22 @@ public:
      * @param item 
      * @return 0表示成功，-1表示Chan已关闭且无数据，-2表示错误
      */
-    virtual int                             Write(const ItemType& item) override;
+    virtual int Write(const ItemType& item) override;
 
     /**
      * @brief 从Chan中读取一个元素，阻塞直到写端写入数据
      * @param item 
      * @return 0表示成功，-1表示Chan已关闭且无数据，-2表示错误
      */
-    virtual int                             Read(ItemType& item) override;
+    virtual int Read(ItemType& item) override;
 
-    virtual void                            Close() override;
-    virtual bool                            IsClosed() override;
+    virtual void Close() override;
+    virtual bool IsClosed() override;
+
 private:
-    std::queue<ItemType>                    m_item_cache_ref;
-    uint64_t                                m_read_idx{0};
-    uint64_t                                m_write_idx{0};
+    std::queue<ItemType> m_item_cache_ref;
+    uint64_t m_read_idx{0};
+    uint64_t m_write_idx{0};
 };
 
 /**
@@ -256,19 +257,38 @@ private:
  * 
  * 用法：WriteChan<int, 10> w(ch);  w << 42;
  */
-template<class TItem, int Max>
-class WriteChan : boost::noncopyable {
+template <class TItem, int Max> class WriteChan : boost::noncopyable {
 public:
     typedef typename Chan<TItem, Max>::ItemType ItemType;
 
-    explicit WriteChan(std::shared_ptr<Chan<TItem, Max>> chan) : m_chan(chan) {}
+    explicit WriteChan(std::shared_ptr<Chan<TItem, Max>> chan) : m_chan(chan)
+    {
+    }
 
-    int Write(const ItemType& item)          { return m_chan->Write(item); }
-    int TryWrite(const ItemType& item)       { return m_chan->TryWrite(item); }
-    int TryWrite(const ItemType& item, int ms) { return m_chan->TryWrite(item, ms); }
-    void Close()                             { m_chan->Close(); }
-    bool IsClosed()                          { return m_chan->IsClosed(); }
-    bool operator<<(const ItemType& item)    { return *m_chan << item; }
+    int Write(const ItemType& item)
+    {
+        return m_chan->Write(item);
+    }
+    int TryWrite(const ItemType& item)
+    {
+        return m_chan->TryWrite(item);
+    }
+    int TryWrite(const ItemType& item, int ms)
+    {
+        return m_chan->TryWrite(item, ms);
+    }
+    void Close()
+    {
+        m_chan->Close();
+    }
+    bool IsClosed()
+    {
+        return m_chan->IsClosed();
+    }
+    bool operator<<(const ItemType& item)
+    {
+        return *m_chan << item;
+    }
 
 private:
     std::shared_ptr<Chan<TItem, Max>> m_chan;
@@ -279,19 +299,38 @@ private:
  * 
  * 用法：ReadChan<int, 10> r(ch);  r >> val;  if (r.Read(val) == -1) // closed
  */
-template<class TItem, int Max>
-class ReadChan : boost::noncopyable {
+template <class TItem, int Max> class ReadChan : boost::noncopyable {
 public:
     typedef typename Chan<TItem, Max>::ItemType ItemType;
 
-    explicit ReadChan(std::shared_ptr<Chan<TItem, Max>> chan) : m_chan(chan) {}
+    explicit ReadChan(std::shared_ptr<Chan<TItem, Max>> chan) : m_chan(chan)
+    {
+    }
 
-    int Read(ItemType& item)                 { return m_chan->Read(item); }
-    int TryRead(ItemType& item)              { return m_chan->TryRead(item); }
-    int TryRead(ItemType& item, int ms)      { return m_chan->TryRead(item, ms); }
-    int ReadAll(std::vector<ItemType>& items){ return m_chan->ReadAll(items); }
-    bool IsClosed()                          { return m_chan->IsClosed(); }
-    bool operator>>(ItemType& item)          { return *m_chan >> item; }
+    int Read(ItemType& item)
+    {
+        return m_chan->Read(item);
+    }
+    int TryRead(ItemType& item)
+    {
+        return m_chan->TryRead(item);
+    }
+    int TryRead(ItemType& item, int ms)
+    {
+        return m_chan->TryRead(item, ms);
+    }
+    int ReadAll(std::vector<ItemType>& items)
+    {
+        return m_chan->ReadAll(items);
+    }
+    bool IsClosed()
+    {
+        return m_chan->IsClosed();
+    }
+    bool operator>>(ItemType& item)
+    {
+        return *m_chan >> item;
+    }
 
 private:
     std::shared_ptr<Chan<TItem, Max>> m_chan;
@@ -300,4 +339,3 @@ private:
 } // namespace bbt::coroutine::sync
 
 #include <bbt/coroutine/sync/__TChan.hpp>
-

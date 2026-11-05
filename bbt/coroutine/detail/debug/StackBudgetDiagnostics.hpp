@@ -21,15 +21,13 @@
 
 #ifdef BBT_COROUTINE_STACK_DIAGNOSTICS
 
-namespace bbt::coroutine::detail
-{
+namespace bbt::coroutine::detail {
 
 /**
  * @brief 快照覆盖度。当前唯一值 PARTIAL：观测面不完整（未插桩路径、
  * mid-function alloca 等不可见），不存在 FULL。
  */
-enum class StackBudgetCoverage
-{
+enum class StackBudgetCoverage {
     PARTIAL = 0,
 };
 
@@ -40,12 +38,11 @@ enum class StackBudgetCoverage
  * 并发约定：state 由当前 owner 线程的 hook 同步写（协程运行中）；
  * 读取只允许在同步安全点——见 Context::GetStackBudgetSample 前置条件。
  */
-struct StackBudgetState
-{
-    uintptr_t   bottom{0};          ///< 可用栈低边界（StackBottom）
-    uintptr_t   top{0};             ///< 栈顶（初始 SP 侧，StackTop）
-    uintptr_t   min_sp{0};          ///< 观测到的最低 SP（最深水位），初始 = top
-    uint64_t    sample_count{0};    ///< 有效样本数，饱和计数不回绕
+struct StackBudgetState {
+    uintptr_t bottom{0};      ///< 可用栈低边界（StackBottom）
+    uintptr_t top{0};         ///< 栈顶（初始 SP 侧，StackTop）
+    uintptr_t min_sp{0};      ///< 观测到的最低 SP（最深水位），初始 = top
+    uint64_t sample_count{0}; ///< 有效样本数，饱和计数不回绕
 };
 
 /**
@@ -54,11 +51,10 @@ struct StackBudgetState
  * observed_sample_bytes = top - min_sp，是「被插桩路径上观测到的最深
  * 栈延伸字节数」；无样本时为 0 且 sample_count = 0。
  */
-struct StackBudgetSample
-{
-    size_t                  observed_sample_bytes{0};
-    uint64_t                sample_count{0};
-    StackBudgetCoverage     coverage{StackBudgetCoverage::PARTIAL};
+struct StackBudgetSample {
+    size_t observed_sample_bytes{0};
+    uint64_t sample_count{0};
+    StackBudgetCoverage coverage{StackBudgetCoverage::PARTIAL};
 };
 
 /**
@@ -75,12 +71,12 @@ struct StackBudgetSample
  * 避免编译器跨 jump_fcontext 复用旧 TLS 地址；且自身不可被插桩
  * （hook 内重入会自递归）。
  */
-StackBudgetState*   ExchangeActiveStackBudgetState(StackBudgetState* next) noexcept;
+StackBudgetState* ExchangeActiveStackBudgetState(StackBudgetState* next) noexcept;
 
 /**
  * @brief 读当前线程活动状态（诊断/测试自检用，断言线程无残留归属）。
  */
-StackBudgetState*   GetActiveStackBudgetState() noexcept;
+StackBudgetState* GetActiveStackBudgetState() noexcept;
 
 }
 

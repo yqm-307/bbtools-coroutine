@@ -1,8 +1,7 @@
 #include <bbt/coroutine/detail/DnsResolver.hpp>
 #include <bbt/coroutine/detail/LocalThread.hpp>
 
-namespace bbt::coroutine::detail
-{
+namespace bbt::coroutine::detail {
 
 DnsResolver* DnsResolver::GetInstance()
 {
@@ -22,7 +21,7 @@ bool DnsResolver::Enqueue(Job job)
         m_queue.push(std::move(job));
         if (!m_thread) {
             try {
-                m_thread.reset(new std::thread([this](){ _Worker(); }));
+                m_thread.reset(new std::thread([this]() { _Worker(); }));
             } catch (...) {
                 // 线程创建失败：撤回任务，调用方按入队失败路径（默认错误码）收尾
                 m_queue.pop();
@@ -39,12 +38,11 @@ void DnsResolver::_Worker()
     /* worker 不是协程线程：LocalThread 默认 EnableUseCo()==false，
      * 这里执行的 libc 阻塞调用只占用本线程，且其内部再进 hook 时走直通路径。
      * 进程寿命：没有停机路径，本循环不设退出条件。 */
-    for (;;)
-    {
+    for (;;) {
         Job job;
         {
             std::unique_lock<std::mutex> lock(m_mutex);
-            m_cv.wait(lock, [this](){ return !m_queue.empty(); });
+            m_cv.wait(lock, [this]() { return !m_queue.empty(); });
             job = std::move(m_queue.front());
             m_queue.pop();
         }
@@ -80,17 +78,14 @@ int DnsResolver::Await(const std::function<void()>& work)
     return enqueued ? 0 : -1;
 }
 
-sync::CombinedWaitStatus DnsResolver::AwaitBounded(
-    const std::function<void()>& work,
-    const sync::CombinedWaitOptions& options)
+sync::CombinedWaitStatus DnsResolver::AwaitBounded(const std::function<void()>& work,
+                                                   const sync::CombinedWaitOptions& options)
 {
-    AssertWithInfo(g_bbt_tls_helper->EnableUseCo(),
-                   "DnsResolver::AwaitBounded must be in coroutine!");
+    AssertWithInfo(g_bbt_tls_helper->EnableUseCo(), "DnsResolver::AwaitBounded must be in coroutine!");
     auto waiter = sync::CoWaiter::Create();
     bool enqueued = false;
     bool enqueue_attempted = false;
-    const auto status = waiter->Wait(options, [this, waiter, work,
-                                               &enqueue_attempted, &enqueued]() {
+    const auto status = waiter->Wait(options, [this, waiter, work, &enqueue_attempted, &enqueued]() {
         enqueue_attempted = true;
         enqueued = Enqueue(Job{work, waiter});
         if (!enqueued)

@@ -34,22 +34,18 @@
 
 /* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
  * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。 */
-namespace
-{
+namespace {
 void EnsureRuntime()
 {
     static std::once_flag once;
-    std::call_once(once, [](){
-        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
-    });
+    std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
 }
 
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::sync;
 
-namespace
-{
+namespace {
 
 // 带 deadline 的 latch 轮询等待。
 //
@@ -96,18 +92,19 @@ BOOST_AUTO_TEST_CASE(t_DL_01_hold_lock_await)
 
     auto mutex = bbtco_make_comutex();
     const int nco = 20;
-    const int niter = 20;  // 400 total ops — with mutex contention ~3s expected
+    const int niter = 20; // 400 total ops — with mutex contention ~3s expected
     std::atomic_int ops{0};
     bbt::core::thread::CountDownLatch latch{nco};
 
     for (int i = 0; i < nco; ++i) {
-        bbtco [mutex, &ops, &latch]() {
+        bbtco[mutex, &ops, &latch]()
+        {
             for (int j = 0; j < niter; ++j) {
                 mutex->Lock();
-                bbtco_sleep(1);  // 持锁 sleep — 不应对调度器造成死锁
+                bbtco_sleep(1); // 持锁 sleep — 不应对调度器造成死锁
                 ops++;
                 mutex->UnLock();
-                bbtco_sleep(1);  // 给其他协程机会
+                bbtco_sleep(1); // 给其他协程机会
             }
             latch.Down();
         };
@@ -120,7 +117,8 @@ BOOST_AUTO_TEST_CASE(t_DL_01_hold_lock_await)
     while (!bbt::core::clock::is_expired<bbt::core::clock::milliseconds>(deadline)) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         int current = ops.load();
-        if (current >= nco * niter) break;
+        if (current >= nco * niter)
+            break;
     }
 
     BOOST_TEST(ops.load() == nco * niter);
@@ -148,12 +146,13 @@ BOOST_AUTO_TEST_CASE(t_DL_02_destructor_race_deadlock)
 
     // 10 协程持续 Lock/UnLock
     for (int i = 0; i < nco; ++i) {
-        bbtco [mutex, &ops, &running, &workers_done]() {
+        bbtco[mutex, &ops, &running, &workers_done]()
+        {
             while (running.load()) {
                 mutex->Lock();
                 ops++;
                 mutex->UnLock();
-                bbtco_sleep(0);  // yield
+                bbtco_sleep(0); // yield
             }
             workers_done.Down();
         };
@@ -184,7 +183,7 @@ BOOST_AUTO_TEST_CASE(t_DL_02_destructor_race_deadlock)
     workers_done.Wait();
 
     BOOST_TEST(ops.load() > 0);
-    BOOST_TEST(stale_count < 2);  // 不应冻结
+    BOOST_TEST(stale_count < 2); // 不应冻结
     BOOST_TEST_MESSAGE("[DL-02] ops=" << ops.load() << " stale_checks=" << stale_count);
 }
 
@@ -204,17 +203,19 @@ BOOST_AUTO_TEST_CASE(t_DL_03_loop_nonblock_no_hang)
 
     // 使用 bbtco 创建协程 — 确保正确的协程上下文
     // 使用 static 全局状态 + bbtco_ref 模式避免引用悬空
-    bbtco_ref {
+    bbtco_ref
+    {
         for (int i = 0; i < 10; ++i) {
             counter++;
-            bbtco_sleep(0);  // yield only, no real sleep
+            bbtco_sleep(0); // yield only, no real sleep
         }
     };
 
     // 等待完成（最多 3s）
     auto deadline = bbt::core::clock::nowAfter(bbt::core::clock::milliseconds(3000));
     while (!bbt::core::clock::is_expired<bbt::core::clock::milliseconds>(deadline)) {
-        if (counter.load() >= 10) break;
+        if (counter.load() >= 10)
+            break;
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
 
@@ -236,7 +237,7 @@ BOOST_AUTO_TEST_CASE(t_DL_04_cocond_starvation)
     BOOST_TEST_MESSAGE("[DL-04] Verification: all 6 modules ops linearly growing, errors not rising continuously");
     BOOST_TEST_MESSAGE("[DL-04] Mitigation: per-process module isolation (run_parallel_stress.sh)");
     BOOST_TEST_MESSAGE("[DL-04] Status: scheduler-level starvation still open");
-    BOOST_TEST(true);  // 文档化通过
+    BOOST_TEST(true); // 文档化通过
 }
 
 // ============================================================================
@@ -250,9 +251,10 @@ BOOST_AUTO_TEST_CASE(t_DL_04_cocond_starvation)
 BOOST_AUTO_TEST_CASE(t_UAF_01_asio_event_delayed_destroy)
 {
     BOOST_TEST_MESSAGE("[UAF-01] ASIO Event delayed destroy: REQUIRES ASAN build + 10min fatigue test");
-    BOOST_TEST_MESSAGE("[UAF-01] Command: ASAN_OPTIONS=detect_leaks=0:halt_on_error=0 ./unified_stress --module=comutex 600 0 0");
+    BOOST_TEST_MESSAGE(
+        "[UAF-01] Command: ASAN_OPTIONS=detect_leaks=0:halt_on_error=0 ./unified_stress --module=comutex 600 0 0");
     BOOST_TEST_MESSAGE("[UAF-01] Defense: CoPoller::DeferDestroyEvent — destroy deferred to Scheduler thread");
-    BOOST_TEST(true);  // 文档化通过
+    BOOST_TEST(true); // 文档化通过
 }
 
 // ============================================================================
@@ -273,12 +275,13 @@ BOOST_AUTO_TEST_CASE(t_UAF_02_cross_await_stack_ref)
 
     {
         int local_value = 42;
-        bbtco [&local_value, &step1, &step2, &done]() {
+        bbtco[&local_value, &step1, &step2, &done]()
+        {
             BOOST_TEST(local_value == 42);
             step1.Down();
             step2.Wait();
             // ⚠️ local_value 栈帧已销毁
-            volatile int x = local_value;   // ASAN 应在此报错
+            volatile int x = local_value; // ASAN 应在此报错
             (void)x;
             done = true;
         };
@@ -313,7 +316,7 @@ BOOST_AUTO_TEST_CASE(t_UAF_03_raii_shared_ptr_guard)
         {
             // CoLockGuard 接受 shared_ptr — 编译通过即验证成功
             // （Lock() 在协程内调用，此处只验证构造签名的类型安全性）
-            CoUniqueLock<CoMutex> lock(mutex, std::defer_lock);  // 不实际 lock
+            CoUniqueLock<CoMutex> lock(mutex, std::defer_lock); // 不实际 lock
             BOOST_TEST(!lock.owns_lock());
         }
         // mutex 仍然存活 — shared_ptr copy 保证了 RAII 安全
@@ -355,7 +358,8 @@ BOOST_AUTO_TEST_CASE(t_UAF_04_cowaiter_shared_ptr)
 
     // 100 waiter
     for (int i = 0; i < n_waiters; ++i) {
-        bbtco [cond, &woken, &ready]() {
+        bbtco[cond, &woken, &ready]()
+        {
             ready.Down();
             cond->Wait();
             woken++;
@@ -368,14 +372,14 @@ BOOST_AUTO_TEST_CASE(t_UAF_04_cowaiter_shared_ptr)
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     // 唤醒全部
-    bbtco [cond]() {
+    bbtco[cond]()
+    {
         cond->NotifyAll();
     };
 
     // 等待结果（最多 3s）
     auto deadline = bbt::core::clock::nowAfter(bbt::core::clock::milliseconds(3000));
-    while (woken.load() < n_waiters &&
-           !bbt::core::clock::is_expired<bbt::core::clock::milliseconds>(deadline)) {
+    while (woken.load() < n_waiters && !bbt::core::clock::is_expired<bbt::core::clock::milliseconds>(deadline)) {
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
 
@@ -409,12 +413,15 @@ BOOST_AUTO_TEST_CASE(t_DR_01_chan_concurrent_race)
     sync::Chan<int, 1000> ch;
 
     for (int i = 0; i < n_writers; ++i) {
-        bbtco [&]() {
+        bbtco[&]()
+        {
             int seq = 0;
             while (running.load()) {
                 int ret = ch.Write(seq++);
-                if (ret == 0) total_writes++;
-                else errors++;
+                if (ret == 0)
+                    total_writes++;
+                else
+                    errors++;
                 bbtco_sleep(0);
             }
             all_done.Down();
@@ -422,12 +429,15 @@ BOOST_AUTO_TEST_CASE(t_DR_01_chan_concurrent_race)
     }
 
     for (int i = 0; i < n_readers; ++i) {
-        bbtco [&]() {
+        bbtco[&]()
+        {
             int val;
             while (running.load()) {
                 int ret = ch.Read(val);
-                if (ret == 0) total_reads++;
-                else errors++;
+                if (ret == 0)
+                    total_reads++;
+                else
+                    errors++;
             }
             all_done.Down();
         };
@@ -452,9 +462,8 @@ BOOST_AUTO_TEST_CASE(t_DR_01_chan_concurrent_race)
     BOOST_TEST(total_writes.load() > 0);
     BOOST_TEST(total_reads.load() > 0);
 
-    BOOST_TEST_MESSAGE("[DR-01] writes=" << total_writes.load()
-        << " reads=" << total_reads.load()
-        << " errors=" << errors.load());
+    BOOST_TEST_MESSAGE("[DR-01] writes=" << total_writes.load() << " reads=" << total_reads.load()
+                                         << " errors=" << errors.load());
 }
 
 // ============================================================================
@@ -470,7 +479,7 @@ BOOST_AUTO_TEST_CASE(t_DR_02_chan_cas_in_lock)
 {
     BOOST_TEST_MESSAGE("[DR-02] Chan CAS + lost wakeup: concurrent Read/Write/Close stress");
 
-    sync::Chan<int, 10> ch;  // 小缓冲，容易触发阻塞
+    sync::Chan<int, 10> ch; // 小缓冲，容易触发阻塞
     const int n_rounds = 50;
     std::atomic_int writes_done{0};
     std::atomic_int reads_done{0};
@@ -479,31 +488,38 @@ BOOST_AUTO_TEST_CASE(t_DR_02_chan_cas_in_lock)
     bbt::core::thread::CountDownLatch all_done{3};
 
     // Writer
-    bbtco [&]() {
+    bbtco[&]()
+    {
         int seq = 0;
         for (int i = 0; i < n_rounds; ++i) {
             int ret = ch.Write(seq++);
-            if (ret == 0) writes_done++;
-            else break;  // 关闭
+            if (ret == 0)
+                writes_done++;
+            else
+                break; // 关闭
             bbtco_sleep(0);
         }
         all_done.Down();
     };
 
     // Reader
-    bbtco [&]() {
+    bbtco[&]()
+    {
         int val;
         for (int i = 0; i < n_rounds; ++i) {
             int ret = ch.Read(val);
-            if (ret == 0) reads_done++;
-            else break;  // 关闭或空
+            if (ret == 0)
+                reads_done++;
+            else
+                break; // 关闭或空
             bbtco_sleep(0);
         }
         all_done.Down();
     };
 
     // Closer — 在随机时机关闭，测试 CAS+Notify 竞态
-    bbtco [&]() {
+    bbtco[&]()
+    {
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
         ch.Close();
         close_done = true;
@@ -513,7 +529,8 @@ BOOST_AUTO_TEST_CASE(t_DR_02_chan_cas_in_lock)
     // 等待 Close 完成
     auto deadline = bbt::core::clock::nowAfter(bbt::core::clock::milliseconds(3000));
     while (!bbt::core::clock::is_expired<bbt::core::clock::milliseconds>(deadline)) {
-        if (close_done.load()) break;
+        if (close_done.load())
+            break;
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 
@@ -522,12 +539,11 @@ BOOST_AUTO_TEST_CASE(t_DR_02_chan_cas_in_lock)
 
     BOOST_TEST(close_done.load());
     BOOST_TEST(ch.IsClosed());
-    BOOST_TEST(writes_done.load() >= 0);  // 至少没崩溃
+    BOOST_TEST(writes_done.load() >= 0); // 至少没崩溃
     BOOST_TEST(reads_done.load() >= 0);
 
-    BOOST_TEST_MESSAGE("[DR-02] writes=" << writes_done.load()
-        << " reads=" << reads_done.load()
-        << " closed=" << close_done.load());
+    BOOST_TEST_MESSAGE("[DR-02] writes=" << writes_done.load() << " reads=" << reads_done.load()
+                                         << " closed=" << close_done.load());
 }
 
 // ============================================================================
@@ -575,7 +591,8 @@ BOOST_AUTO_TEST_CASE(t_DR_04_profile_reentrant_lock)
 BOOST_AUTO_TEST_CASE(t_ML_01_memory_leak)
 {
     BOOST_TEST_MESSAGE("[ML-01] Memory leak: REQUIRES 1h fatigue test with RSS monitoring");
-    BOOST_TEST_MESSAGE("[ML-01] Command: FATIGUE_INTERVAL=60 ./unified_stress 3600 & monitor RSS via /proc/<pid>/status");
+    BOOST_TEST_MESSAGE(
+        "[ML-01] Command: FATIGUE_INTERVAL=60 ./unified_stress 3600 & monitor RSS via /proc/<pid>/status");
     BOOST_TEST_MESSAGE("[ML-01] Threshold: RSS growth < 100MB/h and trend flattening");
     BOOST_TEST(true);
 }
@@ -606,7 +623,8 @@ BOOST_AUTO_TEST_CASE(t_ML_02_copool_task_leak)
     // 等待完成（最多 3s）
     auto deadline = bbt::core::clock::nowAfter(bbt::core::clock::milliseconds(3000));
     while (!bbt::core::clock::is_expired<bbt::core::clock::milliseconds>(deadline)) {
-        if (completed.load() >= n_tasks) break;
+        if (completed.load() >= n_tasks)
+            break;
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
 
@@ -616,8 +634,7 @@ BOOST_AUTO_TEST_CASE(t_ML_02_copool_task_leak)
     BOOST_TEST(completed.load() == n_tasks);
     BOOST_TEST(ratio >= 0.95);
 
-    BOOST_TEST_MESSAGE("[ML-02] completed=" << completed.load()
-        << "/" << n_tasks << " ratio=" << ratio);
+    BOOST_TEST_MESSAGE("[ML-02] completed=" << completed.load() << "/" << n_tasks << " ratio=" << ratio);
 }
 
 // ============================================================================
@@ -651,7 +668,8 @@ BOOST_AUTO_TEST_CASE(t_UB_01_dangling_pointer)
     bbt::core::thread::CountDownLatch all_done{n_cycles};
 
     for (int i = 0; i < n_cycles; ++i) {
-        bbtco [&created, &destroyed, &all_done]() {
+        bbtco[&created, &destroyed, &all_done]()
+        {
             created++;
             // 协程立即完成 — 触发 Processer 中的 delete m_running_coroutine
             destroyed++;
@@ -662,14 +680,14 @@ BOOST_AUTO_TEST_CASE(t_UB_01_dangling_pointer)
     // 等待全部完成（3s）
     auto deadline = bbt::core::clock::nowAfter(bbt::core::clock::milliseconds(3000));
     while (!bbt::core::clock::is_expired<bbt::core::clock::milliseconds>(deadline)) {
-        if (destroyed.load() >= n_cycles) break;
+        if (destroyed.load() >= n_cycles)
+            break;
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
 
     BOOST_TEST(created.load() == n_cycles);
     BOOST_TEST(destroyed.load() == n_cycles);
-    BOOST_TEST_MESSAGE("[UB-01] created=" << created.load()
-        << " destroyed=" << destroyed.load());
+    BOOST_TEST_MESSAGE("[UB-01] created=" << created.load() << " destroyed=" << destroyed.load());
 }
 
 // ============================================================================
@@ -704,13 +722,14 @@ BOOST_AUTO_TEST_CASE(t_UB_03_yieldwithcallback_lock)
     auto mutex = bbtco_make_comutex();
     std::atomic_bool callback_called{false};
     std::atomic_int shared{0};
-    bbt::core::thread::CountDownLatch a_done{1};  // 协程 A 完成
+    bbt::core::thread::CountDownLatch a_done{1}; // 协程 A 完成
 
     // 协程 A: Lock → shared=42 → UnLock → 通知完成
-    bbtco [mutex, &callback_called, &shared, &a_done]() {
+    bbtco[mutex, &callback_called, &shared, &a_done]()
+    {
         mutex->Lock();
         shared.store(42);
-        mutex->UnLock();  // ✅ yield 前主动 unlock
+        mutex->UnLock(); // ✅ yield 前主动 unlock
 
         callback_called = true;
         // 此时锁已释放，其他协程可获取
@@ -721,10 +740,11 @@ BOOST_AUTO_TEST_CASE(t_UB_03_yieldwithcallback_lock)
     WaitLatchWithDeadline(a_done, 5000);
 
     // 协程 B: 获取同一锁，验证协程 A 已释放
-    bbtco [mutex, &shared]() {
+    bbtco[mutex, &shared]()
+    {
         mutex->Lock();
         int val = shared.load();
-        BOOST_TEST(val == 42);  // 协程 A 已释放锁并设置值
+        BOOST_TEST(val == 42); // 协程 A 已释放锁并设置值
         mutex->UnLock();
     };
 
@@ -733,7 +753,7 @@ BOOST_AUTO_TEST_CASE(t_UB_03_yieldwithcallback_lock)
 
     BOOST_TEST(callback_called.load());
     BOOST_TEST_MESSAGE("[UB-03] callback_called=" << callback_called.load()
-        << " — unlock-before-yield pattern verified");
+                                                  << " — unlock-before-yield pattern verified");
 }
 
 // ============================================================================
@@ -755,7 +775,8 @@ BOOST_AUTO_TEST_CASE(t_EX_01_cocond_exception_safety)
     bbt::core::thread::CountDownLatch all_ready{n_normal + 1};
 
     // 异常 waiter
-    bbtco [cond, &exception_thrown, &all_ready]() {
+    bbtco[cond, &exception_thrown, &all_ready]()
+    {
         all_ready.Down();
         try {
             cond->Wait();
@@ -768,7 +789,8 @@ BOOST_AUTO_TEST_CASE(t_EX_01_cocond_exception_safety)
 
     // 正常 waiter
     for (int i = 0; i < n_normal; ++i) {
-        bbtco [cond, &normal_woken, &all_ready]() {
+        bbtco[cond, &normal_woken, &all_ready]()
+        {
             all_ready.Down();
             cond->Wait();
             normal_woken++;
@@ -779,20 +801,20 @@ BOOST_AUTO_TEST_CASE(t_EX_01_cocond_exception_safety)
     WaitLatchWithDeadline(all_ready, 5000);
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-    bbtco [cond]() {
+    bbtco[cond]()
+    {
         cond->NotifyAll();
     };
 
     auto deadline = bbt::core::clock::nowAfter(bbt::core::clock::milliseconds(2000));
-    while (normal_woken.load() < n_normal &&
-           !bbt::core::clock::is_expired<bbt::core::clock::milliseconds>(deadline)) {
+    while (normal_woken.load() < n_normal && !bbt::core::clock::is_expired<bbt::core::clock::milliseconds>(deadline)) {
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
 
     BOOST_TEST(normal_woken.load() == n_normal);
     BOOST_TEST(exception_thrown.load() >= 1);
-    BOOST_TEST_MESSAGE("[EX-01] normal_woken=" << normal_woken.load()
-        << "/" << n_normal << " exception=" << exception_thrown.load());
+    BOOST_TEST_MESSAGE("[EX-01] normal_woken=" << normal_woken.load() << "/" << n_normal
+                                               << " exception=" << exception_thrown.load());
 }
 
 // ============================================================================
@@ -809,8 +831,7 @@ BOOST_AUTO_TEST_CASE(t_EX_02_chan_close_raii_guard)
     const int n_writers = 5;
     const int n_readers = 5;
     // 超时断言也会退出测试作用域；未完成的 detached actor 仍须拥有全部状态。
-    struct ActorState
-    {
+    struct ActorState {
         std::atomic_int write_results{0};
         std::atomic_int read_results{0};
         std::atomic_int close_errors{0};
@@ -822,26 +843,38 @@ BOOST_AUTO_TEST_CASE(t_EX_02_chan_close_raii_guard)
     auto state = std::make_shared<ActorState>();
 
     for (int i = 0; i < n_writers; ++i) {
-        bbtco [state]() {
+        bbtco[state]()
+        {
             state->writers_ready.Down();
             int seq = 0;
             while (true) {
                 int ret = state->ch.Write(seq++);
-                if (ret == 0) state->write_results++;
-                else { if (ret == -1) state->close_errors++; break; }
+                if (ret == 0)
+                    state->write_results++;
+                else {
+                    if (ret == -1)
+                        state->close_errors++;
+                    break;
+                }
             }
             state->done.Down();
         };
     }
 
     for (int i = 0; i < n_readers; ++i) {
-        bbtco [state]() {
+        bbtco[state]()
+        {
             state->readers_ready.Down();
             int val;
             while (true) {
                 int ret = state->ch.Read(val);
-                if (ret == 0) state->read_results++;
-                else { if (ret == -1) state->close_errors++; break; }
+                if (ret == 0)
+                    state->read_results++;
+                else {
+                    if (ret == -1)
+                        state->close_errors++;
+                    break;
+                }
             }
             state->done.Down();
         };
@@ -865,15 +898,14 @@ BOOST_AUTO_TEST_CASE(t_EX_02_chan_close_raii_guard)
     int drained = 0;
     for (; drained <= 10; ++drained) {
         ret = state->ch.Read(val);
-        if (ret != 0) break;
+        if (ret != 0)
+            break;
     }
     BOOST_TEST(ret == -1);
     BOOST_TEST(state->write_results.load() == state->read_results.load() + drained);
 
-    BOOST_TEST_MESSAGE("[EX-02] writes=" << state->write_results.load()
-        << " reads=" << state->read_results.load()
-        << " drained=" << drained
-        << " close_errors=" << state->close_errors.load());
+    BOOST_TEST_MESSAGE("[EX-02] writes=" << state->write_results.load() << " reads=" << state->read_results.load()
+                                         << " drained=" << drained << " close_errors=" << state->close_errors.load());
 }
 
 // ============================================================================

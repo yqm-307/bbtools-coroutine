@@ -3,12 +3,9 @@
 #include <pthread.h>
 #include <bbt/core/thread/lock/ILock.hpp>
 
-namespace bbt::core::thread
-{
+namespace bbt::core::thread {
 
-class Spinlock:
-    public IBasicLockable
-{
+class Spinlock : public IBasicLockable {
 public:
     Spinlock();
     virtual ~Spinlock();

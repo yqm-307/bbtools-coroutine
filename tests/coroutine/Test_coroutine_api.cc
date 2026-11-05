@@ -16,7 +16,7 @@ BOOST_AUTO_TEST_SUITE(CoroutineApiTest)
 
 BOOST_AUTO_TEST_CASE(t_create_id_status_via_interface)
 {
-    Coroutine::Ptr co = Coroutine::Create(kHeavyCoStackSize, [](){});
+    Coroutine::Ptr co = Coroutine::Create(kHeavyCoStackSize, []() {});
     ICoroutine* api = co;
 
     BOOST_CHECK_NE(api->GetId(), 0u);
@@ -28,7 +28,7 @@ BOOST_AUTO_TEST_CASE(t_create_id_status_via_interface)
 BOOST_AUTO_TEST_CASE(t_resume_yield_final_via_interface)
 {
     Coroutine::Ptr co = nullptr;
-    co = Coroutine::Create(kHeavyCoStackSize, [&](){
+    co = Coroutine::Create(kHeavyCoStackSize, [&]() {
         BOOST_CHECK_EQUAL(co->GetStatus(), CoroutineStatus::CO_RUNNING);
         co->Yield();
         BOOST_CHECK_EQUAL(co->GetStatus(), CoroutineStatus::CO_RUNNING);

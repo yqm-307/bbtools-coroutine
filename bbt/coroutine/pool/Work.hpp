@@ -3,28 +3,34 @@
 #include <memory>
 #include <bbt/coroutine/detail/Define.hpp>
 
-namespace bbt::coroutine::pool
-{
+namespace bbt::coroutine::pool {
 
-class Work
-{
+class Work {
 public:
-    Work(CoPoolWorkCallback&& workfunc):m_callback(std::move(workfunc)) {}
-    Work(const CoPoolWorkCallback& workfunc):m_callback(workfunc) {}
+    Work(CoPoolWorkCallback&& workfunc) : m_callback(std::move(workfunc))
+    {
+    }
+    Work(const CoPoolWorkCallback& workfunc) : m_callback(workfunc)
+    {
+    }
 
     /**
      * @brief 带结果传递的任务：SubmitWithFuture 使用。
      *        任务异常通过 promise 交付给调用方 future，不参与池级异常策略。
      */
-    Work(CoPoolWorkCallback&& workfunc, std::shared_ptr<std::promise<void>> promise):
-        m_callback(std::move(workfunc)),
-        m_promise(std::move(promise)) {}
+    Work(CoPoolWorkCallback&& workfunc, std::shared_ptr<std::promise<void>> promise)
+        : m_callback(std::move(workfunc)), m_promise(std::move(promise))
+    {
+    }
 
-    Work(const CoPoolWorkCallback& workfunc, std::shared_ptr<std::promise<void>> promise):
-        m_callback(workfunc),
-        m_promise(std::move(promise)) {}
+    Work(const CoPoolWorkCallback& workfunc, std::shared_ptr<std::promise<void>> promise)
+        : m_callback(workfunc), m_promise(std::move(promise))
+    {
+    }
 
-    virtual ~Work() {}
+    virtual ~Work()
+    {
+    }
 
     virtual void Invoke()
     {

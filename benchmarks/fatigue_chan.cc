@@ -16,26 +16,21 @@ int main()
     // 无缓冲channel
     bbt::co::sync::Chan<uint64_t, 0> chan;
 
-    bbtco_desc("写者") [&]()
+    bbtco_desc("写者")[&]()
     {
-        for (uint64_t i = 0; i < UINT64_MAX; ++i)
-        {
-            if (chan << i)
-            {
+        for (uint64_t i = 0; i < UINT64_MAX; ++i) {
+            if (chan << i) {
                 nocache_chan_write_count++;
-            }
-            else
-            {
+            } else {
                 nocache_chan_write_failed++;
             }
         }
     };
 
-    bbtco_desc("读者") [&]()
+    bbtco_desc("读者")[&]()
     {
         uint64_t item;
-        while (true)
-        {
+        while (true) {
             Assert(chan >> item);
             nocache_chan_read_count++;
         }
@@ -45,18 +40,13 @@ int main()
     bbt::co::sync::Chan<uint64_t, 10000> chan2;
     auto cond = bbtco_make_cocond();
 
-    bbtco_desc("写者2") [&]()
+    bbtco_desc("写者2")[&]()
     {
-        while (true)
-        {
-            for (int i = 0; i < 10000; ++i)
-            {
-                if (chan2 << i)
-                {
+        while (true) {
+            for (int i = 0; i < 10000; ++i) {
+                if (chan2 << i) {
                     write_count++;
-                }
-                else
-                {
+                } else {
                     write_failed++;
                 }
             }
@@ -64,13 +54,11 @@ int main()
         }
     };
 
-    bbtco_desc("读者2") [&]()
+    bbtco_desc("读者2")[&]()
     {
         uint64_t item;
-        while (true)
-        {
-            for (int i = 0; i < 10000; ++i)
-            {
+        while (true) {
+            for (int i = 0; i < 10000; ++i) {
                 Assert(chan2 >> item);
                 read_count++;
             }
@@ -80,16 +68,17 @@ int main()
         }
     };
 
-
-    bbtco_desc("监视者") [&]()
+    bbtco_desc("监视者")[&]()
     {
         while (true) {
-            printf("[nocache chan] read=%d write=%d write_failed=%d\n", nocache_chan_read_count.load(), nocache_chan_write_count.load(), nocache_chan_write_failed.load());
-            printf("[chan] read=%d write=%d write_failed=%d\n", read_count.load(), write_count.load(), write_failed.load());
+            printf("[nocache chan] read=%d write=%d write_failed=%d\n", nocache_chan_read_count.load(),
+                   nocache_chan_write_count.load(), nocache_chan_write_failed.load());
+            printf("[chan] read=%d write=%d write_failed=%d\n", read_count.load(), write_count.load(),
+                   write_failed.load());
             bbtco_sleep(1000);
         }
     };
-    
+
     sleep(100000);
 
     /* process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出 */

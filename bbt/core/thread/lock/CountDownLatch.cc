@@ -1,14 +1,12 @@
 #include <bbt/core/thread/lock/CountDownLatch.hpp>
 #include <mutex>
 
-namespace bbt::core::thread
-{
+namespace bbt::core::thread {
 
-CountDownLatch::CountDownLatch(int cot):m_count(cot)
+CountDownLatch::CountDownLatch(int cot) : m_count(cot)
 {
     m_sem = PTHREAD_COND_INITIALIZER;
 }
-
 
 CountDownLatch::~CountDownLatch()
 {
@@ -19,8 +17,8 @@ void CountDownLatch::Wait()
     std::lock_guard<Mutex> lock(m_lock);
     // while 而非 if：pthread_cond_wait 允许 spurious wakeup，
     // 且 broadcast 后可能被其他等待者先消耗资源，需重新检查计数。
-    while(m_count > 0)
-        pthread_cond_wait(&m_sem,&m_lock.getlock());
+    while (m_count > 0)
+        pthread_cond_wait(&m_sem, &m_lock.getlock());
 }
 
 int CountDownLatch::WaitTimeout(int timeout)
@@ -50,8 +48,7 @@ int CountDownLatch::WaitTimeout(int timeout)
             // EINTR：重新获取当前时间，若已过截止时间则超时
             timespec cur;
             clock_gettime(CLOCK_REALTIME, &cur);
-            if (cur.tv_sec > end_tm.tv_sec ||
-                (cur.tv_sec == end_tm.tv_sec && cur.tv_nsec >= end_tm.tv_nsec))
+            if (cur.tv_sec > end_tm.tv_sec || (cur.tv_sec == end_tm.tv_sec && cur.tv_nsec >= end_tm.tv_nsec))
                 return -1;
         }
     }
@@ -59,14 +56,13 @@ int CountDownLatch::WaitTimeout(int timeout)
     return 0;
 }
 
-
 void CountDownLatch::Down()
 {
     // 与 Wait/WaitTimeout 使用同一把锁：避免 count 已归零但 broadcast
     // 发生在 wait 原子进入之前导致的丢失唤醒（永久挂起）。
     std::lock_guard<Mutex> lock(m_lock);
     --m_count;
-    if(m_count <= 0)
+    if (m_count <= 0)
         pthread_cond_broadcast(&m_sem);
 }
 

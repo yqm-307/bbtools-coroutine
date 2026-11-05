@@ -209,8 +209,8 @@ scaling_probe_replace(
     "    m_enqueue_inflight.fetch_add(1, std::memory_order_seq_cst);"
     "    ::ScalingAdmissionProbe(this, 1);\n    m_enqueue_inflight.fetch_add(1, std::memory_order_seq_cst);")
 scaling_probe_replace(
-    "    const bool enqueued = m_coroutine_queue.Enqueue(coroutine->m_cfs, coroutine, priority,"
-    "    ::ScalingAdmissionProbe(this, 2);\n    const bool enqueued = m_coroutine_queue.Enqueue(coroutine->m_cfs, coroutine, priority,")
+    "    const bool enqueued =\n        m_coroutine_queue.Enqueue(coroutine->m_cfs, coroutine, priority,"
+    "    ::ScalingAdmissionProbe(this, 2);\n    const bool enqueued =\n        m_coroutine_queue.Enqueue(coroutine->m_cfs, coroutine, priority,")
 scaling_probe_replace("    _WaitEnqueueQuiescent();"
     "    ::ScalingAdmissionProbe(this, 3);\n    _WaitEnqueueQuiescent();")
 scaling_probe_replace("\n}\n\nbool Processer::_HasDriverOwnership()"

@@ -9,8 +9,7 @@
 #include <bbt/pollevent/EventLoop.hpp>
 #include <bbt/coroutine/detail/Define.hpp>
 
-namespace bbt::coroutine::detail
-{
+namespace bbt::coroutine::detail {
 
 class CoPollEvent;
 
@@ -30,16 +29,15 @@ class CoPollEvent;
  * 上兑现。FlushDeferredEvents 在非驱动线程调用是 no-op，积压延迟到驱动线程
  * 下一次 PollOnce（进入 poll 前）兑现。
  */
-class CoPoller
-{
+class CoPoller {
 public:
     typedef std::unique_ptr<CoPoller> UPtr;
-    static UPtr&                    GetInstance();
+    static UPtr& GetInstance();
 
     CoPoller();
     ~CoPoller();
 
-    bool                            PollOnce();
+    bool PollOnce();
 
     /**
      * @brief 有界事件等待：停拍期间不空等，也不无限阻塞。
@@ -61,54 +59,54 @@ public:
      * 推算的等待量：密集事件不得推迟维护节拍。私有 detail 接口，不进入
      * 公开契约。
      */
-    bool                            PollOnceUntil(std::chrono::steady_clock::time_point deadline);
+    bool PollOnceUntil(std::chrono::steady_clock::time_point deadline);
 
-    std::shared_ptr<bbt::pollevent::Event>
-                                    CreateEvent(int fd, short events, const bbt::pollevent::OnEventCallback& onevent_cb);
+    std::shared_ptr<bbt::pollevent::Event> CreateEvent(int fd, short events,
+                                                       const bbt::pollevent::OnEventCallback& onevent_cb);
 
     /* 线程安全，多次调用仅第一次有效 */
-    int                             NotifyCustomEvent(std::shared_ptr<CoPollEvent> event);
+    int NotifyCustomEvent(std::shared_ptr<CoPollEvent> event);
 
     /* 取消语义的唤醒入口：以独立取消位触发，供等待者向取消令牌
      * 登记的唤醒回调使用；与 NotifyCustomEvent（完成语义）走不同位，
      * 恢复侧可凭唤醒掩码直接区分。线程安全，多次调用仅第一次有效。 */
-    int                             NotifyCancelEvent(std::shared_ptr<CoPollEvent> event);
+    int NotifyCancelEvent(std::shared_ptr<CoPollEvent> event);
 
     /* 延迟销毁 Event；由 FlushDeferredEvents 在唤醒协程前兑现。 */
-    void                            DeferDestroyEvent(std::shared_ptr<bbt::pollevent::Event> event);
+    void DeferDestroyEvent(std::shared_ptr<bbt::pollevent::Event> event);
 
     /* 事件完成后，在唤醒协程重新注册同一 FD 前释放底层 Event。
        只在驱动线程且不在 poll 内兑现；其它线程调用是 no-op，延迟到下一次 PollOnce。 */
-    void                            FlushDeferredEvents();
+    void FlushDeferredEvents();
 
     /* 只读诊断计数（回归测试断言用）：no-op 路径的调用次数。
        驱动线程正常兑现不加计数。 */
-    uint64_t                        GetDrainOffDriverCount() const;
-    uint64_t                        GetDrainInPollCount() const;
+    uint64_t GetDrainOffDriverCount() const;
+    uint64_t GetDrainInPollCount() const;
 
-    std::shared_ptr<bbt::pollevent::EventLoop>
-                                    GetEventLoop() const;
+    std::shared_ptr<bbt::pollevent::EventLoop> GetEventLoop() const;
 
     /* 只读投递入口：返回本 Poller 所持 EventLoop 的 Asio executor。
        executor 绑定的 io_context 随本实例生命周期存在；不暴露原始
        io_context，调用方无法经此句柄 stop/restart/run。 */
-    boost::asio::any_io_executor    GetExecutor() const;
+    boost::asio::any_io_executor GetExecutor() const;
+
 private:
     /* PollOnce/PollOnceUntil 共用的驱动前置：登记 driver-tid（首个驱动者拥有
        Event 析构权），并在驱动前兑现积压 Event——同一 FD 的下一拍注册要求旧
        底层 Event 先释放，否则 ASIO 重复注册。 */
-    void                            _BeginDrive();
+    void _BeginDrive();
 
     std::shared_ptr<bbt::pollevent::EventLoop> m_event_loop{nullptr};
     std::vector<std::shared_ptr<bbt::pollevent::Event>> m_deferred_destroy;
-    std::mutex                      m_deferred_mutex;
+    std::mutex m_deferred_mutex;
 
     /* 首个调用 PollOnce 的线程（惰性写入，谁驱动谁拥有析构权） */
-    std::atomic<std::thread::id>    m_driver_tid{};
+    std::atomic<std::thread::id> m_driver_tid{};
     /* 驱动线程是否在 StartLoop 内；handler 内嵌套 Flush 一律 no-op */
-    std::atomic<bool>               m_in_poll{false};
-    std::atomic<uint64_t>           m_drain_off_driver_cnt{0};
-    std::atomic<uint64_t>           m_drain_in_poll_cnt{0};
+    std::atomic<bool> m_in_poll{false};
+    std::atomic<uint64_t> m_drain_off_driver_cnt{0};
+    std::atomic<uint64_t> m_drain_in_poll_cnt{0};
 };
 
 }

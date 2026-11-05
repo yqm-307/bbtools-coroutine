@@ -4,8 +4,7 @@
 #include <bbt/coroutine/sync/CoWaiter.hpp>
 #include <bbt/coroutine/sync/interface/ICoLock.hpp>
 
-namespace bbt::coroutine::sync
-{
+namespace bbt::coroutine::sync {
 
 /**
  * 用来实现协程间的同步
@@ -20,10 +19,9 @@ namespace bbt::coroutine::sync
  * 目前实现为使用CoCond来实现。CoCond内部需要加锁导致部
  * 分锁是重叠的，最好的做法是像CoCond一样控制CoPollEvent
  */
-class CoMutex:
-    public ICoLock
-{
+class CoMutex : public ICoLock {
     struct PrivateTag {};
+
 public:
     typedef std::shared_ptr<CoMutex> SPtr;
     static SPtr Create();
@@ -32,40 +30,39 @@ public:
     CoMutex(PrivateTag);
     ~CoMutex();
 
-    void                        Lock();
-    void                        UnLock();
+    void Lock();
+    void UnLock();
 
     /**
      * @brief 获取锁，如果无法立即获取挂起协程直到超时
      * @param ms 
      * @return int 0成功，-1发生错误，1表示超时
      */
-    int                         TryLock(int ms);
+    int TryLock(int ms);
 
     /**
      * @brief 尝试获取锁，立即返回
      * @return int 0成功，-1表示失败
      */
-    int                         TryLock();
+    int TryLock();
 
 protected:
-    int                         _WaitUnLockUnitlTimeout(int timeout, const detail::CoroutineOnYieldCallback& cb);
-    int                         _WaitUnLock(const detail::CoroutineOnYieldCallback& cb);
+    int _WaitUnLockUnitlTimeout(int timeout, const detail::CoroutineOnYieldCallback& cb);
+    int _WaitUnLock(const detail::CoroutineOnYieldCallback& cb);
 
-    void                        _NotifyOne();
+    void _NotifyOne();
 
-    void                        _SysLock();
-    void                        _SysUnLock();
+    void _SysLock();
+    void _SysUnLock();
 
-    void                        _OnLocked();
-    void                        _OnUnLocked();
+    void _OnLocked();
+    void _OnUnLocked();
+
 private:
-    std::queue<std::shared_ptr<detail::CoPollEvent>> 
-                                m_wait_event_queue;
-    detail::Coroutine::Ptr
-                                m_locked_co{nullptr};
-    std::mutex                  m_mutex;
-    volatile CoMutexStatus      m_status{CoMutexStatus::COMUTEX_FREE};
+    std::queue<std::shared_ptr<detail::CoPollEvent>> m_wait_event_queue;
+    detail::Coroutine::Ptr m_locked_co{nullptr};
+    std::mutex m_mutex;
+    volatile CoMutexStatus m_status{CoMutexStatus::COMUTEX_FREE};
 };
 
 } // bbt::coroutine::sync

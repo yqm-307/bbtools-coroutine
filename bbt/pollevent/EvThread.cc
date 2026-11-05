@@ -2,11 +2,9 @@
 #include <bbt/pollevent/EvThread.hpp>
 #include <bbt/pollevent/EventLoop.hpp>
 
-
 using namespace bbt::pollevent::detail;
 
-namespace bbt::pollevent
-{
+namespace bbt::pollevent {
 
 static const int io_thread_limit_num = 16;
 
@@ -16,16 +14,11 @@ EvThreadId EvThread::GenerateTid()
     return ++_id;
 }
 
-
-EvThread::EvThread(std::shared_ptr<EventLoop> evloop):
-    m_eventloop(evloop),
-    m_tid(GenerateTid())
+EvThread::EvThread(std::shared_ptr<EventLoop> evloop) : m_eventloop(evloop), m_tid(GenerateTid())
 {
 }
 
-EvThread::EvThread():
-    m_eventloop(std::make_shared<EventLoop>()),
-    m_tid(GenerateTid())
+EvThread::EvThread() : m_eventloop(std::make_shared<EventLoop>()), m_tid(GenerateTid())
 {
 }
 
@@ -60,9 +53,7 @@ void EvThread::StartWorkFunc()
     if (m_thread != nullptr)
         return;
 
-    m_thread = new std::thread([=](){
-        Work();
-    });
+    m_thread = new std::thread([=]() { Work(); });
 }
 
 void EvThread::Work()
@@ -77,7 +68,8 @@ bool EvThread::IsRunning() const
     return (m_status == EvThreadRunStatus::Running);
 }
 
-std::shared_ptr<Event> EvThread::RegisterEvent(evutil_socket_t fd, short events, const bbt::pollevent::OnEventCallback& onevent_cb)
+std::shared_ptr<Event> EvThread::RegisterEvent(evutil_socket_t fd, short events,
+                                               const bbt::pollevent::OnEventCallback& onevent_cb)
 {
     auto event_sptr = m_eventloop->CreateEvent(fd, events, onevent_cb);
     return event_sptr;
@@ -87,7 +79,6 @@ void EvThread::Join()
 {
     m_thread->join();
 }
-
 
 void EvThread::Start()
 {
@@ -121,17 +112,16 @@ void EvThread::WorkHandle()
 
 bool EvThread::SyncWaitThreadExitEx(int wait_time)
 {
-    const int interval = 50;    // 休眠间隔
-    if(wait_time == 0)
+    const int interval = 50; // 休眠间隔
+    if (wait_time == 0)
         return false;
     int increase = wait_time > 0 ? interval : 0;
     int pass_time = 0;
 
-    if(wait_time < 0 && m_thread->joinable())
+    if (wait_time < 0 && m_thread->joinable())
         m_thread->join();
 
-    while (m_thread->joinable() && pass_time < wait_time)
-    {
+    while (m_thread->joinable() && pass_time < wait_time) {
         std::this_thread::sleep_for(std::chrono::milliseconds(interval));
         pass_time += increase;
     }
@@ -148,7 +138,5 @@ bool EvThread::SyncWaitThreadExitWithTime(int wait_time)
 {
     return SyncWaitThreadExitEx(wait_time);
 }
-
-
 
 } // namespace bbt::pollevent

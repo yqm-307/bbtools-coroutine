@@ -6,11 +6,9 @@
 #include <time.h>
 #include <stdlib.h>
 
-namespace bbt::core::thread
-{
+namespace bbt::core::thread {
 
-class IBasicLockable
-{
+class IBasicLockable {
 public:
     virtual ~IBasicLockable() = default;
 

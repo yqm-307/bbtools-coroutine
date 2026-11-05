@@ -11,8 +11,7 @@
 #include <bbt/coroutine/detail/Profiler.hpp>
 #include <bbt/coroutine/detail/GlobalConfig.hpp>
 
-namespace bbt::coroutine::detail
-{
+namespace bbt::coroutine::detail {
 
 fcontext_t& Context::GetCurThreadContext()
 {
@@ -42,9 +41,7 @@ void Context::_CoroutineMain(boost::context::detail::transfer_t transfer)
      */
     try {
         context->m_user_main();
-    }
-    catch (...)
-    {
+    } catch (...) {
         const auto eptr = std::current_exception();
         Coroutine* co = g_bbt_tls_coroutine_co;
         if (co != nullptr)
@@ -74,8 +71,8 @@ void Context::_CoroutineMain(boost::context::detail::transfer_t transfer)
              * 会打爆默认 4KB 协程栈；直接 fprintf 到 stderr，栈占用有界。
              * 日志带 co id：与 parked 现场串联定位是哪个协程。 */
             const CoroutineId co_id = (co != nullptr) ? co->GetId() : BBT_COROUTINE_INVALID_COROUTINE_ID;
-            std::fprintf(stderr, "[bbtco] unhandled exception co=%u: %.200s\n",
-                         static_cast<unsigned>(co_id), what.c_str());
+            std::fprintf(stderr, "[bbtco] unhandled exception co=%u: %.200s\n", static_cast<unsigned>(co_id),
+                         what.c_str());
             g_bbt_coroutine_config->m_unhandled_exception_count.fetch_add(1, std::memory_order_relaxed);
         }
     }
@@ -90,9 +87,7 @@ void Context::_CoroutineMain(boost::context::detail::transfer_t transfer)
     context->Yield();
 }
 
-
-Context::Context(size_t stack_size, const CoroutineCallback& co_func, bool stack_protect):
-    m_user_main(co_func)
+Context::Context(size_t stack_size, const CoroutineCallback& co_func, bool stack_protect) : m_user_main(co_func)
 {
     Assert(m_user_main != nullptr);
 
@@ -105,11 +100,12 @@ Context::Context(size_t stack_size, const CoroutineCallback& co_func, bool stack
         if (stack != nullptr)
             g_bbt_stackpoll->Release(stack);
     };
-    std::unique_ptr<Stack, decltype(stack_returner)> stack_guard(
-        g_bbt_stackpoll->Apply(stack_size, stack_protect), stack_returner);
+    std::unique_ptr<Stack, decltype(stack_returner)> stack_guard(g_bbt_stackpoll->Apply(stack_size, stack_protect),
+                                                                 stack_returner);
 
     if (stack_guard == nullptr) {
-        throw std::runtime_error("Coroutine stack not enough! Please try adjust the globalconfig 'm_cfg_stackpool_max_alloc_size'");
+        throw std::runtime_error(
+            "Coroutine stack not enough! Please try adjust the globalconfig 'm_cfg_stackpool_max_alloc_size'");
     }
 
     void* stack = stack_guard->StackTop();
@@ -120,9 +116,9 @@ Context::Context(size_t stack_size, const CoroutineCallback& co_func, bool stack
     /* make_fcontext 成功后、任何 jump 之前初始化采样边界：bottom/top 取真实
      * StackBottom/StackTop，min_sp 从 top 起计（尚无样本时 observed = 0）。
      * 复用栈池中的旧栈不继承上一任协程的历史样本。 */
-    m_stackBudgetState.bottom       = reinterpret_cast<uintptr_t>(m_stack->StackBottom());
-    m_stackBudgetState.top          = reinterpret_cast<uintptr_t>(m_stack->StackTop());
-    m_stackBudgetState.min_sp       = m_stackBudgetState.top;
+    m_stackBudgetState.bottom = reinterpret_cast<uintptr_t>(m_stack->StackBottom());
+    m_stackBudgetState.top = reinterpret_cast<uintptr_t>(m_stack->StackTop());
+    m_stackBudgetState.min_sp = m_stackBudgetState.top;
     m_stackBudgetState.sample_count = 0;
 #endif
 }
@@ -186,7 +182,6 @@ int Context::YieldWithCallback(const CoroutineOnYieldCallback& cb)
     return ret;
 }
 
-
 void Context::Resume()
 {
     _Resume();
@@ -201,15 +196,13 @@ void Context::Resume()
     while (m_onyield_callback) {
         const bool check_succ = m_onyield_callback();
         m_onyield_callback_result =
-            bbt_likely(check_succ) ? YieldCheckStatus::CHECK_SUCCESS
-                                 : YieldCheckStatus::CHECK_FAILED;
+            bbt_likely(check_succ) ? YieldCheckStatus::CHECK_SUCCESS : YieldCheckStatus::CHECK_FAILED;
         if (bbt_likely(check_succ))
             break;
         /* check失败就回到原本协程通知一下check失败了 */
         _Resume();
     }
 }
-
 
 int Context::_Yield()
 {
@@ -218,7 +211,7 @@ int Context::_Yield()
      *
      * 当jump返回时，说明调度线程通过 Resume 返回了。trf中保存了调度协程的上下文
      */
-    boost::context::detail::transfer_t transfer{fctx: nullptr, data: nullptr};
+    boost::context::detail::transfer_t transfer{fctx : nullptr, data : nullptr};
 
 #ifdef BBT_COROUTINE_STACK_DIAGNOSTICS
     /* 让出前先清零归属：jump 之后本线程跑的是 worker/调度逻辑（含
@@ -241,7 +234,7 @@ int Context::_Resume()
     /**
      * 调用jump后，将切换到当前协程
      */
-    boost::context::detail::transfer_t transfer{fctx: nullptr, data: nullptr};
+    boost::context::detail::transfer_t transfer{fctx : nullptr, data : nullptr};
 
 #ifdef BBT_COROUTINE_STACK_DIAGNOSTICS
     /* jump 前把本线程 TLS 挂到本协程状态：之后在协程栈上发生的插桩入口
@@ -261,7 +254,6 @@ int Context::_Resume()
      * 本线程不留本协程残留。 */
     ExchangeActiveStackBudgetState(prev_state);
 #endif
-
 
     // 保存来源协程，因为可能因为yield让出cpu，没有执行完
     auto context = transfer.data;
@@ -286,12 +278,10 @@ StackBudgetSample Context::GetStackBudgetSample() const noexcept
     if (m_stackBudgetState.sample_count == 0)
         return sample;
 
-    sample.observed_sample_bytes =
-        static_cast<size_t>(m_stackBudgetState.top - m_stackBudgetState.min_sp);
+    sample.observed_sample_bytes = static_cast<size_t>(m_stackBudgetState.top - m_stackBudgetState.min_sp);
     sample.sample_count = m_stackBudgetState.sample_count;
     return sample;
 }
 #endif
-
 
 }

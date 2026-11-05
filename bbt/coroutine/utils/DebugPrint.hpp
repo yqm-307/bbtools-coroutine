@@ -2,9 +2,7 @@
 #pragma once
 #include <iostream>
 
-
-namespace bbt::coroutine::utils
-{
+namespace bbt::coroutine::utils {
 
 void VPrint(const char* fmt, ...);
 

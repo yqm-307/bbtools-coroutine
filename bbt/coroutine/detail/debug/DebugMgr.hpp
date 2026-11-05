@@ -2,11 +2,9 @@
 #include <atomic>
 #include <bbt/coroutine/detail/Define.hpp>
 
-namespace bbt::coroutine::detail
-{
+namespace bbt::coroutine::detail {
 
-class DebugMgr
-{
+class DebugMgr {
 public:
     static std::unique_ptr<DebugMgr>& GetInstance();
 
@@ -32,21 +30,21 @@ public:
     void OnEvent_TriggerEvent(std::shared_ptr<CoPollEvent> event);
     void OnEvent_DestroyEvent(CoPollEventId id);
     void Check_Trigger(CoPollEventId id);
+
 private:
     /* 登记失败统一收口：stderr 报告 + m_unhandled_exception_count 计数，
      * 不静默丢失。可由 worker 原生栈调用，自身不得抛出。 */
-    void ReportAllocFailed(const char* what, unsigned long long id,
-                           const char* detail) noexcept;
+    void ReportAllocFailed(const char* what, unsigned long long id, const char* detail) noexcept;
     /* m_co_map 登记的内部实现，只承担「find 判重 + insert 登记」
      * 本身；bad_alloc 时 std::map 提供强保证、map 无残留，调用方据此有界
      * 重试。不在此计数/报告——策略由唯一调用点 OnEvent_ResumeCo 决定。 */
     void RegistResumeCo(Coroutine* co);
-    std::map<CoroutineId, Coroutine*>   m_co_map;
-    std::mutex                                          m_co_map_mtx;
+    std::map<CoroutineId, Coroutine*> m_co_map;
+    std::mutex m_co_map_mtx;
 
     /* 诊断不得延长等待对象寿命；真正析构时移除借用记录。 */
-    std::map<CoPollEventId, std::weak_ptr<CoPollEvent>>     m_event_map;
-    std::mutex                                              m_event_map_mtx;
+    std::map<CoPollEventId, std::weak_ptr<CoPollEvent>> m_event_map;
+    std::mutex m_event_map_mtx;
 };
 
 } // namespace bbt::coroutine::detail

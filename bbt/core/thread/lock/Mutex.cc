@@ -1,10 +1,8 @@
 #include <bbt/core/thread/lock/Mutex.hpp>
 
-namespace bbt::core::thread
-{
+namespace bbt::core::thread {
 
-Mutex::Mutex():
-    m_mutex(PTHREAD_MUTEX_INITIALIZER)
+Mutex::Mutex() : m_mutex(PTHREAD_MUTEX_INITIALIZER)
 {
     pthread_mutexattr_init(&m_mutex_attr);
     pthread_mutexattr_settype(&m_mutex_attr, PTHREAD_MUTEX_RECURSIVE);

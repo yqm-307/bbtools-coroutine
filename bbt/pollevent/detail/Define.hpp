@@ -5,11 +5,9 @@
 #include <bbt/core/util/Assert.hpp>
 #include <bbt/core/errcode/Errcode.hpp>
 
-namespace bbt::pollevent
-{
+namespace bbt::pollevent {
 
-namespace detail
-{
+namespace detail {
 class EventBase;
 } // namespace detail
 
@@ -17,15 +15,14 @@ class Event;
 class EventLoop;
 
 /* ── 事件类型标志（与 libevent 兼容的数值）── */
-enum EventOpt : short
-{
-    TIMEOUT                 = 0x01,
-    READABLE                = 0x02,
-    WRITEABLE               = 0x04,
-    SIGNAL                  = 0x08,
-    PERSIST                 = 0x10,
-    CLOSE                   = 0x80,
-    FINALIZE                = 0x40,
+enum EventOpt : short {
+    TIMEOUT = 0x01,
+    READABLE = 0x02,
+    WRITEABLE = 0x04,
+    SIGNAL = 0x08,
+    PERSIST = 0x10,
+    CLOSE = 0x80,
+    FINALIZE = 0x40,
 };
 
 /* ── 事件循环选项 ──
@@ -35,39 +32,37 @@ enum EventOpt : short
  * LOOP_NONBLOCK:         非阻塞，仅处置已就绪事件，无就绪立即返回
  * LOOP_NO_EXIT_ON_EMPTY: 阻塞，无就绪事件时不退出，继续等待
  */
-enum EventLoopOpt
-{
-    LOOP_NORMAL             = 0,
-    LOOP_ONCE               = 0x01,
-    LOOP_NONBLOCK           = 0x02,
-    LOOP_NO_EXIT_ON_EMPTY   = 0x04,
+enum EventLoopOpt {
+    LOOP_NORMAL = 0,
+    LOOP_ONCE = 0x01,
+    LOOP_NONBLOCK = 0x02,
+    LOOP_NO_EXIT_ON_EMPTY = 0x04,
 };
 
 /* ── 线程状态 ── */
-enum EvThreadRunStatus
-{
+enum EvThreadRunStatus {
     Default = 0,
     Running = 1,
-    Finish  = 2,
+    Finish = 2,
 };
 
-enum emErr : bbt::core::errcode::ErrType
-{
+enum emErr : bbt::core::errcode::ErrType {
     ERR_UNKNOWN = 0,
 };
 
 /* ── 类型别名 ── */
 typedef int64_t EventId;
-typedef int     EvThreadId;
+typedef int EvThreadId;
 #ifndef evutil_socket_t
-typedef int     evutil_socket_t;  // 替代 libevent 的 evutil_socket_t
+typedef int evutil_socket_t; // 替代 libevent 的 evutil_socket_t
 #endif
 typedef std::function<void(int fd, short events, EventId id)> OnEventCallback;
 
 /* ── 初始化（不再需要 evthread_use_pthreads）── */
-struct __PollEvent_Init
-{
-    __PollEvent_Init() {}
+struct __PollEvent_Init {
+    __PollEvent_Init()
+    {
+    }
 };
 
 static __PollEvent_Init __detail_init_helper;

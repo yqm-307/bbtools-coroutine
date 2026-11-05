@@ -21,9 +21,13 @@ static volatile sig_atomic_t g_running = 1;
 static std::shared_ptr<CoCond> g_cond;
 static std::atomic<uint64_t> g_ops{0};
 
-void on_signal(int) { g_running = 0; }
+void on_signal(int)
+{
+    g_running = 0;
+}
 
-int main(int argc, char** argv) {
+int main(int argc, char** argv)
+{
     int dur = argc > 1 ? atoi(argv[1]) : 10;
     int nwaiter = argc > 2 ? atoi(argv[2]) : 200;
 
@@ -35,10 +39,22 @@ int main(int argc, char** argv) {
 
     // Waiters: Wait → ops++ → 立即重入（无 yield，无 sleep）
     for (int i = 0; i < nwaiter; ++i)
-        bbtco_ref { while (g_running) { g_cond->Wait(); g_ops++; }; };
+        bbtco_ref
+        {
+            while (g_running) {
+                g_cond->Wait();
+                g_ops++;
+            };
+        };
 
     // Notifier: 极限频率 NotifyAll（bbtco_yield 让权给调度器）
-    bbtco_ref { while (g_running) { g_cond->NotifyAll(); bbtco_yield; }; };
+    bbtco_ref
+    {
+        while (g_running) {
+            g_cond->NotifyAll();
+            bbtco_yield;
+        };
+    };
 
     auto t0 = std::chrono::steady_clock::now();
     std::this_thread::sleep_for(std::chrono::seconds(dur));

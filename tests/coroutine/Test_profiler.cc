@@ -9,14 +9,11 @@
 
 /* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
  * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。 */
-namespace
-{
+namespace {
 void EnsureRuntime()
 {
     static std::once_flag once;
-    std::call_once(once, [](){
-        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
-    });
+    std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
 }
 
@@ -71,7 +68,7 @@ BOOST_AUTO_TEST_CASE(t_profileinfo_zero_elapsed)
     profiler->OnEvent_StartScheudler();
 
     std::string info;
-    profiler->ProfileInfo(info);  // 修复前此处 elapsed=0 → 除零 UB
+    profiler->ProfileInfo(info); // 修复前此处 elapsed=0 → 除零 UB
     BOOST_TEST(!info.empty());
     BOOST_TEST(info.find("已运行时间(ms)：") != std::string::npos);
 }
@@ -83,7 +80,7 @@ BOOST_AUTO_TEST_CASE(t_dumpstderr_empty)
     BOOST_REQUIRE(profiler != nullptr);
 
     profiler->OnEvent_StartScheudler();
-    profiler->DumpStderr();  // 无 processer 注册时循环体为空
+    profiler->DumpStderr(); // 无 processer 注册时循环体为空
     BOOST_TEST(true);
 }
 
@@ -120,7 +117,8 @@ BOOST_AUTO_TEST_CASE(t_scheduler_run_then_profile)
 
     bbt::core::thread::CountDownLatch done{10};
     for (int i = 0; i < 10; ++i) {
-        bbtco [&done]() {
+        bbtco[&done]()
+        {
             bbtco_sleep(1);
             done.Down();
         };
@@ -137,7 +135,6 @@ BOOST_AUTO_TEST_CASE(t_scheduler_run_then_profile)
     std::string info;
     profiler->ProfileInfo(info);
     BOOST_TEST(!info.empty());
-
 }
 
 BOOST_AUTO_TEST_SUITE_END()

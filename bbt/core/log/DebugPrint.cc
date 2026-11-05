@@ -1,22 +1,20 @@
 #include <stdarg.h>
 #include <bbt/core/log/DebugPrint.hpp>
 
-namespace bbt::core::log
-{
+namespace bbt::core::log {
 
 #define LOG_LEVEL_DEBUG 1
 #define LOG_LEVEL_WARN  2
 #define LOG_LEVEL_ERROR 3
 
-namespace
-{
+namespace {
 
 /* vformat 原与 Logger 同编译单元（core/log/Logger.cc）。Logger 归
  * bbtools-infra 不随迁，这里只保留 DebugPrint 实际需要的最小实现；
  * 内部链接避免与 infra 侧同名导出符号在共存期互相插入。 */
 std::string vformat(const char* fmt, va_list ap)
 {
-    char        data[ARRAY_SIZE];
+    char data[ARRAY_SIZE];
     vsnprintf(data, sizeof(data), fmt, ap);
 
     return std::string(data);

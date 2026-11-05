@@ -1,15 +1,15 @@
 #include "coeventvalue_dso_types.hpp"
 
 /* 属性 B：在另一个产物内读取 A 构造的载荷。 */
-extern "C" bool dso_b_read(
-    const bbt::coroutine::CoEventValue& value,
-    std::int64_t* seq, std::uint32_t* code)
+extern "C" bool dso_b_read(const bbt::coroutine::CoEventValue& value, std::int64_t* seq, std::uint32_t* code)
 {
     CoroutineWakePayload payload{};
     if (!value.Get(payload))
         return false;
-    if (seq != nullptr) *seq = payload.seq;
-    if (code != nullptr) *code = payload.code;
+    if (seq != nullptr)
+        *seq = payload.seq;
+    if (code != nullptr)
+        *code = payload.code;
     return true;
 }
 

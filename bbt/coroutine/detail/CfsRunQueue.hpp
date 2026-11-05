@@ -7,21 +7,29 @@
 #include <mutex>
 #include <boost/intrusive/set.hpp>
 
-namespace bbt::coroutine::detail
-{
+namespace bbt::coroutine::detail {
 class Coroutine;
 class CfsRunQueue;
 
 // 节点随 Coroutine 生灭；不保有 P。脱离队列时 vruntime 是相对源 floor 的债务。
-class CfsEntity : public boost::intrusive::set_base_hook<>
-{
+class CfsEntity : public boost::intrusive::set_base_hook<> {
 public:
     CfsEntity() = default;
     CfsEntity(const CfsEntity&) = delete;
     CfsEntity& operator=(const CfsEntity&) = delete;
-    uint64_t ServiceUs() const noexcept { return m_serviceUs; }
-    Coroutine* Task() const noexcept { return m_task; }
-    int Priority() const noexcept { return m_priority; }
+    uint64_t ServiceUs() const noexcept
+    {
+        return m_serviceUs;
+    }
+    Coroutine* Task() const noexcept
+    {
+        return m_task;
+    }
+    int Priority() const noexcept
+    {
+        return m_priority;
+    }
+
 private:
     friend class CfsRunQueue;
     Coroutine* m_task{nullptr};
@@ -33,15 +41,15 @@ private:
 };
 
 // 纯调度边界：不执行 Resume/Wake，不分配节点。所有集合、floor 和统计受同一锁保护。
-class CfsRunQueue
-{
-    struct Earlier
-    {
+class CfsRunQueue {
+    struct Earlier {
         bool operator()(const CfsEntity& a, const CfsEntity& b) const noexcept
-        { return a.m_vruntime < b.m_vruntime; }
+        {
+            return a.m_vruntime < b.m_vruntime;
+        }
     };
-    using Queue = boost::intrusive::multiset<CfsEntity,
-        boost::intrusive::compare<Earlier>>;
+    using Queue = boost::intrusive::multiset<CfsEntity, boost::intrusive::compare<Earlier>>;
+
 public:
     bool Enqueue(CfsEntity& entity, Coroutine* task, int priority, uint64_t weight)
     {
@@ -76,11 +84,10 @@ public:
         if (m_running != &entity)
             std::terminate(); // 内部唯一执行者协议损坏，不能带坏账继续发布。
         const auto charge = std::max<uint64_t>(1, elapsed_us);
-        entity.m_serviceUs += std::min(charge,
-            std::numeric_limits<uint64_t>::max() - entity.m_serviceUs);
+        entity.m_serviceUs += std::min(charge, std::numeric_limits<uint64_t>::max() - entity.m_serviceUs);
         entity.m_vruntime += static_cast<double>(charge) / entity.m_weight;
-        const auto progress = m_queue.empty() ? entity.m_vruntime
-            : std::min(entity.m_vruntime, m_queue.begin()->m_vruntime);
+        const auto progress =
+            m_queue.empty() ? entity.m_vruntime : std::min(entity.m_vruntime, m_queue.begin()->m_vruntime);
         m_floor = std::max(m_floor, progress);
         entity.m_vruntime -= m_floor;
         entity.m_waiting = waiting;
@@ -105,6 +112,7 @@ public:
         std::lock_guard<std::mutex> lock(m_mutex);
         return m_queue.size();
     }
+
 private:
     mutable std::mutex m_mutex;
     Queue m_queue;

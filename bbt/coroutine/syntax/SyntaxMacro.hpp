@@ -73,7 +73,7 @@
  * 转调 `RegistCoroutineTask(cb, bool&)`（noexcept）：注册成功写 true，任何异常都被吞掉并写 false。
  * 注册失败时协程没有被创建，lambda 不会执行；调用者负责处理失败（重试、释放已持有资源等）。
  */
-#define bbtco_noexcept(succ) bbt::coroutine::_CoHelper(succ)+ 
+#define bbtco_noexcept(succ) bbt::coroutine::_CoHelper(succ)+
 
 /**
  * @brief 启动一个带描述的协程：`bbtco_desc("name") [=]() { ... };`
@@ -197,4 +197,3 @@ do \
  */
 #define bbtco_wait_for(fd, event, ms) \
     bbt::coroutine::_WaitForHelper __bbtco_joint_suffix(_WaitForHelper_, __COUNTER__){fd, event, ms}
-

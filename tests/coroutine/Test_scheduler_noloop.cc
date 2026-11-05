@@ -31,8 +31,7 @@
 
 using namespace bbt::coroutine;
 
-namespace
-{
+namespace {
 
 #if defined(__linux__)
 size_t CountSelfThreads()
@@ -49,7 +48,7 @@ size_t CountSelfThreads()
 void StartNoLoopOnce()
 {
     static std::once_flag once;
-    std::call_once(once, [](){
+    std::call_once(once, []() {
         auto* cfg = g_bbt_coroutine_config.get();
         cfg->m_cfg_static_thread_num = 1;
         cfg->m_cfg_stack_protect = false;
@@ -103,7 +102,7 @@ BOOST_AUTO_TEST_CASE(t_post_does_not_spawn_thread)
     StartNoLoopOnce();
 
     const auto ex1 = io::GetExecutor();
-    BOOST_CHECK(ex1 == io::GetExecutor());   // 同一 io_context，无独立事件循环
+    BOOST_CHECK(ex1 == io::GetExecutor()); // 同一 io_context，无独立事件循环
 
 #if defined(__linux__)
     const size_t before = CountSelfThreads();

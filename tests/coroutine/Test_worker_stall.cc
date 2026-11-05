@@ -34,8 +34,7 @@
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::detail;
 
-namespace
-{
+namespace {
 
 /* 进程级一次性配置：warn_ms 由 `-- --stall-warn-ms=N` 参数给出（默认 200）。
  * m_cfg_worker_stall_warn_ms / m_ext_worker_stall_callback / worker 数等
@@ -44,8 +43,7 @@ size_t StallWarnMsArg()
 {
     static const size_t warn_ms = []() {
         auto& ts = boost::unit_test::framework::master_test_suite();
-        for (int i = 1; i < ts.argc; ++i)
-        {
+        for (int i = 1; i < ts.argc; ++i) {
             const char* arg = ts.argv[i];
             const char* prefix = "--stall-warn-ms=";
             if (strncmp(arg, prefix, strlen(prefix)) == 0)
@@ -58,8 +56,8 @@ size_t StallWarnMsArg()
 
 /* 回调接收的完整上报，持锁读副本。回调在调度线程上执行，
  * 只 push 不阻塞（契约：不抛出、不阻塞）。 */
-std::mutex                          g_reports_mutex;
-std::vector<WorkerStallInfo>        g_reports;
+std::mutex g_reports_mutex;
+std::vector<WorkerStallInfo> g_reports;
 
 void RecordStall(const WorkerStallInfo& info)
 {
@@ -81,7 +79,7 @@ void ClearReports()
 
 /* 协程内自报的 desc->co_id 真值映射：协程启动即登记自己，早于任何
  * 可能的上报（上报要求该协程已占住 worker 超阈值）。 */
-std::mutex                          g_truth_mutex;
+std::mutex g_truth_mutex;
 std::unordered_map<std::string, CoroutineId> g_desc_to_id;
 
 void RegisterTruth(const char* desc)
@@ -99,9 +97,9 @@ std::unordered_map<std::string, CoroutineId> SnapshotTruth()
 void EnsureRuntime()
 {
     static std::once_flag once;
-    std::call_once(once, [](){
+    std::call_once(once, []() {
         auto* cfg = g_bbt_coroutine_config.get();
-        cfg->m_cfg_static_thread_num = 2;   // 一个 worker 可被死循环占住，另一个保活
+        cfg->m_cfg_static_thread_num = 2; // 一个 worker 可被死循环占住，另一个保活
         cfg->m_cfg_stack_size = 8192;
         cfg->m_cfg_stack_protect = false;
         cfg->m_ext_worker_stall_callback = &RecordStall;
@@ -116,10 +114,9 @@ void EnsureRuntime()
  * finished 是自有原子完成事实，不借用 CountDownLatch::WaitTimeout——
  * 其内部 pthread_cond_timedwait 返回 0 后不复查 m_count，spurious wakeup
  * 下会假报完成，不能当 Join 收据。 */
-struct Spinner
-{
-    std::atomic_bool            release{false};
-    std::atomic_bool            finished{false};  // 协程退出前最后一次写本对象
+struct Spinner {
+    std::atomic_bool release{false};
+    std::atomic_bool finished{false}; // 协程退出前最后一次写本对象
 
     ~Spinner()
     {
@@ -138,8 +135,7 @@ struct Spinner
     bool Join(int timeout_ms)
     {
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
-        while (!finished.load(std::memory_order_acquire))
-        {
+        while (!finished.load(std::memory_order_acquire)) {
             if (std::chrono::steady_clock::now() >= deadline)
                 return false;
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -152,8 +148,7 @@ struct Spinner
 bool WaitReportsAtLeast(size_t n, int timeout_ms)
 {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
-    while (std::chrono::steady_clock::now() < deadline)
-    {
+    while (std::chrono::steady_clock::now() < deadline) {
         if (SnapshotReports().size() >= n)
             return true;
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -163,7 +158,10 @@ bool WaitReportsAtLeast(size_t n, int timeout_ms)
 
 /* 启用模式判定延迟到用例体内求值：master_test_suite() 的参数在
  * main()/Boost.Test 初始化后才可用，不能放静态初始化期读取。 */
-bool StallEnabled() { return StallWarnMsArg() > 0; }
+bool StallEnabled()
+{
+    return StallWarnMsArg() > 0;
+}
 
 } // namespace
 
@@ -172,15 +170,19 @@ BOOST_AUTO_TEST_SUITE(WorkerStallTest)
 // 死循环协程占住 worker：调度线程必须检出并上报现场
 BOOST_AUTO_TEST_CASE(t_spin_worker_is_reported)
 {
-    if (!StallEnabled()) { BOOST_TEST_MESSAGE("skip: disabled mode"); return; }
+    if (!StallEnabled()) {
+        BOOST_TEST_MESSAGE("skip: disabled mode");
+        return;
+    }
     EnsureRuntime();
     ClearReports();
     Spinner spinner;
 
-    bbtco_desc("spin-stall-probe") [&]() {
+    bbtco_desc("spin-stall-probe")[&]()
+    {
         RegisterTruth("spin-stall-probe");
         while (!spinner.release.load(std::memory_order_acquire))
-            ;   // 无让出点，占死 worker
+            ; // 无让出点，占死 worker
         spinner.finished.store(true, std::memory_order_release);
     };
 
@@ -204,12 +206,16 @@ BOOST_AUTO_TEST_CASE(t_spin_worker_is_reported)
 // 同一停顿不重复上报：让 spin 持续覆盖多个扫描拍，期望恰好 1 次
 BOOST_AUTO_TEST_CASE(t_same_stall_reported_once)
 {
-    if (!StallEnabled()) { BOOST_TEST_MESSAGE("skip: disabled mode"); return; }
+    if (!StallEnabled()) {
+        BOOST_TEST_MESSAGE("skip: disabled mode");
+        return;
+    }
     EnsureRuntime();
     ClearReports();
     Spinner spinner;
 
-    bbtco_desc("stall-dedup-probe") [&]() {
+    bbtco_desc("stall-dedup-probe")[&]()
+    {
         RegisterTruth("stall-dedup-probe");
         while (!spinner.release.load(std::memory_order_acquire))
             ;
@@ -235,7 +241,10 @@ BOOST_AUTO_TEST_CASE(t_same_stall_reported_once)
 // 产生 truth 中不存在的配对（如 idA+descB），直接判负。
 BOOST_AUTO_TEST_CASE(t_concurrent_snapshot_reports_coherent_payload)
 {
-    if (!StallEnabled()) { BOOST_TEST_MESSAGE("skip: disabled mode"); return; }
+    if (!StallEnabled()) {
+        BOOST_TEST_MESSAGE("skip: disabled mode");
+        return;
+    }
     EnsureRuntime();
     ClearReports();
     constexpr int kSpinners = 2;
@@ -245,14 +254,16 @@ BOOST_AUTO_TEST_CASE(t_concurrent_snapshot_reports_coherent_payload)
     bbt::core::thread::CountDownLatch entered{kSpinners};
     Spinner spinner_a, spinner_b;
 
-    bbtco_desc("stall-probe-A") [&]() {
+    bbtco_desc("stall-probe-A")[&]()
+    {
         RegisterTruth("stall-probe-A");
         entered.Down();
         while (!spinner_a.release.load(std::memory_order_acquire))
             ;
         spinner_a.finished.store(true, std::memory_order_release);
     };
-    bbtco_desc("stall-probe-B") [&]() {
+    bbtco_desc("stall-probe-B")[&]()
+    {
         RegisterTruth("stall-probe-B");
         entered.Down();
         while (!spinner_b.release.load(std::memory_order_acquire))
@@ -274,14 +285,13 @@ BOOST_AUTO_TEST_CASE(t_concurrent_snapshot_reports_coherent_payload)
     BOOST_REQUIRE(truth.count("stall-probe-B") == 1);
     auto reports = SnapshotReports();
     size_t matched = 0;
-    for (const auto& r : reports)
-    {
+    for (const auto& r : reports) {
         if (r.m_desc != "stall-probe-A" && r.m_desc != "stall-probe-B")
             continue;
         ++matched;
         auto it = truth.find(r.m_desc);
         BOOST_REQUIRE(it != truth.end());
-        BOOST_CHECK_EQUAL(r.m_co_id, it->second);   // 配对一致性
+        BOOST_CHECK_EQUAL(r.m_co_id, it->second); // 配对一致性
         BOOST_CHECK(!r.m_desc.empty());
     }
     BOOST_CHECK_EQUAL(matched, 2u);
@@ -290,7 +300,10 @@ BOOST_AUTO_TEST_CASE(t_concurrent_snapshot_reports_coherent_payload)
 // 正常挂起不误报：parked 协程不占 worker，快照不得命中
 BOOST_AUTO_TEST_CASE(t_parked_coroutine_not_reported)
 {
-    if (!StallEnabled()) { BOOST_TEST_MESSAGE("skip: disabled mode"); return; }
+    if (!StallEnabled()) {
+        BOOST_TEST_MESSAGE("skip: disabled mode");
+        return;
+    }
     EnsureRuntime();
     ClearReports();
     /* done 由协程 lambda 以值持有 shared_ptr：WaitTimeout 断言失败展开时
@@ -298,8 +311,9 @@ BOOST_AUTO_TEST_CASE(t_parked_coroutine_not_reported)
      * 晚恢复后的 done->Down() 不会触碰已销毁栈对象。 */
     auto done = std::make_shared<bbt::core::thread::CountDownLatch>(1);
 
-    bbtco [done]() {
-        bbtco_sleep(300);   // 挂起 300ms > 阈值 200ms，但不得算停顿
+    bbtco[done]()
+    {
+        bbtco_sleep(300); // 挂起 300ms > 阈值 200ms，但不得算停顿
         done->Down();
     };
 
@@ -314,12 +328,16 @@ BOOST_AUTO_TEST_CASE(t_parked_coroutine_not_reported)
 // 本用例只在 -- --stall-warn-ms=0 模式下有实义；启用模式下自检跳过。
 BOOST_AUTO_TEST_CASE(t_disabled_warn_ms_no_reports)
 {
-    if (StallEnabled()) { BOOST_TEST_MESSAGE("skip: enabled mode"); return; }
+    if (StallEnabled()) {
+        BOOST_TEST_MESSAGE("skip: enabled mode");
+        return;
+    }
     EnsureRuntime();
     ClearReports();
     Spinner spinner;
 
-    bbtco_desc("disabled-stall-probe") [&]() {
+    bbtco_desc("disabled-stall-probe")[&]()
+    {
         while (!spinner.release.load(std::memory_order_acquire))
             ;
         spinner.finished.store(true, std::memory_order_release);

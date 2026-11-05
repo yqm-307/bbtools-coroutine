@@ -1,15 +1,12 @@
 #pragma once
 #include <bbt/core/thread/lock/Mutex.hpp>
 
-namespace bbt::core::thread
-{
+namespace bbt::core::thread {
 
-class CountDownLatch:
-    public boost::noncopyable
-{
+class CountDownLatch : public boost::noncopyable {
 public:
-	CountDownLatch(int cot);
-	~CountDownLatch();
+    CountDownLatch(int cot);
+    ~CountDownLatch();
     void Wait();
 
     /**
@@ -21,10 +18,11 @@ public:
     int WaitTimeout(int timeout);
     void Down();
     void Reset(int n);
+
 private:
     std::atomic_int m_count;
-	Mutex           m_lock;
-	pthread_cond_t  m_sem;
+    Mutex m_lock;
+    pthread_cond_t m_sem;
 };
 
 }

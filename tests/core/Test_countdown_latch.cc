@@ -53,8 +53,8 @@ BOOST_AUTO_TEST_CASE(t_wait_timeout_expire)
 
     auto begin = std::chrono::steady_clock::now();
     int ret = latch.WaitTimeout(120);
-    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::steady_clock::now() - begin).count();
+    auto elapsed_ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - begin).count();
 
     BOOST_TEST(ret == -1);
     BOOST_TEST(elapsed_ms >= 100);
@@ -67,8 +67,8 @@ BOOST_AUTO_TEST_CASE(t_wait_timeout_zero_count)
 
     auto begin = std::chrono::steady_clock::now();
     int ret = latch.WaitTimeout(5000);
-    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::steady_clock::now() - begin).count();
+    auto elapsed_ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - begin).count();
 
     BOOST_TEST(ret == 0);
     BOOST_TEST(elapsed_ms < 1000);
@@ -113,12 +113,12 @@ BOOST_AUTO_TEST_CASE(t_partial_down_not_wake)
     });
 
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    latch.Down();  // count 1 -> 0，不应唤醒（还差 1）
+    latch.Down(); // count 1 -> 0，不应唤醒（还差 1）
 
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     BOOST_TEST(done.load() == false);
 
-    latch.Down();  // count 0 -> 唤醒
+    latch.Down(); // count 0 -> 唤醒
     t.join();
     BOOST_TEST(done.load() == true);
 }

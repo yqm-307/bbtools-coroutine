@@ -16,24 +16,19 @@
 #include <bbt/coroutine/detail/Scheduler.hpp>
 
 /* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。 */
-namespace
-{
+namespace {
 void EnsureRuntime()
 {
     static std::once_flag once;
-    std::call_once(once, [](){
-        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
-    });
+    std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
 }
 
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::detail;
 
-namespace
-{
-struct ConfigSnapshot
-{
+namespace {
+struct ConfigSnapshot {
     size_t threads{0};
     size_t stack_size{0};
     bool stack_protect{false};
@@ -76,7 +71,8 @@ BOOST_AUTO_TEST_CASE(t_tls_inside_coroutine)
     std::atomic<CoroutineId> co_id{0};
     std::atomic<ProcesserId> proc_id{0};
 
-    bbtco [&]() {
+    bbtco[&]()
+    {
         co_id.store(GetLocalCoroutineId());
         auto proc = Processer::GetLocalProcesser();
         if (proc)
@@ -127,11 +123,13 @@ BOOST_AUTO_TEST_CASE(t_yield_keeps_single_running_and_valid_tls)
     std::set<ProcesserId> procs;
     std::mutex procs_mu;
 
-    bbtco [&]() {
+    bbtco[&]()
+    {
         for (int i = 0; i < 8; ++i) {
             const int now = overlap.fetch_add(1) + 1;
             int seen = overlap_max.load();
-            while (now > seen && !overlap_max.compare_exchange_weak(seen, now)) {}
+            while (now > seen && !overlap_max.compare_exchange_weak(seen, now)) {
+            }
             {
                 std::lock_guard<std::mutex> lk(procs_mu);
                 procs.insert(Processer::GetLocalProcesser()->GetId());
@@ -157,10 +155,11 @@ BOOST_AUTO_TEST_CASE(t_dense_ready_events_do_not_starve_timer_dispatch)
     /* 密集短定时事件摊在 1..8ms：每毫秒约 kChurnEvents/8 个 ready，模拟停拍期间
        持续有事件派发的形态；另加一个更晚的探针事件。 */
     constexpr int kChurnEvents = 64;
-    static std::atomic<int>  churn_fired{0};
+    static std::atomic<int> churn_fired{0};
     static std::atomic<bool> probe_fired{false};
 
-    bbtco [&]() {
+    bbtco[&]()
+    {
         for (int i = 0; i < kChurnEvents; ++i) {
             bbtco_ev_t(1 + (i % 8)) [](int, short) {
                 churn_fired.fetch_add(1);
@@ -168,17 +167,18 @@ BOOST_AUTO_TEST_CASE(t_dense_ready_events_do_not_starve_timer_dispatch)
         }
     };
 
-    bbtco [&]() {
-        bbtco_ev_t(50) [](int, short) {
+    bbtco[&]()
+    {
+        bbtco_ev_t(50)[](int, short)
+        {
             probe_fired.store(true);
         };
     };
 
     /* 宽松上界：只判「没有丢派发、没有被等待拖死」，不是性能断言。 */
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-    while (std::chrono::steady_clock::now() < deadline &&
-           (probe_fired.load() == false || churn_fired.load() != kChurnEvents))
-    {
+    while (std::chrono::steady_clock::now() < deadline
+           && (probe_fired.load() == false || churn_fired.load() != kChurnEvents)) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 
@@ -191,13 +191,13 @@ BOOST_AUTO_TEST_CASE(t_dense_ready_events_do_not_starve_timer_dispatch)
 BOOST_AUTO_TEST_CASE(t_end)
 {
     if (g_started.exchange(false))
-    if (g_cfg.saved) {
-        auto* cfg = g_bbt_coroutine_config.get();
-        cfg->m_cfg_static_thread_num = g_cfg.threads;
-        cfg->m_cfg_stack_size = g_cfg.stack_size;
-        cfg->m_cfg_stack_protect = g_cfg.stack_protect;
-        g_cfg.saved = false;
-    }
+        if (g_cfg.saved) {
+            auto* cfg = g_bbt_coroutine_config.get();
+            cfg->m_cfg_static_thread_num = g_cfg.threads;
+            cfg->m_cfg_stack_size = g_cfg.stack_size;
+            cfg->m_cfg_stack_protect = g_cfg.stack_protect;
+            g_cfg.saved = false;
+        }
 }
 
 BOOST_AUTO_TEST_SUITE_END()

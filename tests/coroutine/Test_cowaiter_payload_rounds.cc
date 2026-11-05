@@ -34,14 +34,13 @@ using namespace bbt::coroutine::sync;
 
 BOOST_AUTO_TEST_SUITE(CoWaiterPayloadRoundTest)
 
-namespace
-{
+namespace {
 
 /* 唯一一次 Start 前固定 1 worker：确定性交错的前提。 */
 void EnsureRuntimeSingle()
 {
     static std::once_flag once;
-    std::call_once(once, [](){
+    std::call_once(once, []() {
         g_bbt_coroutine_config->m_cfg_static_thread_num = 1;
         bbt::coroutine::detail::Scheduler::GetInstance()->Start();
     });
@@ -59,8 +58,7 @@ bool Until(const std::function<bool()>& pred, int budget_ms = 5000)
 }
 
 /* 借用受保护等待位做「本轮已登记」探针，不改变库语义。 */
-struct ProbeWaiter : CoWaiter
-{
+struct ProbeWaiter : CoWaiter {
     bool Ready()
     {
         std::lock_guard<std::mutex> l(m_notify_mutex);
@@ -81,7 +79,8 @@ BOOST_AUTO_TEST_CASE(t_plain_wait_payload_round_isolated)
     std::atomic<std::int64_t> first{-1}, second{-1};
     std::atomic<bool> first_has{false}, second_has{false};
 
-    bbtco [&]() {
+    bbtco[&]()
+    {
         CoEventValue out;
         waiter->WaitWithCallback(WaitOptions{}, {}, &out);
         std::int64_t v = -1;
@@ -91,13 +90,16 @@ BOOST_AUTO_TEST_CASE(t_plain_wait_payload_round_isolated)
     };
     BOOST_REQUIRE(Until([&]() { return waiter->Ready(); }));
 
-    bbtco [&]() {
+    bbtco[&]()
+    {
         blocking.store(true);
-        if (!Until([&]() { return release.load(); })) { done.fetch_add(1); return; }
+        if (!Until([&]() { return release.load(); })) {
+            done.fetch_add(1);
+            return;
+        }
         CoEventValue out;
-        waiter->WaitWithCallback(WaitOptions{},
-            [&]() { return waiter->Notify(CoEventValue::From(std::int64_t{11})) == 0; },
-            &out);
+        waiter->WaitWithCallback(
+            WaitOptions{}, [&]() { return waiter->Notify(CoEventValue::From(std::int64_t{11})) == 0; }, &out);
         std::int64_t v = -1;
         second_has.store(out.Get(v));
         second.store(v);
@@ -126,7 +128,8 @@ BOOST_AUTO_TEST_CASE(t_combined_wait_payload_round_isolated)
     std::atomic<std::int64_t> first{-1}, second{-1};
     std::atomic<bool> first_has{false}, second_has{false};
 
-    bbtco [&]() {
+    bbtco[&]()
+    {
         CoEventValue out;
         waiter->Wait(CombinedWaitOptions{}, {}, &out);
         std::int64_t v = -1;
@@ -136,13 +139,16 @@ BOOST_AUTO_TEST_CASE(t_combined_wait_payload_round_isolated)
     };
     BOOST_REQUIRE(Until([&]() { return waiter->Ready(); }));
 
-    bbtco [&]() {
+    bbtco[&]()
+    {
         blocking.store(true);
-        if (!Until([&]() { return release.load(); })) { done.fetch_add(1); return; }
+        if (!Until([&]() { return release.load(); })) {
+            done.fetch_add(1);
+            return;
+        }
         CoEventValue out;
-        waiter->Wait(CombinedWaitOptions{},
-            [&]() { return waiter->Notify(CoEventValue::From(std::int64_t{11})) == 0; },
-            &out);
+        waiter->Wait(
+            CombinedWaitOptions{}, [&]() { return waiter->Notify(CoEventValue::From(std::int64_t{11})) == 0; }, &out);
         std::int64_t v = -1;
         second_has.store(out.Get(v));
         second.store(v);

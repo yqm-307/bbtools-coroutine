@@ -2,11 +2,9 @@
 #include <memory>
 #include <bbt/coroutine/detail/interface/IPollEvent.hpp>
 
-namespace bbt::coroutine::detail
-{
+namespace bbt::coroutine::detail {
 
-class IPoller
-{
+class IPoller {
 public:
     /* 遗留接口，CoPoller 未实现。EventLoop 契约见 CoPoller.hpp。
        换 backend 改 CoPoller，不实现本类型。 */
@@ -43,7 +41,6 @@ public:
      * @return 触发的事件数量
      */
     virtual int PollOnce() = 0;
-
 };
 
 }

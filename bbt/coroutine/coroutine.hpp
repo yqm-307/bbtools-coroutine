@@ -31,11 +31,9 @@
 
 #include <bbt/coroutine/syntax/SyntaxMacro.hpp>
 
-namespace bbt
-{
+namespace bbt {
 
-namespace coroutine
-{
+namespace coroutine {
 
 /**
  * @brief 只读查询当前执行协程 id；非协程上下文返回 0，不创建 Processer 或启动 runtime。
@@ -57,12 +55,12 @@ void RequireCoroutineContext();
  * @tparam ItemMax 缓冲容量
  * @return 新建通道的 shared_ptr
  */
-template<class TItem, int ItemMax>
-inline typename sync::Chan<TItem, ItemMax>::SPtr Chan()
-{ return std::make_shared<bbt::coroutine::sync::Chan<TItem, ItemMax>>(); }
+template <class TItem, int ItemMax> inline typename sync::Chan<TItem, ItemMax>::SPtr Chan()
+{
+    return std::make_shared<bbt::coroutine::sync::Chan<TItem, ItemMax>>();
+}
 
 } // namespace coroutine
-
 
 namespace co = coroutine;
 }

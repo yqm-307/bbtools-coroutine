@@ -21,14 +21,11 @@
 
 /* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
  * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。 */
-namespace
-{
+namespace {
 void EnsureRuntime()
 {
     static std::once_flag once;
-    std::call_once(once, [](){
-        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
-    });
+    std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
 }
 
@@ -57,9 +54,7 @@ BOOST_AUTO_TEST_CASE(smoke_scheduler_regist_run_coroutine)
     EnsureRuntime();
 
     std::atomic_int counter{0};
-    g_scheduler->RegistCoroutineTask([&counter]() {
-        counter++;
-    });
+    g_scheduler->RegistCoroutineTask([&counter]() { counter++; });
 
     for (int i = 0; i < 300 && counter.load() == 0; ++i)
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -305,13 +300,9 @@ BOOST_AUTO_TEST_CASE(smoke_copool_submit_and_release)
     auto pool = pool::CoPool::Create(2);
     std::atomic_int counter{0};
 
-    pool->Submit([&counter]() {
-        counter++;
-    });
+    pool->Submit([&counter]() { counter++; });
 
-    pool->Submit([&counter]() {
-        counter++;
-    });
+    pool->Submit([&counter]() { counter++; });
 
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
     pool->Release();
@@ -358,7 +349,8 @@ BOOST_AUTO_TEST_CASE(smoke_defer_execute)
     std::atomic_bool defer_executed{false};
 
     sche->RegistCoroutineTask([&]() {
-        bbtco_defer {
+        bbtco_defer
+        {
             defer_executed = true;
         };
         // defer fires when this coroutine exits

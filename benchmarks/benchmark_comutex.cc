@@ -1,6 +1,5 @@
 #include <bbt/coroutine/coroutine.hpp>
 
-
 /**
  * 开启100个协程，竞争写一个全局变量a和b
  * 每个协程每次加1，a和b的值应该始终相等
@@ -20,18 +19,19 @@ int main()
     g_scheduler->Start();
 
     for (int i = 0; i < nco_num; ++i) {
-        bbtco []() {
+        bbtco[]()
+        {
             while (true) {
                 std::lock_guard<StdLockWapper> lock(mutex);
                 Assert(a == b);
-                a++; b++;
+                a++;
+                b++;
             }
         };
     }
-    
-    while(1) {
+
+    while (1) {
         printf("%d %d\n", a, b);
         sleep(1);
     }
-
 }

@@ -12,6 +12,5 @@ void StackBudgetRegister(std::size_t usable_bytes)
 {
     using namespace bbt::coroutine::detail;
     g_scheduler->Start();
-    g_scheduler->RegistCoroutineTask(usable_bytes, &StackBudgetEntry,
-                                     "conditional-stack-budget-example");
+    g_scheduler->RegistCoroutineTask(usable_bytes, &StackBudgetEntry, "conditional-stack-budget-example");
 }

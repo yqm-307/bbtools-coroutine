@@ -1,12 +1,9 @@
 #pragma once
 #include <bbt/coroutine/detail/Define.hpp>
 
-namespace bbt::coroutine::sync
-{
+namespace bbt::coroutine::sync {
 
-template<class _TItem>
-class IChan
-{
+template <class _TItem> class IChan {
 public:
     typedef _TItem ItemType;
 

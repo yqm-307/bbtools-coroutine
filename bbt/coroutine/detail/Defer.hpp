@@ -3,12 +3,9 @@
 #include <boost/noncopyable.hpp>
 #include <bbt/coroutine/detail/Define.hpp>
 
-namespace bbt::coroutine::detail
-{
+namespace bbt::coroutine::detail {
 
-class Defer final:
-    boost::noncopyable
-{
+class Defer final : boost::noncopyable {
 public:
     explicit Defer(const DeferCallback& cb);
     ~Defer();

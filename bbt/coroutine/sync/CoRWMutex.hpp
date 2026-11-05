@@ -4,19 +4,22 @@
 #include <bbt/coroutine/sync/CoWaiter.hpp>
 #include <bbt/coroutine/sync/CoCond.hpp>
 
-namespace bbt::coroutine::sync
-{
+namespace bbt::coroutine::sync {
 
-class CoRWMutex
-{
+class CoRWMutex {
     struct PrivateTag {};
+
 public:
     friend class CoRWMutexTestAccess;
     typedef std::shared_ptr<CoRWMutex> SPtr;
     static SPtr Create();
-    BBTATTR_FUNC_CTOR_HIDDEN 
-    CoRWMutex(PrivateTag) {}
-    ~CoRWMutex() {}
+    BBTATTR_FUNC_CTOR_HIDDEN
+    CoRWMutex(PrivateTag)
+    {
+    }
+    ~CoRWMutex()
+    {
+    }
 
     int RLock();
     int WLock();
@@ -44,24 +47,23 @@ protected:
     void _SysUnLock();
     void _OnWriterQueued() noexcept;
     void _OnReaderBlocked() noexcept;
-private:
-    std::queue<std::shared_ptr<CoWaiter>>
-                                m_wait_readlock_queue;
-    std::queue<std::shared_ptr<CoWaiter>>
-                                m_wait_writelock_queue;
 
-    int                         m_rlock_hold_num{0};
-    bool                        m_has_wait_wlock{false};
+private:
+    std::queue<std::shared_ptr<CoWaiter>> m_wait_readlock_queue;
+    std::queue<std::shared_ptr<CoWaiter>> m_wait_writelock_queue;
+
+    int m_rlock_hold_num{0};
+    bool m_has_wait_wlock{false};
     /* 仍存活的等待写者计数。由挂起回调在持锁临界区内 +1，
      * 等待返回（唤醒/超时）后由本写者 -1；m_has_wait_wlock 按
      * (num>0) 重建——登记失败不等价于写者责任结束，不得无条件清旗
      * 掩盖其它真实排队写者。 */
-    int                         m_wait_wlock_num{0};
+    int m_wait_wlock_num{0};
 
-    std::mutex                  m_mutex;
-    CoRWMutexStatus             m_status{CORWMUTEX_FREE};
-    std::function<void()>       m_writer_queued_callback{nullptr};
-    std::function<void()>       m_reader_blocked_callback{nullptr};
+    std::mutex m_mutex;
+    CoRWMutexStatus m_status{CORWMUTEX_FREE};
+    std::function<void()> m_writer_queued_callback{nullptr};
+    std::function<void()> m_reader_blocked_callback{nullptr};
 };
 
 } // bbt::coroutine::sync

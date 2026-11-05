@@ -72,24 +72,30 @@ extern "C" __attribute__((noinline)) int VirtualEntry(StackBudgetOperation& oper
     return operation.Run(value) + value;
 }
 
-extern "C" __attribute__((noinline)) int RuntimeWrapper(
-    const std::function<int(int)>& callback, int value)
+extern "C" __attribute__((noinline)) int RuntimeWrapper(const std::function<int(int)>& callback, int value)
 {
     return callback(value) + value;
 }
 
 extern "C" __attribute__((noinline)) int SwitchEntry(int value)
 {
-    switch (value & 7)
-    {
-    case 0: return DirectLeaf(value);
-    case 1: return DirectMiddle(value);
-    case 2: return BranchLeft(value);
-    case 3: return BranchRight(value);
-    case 4: return CrossCallee(value);
-    case 5: return ThirdPartyOpaque(value);
-    case 6: return DirectEntry(value);
-    default: return RecursiveEntry(value & 3);
+    switch (value & 7) {
+    case 0:
+        return DirectLeaf(value);
+    case 1:
+        return DirectMiddle(value);
+    case 2:
+        return BranchLeft(value);
+    case 3:
+        return BranchRight(value);
+    case 4:
+        return CrossCallee(value);
+    case 5:
+        return ThirdPartyOpaque(value);
+    case 6:
+        return DirectEntry(value);
+    default:
+        return RecursiveEntry(value & 3);
     }
 }
 
@@ -103,21 +109,38 @@ extern "C" __attribute__((noinline)) int TailEntry(int value)
     return TailTarget(value);
 }
 
-inline int InlineCandidate(int value) { return value * 3; }
-extern "C" int InlineEntry(int value) { return InlineCandidate(value); }
+inline int InlineCandidate(int value)
+{
+    return value * 3;
+}
+extern "C" int InlineEntry(int value)
+{
+    return InlineCandidate(value);
+}
 
-__attribute__((noinline)) int Overload(int value) { return value + 1; }
-__attribute__((noinline)) long Overload(long value) { return value + 2; }
-template <typename T> __attribute__((noinline)) T TemplateUsed(T value) { return value + 4; }
+__attribute__((noinline)) int Overload(int value)
+{
+    return value + 1;
+}
+__attribute__((noinline)) long Overload(long value)
+{
+    return value + 2;
+}
+template <typename T> __attribute__((noinline)) T TemplateUsed(T value)
+{
+    return value + 4;
+}
 extern "C" int OverloadEntry(int value)
 {
     return Overload(value) + static_cast<int>(Overload(static_cast<long>(value))) + TemplateUsed(value);
 }
 
-struct Cleanup
-{
+struct Cleanup {
     int& result;
-    __attribute__((noinline)) ~Cleanup() { result += 1; }
+    __attribute__((noinline)) ~Cleanup()
+    {
+        result += 1;
+    }
 };
 
 __attribute__((noinline)) int ThrowMaybe(int value)

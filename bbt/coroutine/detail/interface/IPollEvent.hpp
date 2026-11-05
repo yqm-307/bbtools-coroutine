@@ -1,13 +1,10 @@
 #pragma once
 
-namespace bbt::coroutine::detail
-{
+namespace bbt::coroutine::detail {
 class IPoller;
 
-class IPollEvent
-{
+class IPollEvent {
 public:
-
     /**
      * @brief 触发事件
      * 

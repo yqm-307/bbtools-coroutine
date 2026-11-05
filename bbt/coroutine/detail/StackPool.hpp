@@ -11,8 +11,7 @@
 #include <bbt/coroutine/detail/Define.hpp>
 #include <bbt/coroutine/detail/Stack.hpp>
 
-namespace bbt::coroutine::detail
-{
+namespace bbt::coroutine::detail {
 
 /**
  * @brief 栈池：按「页对齐可用字节数 U + 保护属性」精确复用固定栈。
@@ -31,8 +30,7 @@ namespace bbt::coroutine::detail
  * 共享同一临界区；只有聚焦回归证明它成为阻断瓶颈时，才升级为分桶同步并
  * 保留独立的全池容量协议。不提前做该升级。
  */
-class StackPool
-{
+class StackPool {
 public:
     typedef std::unique_ptr<StackPool> UPtr;
     typedef Stack ItemType;
@@ -76,11 +74,14 @@ protected:
     size_t _Preload(size_t preload_size);
     ItemType* _AllocItem(size_t stack_size, bool stack_protect);
     static void _FreeItem(ItemType* item);
+
 private:
     /* 单个尺寸/属性桶；pool 生命周期由 Bucket 自己兜底排空（含构造中途抛出） */
-    struct Bucket
-    {
-        explicit Bucket(size_t capacity) { pool.reserve(capacity); }
+    struct Bucket {
+        explicit Bucket(size_t capacity)
+        {
+            pool.reserve(capacity);
+        }
         ~Bucket()
         {
             for (auto* item : pool)
@@ -94,7 +95,7 @@ private:
                 pool.push_back(item);
                 return true;
             } catch (...) {
-                return false;   // 沿用归还失败分支：扣 live 后锁外释放栈
+                return false; // 沿用归还失败分支：扣 live 后锁外释放栈
             }
         }
         bool Pop(ItemType*& item) noexcept

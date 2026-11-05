@@ -21,14 +21,11 @@
 #include <bbt/coroutine/detail/Scheduler.hpp>
 
 /* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。 */
-namespace
-{
+namespace {
 void EnsureRuntime()
 {
     static std::once_flag once;
-    std::call_once(once, [](){
-        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
-    });
+    std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
 }
 
@@ -37,11 +34,9 @@ using namespace bbt::coroutine::detail;
 
 BOOST_AUTO_TEST_SUITE(HookErrorMatrixTest)
 
-namespace
-{
+namespace {
 
-struct CoFixture
-{
+struct CoFixture {
     CoFixture()
     {
         // 写已关 socket 默认触发 SIGPIPE 杀进程；屏蔽后 write 返回 -1/EPIPE，
@@ -69,14 +64,17 @@ struct CoFixture
     void (*m_old_pipe)(int){SIG_DFL};
 };
 
-template <typename Fn>
-void RunInCo(Fn fn)
+template <typename Fn> void RunInCo(Fn fn)
 {
     bbt::core::thread::CountDownLatch done{1};
     std::exception_ptr eptr;
-    bbtco [&]() {
-        try { fn(); }
-        catch (...) { eptr = std::current_exception(); }
+    bbtco[&]()
+    {
+        try {
+            fn();
+        } catch (...) {
+            eptr = std::current_exception();
+        }
         done.Down();
     };
     done.Wait();
@@ -111,7 +109,8 @@ BOOST_AUTO_TEST_CASE(t_eof_read_returns_zero)
         const ssize_t r = ::read(fds[0], buf, sizeof(buf));
         BOOST_CHECK_EQUAL(r, 0);
     });
-    if (fds[1] >= 0) ::close(fds[1]);
+    if (fds[1] >= 0)
+        ::close(fds[1]);
     ::close(fds[0]);
 }
 
@@ -131,7 +130,8 @@ BOOST_AUTO_TEST_CASE(t_epipe_write_errno_preserved)
         BOOST_CHECK_EQUAL(r, -1);
         BOOST_CHECK(errno == EPIPE || errno == ECONNRESET);
     });
-    if (fds[1] >= 0) ::close(fds[1]);
+    if (fds[1] >= 0)
+        ::close(fds[1]);
     ::close(fds[0]);
 }
 
@@ -160,7 +160,7 @@ BOOST_AUTO_TEST_CASE(t_econnreset_recv_errno_preserved)
 
     const struct linger lg{1, 0};
     BOOST_REQUIRE_EQUAL(::setsockopt(acc, SOL_SOCKET, SO_LINGER, &lg, sizeof(lg)), 0);
-    BOOST_REQUIRE_EQUAL(::close(acc), 0);   // RST 发给 cli
+    BOOST_REQUIRE_EQUAL(::close(acc), 0); // RST 发给 cli
 
     RunInCo([&]() {
         char buf[4];
@@ -184,7 +184,8 @@ BOOST_AUTO_TEST_CASE(t_close_during_wait_wakes_with_ebadf)
     std::atomic<ssize_t> result{12345};
     std::atomic_int errcode{0};
 
-    bbtco [&]() {
+    bbtco[&]()
+    {
         char buf[1];
         errno = 0;
         const ssize_t r = ::read(fds[0], buf, 1);
@@ -192,7 +193,8 @@ BOOST_AUTO_TEST_CASE(t_close_during_wait_wakes_with_ebadf)
         errcode.store(errno);
         done.Down();
     };
-    bbtco [&]() {
+    bbtco[&]()
+    {
         bbtco_sleep(20);
         BOOST_CHECK_EQUAL(::close(fds[0]), 0);
     };
@@ -203,7 +205,8 @@ BOOST_AUTO_TEST_CASE(t_close_during_wait_wakes_with_ebadf)
         BOOST_CHECK_EQUAL(result.load(), -1);
         BOOST_CHECK_EQUAL(errcode.load(), EBADF);
     }
-    if (fds[0] >= 0) ::close(fds[0]);
+    if (fds[0] >= 0)
+        ::close(fds[0]);
     ::close(fds[1]);
 }
 

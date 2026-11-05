@@ -1,7 +1,6 @@
 #include <bbt/coroutine/coroutine.hpp>
 
-class WatchDog
-{
+class WatchDog {
 public:
     void Feed()
     {
@@ -11,8 +10,7 @@ public:
     bool IsDead()
     {
         auto now = bbt::core::clock::gettime();
-        if (now - m_last_feed_time > 3 * 1000)
-        {
+        if (now - m_last_feed_time > 3 * 1000) {
             return true;
         }
         return false;
@@ -34,20 +32,19 @@ int main()
 
     auto chan = bbt::co::sync::Chan<uint64_t, 10000>();
 
-    bbtco_desc("reader") [&](){
+    bbtco_desc("reader")[&]()
+    {
         uint64_t item;
-        while (!reader_stop)
-        {
+        while (!reader_stop) {
             Assert(chan >> item);
             read++;
         }
     };
 
-    for (int i = 0; i < 10; ++i)
-    {
-        bbtco_desc("writer") [&, i](){
-            while (!writer_stop)
-            {
+    for (int i = 0; i < 10; ++i) {
+        bbtco_desc("writer")[&, i]()
+        {
+            while (!writer_stop) {
                 Assert(chan << 1);
                 dogs[i].Feed();
                 write++;
@@ -55,15 +52,12 @@ int main()
         };
     }
 
-    bbtco_desc("monitor") [&]()
+    bbtco_desc("monitor")[&]()
     {
-        while (!monitor_stop)
-        {
+        while (!monitor_stop) {
             std::cout << "monitor read=" << read.load() << "\t write=" << write.load() << std::endl;
-            for (int i = 0; i < 10; ++i)
-            {
-                if (dogs[i].IsDead())
-                {
+            for (int i = 0; i < 10; ++i) {
+                if (dogs[i].IsDead()) {
                     std::cout << "dog " << i << " is dead" << std::endl;
                 }
             }

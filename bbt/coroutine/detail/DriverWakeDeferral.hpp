@@ -1,8 +1,7 @@
 #pragma once
 #include <bbt/coroutine/detail/Define.hpp>
 
-namespace bbt::coroutine::detail
-{
+namespace bbt::coroutine::detail {
 
 /**
  * @brief driver Wake 延期机制（runtime 内部，无对外 API）。
@@ -17,10 +16,12 @@ namespace bbt::coroutine::detail
  * 时序约束：guard 对象绝不能跨 Yield/协程挂起——TLS 属线程而非协程，
  * 跨挂起会把「外调窗口」错误延伸到恢复之后的其它上下文。
  */
-class DriverWakeDeferral
-{
+class DriverWakeDeferral {
 public:
-    DriverWakeDeferral() noexcept { ++_TlsDepth(); }
+    DriverWakeDeferral() noexcept
+    {
+        ++_TlsDepth();
+    }
     ~DriverWakeDeferral() noexcept;
 
     DriverWakeDeferral(const DriverWakeDeferral&) = delete;
@@ -31,13 +32,17 @@ public:
      *  （由最外层 guard 退出时统一兑现）；深度=0 返回 false，调用方自行
      *  立即执行 Wake。
      */
-    static bool                     Defer() noexcept;
+    static bool Defer() noexcept;
     /* 当前线程是否仍在某级 runtime 通知临界区内（deferral depth>0）。
      * 用于 Unregister 在副作用前拒绝穿透 guard 的终止 Wake。 */
-    static bool                     IsActive() noexcept { return _TlsDepth() > 0; }
+    static bool IsActive() noexcept
+    {
+        return _TlsDepth() > 0;
+    }
+
 private:
-    static int&                     _TlsDepth() noexcept;
-    static bool&                    _TlsPending() noexcept;
+    static int& _TlsDepth() noexcept;
+    static bool& _TlsPending() noexcept;
 };
 
 }
