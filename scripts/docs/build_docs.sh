@@ -25,6 +25,17 @@ echo "doxygen $(doxygen --version) · project=$DOCS_PROJECT · version=$DOCS_VER
 rm -rf "$DOCS_OUT"
 mkdir -p "$DOCS_OUT"
 
+# 顶部导航加一条指向 AI 版的入口。整份布局与 doxygen 版本绑定，故按当前版本现生成再插入，不入仓。
+layout="$DOCS_OUT/.layout.xml"
+if doxygen -l "$layout" >/dev/null 2>&1 &&
+   awk '1; /<tab type="mainpage"/ && !done {print "    <tab type=\"user\" url=\"ai/index.md\" title=\"AI 文档\"/>"; done=1}' "$layout" > "$layout.new"; then
+    mv "$layout.new" "$layout"
+    export DOCS_LAYOUT=$layout
+else
+    rm -f "$layout.new"
+    echo "警告: 未能生成布局文件，跳过 AI 文档入口链接" >&2
+fi
+
 doxygen scripts/docs/Doxyfile
 python3 -I scripts/docs/export_ai_docs.py "$DOCS_OUT/xml" "$DOCS_OUT/ai" "$cfg"
 
