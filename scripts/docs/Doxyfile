@@ -29,6 +29,8 @@ CALL_GRAPH             = NO
 
 # 主题（Doxygen Awesome）由 build_docs.sh 传入；未提供时回落到 Doxygen 默认样式。
 HTML_EXTRA_STYLESHEET  = $(DOXYGEN_AWESOME_CSS)
+# 导航栏布局由 build_docs.sh 现生成（含指向 ai/index.md 的入口）；为空时用 doxygen 默认布局。
+LAYOUT_FILE            = $(DOCS_LAYOUT)
 GENERATE_TREEVIEW      = YES
 HTML_COLORSTYLE        = LIGHT
 
