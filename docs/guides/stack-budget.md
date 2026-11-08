@@ -155,18 +155,17 @@ mkdir -p build-stack-budget-tmp
 export TMPDIR="$PWD/build-stack-budget-tmp"
 export CCACHE_DIR="$PWD/build-stack-budget-cache"
 export CCACHE_TEMPDIR="$TMPDIR"
-JOBS=$(( $(nproc) / 4 )); [ "$JOBS" -ge 2 ] || JOBS=2
 
 cmake -S examples/stack_budget -B build-budget-analysis -G Ninja \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
   -DBBT_COROUTINE_LIBRARY="$PWD/build-stack-budget-off/lib/libbbt_coroutine.so"
-cmake --build build-budget-analysis --target stack_budget_analysis --parallel "$JOBS"
+flock /tmp/bbt-build.lock cmake --build build-budget-analysis --target stack_budget_analysis --parallel 2
 
 cmake -S examples/stack_budget -B build-budget-consume -G Ninja \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
   -DBBT_COROUTINE_LIBRARY="$PWD/build-stack-budget-off/lib/libbbt_coroutine.so" \
   -DSTACK_BUDGET_STAGE=CONSUME -DSTACK_BUDGET_ANALYSIS_DIR="$PWD/build-budget-analysis"
-cmake --build build-budget-consume --target stack_budget_consume --parallel "$JOBS"
+flock /tmp/bbt-build.lock cmake --build build-budget-consume --target stack_budget_consume --parallel 2
 ./build-budget-consume/stack_budget_consumer
 ```
 
