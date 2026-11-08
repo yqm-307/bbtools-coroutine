@@ -62,6 +62,7 @@ build*/
 .worktrees/
 
 # Runtime logs and temporary files
+/fatigue_results.csv
 /tmp/
 /log/
 /nohup.out

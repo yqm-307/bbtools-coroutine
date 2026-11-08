@@ -252,11 +252,10 @@ stack_pool_drained=1/1
 ## 9. 本地复现与离线验证
 
 ```bash
-# 构建（Release，与 CI 同参数；新 configure 加 ccache，JOBS 上限 nproc/4、最小 2）
+# 构建（Release，与 CI 同参数；新 configure 加 ccache；本地构建并发与排队按 AGENTS.md：固定 2，经 flock 队列）
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
   -DNEED_TEST=ON -DNEED_BENCHMARK=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-JOBS=$(( $(nproc) / 4 )); JOBS=$(( JOBS < 2 ? 2 : JOBS ))
-cmake --build build --parallel "$JOBS"
+flock /tmp/bbt-build.lock cmake --build build --parallel 2
 # 与 CI 同口径跑全量 smoke（注册集=实跑集校验，skipped/failure 判红）
 bash scripts/ci/run_test_profile.sh --build-dir build --profile smoke
 # 本地 focused：changes 同款映射可用 changed_files.py 在仓库内离线复现；

@@ -189,15 +189,14 @@ GitHub tag ruleset 的“限制创建”按 bypass actor 授权，不能直接�
 ## 9. 本地入口
 
 ```bash
-# 本地聚焦验证（新 configure 加 ccache；JOBS 上限 nproc/4，最小 2）
+# 本地聚焦验证（新 configure 加 ccache；构建并发与排队按 AGENTS.md：固定 2，经 flock 队列）
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
   -DNEED_TEST=ON -DNEED_BENCHMARK=ON -DNEED_EXAMPLE=ON \
   -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-JOBS=$(( $(nproc) / 4 )); JOBS=$(( JOBS < 2 ? 2 : JOBS ))
 # 按验证阶梯做聚焦增量构建：<target> 填本次改动涉及的测试可执行名（如 Test_smoke，
 # 用 `ctest -N` 或 tests/CMakeLists.txt 查）；不跑裸全量 ctest——全量回归走
 # `run_test_profile.sh --profile full` 或发布 Gate。
-cmake --build build --target <target> --parallel "$JOBS"
+flock /tmp/bbt-build.lock cmake --build build --target <target> --parallel 2
 ctest --test-dir build -R <test-regex> --output-on-failure   # <test-regex> 填对应套件名正则
 
 # 真实客户端验收
@@ -217,8 +216,7 @@ python3 scripts/release_gate.py validate-version --version <rc 版本号>
 ```shell
 # 构建
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DNEED_TEST=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-JOBS=$(( $(nproc) / 4 )); JOBS=$(( JOBS < 2 ? 2 : JOBS ))
-cmake --build build --parallel "$JOBS"
+flock /tmp/bbt-build.lock cmake --build build --parallel 2
 
 # 全量 smoke（与 CI 同口径：注册集=实跑集、skipped/failure 判红）
 bash scripts/ci/run_test_profile.sh --build-dir build --profile smoke
@@ -231,7 +229,7 @@ python3 scripts/ci/run_smoke.py --build-dir build-ci-smoke
 
 # 长时 soak（默认 6 小时；先构建 unified_stress）
 cmake -S . -B build-soak -G Ninja -DCMAKE_BUILD_TYPE=Release -DNEED_BENCHMARK=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-cmake --build build-soak --target unified_stress --parallel "$JOBS"
+flock /tmp/bbt-build.lock cmake --build build-soak --target unified_stress --parallel 2
 python3 scripts/ci/run_soak.py --build-dir build-soak
 ```
 
