@@ -21,7 +21,10 @@ workflow 静态契约 / docs-check 行为」，**不跑 C++ 全量构建**（真
 - 正式 workflow 文本契约（stdlib，恒跑，直接读真实 ci.yml）：触发面 / 权限 / SHA pin /
   hosted runs-on / concurrency / 无 callee / required-optional 内联 / docs-only 门控 /
   always 汇聚 / build-test 单次 Release 构建 + run_test_profile.sh --profile smoke
-  （无自动重试、无独立 Test_smoke/Test_reliability step）/ 无 artifact / 无 cache /
+  （无自动重试、无独立 Test_smoke/Test_reliability step）/ 无 artifact /
+  build-test 独占的缓存契约（pinned restore|save；path 只在 runner.temp 的
+  ccache 与 Boost 源码归档两个目录；key 带完整工具链/依赖指纹 + run 标识；
+  Boost 源码条目仅 push 建立；perf 路径不参与）/
   性能 job 为同 runner base/head 短测（只构建 unified_stress，不跑全量 CTest）/
   无 sanitizer 长测 / 影子已退役；
 - 正式 workflow 结构契约（需 PyYAML，缺省显式 SKIP，不等于通过）；
@@ -66,6 +69,9 @@ CHANGED = os.path.join(HERE, "changed_files.py")
 RESULT = os.path.join(HERE, "result.py")
 
 CHECKOUT_SHA = "11d5960a326750d5838078e36cf38b85af677262"
+# actions/cache v6.1.0（`gh api repos/actions/cache/commits/v6.1.0` 实读），
+# restore/save 为该 tag 下的子 action，同一 40-hex pin。
+CACHE_SHA = "55cc8345863c7cc4c66a329aec7e433d2d1c52a9"
 SHA_PIN_RE = re.compile(r"^[^@\s]+@[0-9a-f]{40}$")
 
 REQUIRED = ["changes", "docs-check"]
@@ -546,8 +552,10 @@ class FormalWorkflowTextContractTests(unittest.TestCase):
         self.assertEqual(self.stripped.count(f'name: "{DOCS_CHECK_NAME}"'), 1)
         self.assertIn("ci_perf_check.py", self.stripped)
         # 格式检查已转为阻断：workflow 中不允许 continue-on-error，不得伪造门禁 job 结果。
-        self.assertEqual(self.stripped.count("continue-on-error"), 0,
-                         "不允许 continue-on-error；格式检查必须阻断")
+        # 唯一例外是 build-test 的四个缓存 action（缓存故障只降级耗时，不改判据）。
+        build = _job_block(self.stripped, "build-test", "perf-regression")
+        self.assertEqual(self.stripped.replace(build, "").count("continue-on-error"), 0,
+                         "除缓存 action 外不允许 continue-on-error；格式检查必须阻断")
         self.assertIn("scripts/ci/check_format.sh", self.stripped)
 
     def test_required_and_optional_disjoint_and_build_test_optional(self):
@@ -595,15 +603,14 @@ class FormalWorkflowTextContractTests(unittest.TestCase):
             self.stripped,
         )
 
-    def test_no_perf_release_memcheck_artifact_or_cache(self):
-        # 发布 / memcheck / artifact / cache 都不在本正式候选内。性能 job 现在**允许**在 hosted
+    def test_no_perf_release_memcheck_artifact_or_baseline(self):
+        # 发布 / memcheck / artifact / 正式基线仍不在本正式候选内。性能 job **允许**在 hosted
         # 真实构建 unified_stress 并跑 ci_perf_check（同 runner base/head 短测），但**仍**禁止：
         # 正式基线工作树（tests/baselines）、基线记录（record_baseline）、发布（release_gate.py
-        # publish）、memcheck、artifact、cache——这些会改变正式基线/产物/缓存语义。
+        # publish）、memcheck、artifact——这些会改变正式基线/产物语义。
         for forbidden in (
             "tests/baselines", "run_memcheck", "record_baseline",
             "release_gate.py publish", "upload-artifact", "download-artifact",
-            "actions/cache", "ccache",
         ):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, self.stripped)
@@ -611,6 +618,84 @@ class FormalWorkflowTextContractTests(unittest.TestCase):
         self.assertIn("unified_stress", self.stripped)
         self.assertIn("ci_perf_check.py", self.stripped)
         self.assertIn("prepare_boost.sh", self.stripped)
+
+    def test_cache_contract_is_build_test_only_pinned_and_restricted(self):
+        # 缓存只影响耗时，不影响判据：只允许 build-test 一个 job 有缓存步骤，且只有
+        # pinned 的 actions/cache/restore|save（不引第三方 action、不用 `cache:` 简写）。
+        build = _job_block(self.stripped, "build-test", "perf-regression")
+        outside = self.stripped.replace(build, "")
+        for forbidden in ("actions/cache", "ccache"):
+            with self.subTest(outside_forbidden=forbidden):
+                self.assertNotIn(forbidden, outside,
+                                 "缓存/ccache 只允许出现在 build-test（perf 路径不参与）")
+        self.assertNotIn("actions/cache@", build, "不用 actions/cache 简写/浮动 tag")
+        for action in ("actions/cache/restore", "actions/cache/save"):
+            with self.subTest(action=action):
+                self.assertIn(f"{action}@{CACHE_SHA}", build)
+                self.assertEqual(build.count(f"{action}@"), 2,
+                                 "ccache 与 Boost 源码各一组 restore/save")
+        # path 只有 runner.temp 下两个目录：不复用 build 树、prefix、deps 包。
+        paths = re.findall(r"(?m)^\s+path:\s*(.+?)\s*$", build)
+        self.assertEqual(sorted(paths), sorted([
+            "${{ runner.temp }}/ccache", "${{ runner.temp }}/ccache",
+            "${{ runner.temp }}/src-cache", "${{ runner.temp }}/src-cache",
+        ]))
+        for value in paths:
+            for forbidden in ("build", ".ci-work", "prefix", "deps", "workspace"):
+                with self.subTest(path=value, forbidden=forbidden):
+                    self.assertNotIn(forbidden, value)
+        # key 语义：完整工具链/依赖指纹 + run 标识写入 key；restore 前缀保留完整
+        # 指纹但不含 run 标识，才能跨 run 命中同指纹条目。
+        self.assertIn("hashFiles('CMakeLists.txt', 'scripts/ci/prepare_boost.sh')", build)
+        self.assertIn("-deps${{ hashFiles(", build)
+        self.assertIn("${{ github.run_id }}-${{ github.run_attempt }}", build)
+        restore_keys = re.findall(r"(?m)^\s+restore-keys:\s*\|\s*\n\s+(.+?)\s*$", build)
+        self.assertEqual(len(restore_keys), 1, "只有 ccache 需要 restore 前缀")
+        self.assertNotIn("github.run_id", restore_keys[0])
+        self.assertNotIn("github.run_attempt", restore_keys[0])
+        self.assertIn("ccache-${{ env.CCACHE_EPOCH }}", restore_keys[0])
+        # Boost 源码条目按锁定版本+SHA256 内容寻址，只由 push 建立（PR 侧只读）；
+        # 它是校验后才使用的不可执行内容，因此不随 fork 守卫关闭。
+        self.assertEqual(build.count("key: boost-src-1.90.0-5e93d582aff2"), 2)
+        self.assertIn("if: ${{ success() && github.event_name == 'push' }}", build)
+        # 顺序：装 ccache → 恢复 ccache → 恢复/构建 Boost → launcher 参与编译 → 统计。
+        order = [
+            "apt-get install -y --no-install-recommends ccache",
+            "echo \"CMAKE_CXX_COMPILER_LAUNCHER=ccache\"",
+            "actions/cache/restore@",
+            "bash scripts/ci/prepare_boost.sh",
+            "ccache --show-stats -v",
+        ]
+        positions = [build.find(needle) for needle in order]
+        self.assertNotIn(-1, positions, positions)
+        self.assertEqual(positions, sorted(positions), "缓存入口必须早于 Boost 与编译步骤")
+        # 缓存故障只降级、不判红：四个 cache action 都是 continue-on-error；构建、
+        # 测试与下载后的 SHA 校验失败仍然阻断（这里只放开缓存路径）。
+        self.assertEqual(build.count("continue-on-error: true"), 4,
+                         "restore/save 各两处都必须允许缓存故障降级")
+        # 恢复的归档带旧 ccache.conf：配置在恢复之后重新固化，并把统计归零，
+        # 否则日志里的命中数混入历史 run，无法用于冷暖判读。
+        self.assertIn("恢复后固化 ccache 配置并清零统计", build)
+        self.assertIn("ccache --zero-stats", build)
+        self.assertLess(build.index("恢复后固化 ccache 配置"), build.index("ccache --zero-stats"))
+        self.assertLess(build.index("ccache --zero-stats"), build.index('- name: "编译"'),
+                        "统计必须在本次编译之前归零")
+        # fork PR 保持「不装、不启用对象缓存」：初始化开关/安装/固化/恢复/保存
+        # 共用同一 fork 判定，launcher 只在启用时导出，因此编译步骤本身不出现
+        # ccache（fork 走原路径）。
+        fork_guard = "github.event.pull_request.head.repo.fork != true"
+        self.assertEqual(build.count(fork_guard), 5,
+                         "初始化开关/安装/固化/恢复/保存 ccache 必须共用同一 fork 判定")
+        compile_block = build.split('- name: "编译"', 1)[1].split(
+            '- name: "CI 与发布工具自测"', 1)[0]
+        self.assertNotIn("ccache", compile_block,
+                         "launcher 只能经 GITHUB_ENV 条件导出，不能写死在编译步骤")
+        # ccache 配置与容量上限进入契约（容量与配额/抖动相关）。
+        self.assertIn("max_size=500M", build)
+        self.assertIn("compiler_check=content", build)
+        self.assertIn("base_dir=\"$GITHUB_WORKSPACE\"", build)
+        # 隔离说明不得把 key/if 说成安全边界。
+        self.assertIn("GitHub 原生 ref scope", self.text)
 
     def test_no_sanitizer_long_run_trigger(self):
         # sanitizer 旧 job 实际不可达（旧 on 无 workflow_dispatch）；本轮不开启新长期执行。
