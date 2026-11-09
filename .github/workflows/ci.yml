@@ -128,18 +128,99 @@ jobs:
     timeout-minutes: 75
     permissions:
       contents: read
+    env:
+      # 跨 run 复用只有两类字节：ccache 编译对象、已按锁定 SHA256 校验的 Boost 源码
+      # 归档。都在 runner.temp 下，不进工作区，也不复用 build/prefix 树。key 的
+      # 工具链/依赖指纹 + run_id/run_attempt 只决定取哪份、存不存；隔离边界是
+      # GitHub 原生 ref scope（PR 写 merge ref，main 读不到任何 PR 条目）。
+      # job 级 env 不允许 runner context，两个目录由下面的初始化步骤写进
+      # $GITHUB_ENV，缓存步骤的 path 直接用步骤级 runner.temp。
+      # 需要一次干净构建时改这个字面量（旧条目随 7 天未访问自然回收）。
+      CCACHE_EPOCH: v1
     steps:
       - name: "拉取代码库"
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 1
           persist-credentials: false
+      # 缓存目录取自 runner.temp（工作区之外，避免被 build/打包步骤扫到）。
+      # 顺带显式设置 ccache 开关：镜像若偶然预装 ccache，禁用态必须关掉，避免
+      # 其他脚本见到 ccache 就把它当 launcher、隐式启用对象缓存。
+      - name: "初始化缓存目录与 ccache 开关"
+        env:
+          CACHE_OBJECTS_ALLOWED: ${{ github.event.pull_request.head.repo.fork != true }}
+        run: |
+          set -euo pipefail
+          {
+            echo "CCACHE_DIR=$RUNNER_TEMP/ccache"
+            echo "BOOST_SOURCE_CACHE=$RUNNER_TEMP/src-cache"
+          } >> "$GITHUB_ENV"
+          if [ "$CACHE_OBJECTS_ALLOWED" = 'true' ]; then
+            echo "CCACHE_NODISABLE=true" >> "$GITHUB_ENV"
+          else
+            echo "CCACHE_DISABLE=1" >> "$GITHUB_ENV"
+          fi
+      # ccache：hosted 镜像不自带，只装在本 job 的临时 runner；实际版本与编译器
+      # 主版本都进 key，工具链一变即换前缀，不复用别代工具链的对象。fork PR 保持
+      # 「不装、不启用对象缓存」的既有策略；launcher 只在启用时经 GITHUB_ENV 导出，
+      # 因此 fork 走无 launcher 的原编译路径，不会因缺 ccache 而失败。
+      - name: "安装 ccache 并记录实际版本与编译器指纹（进缓存 key）"
+        if: ${{ github.event.pull_request.head.repo.fork != true }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ccache
+          version="$(ccache --version | sed -n '1s/^ccache version \([0-9][0-9.]*\).*$/\1/p')"
+          case "$version" in
+            4.*|[5-9].*) ;;
+            *) echo "FATAL: ccache 版本 '$version' 不满足 >=4（--set-config/base_dir 语义）" >&2; exit 2 ;;
+          esac
+          {
+            echo "CCACHE_VERSION=$version"
+            echo "GCC_ID=$(g++ -dumpversion)"
+            echo "CMAKE_CXX_COMPILER_LAUNCHER=ccache"
+          } >> "$GITHUB_ENV"
+      - name: "恢复 ccache 对象缓存（restore 前缀=完整指纹，key 尾带 run 标识）"
+        if: ${{ github.event.pull_request.head.repo.fork != true }}
+        continue-on-error: true
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: ccache-${{ env.CCACHE_EPOCH }}-linux-gcc${{ env.GCC_ID }}-cc${{ env.CCACHE_VERSION }}-deps${{ hashFiles('CMakeLists.txt', 'scripts/ci/prepare_boost.sh') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ccache-${{ env.CCACHE_EPOCH }}-linux-gcc${{ env.GCC_ID }}-cc${{ env.CCACHE_VERSION }}-deps${{ hashFiles('CMakeLists.txt', 'scripts/ci/prepare_boost.sh') }}
+      # 恢复的归档带旧 ccache.conf，会覆盖安装步骤里的设置：配置必须在恢复之后
+      # 重新固化，并把统计归零，本次日志只反映本 run 的命中。
+      - name: "恢复后固化 ccache 配置并清零统计（配置先于本次编译）"
+        if: ${{ github.event.pull_request.head.repo.fork != true }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$CCACHE_DIR"
+          ccache --set-config=max_size=500M
+          ccache --set-config=compression=true
+          ccache --set-config=compiler_check=content
+          ccache --set-config=base_dir="$GITHUB_WORKSPACE"
+          ccache --zero-stats
+      - name: "恢复 Boost 源码归档缓存（内容寻址；命中后仍按锁定 SHA256 校验）"
+        continue-on-error: true
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ${{ runner.temp }}/src-cache
+          key: boost-src-1.90.0-5e93d582aff2
       - name: "复现工具链（Boost 1.90 context 源码前缀）并导出到后续步骤"
         run: |
           bash scripts/ci/prepare_boost.sh "$BOOST_PREFIX" --jobs "$JOBS"
           echo "BOOST_ROOT=$BOOST_PREFIX" >> "$GITHUB_ENV"
           echo "CMAKE_PREFIX_PATH=$BOOST_PREFIX" >> "$GITHUB_ENV"
           echo "LD_LIBRARY_PATH=$BOOST_PREFIX/lib:$BUILD_DIR/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+      # 只由 main push 建立这条被全仓共享的条目；PR 侧仅读 base 可见版本。
+      - name: "保存 Boost 源码归档缓存（仅 push）"
+        if: ${{ success() && github.event_name == 'push' }}
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ${{ runner.temp }}/src-cache
+          key: boost-src-1.90.0-5e93d582aff2
       - name: "采集 runner 调度与工具链日志（证据）"
         run: printf 'runner=%s\n' "$RUNNER_NAME"; nproc; ulimit -r || true; grep -E 'Cap(Prm|Eff|Bnd)' /proc/self/status || true; cmake --version | head -1; g++ --version | head -1; ninja --version || true; python3 --version
       - name: "编译"
@@ -196,6 +277,17 @@ jobs:
           ctest --test-dir "$BUILD_DIR" -j1 --output-on-failure --timeout 120 \
             -R "$flaky_re" --repeat until-pass:3
         timeout-minutes: 15
+      - name: "ccache 统计（命中率证据落日志，供冷暖对照判读）"
+        if: ${{ always() && env.CCACHE_VERSION != '' }}
+        # 统计只是证据，读不到不得让构建判红。
+        run: ccache --show-stats -v || true
+      - name: "保存 ccache 对象缓存（同 key 已存在时 action 自行跳过）"
+        if: ${{ success() && github.event.pull_request.head.repo.fork != true }}
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: ccache-${{ env.CCACHE_EPOCH }}-linux-gcc${{ env.GCC_ID }}-cc${{ env.CCACHE_VERSION }}-deps${{ hashFiles('CMakeLists.txt', 'scripts/ci/prepare_boost.sh') }}-${{ github.run_id }}-${{ github.run_attempt }}
   # ── 性能回归检查：仅 changes 的 perf 位为真时跑（D4），阈值与阻断语义不变 ──
   # 同 runner 顺序构建/测量 base+head 真实对比（fail-closed）；结果进 result 汇聚，
   # 触发后 skipped/失败一律判红。判定链与阈值见 docs/guides/ci.md §5，与现役逐项一致。

@@ -17,7 +17,7 @@ workflow 文件本身是权威定义，本文不复制其步骤，只给门禁�
 | `scripts/docs/` | 文档导出入口 `build_docs.sh`、`Doxyfile`、AI 版转换 `export_ai_docs.py`、模块配置 `modules.json`（见 §10） |
 | `scripts/ci/changed_files.py` | 从真实 git diff 归一受限变更集，完成路径分类（docs-only/code/unknown）、perf 触发位与 focused 正则输出（见 §2） |
 | `scripts/ci/result.py` | result job 的本仓内联汇总：needs.*.result → verdict，fail-closed（见 §3） |
-| `scripts/ci/prepare_boost.sh` | 按锁定版本/sha256 源码构建 Boost 1.90 `context` 到工作区私有前缀 |
+| `scripts/ci/prepare_boost.sh` | 按锁定版本/sha256 源码构建 Boost 1.90 `context` 到工作区私有前缀；可选 `BOOST_SOURCE_CACHE` 复用**已校验**的源码归档（见 §4） |
 | `scripts/ci/run_memcheck.py` + `build_memcheck_target.sh` | memcheck 环境前置校验、`mem_check_test` 构建与判定（见 §6） |
 | `scripts/ci/run_smoke.py` / `run_soak.py` | 冒烟/soak harness（构建 + ctest + 报告落 `tests/reports/`） |
 | `scripts/ci/run_test_profile.sh` | 统一测试执行入口：`--profile smoke|focused|full`，选集非空 → ctest → JUnit 校验注册集=实跑集，skipped/failure 判红 |
@@ -27,6 +27,7 @@ workflow 文件本身是权威定义，本文不复制其步骤，只给门禁�
 | `scripts/ci/test_changed_files.py` | 分类规则 + perf 触发位 + result 契约单测（仅标准库） |
 | `scripts/ci/test_check_docs.py` | check_docs 正反例单测 |
 | `scripts/ci/test_formal_ci.py` | 现役 workflow 的离线冒烟与文本/结构契约测试 |
+| `scripts/ci/test_ci_cache.py` | `prepare_boost.sh` 源码归档缓存行为（命中/损坏/缺失/禁用/符号链接/校验失败） |
 | `scripts/ci_perf_check.py` | 性能测量 driver：构建树 → 六模块统一 JSON 报告；`--strict-comparable --gate-enabled` 为严格门禁模式 |
 | `scripts/record_baseline.py` / `run_fatigue.py` / `run_parallel_stress.sh` | 正式基线记录/趋势检查、串行疲劳、六模块并行压测 |
 
@@ -117,6 +118,46 @@ hosted `ubuntu-24.04`，`timeout-minutes: 75`：
 
 全量单测/integration（含 `Test_reliability`）不在普通 PR 路径执行，由 release.yml
 全量 CTest 与本地 `run_test_profile.sh --profile full` 承担（见 §7、§9）。
+
+### 4.1 跨 run 缓存（只影响耗时，不影响判据）
+
+`build-test` 是唯一带缓存步骤的 job，只复用两类字节，都落在 `runner.temp` 下：
+
+| 缓存 | path | key | 写入条件 |
+|---|---|---|---|
+| ccache 编译对象 | `${{ runner.temp }}/ccache` | `ccache-<EPOCH>-linux-gcc<g++ 主版本>-cc<ccache 实际版本>-deps<hashFiles(CMakeLists.txt, scripts/ci/prepare_boost.sh)>-<run_id>-<run_attempt>` | job 成功 |
+| Boost 源码归档 | `${{ runner.temp }}/src-cache` | `boost-src-<BOOST_VERSION>-<锁定 SHA256 前 12 位>`（内容寻址，无日期桶） | 仅 `push` |
+
+- **ccache 来源**：hosted 镜像不自带，`build-test` 里 `apt-get install ccache` 装到本次
+  临时 runner，只写入该 job；实际版本与 `g++ -dumpversion` 都进 key，工具链换代即换
+  前缀（版本只要求可用且 >=4，不钉 apt 包版本）。`max_size=500M`、
+  `compression=true`、`compiler_check=content`、`base_dir=$GITHUB_WORKSPACE` 在
+  **恢复 ccache 之后**重新固化——缓存归档自带的旧 `ccache.conf` 会覆盖安装时的设置；
+  同一处执行 `ccache --zero-stats`，日志里的命中数只反映本次 run。launcher 由安装步骤写入 `$GITHUB_ENV`
+  （`CMAKE_CXX_COMPILER_LAUNCHER=ccache`，CMake ≥3.17 只在首次 configure 时读取），
+  不写死在编译步骤里：fork PR 该步骤整体跳过，既不装也不启用 ccache，编译走原路径。
+- **缓存目录与开关**：`runner.temp` 不能在 job 级 `env` 里取（该位置无 `runner`
+  context），`CCACHE_DIR`/`BOOST_SOURCE_CACHE` 由 `build-test` 首个 run 步骤写进
+  `$GITHUB_ENV`。同一步显式设置 `CCACHE_DISABLE`（允许时 `0`、禁用时 `1`）：即使
+  镜像偶然预装 ccache，禁用态也不会被后续脚本当作 launcher 隐式启用对象缓存。
+- **缓存故障只降级**：四个 cache action（ccache/Boost 各一对 restore/save）都是
+  `continue-on-error: true`，缓存服务或配额异常只失去复用，不判红；构建、测试与
+  Boost 下载后的锁定 SHA256 校验失败仍然阻断。`ccache --show-stats` 同样只作证据，
+  读不到不影响结论。
+- **key 语义**：restore 前缀保留完整工具链/依赖指纹（不含 run 标识），因此跨天、跨
+  push 能命中同指纹条目；key 末尾的 `run_id`/`run_attempt` 只让每次运行能写自己的
+  条目，避免"同日不可变 key 导致缓存不再更新"。
+- **Boost 源码归档**：只缓存**原始 tar.gz**，且恢复后仍跑与下载相同的锁定 SHA256
+  校验，损坏即丢弃、重新下载、重新校验；复制到工作目录后对**副本**再校验同一
+  SHA256（解包用的是副本，副本不符即未命中），缓存目录/条目是符号链接时忽略缓存；
+  回写/复制失败只告警并退回冷路径，不让构建失败。**不**缓存解包树、prefix、build 树。
+- **作用域**：隔离来自 GitHub 原生 ref 作用域（PR 的缓存写在 merge ref，只能被该
+  PR 自己的 rerun 恢复；main 读不到任何 PR 条目），key 与 `if` 只决定取哪份/存不存，
+  不是安全边界。缓存内容不含任何 secret。fork PR 按既有策略禁用 ccache 对象缓存
+  （初始化开关/安装/固化/恢复/保存共用 `github.event.pull_request.head.repo.fork != true` 判定）；
+  Boost 源码归档只读复用，仍逐次校验锁定 SHA256。
+- **回滚**：回退本次 diff 即恢复原状；`prepare_boost.sh` 在无 `BOOST_SOURCE_CACHE`
+  时行为与改动前逐字节等价，远端条目 7 天未访问自然回收。
 
 ## 5. 性能回归门禁（`性能回归检查`，required context）
 
@@ -244,6 +285,10 @@ stack_pool_drained=1/1
   替换的 workflow。硬闸门是 Actions `approval_policy=all_external_contributors`
   （外部贡献者的 fork workflow 默认不跑，须人工批准）；该策略不构成准入或隔离保证
   （有写权限者批准后仍会执行未审查的 workflow）。受支持的贡献路径是同仓分支 PR。
+- 缓存作用域（`build-test` 的 ccache 对象与 Boost 源码归档）由 merge ref 决定：PR
+  的条目只能被本 PR rerun 恢复，main 只能读 main scope，因此 PR 源码不会被当作生产
+  可信输入；key 前缀/`if` 不构成隔离。缓存只存编译对象与已校验源码归档，不含 secret、
+  build 树或安装 prefix。
 - 顶层 `permissions` 收紧、无 `secrets: inherit`/OIDC/`id-token`；`result`（`CI/result`）
   是唯一汇聚 check（fail-closed），远端 required 集合以 ruleset 实时回读为准
   （2026-10-30 快照仍为 `编译 & 单元测试` + `性能回归检查` 两个 context；docs-only/
