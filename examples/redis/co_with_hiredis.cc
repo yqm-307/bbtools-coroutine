@@ -3,6 +3,8 @@
 #include <random>
 #include <bbt/coroutine/coroutine.hpp>
 
+using namespace bbt::coroutine;
+
 /**
  * 此示例和构建方法用来展示我们如何hook一个第三方库。并使用协程
  * 

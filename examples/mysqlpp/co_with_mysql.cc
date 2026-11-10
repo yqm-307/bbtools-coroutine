@@ -9,6 +9,8 @@
 
 #include "user_table.hpp"
 
+using namespace bbt::coroutine;
+
 void example1()
 {
     std::atomic_bool done{false};
