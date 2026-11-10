@@ -79,6 +79,18 @@ co_pool->Submit([]() { bbtco_sleep(500); });
 co_pool->Release();
 ```
 
+按尺寸路由的池：每类固定栈规格与 worker 数，`Submit` 必须带同样的 `StackRequest`。
+
+```cpp
+auto pool = pool::CoPool::Create(pool::CoPoolOptions{
+    {{{12 * 1024, true}, 2, 4}, {{128 * 1024, true}, 1, 2}}});
+pool->Submit({128 * 1024, true}, []() {
+    printf("worker stack: %zu\n", GetLocalCoroutineStackSize());
+});
+// 未声明尺寸/保护属性 → NoExactClass；队列满 → QueueFull；封口后 → Released
+pool->Release();   // 池 worker 内调用会抛 std::logic_error（自等待）
+```
+
 ### 事件等待（WaitFor）
 
 ```cpp

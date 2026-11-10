@@ -224,7 +224,7 @@ bool Processer::_EnqueueAdmitted(CoroutinePriority priority, Coroutine::Ptr coro
     }
 
     const bool enqueued = m_coroutine_queue.Enqueue(coroutine->m_cfs, coroutine, priority,
-        g_bbt_coroutine_config->m_cfg_processer_priority_runtime_budget_us[priority]);
+        g_bbt_coroutine_config->RuntimeSnapshot().processer_priority_runtime_budget_us[priority]);
     _ReleaseEnqueueSlot();
     if (!enqueued)
         return false;   // 调用方仍持有协程所有权，可重试/显式拒绝
@@ -280,7 +280,7 @@ void Processer::_WaitForWork()
         return;
 
     const auto timeout_us = bbt::core::clock::us(
-        g_bbt_coroutine_config->m_cfg_processer_proc_interval_us);
+        g_bbt_coroutine_config->RuntimeSnapshot().processer_proc_interval_us);
 
     /* lease 在 run_cond 锁外获取，不建立 binding→run_cond 嵌套锁序；
      * 没有 binding 或 lease 被 Failed/Detaching 拒绝时走原有分支，
@@ -452,7 +452,7 @@ void Processer::_Run()
              * 读到 false = 协程已让出，不算停顿。整组字段在
              * m_exec_mutex 临界区内一次提交，读者同锁整组复制，
              * 一致性由互斥保证（诊断路径，允许极短锁占用）。 */
-            if (g_bbt_coroutine_config->m_cfg_worker_stall_warn_ms > 0)
+            if (g_bbt_coroutine_config->RuntimeSnapshot().worker_stall_warn_ms > 0)
             {
                 std::lock_guard<std::mutex> lock(m_exec_mutex);
                 m_exec_co_id = m_running_coroutine->GetId();
@@ -473,7 +473,7 @@ void Processer::_Run()
                 BusyScope busy_scope(m_busy);
                 m_running_coroutine->Resume();
             }
-            if (g_bbt_coroutine_config->m_cfg_worker_stall_warn_ms > 0)
+            if (g_bbt_coroutine_config->RuntimeSnapshot().worker_stall_warn_ms > 0)
             {
                 std::lock_guard<std::mutex> lock(m_exec_mutex);
                 m_executing = false;
@@ -581,7 +581,7 @@ size_t Processer::_TryGetCoroutineFromGlobal()
         return 0;
 
     /* 希望获取的总数 */
-    auto expected_size = g_bbt_coroutine_config->m_cfg_processer_get_co_from_g_count;
+    auto expected_size = g_bbt_coroutine_config->RuntimeSnapshot().processer_get_co_from_g_count;
     /* 已经处理的数量 */
     size_t already_count = 0;
 
@@ -677,12 +677,12 @@ size_t Processer::Steal(Processer::SPtr thief)
         const auto already_run_time_us =
             bbt::core::clock::gettime_mono<bbt::core::clock::us>() - prev_run;
         if (already_run_time_us <
-            static_cast<uint64_t>(g_bbt_coroutine_config->m_cfg_processer_worksteal_timeout_ms) * 1000)
+            static_cast<uint64_t>(g_bbt_coroutine_config->RuntimeSnapshot().processer_worksteal_timeout_ms) * 1000)
             return steal_num;
     }
 
     /* 计算下需要偷多少个 */
-    expect_size = g_bbt_coroutine_config->m_cfg_processer_steal_once_min_task_num > size / 2 ? g_bbt_coroutine_config->m_cfg_processer_steal_once_min_task_num : size / 2;
+    expect_size = g_bbt_coroutine_config->RuntimeSnapshot().processer_steal_once_min_task_num > size / 2 ? g_bbt_coroutine_config->RuntimeSnapshot().processer_steal_once_min_task_num : size / 2;
 
     while (steal_num < expect_size)
     {

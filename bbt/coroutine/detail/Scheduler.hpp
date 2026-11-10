@@ -1,6 +1,8 @@
 /* 调度器 Scheduler：Processer 管理、任务投递与扩缩容。 */
 #pragma once
 #include <atomic>
+#include <bbt/coroutine/runtime/RuntimeOptions.hpp>
+#include <bbt/coroutine/sync/WaitTypes.hpp>
 #include <chrono>
 #include <condition_variable>
 #include <future>
@@ -124,6 +126,17 @@ public:
     void                                        RegistCoroutineTask(const CoroutineCallback& handle, bool& succ) noexcept;
     void                                        RegistCoroutineTask(size_t stack_size, const CoroutineCallback& handle, const char* desc = nullptr);
     void                                        RegistCoroutineTask(size_t stack_size, const CoroutineCallback& handle, bool& succ) noexcept;
+    /** @brief 精确尺寸/保护属性提交；Co 缓存未命中按 wait 等待维护流，失败不入队。 */
+    void RegistCoroutineTask(StackRequest request, const CoroutineCallback& handle,
+                             const WaitOptions& wait = {}, const char* desc = nullptr);
+#ifdef BBT_COROUTINE_STACK_TESTING
+    static void _TestFailNextSubmit() noexcept;
+
+private:
+    static std::atomic_bool s_test_fail_submit;
+
+public:
+#endif
 
     /**
      * @brief 定向首投：只把协程放入目标已登记 worker 的初始队列，

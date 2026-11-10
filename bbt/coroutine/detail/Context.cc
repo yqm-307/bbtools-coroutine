@@ -14,6 +14,15 @@
 namespace bbt::coroutine::detail
 {
 
+#ifdef BBT_COROUTINE_STACK_TESTING
+namespace {
+std::atomic_bool s_failContext{false};
+}
+void Context::_TestFailNextCreate() noexcept {
+    s_failContext.store(true);
+}
+#endif
+
 fcontext_t& Context::GetCurThreadContext()
 {
     static thread_local fcontext_t _context = nullptr;
@@ -60,9 +69,9 @@ void Context::_CoroutineMain(boost::context::detail::transfer_t transfer)
         } catch (...) {
         }
 
-        if (g_bbt_coroutine_config->m_ext_coevent_exception_callback != nullptr) {
+        if (g_bbt_coroutine_config->RuntimeSnapshot().coevent_exception_callback != nullptr) {
             try {
-                g_bbt_coroutine_config->m_ext_coevent_exception_callback(core::errcode::Errcode(what));
+                g_bbt_coroutine_config->RuntimeSnapshot().coevent_exception_callback(core::errcode::Errcode(what));
             } catch (...) {
                 /* 回调异常不得逃出 fcontext */
             }
@@ -90,31 +99,20 @@ void Context::_CoroutineMain(boost::context::detail::transfer_t transfer)
     context->Yield();
 }
 
+Context::Context(size_t stack_size, const CoroutineCallback& co_func, bool stack_protect)
+    : Context(g_bbt_stackpoll->Acquire({stack_size, stack_protect}), co_func) {
+}
 
-Context::Context(size_t stack_size, const CoroutineCallback& co_func, bool stack_protect):
-    m_user_main(co_func)
-{
-    Assert(m_user_main != nullptr);
-
-    /* callable 先构造（初始化列表）再借栈；显式大小与保护属性真正传给栈池，
-     * 不再被全局默认覆盖。
-     * 借栈到 make_fcontext 成功期间用窄作用域 RAII（复用 std::unique_ptr 加
-     * 自定义归还 deleter）暂持归还责任：容量不足或 make_fcontext 失败都必须
-     * 先归还再抛出；成功后才把裸指针交给本对象作为唯一借用责任。 */
-    auto stack_returner = [](Stack* stack) {
-        if (stack != nullptr)
-            g_bbt_stackpoll->Release(stack);
-    };
-    std::unique_ptr<Stack, decltype(stack_returner)> stack_guard(
-        g_bbt_stackpoll->Apply(stack_size, stack_protect), stack_returner);
-
-    if (stack_guard == nullptr) {
-        throw std::runtime_error("Coroutine stack not enough! Please try adjust the globalconfig 'm_cfg_stackpool_max_alloc_size'");
-    }
-
-    void* stack = stack_guard->StackTop();
-    m_context = boost::context::detail::make_fcontext(stack, stack_guard->UseableSize(), &Context::_CoroutineMain);
-    m_stack = stack_guard.release();
+Context::Context(StackLease stack, const CoroutineCallback& co_func)
+    : m_user_main(co_func), m_stack(std::move(stack)) {
+    if (!m_user_main || !m_stack)
+        throw std::runtime_error("coroutine context requires a callback and stack lease");
+#ifdef BBT_COROUTINE_STACK_TESTING
+    if (!s_failContext.exchange(false))
+#endif
+        m_context = boost::context::detail::make_fcontext(m_stack->StackTop(), m_stack->UseableSize(), &Context::_CoroutineMain);
+    if (!m_context)
+        throw std::runtime_error("make_fcontext failed");
 
 #ifdef BBT_COROUTINE_STACK_DIAGNOSTICS
     /* make_fcontext 成功后、任何 jump 之前初始化采样边界：bottom/top 取真实
@@ -134,13 +132,10 @@ Context::~Context()
      * Release(m_stack)：若先归还栈，栈即回到栈池可被复用、进程也可能在该窗口
      * 退出，此时仍挂在本对象上的捕获对象才析构，生命周期就越过了“栈已归还”
      * 这条观测界线。置空顺序与成员逆序析构一致（m_onyield_callback 声明在后、
-     * 先析构），不改变对象布局。 */
+     * 先析构）。 */
     m_onyield_callback = nullptr;
     m_user_main = nullptr;
-    if (m_stack != nullptr) {
-        g_bbt_stackpoll->Release(m_stack);
-        m_stack = nullptr;
-    }
+    m_stack.reset();
 }
 
 void Context::Yield()

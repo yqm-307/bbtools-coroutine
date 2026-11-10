@@ -30,6 +30,10 @@
 - 流程：`docs/guides/development.md`（开发、验证阶梯、发布 Gate，选既有命令不另起流程；CI 结果、压测完整性与发布 Gate 是事实依据）。
 - CI 使用：`docs/guides/ci.md`；疲劳/基准测试本地路径：`.github/skills/managing-fatigue-tests/SKILL.md`。
 
+### 应用入口（Co-only）
+
+- 应用入口、`RuntimeOptions`、常规示例、`stack_budget` 分析工具和 runtime 聚焦测试的 Co-only 规则，以 `docs/conventions.md` §7 为唯一真源；本文件只保留入口，避免复制规范正文。
+
 ### 本仓特有门禁
 
 - GitHub Issue/PR/Review 是项目需求、决策、进度与验收的消息真源：动手前读对应线程，无法访问时明确说明；发现消息、契约、实现或测试冲突时显式记录，不静默选择。用户最新明确指令优先于历史 Issue/PR。

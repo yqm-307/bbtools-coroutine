@@ -139,9 +139,7 @@ void NoCacheChan()
     sleep(1);
 }
 
-int main()
-{
-    g_scheduler->Start();
+int bbtco_main() {
     printf("=============== fixsize chan ================\n");
     FixSizeChan();
     printf("=============== multi write chan ================\n");
@@ -151,4 +149,7 @@ int main()
     printf("=============== no cache chan ================\n");
     NoCacheChan();
     /* process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出 */
+    return 0;
 }
+
+BBTCO_MAIN()

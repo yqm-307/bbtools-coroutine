@@ -708,15 +708,15 @@ int CoPollEvent::_Complete(short trigger_events)
     }
     catch(const std::exception& e)
     {
-        if (g_bbt_coroutine_config->m_ext_coevent_exception_callback != nullptr)
-            g_bbt_coroutine_config->m_ext_coevent_exception_callback(core::errcode::Errcode(e.what()));
+        if (g_bbt_coroutine_config->RuntimeSnapshot().coevent_exception_callback != nullptr)
+            g_bbt_coroutine_config->RuntimeSnapshot().coevent_exception_callback(core::errcode::Errcode(e.what()));
         else
             pending_exception = std::current_exception();
     }
     catch(...)
     {
-        if (g_bbt_coroutine_config->m_ext_coevent_exception_callback != nullptr)
-            g_bbt_coroutine_config->m_ext_coevent_exception_callback(core::errcode::Errcode("unknown exception"));
+        if (g_bbt_coroutine_config->RuntimeSnapshot().coevent_exception_callback != nullptr)
+            g_bbt_coroutine_config->RuntimeSnapshot().coevent_exception_callback(core::errcode::Errcode("unknown exception"));
         else
             pending_exception = std::current_exception();
     }

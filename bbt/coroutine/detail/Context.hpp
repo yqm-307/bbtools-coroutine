@@ -2,7 +2,7 @@
 #include <functional>
 #include <boost/context/detail/fcontext.hpp>
 #include <bbt/core/util/Assert.hpp>
-#include <bbt/coroutine/detail/Stack.hpp>
+#include <bbt/coroutine/detail/StackPool.hpp>
 #include <bbt/coroutine/detail/debug/StackBudgetDiagnostics.hpp>
 
 namespace bbt::coroutine::detail
@@ -24,7 +24,12 @@ class Context
 {
 public:
     Context(size_t stack_size, const CoroutineCallback& co_func, bool stack_protect = true);
+    /** @brief 接收唯一 lease；构造失败由成员析构归还栈，尚不可运行。 */
+    Context(StackLease stack, const CoroutineCallback& co_func);
     ~Context();
+#ifdef BBT_COROUTINE_STACK_TESTING
+    static void _TestFailNextCreate() noexcept;
+#endif
 
     /**
      * @brief 挂起（让出当前CPU控制权）
@@ -84,7 +89,7 @@ protected:
 private:
     fcontext_t                  m_context{nullptr};
     CoroutineCallback           m_user_main{nullptr};
-    Stack*                      m_stack{nullptr};
+    StackLease m_stack;
 
     CoroutineOnYieldCallback    m_onyield_callback{nullptr};
     YieldCheckStatus            m_onyield_callback_result{YieldCheckStatus::NO_CHECK};

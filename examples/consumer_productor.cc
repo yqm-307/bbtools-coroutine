@@ -109,19 +109,15 @@ void ProducerConsumerExample()
            produced.load(), consumed.load());
 }
 
-int main()
-{
+int bbtco_main() {
     printf("=== bbtools-coroutine Comprehensive Example ===\n");
-    
-    // 启动调度器
-    g_scheduler->Start();
-    
+
     // 运行示例
     ProducerConsumerExample();
-    
-    // 停止调度器
+
     /* process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出 */
-    
     printf("Example completed successfully!\n");
     return 0;
 }
+
+BBTCO_MAIN()

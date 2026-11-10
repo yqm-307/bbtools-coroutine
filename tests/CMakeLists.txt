@@ -156,6 +156,19 @@ bbt_unit_test(Test_runtime_oom
 
 # 含真实定时回收等待（m_cfg_stackpool_adjust_interval=5000ms 量级）与隔离子进程
 bbt_unit_test(Test_coroutine_stack TIMEOUT 180 LABELS "unit")
+bbt_unit_test(Test_stack_ownership
+    MODES exact_buckets auto_budget config_validation native_failures async_failures
+          pending_cancel committed_cancel pending_deadline single_worker_progress
+    MODE_ARGS "exact_buckets:--run_test=stack_ownership/exact_buckets"
+              "auto_budget:--run_test=stack_ownership/auto_budget"
+              "config_validation:--run_test=stack_ownership/config_validation"
+              "native_failures:--run_test=stack_ownership/native_failures"
+              "async_failures:--run_test=stack_ownership/async_failures"
+              "pending_cancel:--run_test=stack_ownership/pending_cancel"
+              "committed_cancel:--run_test=stack_ownership/committed_cancel"
+              "pending_deadline:--run_test=stack_ownership/pending_deadline"
+              "single_worker_progress:--run_test=stack_ownership/single_worker_progress"
+    TIMEOUT 30 LABELS "unit;integration")
 
 # 多尺寸固定栈 runtime：薄 main 三种模式，各自独立进程（单进程只 Start 一次）
 bbt_unit_test(Test_multi_size_stack_runtime
@@ -180,6 +193,33 @@ bbt_unit_test(Test_runtime_context
     MODE_ARGS "no_create:--run_test=context_no_create"
               "runtime:--run_test=context_runtime"
     TIMEOUT 20 LABELS "unit")
+# 入口用例通过 exec 独立进程观察 native main 的真实退出码；宏及 setup_runtime 各自编译。
+foreach(variant RANGE 0 5)
+    add_executable(Runtime_main_child_${variant} coroutine/runtime_main_child.cc)
+    target_compile_definitions(Runtime_main_child_${variant} PRIVATE BBT_ENTRY_VARIANT=${variant})
+    target_link_libraries(Runtime_main_child_${variant} ${MY_LIBS} ${CMAKE_DL_LIBS})
+    target_link_options(Runtime_main_child_${variant} PRIVATE -Wl,--export-dynamic)
+endforeach()
+bbt_unit_test(Test_runtime_main
+    MODES normal hook_failure start_failure submit_failure main_failure options
+          invalid_options stack_policy reentry detached macros
+    MODE_ARGS "normal:--run_test=runtime_main/normal"
+              "hook_failure:--run_test=runtime_main/hook_failure"
+              "start_failure:--run_test=runtime_main/start_failure"
+              "submit_failure:--run_test=runtime_main/submit_failure"
+              "main_failure:--run_test=runtime_main/main_failure"
+              "options:--run_test=runtime_main/options"
+              "invalid_options:--run_test=runtime_main/invalid_options"
+              "stack_policy:--run_test=runtime_main/stack_policy"
+              "reentry:--run_test=runtime_main/reentry"
+              "detached:--run_test=runtime_main/detached"
+              "macros:--run_test=runtime_main/macros"
+    TIMEOUT 60 LABELS "unit;integration")
+target_compile_definitions(Test_runtime_main PRIVATE
+    BBT_ENTRY_CHILD_BASE="$<TARGET_FILE_DIR:Runtime_main_child_0>/Runtime_main_child_")
+add_dependencies(Test_runtime_main Runtime_main_child_0 Runtime_main_child_1 Runtime_main_child_2
+                 Runtime_main_child_3 Runtime_main_child_4 Runtime_main_child_5)
+
 bbt_unit_test(Test_runtime_objects TIMEOUT 30 LABELS "unit")
 bbt_unit_test(Test_async_syntax TIMEOUT 20 LABELS "unit")
 bbt_unit_test(Test_coroutine_exception LABELS "smoke;unit" TIMEOUT 60)
@@ -331,6 +371,19 @@ bbt_unit_test(Test_profiler LABELS "unit")
 bbt_unit_test(Test_co_rwmutex TIMEOUT 30 LABELS "unit")
 bbt_unit_test(Test_coevent LABELS "smoke;unit" TIMEOUT 60)
 bbt_unit_test(Test_copool LABELS "smoke;unit" TIMEOUT 60)
+# 尺寸路由池：混合尺寸、容量/并发有界、关闭竞争、异常隔离、自等待拒绝与单 Processer 推进
+bbt_unit_test(Test_copool_router
+    MODES mixed_size queue_full release_submit_race exception_isolation
+          same_pool_dependency empty_class allocation_failure single_processer_progress
+    MODE_ARGS "mixed_size:--run_test=copool_router/mixed_size"
+              "queue_full:--run_test=copool_router/queue_full"
+              "release_submit_race:--run_test=copool_router/release_submit_race"
+              "exception_isolation:--run_test=copool_router/exception_isolation"
+              "same_pool_dependency:--run_test=copool_router/same_pool_dependency"
+              "empty_class:--run_test=copool_router/empty_class"
+              "allocation_failure:--run_test=copool_router/allocation_failure"
+              "single_processer_progress:--run_test=copool_router/single_processer_progress"
+    TIMEOUT 60 LABELS "unit")
 bbt_unit_test(Test_smoke LABELS "smoke;unit" TIMEOUT 60)
 bbt_unit_test(Test_reliability LABELS "integration")
 
@@ -390,6 +443,9 @@ set_tests_properties(coroutine.coeventvalue_dso PROPERTIES TIMEOUT 15 LABELS "in
 set(PUBLIC_HEADER_TU_DIR ${PROJECT_BINARY_DIR}/public_header_tu)
 file(MAKE_DIRECTORY ${PUBLIC_HEADER_TU_DIR})
 set(BBT_PUBLIC_HEADERS
+    bbt/coroutine/runtime/RuntimeMain.hpp
+    bbt/coroutine/runtime/RuntimeOptions.hpp
+    bbt/coroutine/syntax/RuntimeMacros.hpp
     bbt/coroutine/sync/WaitTypes.hpp
     bbt/coroutine/sync/CoEventValue.hpp
     bbt/coroutine/sync/CoWaiter.hpp

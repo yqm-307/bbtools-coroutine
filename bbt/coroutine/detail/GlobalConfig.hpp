@@ -16,6 +16,38 @@ struct ProcesserScalingBounds
     size_t m_max_num{0};
 };
 
+struct RuntimeConfigSnapshot
+{
+    size_t max_coroutine{0};
+    size_t static_coroutine{0};
+    size_t stack_size{0};
+    bool stack_protect{true};
+    size_t scan_interval_ms{0};
+    size_t profile_printf_ms{0};
+
+    bool processer_auto_scale{false};
+    size_t processer_scale_interval_ms{0};
+    size_t processer_scale_up_samples{0};
+    size_t processer_scale_down_samples{0};
+    size_t processer_scale_step{0};
+    size_t processer_scale_up_busy_percent{0};
+    size_t processer_scale_down_busy_percent{0};
+    size_t processer_scale_up_queue_watermark{0};
+    size_t processer_scale_down_queue_watermark{0};
+    size_t processer_get_co_from_g_count{0};
+    size_t processer_steal_once_min_task_num{0};
+    size_t processer_worksteal_timeout_ms{0};
+    size_t processer_proc_interval_us{0};
+    std::array<uint64_t, CO_PRIORITY_COUNT> processer_priority_runtime_budget_us{};
+
+    size_t stackpool_min_alloc_size{0};
+    size_t stackpool_sample_interval{0};
+    size_t stackpool_adjust_interval{0};
+    ExceptionHandleCallback coevent_exception_callback{nullptr};
+    size_t worker_stall_warn_ms{0};
+    WorkerStallCallback worker_stall_callback{nullptr};
+};
+
 /**
  * @brief 协程库静态配置
  * 
@@ -33,6 +65,11 @@ public:
     /* 校验全部扩缩容配置并解析数量边界；失败返回 false，out_bounds 不变。
      * 不启动线程、不修改配置；调用者须在 Start 的不可逆副作用前调用。 */
     bool                                        ResolveProcesserScalingBounds(ProcesserScalingBounds& out_bounds) const noexcept;
+
+    /** @brief 固化 setup_runtime 结果；运行期组件只读取这份快照。 */
+    void                                        FreezeRuntimeSetup() noexcept;
+    bool                                        IsRuntimeSetupFrozen() const noexcept;
+    const RuntimeConfigSnapshot&                RuntimeSnapshot() const noexcept;
 
     /* 这里的配置都是非线程安全的，建议在启动前设置好 */
     size_t                                      m_cfg_max_coroutine{65535};                 // 最大协程数，超过此数量，继续注册会throw异常
@@ -108,6 +145,8 @@ public:
     size_t                                      m_cfg_worker_stall_warn_ms{0};
     /* 告警回调。未设置时默认 fprintf(stderr) 一行。调度线程调用，勿阻塞。 */
     WorkerStallCallback                         m_ext_worker_stall_callback{nullptr};
+    RuntimeConfigSnapshot                       m_runtime_snapshot{};
+    std::atomic_bool                             m_runtime_setup_frozen{false};
 private:
     GlobalConfig();
 };

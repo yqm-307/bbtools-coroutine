@@ -56,10 +56,12 @@ public:
     void Start(){
         bbtco [this](){
             _Run();
-            m_cdl.Down();
+            m_run_ended.store(true);
         };
 
-        m_cdl.Wait();
+        // 主协程让出等待 accept 循环结束；协程里用原生条件变量会占住 Processer。
+        while (!m_run_ended.load())
+            bbtco_sleep(50);
     }
 
 protected:
@@ -120,16 +122,17 @@ protected:
         ::close(listen_fd);
     }
 private:
-    bbt::core::thread::CountDownLatch m_cdl{1};
+    std::atomic_bool m_run_ended{false};
     short m_listen_port{-1};
 };
 
-int main()
-{
+int bbtco_main() {
     std::signal(SIGPIPE, SIG_IGN);
-    g_scheduler->Start();
     Server s{10010};
     s.Start();
 
     /* process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出 */
+    return 0;
 }
+
+BBTCO_MAIN()

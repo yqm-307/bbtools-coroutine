@@ -69,11 +69,13 @@ public:
     friend class Processer;
 
     Coroutine(size_t stack_size, const CoroutineCallback& co_func, bool need_protect);
+    Coroutine(StackLease stack, const CoroutineCallback& co_func);
     virtual ~Coroutine();
     
     /* 注册时携带描述：bbtco_desc 落库真源；空 desc 与不带参数等价 */
     static Ptr Create(size_t stack_size, const CoroutineCallback& co_func, bool need_protect = true,
                                            const char* desc = nullptr);
+    static Ptr Create(StackLease stack, const CoroutineCallback& co_func, const char* desc = nullptr);
     /**
      * @brief 唤醒协程。切换到协程的上下文中执行。
      */

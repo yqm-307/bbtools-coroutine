@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <bbt/coroutine/detail/Coroutine.hpp>
+#include <bbt/coroutine/detail/StackPool.hpp>
 #include <bbt/coroutine/detail/Scheduler.hpp>
 #include <bbt/coroutine/detail/Processer.hpp>
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
@@ -51,34 +52,37 @@ CoroutineId Coroutine::_GenCoroutineId()
 
 Coroutine::Ptr Coroutine::Create(size_t stack_size, const CoroutineCallback& co_func, bool need_protect, const char* desc)
 {
-    /* 发布前暂持 unique_ptr：描述赋值若抛出（bad_alloc）也必须销毁半成品，
-     * 不能让已借出的栈随裸指针泄漏。 */
-    std::unique_ptr<Coroutine> co(new Coroutine(stack_size, co_func, need_protect));
+    return Create(g_bbt_stackpoll->Acquire({stack_size, need_protect}), co_func, desc);
+}
+
+Coroutine::Ptr Coroutine::Create(StackLease stack, const CoroutineCallback& co_func, const char* desc) {
+    std::unique_ptr<Coroutine> co(new Coroutine(std::move(stack), co_func));
     if (desc != nullptr && desc[0] != '\0')
         co->m_desc = desc;    // bbtco_desc 落库
     return co.release();
 }
 
-Coroutine::Coroutine(size_t stack_size, const CoroutineCallback& co_func, bool need_protect):
-    m_context(stack_size, [=](){
-        try {
-            co_func();
-            m_yield_disposition = CoroutineYieldDisposition::FINAL;
-            m_run_status = CoroutineStatus::CO_FINAL;
-        } catch (...) {
-            // 无 Processer TLS 时 Context 捕不到当前协程；失败必须进入终态。
-            OnException();
-            throw;
-        }
-    }, need_protect),
-    m_id(_GenCoroutineId())
-{
+Coroutine::Coroutine(size_t stack_size, const CoroutineCallback& co_func, bool need_protect)
+    : Coroutine(g_bbt_stackpoll->Acquire({stack_size, need_protect}), co_func) {
+}
+
+Coroutine::Coroutine(StackLease stack, const CoroutineCallback& co_func) : m_context(std::move(stack), [=]() {
+                                                                               try {
+                                                                                   co_func();
+                                                                                   m_yield_disposition = CoroutineYieldDisposition::FINAL;
+                                                                                   m_run_status = CoroutineStatus::CO_FINAL;
+                                                                               } catch (...) {
+                                                                                   // 无 Processer TLS 时 Context 捕不到当前协程；失败必须进入终态。
+                                                                                   OnException();
+                                                                                   throw;
+                                                                               }
+                                                                           }),
+                                                                           m_id(_GenCoroutineId()) {
     m_run_status = CoroutineStatus::CO_RUNNABLE;
 #ifdef BBT_COROUTINE_PROFILE
     g_bbt_profiler->OnEvent_CreateCoroutine();
 #endif
 }
-
 
 Coroutine::~Coroutine()
 {

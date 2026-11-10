@@ -99,6 +99,10 @@ cmake/                 CMake 模块
 
 - 每个示例放在 `examples/<name>/`，附 `README.md`，说明演示内容、运行方式和期望输出。
 - 示例只展示用法；断言和验收逻辑写进 `tests/`，不在示例中用断言充当测试。
+- 常规用法示例只定义 `int bbtco_main()` 并用 `BBTCO_MAIN*` 生成 native `main`；需要兼容完整 scheduler 配置时，在 `Start` 前由 `setup_runtime()` 一次设置既有 `GlobalConfig`，再用 `BBTCO_MAIN_WITH_SETUP*` 进入 runtime。常规用法示例中禁止直接 `Start` 调度器、自建 runner 线程、对 `future` 调 `wait/get`，也不得在协程内阻塞等待 native 线程或引擎生命周期（会占住 Processer）。`RuntimeOptions` + `BBTCO_MAIN_WITH_OPTIONS` 只覆盖 worker 数、默认栈或多尺寸栈预算三类便捷输入。
+- 模拟第三方回调/事件源的辅助线程（如 `socketpair_adapter.cc` 的 socketpair 写线程、`CoWaiter` 通知线程）不是 runtime runner：只用于演示适配，必须有界并由入口流程显式回收；该限定例外不得在协程内阻塞等待，也不得扩展为应用自建调度或 runner 线程，更不得把它当作 runtime 或引擎生命周期完成的证明。
+- `examples/stack_budget/` 是独立两阶段（ANALYZE/CONSUME）栈预算分析工具，不是常规用法示例：自带 native `main`，在 `registration.cc` 直接 `g_scheduler->Start()` 注册分析入口；该形态只服务于静态栈预算分析，不得复制到应用或常规示例。
+- runtime/调度/栈/池机制的聚焦测试可直接驱动 `Start`，不经 `bbtco_main`；测试形态不得复制到应用或常规示例。
 - CI 编译全部示例；依赖外部服务的示例只编译、不在普通 CI 中运行。
 
 ## 8. 文档分类与维护

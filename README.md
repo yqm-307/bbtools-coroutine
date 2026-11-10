@@ -6,7 +6,7 @@
 
 1. 有栈协程，支持协程间的高效切换
 2. 丰富的协程同步原语（Chan、CoSelect、CoMutex、CoRWMutex、CoCond、CoPool 等）
-3. 支持协程池，方便管理和复用协程
+3. 支持协程池，方便管理和复用协程；尺寸路由池按 `(U, protect)` 把任务投递到固定栈规格的 worker 子池
 4. 类似 Go 语言的协程语法和使用体验
 5. 事件驱动 I/O，Poller 后端可替换
 6. syscall hook：协程内 socket / sleep / poll / DNS 等阻塞调用转为协程等待，不阻塞调度线程；非协程上下文直通原生
@@ -48,8 +48,7 @@ cd bbtools-coroutine
 
 ```shell
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-JOBS=$(( $(nproc) / 4 )); JOBS=$(( JOBS < 2 ? 2 : JOBS ))
-cmake --build build --parallel "$JOBS"
+cmake --build build --parallel 2
 ```
 
 CMake 常用开关（布尔项默认全部 `OFF`，完整选项以 `CMakeLists.txt` 为准）：
@@ -65,17 +64,17 @@ CMake 常用开关（布尔项默认全部 `OFF`，完整选项以 `CMakeLists.t
 
 ## 基础使用
 
-以后台线程模式启动调度器，注册协程并运行：
+应用只定义 `int bbtco_main()`，native `main` 由 `BBTCO_MAIN()` 生成：runtime 负责配置冻结、启动
+调度器、执行 native hook、提交主协程并只等它结束。需要兼容完整 scheduler 配置时，定义
+`void setup_runtime()` 并使用 `BBTCO_MAIN_WITH_SETUP*`；应用不直接调用 `g_scheduler->Start()`，也不自建
+runtime runner 或在协程内阻塞等待 native 线程。
 
 ```cpp
 #include <bbt/coroutine/coroutine.hpp>
 using namespace bbt::coroutine;
 
-int main()
+int bbtco_main()
 {
-    // 启动调度器
-    g_scheduler->Start();
-
     // 创建协程 - 基础语法
     bbtco [](){
         printf("i am coroutine %lu\n", GetLocalCoroutineId());
@@ -88,11 +87,18 @@ int main()
         bbtco_sleep(100);  // 协程睡眠100ms
     };
 
-    sleep(1);
+    sleep(1);  // 协程内 sleep 被 Hook 成协程等待，不阻塞调度线程
     // 无停机入口：进程寿命模型下调度器随进程退出，不需要 Stop
     return 0;
 }
+
+BBTCO_MAIN()
 ```
+
+需要非默认启动参数（worker 数、默认栈、多尺寸栈预算）时用 `BBTCO_MAIN_WITH_OPTIONS(<表达式>)`，
+表达式返回 `RuntimeOptions`，在 `Start` 前一次求值并校验；它只覆盖这三类便捷配置。完整 scheduler
+配置由 `setup_runtime()` 在同一阶段设置。尺寸路由池示例见
+[examples/copool.cc](examples/copool.cc)。
 
 Chan、CoCond、CoMutex、CoPool、CoSelect、CoRWMutex、WaitFor、defer、Hook 等完整示例见[使用手册](docs/guides/user-guide.md)；完整签名与返回码见 [API 参考](docs/guides/api-reference.md)。
 
@@ -102,8 +108,7 @@ Chan、CoCond、CoMutex、CoPool、CoSelect、CoRWMutex、WaitFor、defer、Hook
 
 ```shell
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DNEED_TEST=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-JOBS=$(( $(nproc) / 4 )); JOBS=$(( JOBS < 2 ? 2 : JOBS ))
-cmake --build build --parallel "$JOBS"
+cmake --build build --parallel 2
 bash scripts/ci/run_test_profile.sh --build-dir build --profile smoke   # 全量 smoke；套件数以 `ctest -N` 为准
 ```
 

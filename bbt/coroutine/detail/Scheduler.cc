@@ -57,19 +57,19 @@ void Scheduler::_Init(const ProcesserScalingBounds& bounds)
     m_max_num = bounds.m_max_num;
     m_target_num.store(bounds.m_initial_num, std::memory_order_release);
     m_scaling_mode.store(
-        g_bbt_coroutine_config->m_cfg_processer_auto_scale
+        g_bbt_coroutine_config->RuntimeSnapshot().processer_auto_scale
             ? ProcesserScalingMode::Auto
             : ProcesserScalingMode::Manual,
         std::memory_order_release);
 
-    m_scale_interval_ms = g_bbt_coroutine_config->m_cfg_processer_scale_interval_ms;
-    m_scale_up_samples = g_bbt_coroutine_config->m_cfg_processer_scale_up_samples;
-    m_scale_down_samples = g_bbt_coroutine_config->m_cfg_processer_scale_down_samples;
-    m_scale_step = g_bbt_coroutine_config->m_cfg_processer_scale_step;
-    m_scale_up_busy_percent = g_bbt_coroutine_config->m_cfg_processer_scale_up_busy_percent;
-    m_scale_down_busy_percent = g_bbt_coroutine_config->m_cfg_processer_scale_down_busy_percent;
-    m_scale_up_queue_watermark = g_bbt_coroutine_config->m_cfg_processer_scale_up_queue_watermark;
-    m_scale_down_queue_watermark = g_bbt_coroutine_config->m_cfg_processer_scale_down_queue_watermark;
+    m_scale_interval_ms = g_bbt_coroutine_config->RuntimeSnapshot().processer_scale_interval_ms;
+    m_scale_up_samples = g_bbt_coroutine_config->RuntimeSnapshot().processer_scale_up_samples;
+    m_scale_down_samples = g_bbt_coroutine_config->RuntimeSnapshot().processer_scale_down_samples;
+    m_scale_step = g_bbt_coroutine_config->RuntimeSnapshot().processer_scale_step;
+    m_scale_up_busy_percent = g_bbt_coroutine_config->RuntimeSnapshot().processer_scale_up_busy_percent;
+    m_scale_down_busy_percent = g_bbt_coroutine_config->RuntimeSnapshot().processer_scale_down_busy_percent;
+    m_scale_up_queue_watermark = g_bbt_coroutine_config->RuntimeSnapshot().processer_scale_up_queue_watermark;
+    m_scale_down_queue_watermark = g_bbt_coroutine_config->RuntimeSnapshot().processer_scale_down_queue_watermark;
 
     m_scale_up_hits = 0;
     m_scale_down_hits = 0;
@@ -88,44 +88,47 @@ void Scheduler::_PublishInitialized()
 void Scheduler::RegistCoroutineTask(const CoroutineCallback& handle, const char* desc)
 {
     /* 默认入口转调显式重载：只在入口解析默认大小与保护配置，显式重载不改写配置 */
-    RegistCoroutineTask(g_bbt_coroutine_config->m_cfg_stack_size, handle, desc);
+    RegistCoroutineTask(g_bbt_coroutine_config->RuntimeSnapshot().stack_size, handle, desc);
 }
 
 void Scheduler::RegistCoroutineTask(size_t stack_size, const CoroutineCallback& handle, const char* desc)
 {
-    /* 参数校验与栈申请（invalid_argument/length_error/bad_alloc/system_error）都发生在
-     * 入队之前：创建失败不会留下已入队对象，也不改全局默认与池计数。
-     * 本重载只读保护默认，不解析默认大小。 */
-    Coroutine::Ptr coroutine = nullptr;
-    Processer::SPtr proc = nullptr;
+    RegistCoroutineTask(StackRequest{stack_size, g_bbt_coroutine_config->RuntimeSnapshot().stack_protect}, handle, {}, desc);
+}
+
+void Scheduler::RegistCoroutineTask(StackRequest request, const CoroutineCallback& handle,
+                                    const WaitOptions& wait, const char* desc) {
+    // Acquire 可挂起，不能持 global/map/admission 锁。Context 完成前不发布任务。
+    auto lease = g_bbt_stackpoll->Acquire(request, wait);
+    std::unique_ptr<Coroutine> coroutine(Coroutine::Create(std::move(lease), handle, desc));
+    Processer::SPtr proc;
     {
         std::lock_guard<std::mutex> lock(m_global_queue_mutex);
-        coroutine = Coroutine::Create(
-            stack_size,
-            handle,
-            g_bbt_coroutine_config->m_cfg_stack_protect,
-            desc);
-        proc = _LoadBlance2Proc(CO_PRIORITY_NORMAL, coroutine);
-        if (proc != nullptr)
-            coroutine = nullptr;    // 已交接给 worker：发布后不再读取可能被销毁的对象
+#ifdef BBT_COROUTINE_STACK_TESTING
+        if (!s_test_fail_submit.exchange(false))
+#endif
+            proc = _LoadBlance2Proc(CO_PRIORITY_NORMAL, coroutine.get());
+        if (proc)
+            coroutine.release(); // worker 可立即完成；交接后不再读 coroutine。
     }
-
-    if (coroutine != nullptr) {
-        /* 无 worker 等发布前拒绝：在锁外清理，不落在可抛的清理路径里 */
-        delete coroutine;
-        throw std::runtime_error("scheduler has no processer: coroutine task rejected");
-    }
-
-    /* 外部 driver Wake 必须在退出 global/map/run_cond 全部锁之后执行 */
+    if (!proc)
+        throw std::runtime_error("scheduler rejected coroutine task");
     proc->_WakeDriver();
 #ifdef BBT_COROUTINE_PROFILE
     g_bbt_profiler->OnEvent_RegistCoroutine();
 #endif
 }
 
+#ifdef BBT_COROUTINE_STACK_TESTING
+std::atomic_bool Scheduler::s_test_fail_submit{false};
+void Scheduler::_TestFailNextSubmit() noexcept {
+    s_test_fail_submit.store(true);
+}
+#endif
+
 void Scheduler::RegistCoroutineTaskOn(ProcesserId target, const CoroutineCallback& handle, const char* desc)
 {
-    RegistCoroutineTaskOn(target, g_bbt_coroutine_config->m_cfg_stack_size, handle, desc);
+    RegistCoroutineTaskOn(target, g_bbt_coroutine_config->RuntimeSnapshot().stack_size, handle, desc);
 }
 
 void Scheduler::RegistCoroutineTaskOn(ProcesserId target, size_t stack_size, const CoroutineCallback& handle, const char* desc)
@@ -145,27 +148,17 @@ void Scheduler::RegistCoroutineTaskOn(ProcesserId target, size_t stack_size, con
     if (proc == nullptr)
         throw std::invalid_argument{"Scheduler::RegistCoroutineTaskOn: invalid target processer"};
 
-    Coroutine::Ptr coroutine = nullptr;
+    std::unique_ptr<Coroutine> coroutine(Coroutine::Create(
+        stack_size, handle, g_bbt_coroutine_config->RuntimeSnapshot().stack_protect, desc));
     bool admitted = false;
     {
         std::lock_guard<std::mutex> lock(m_global_queue_mutex);
-        coroutine = Coroutine::Create(
-            stack_size,
-            handle,
-            g_bbt_coroutine_config->m_cfg_stack_protect,
-            desc);
-        /* 只是初次入目标队列的偏好；steal 与恢复全局路径不改。
-         * 目标可能在 map 查找后、入队前提交退役；admission gate 会拒绝，
-         * 此时协程仍归本调用方，必须显式拒绝而不是写入 retired 队列。 */
-        admitted = proc->AddCoroutineTask(CO_PRIORITY_NORMAL, coroutine);
+        admitted = proc->AddCoroutineTask(CO_PRIORITY_NORMAL, coroutine.get());
         if (admitted)
-            coroutine = nullptr;
+            coroutine.release();
     }
-
-    if (!admitted) {
-        delete coroutine;
+    if (!admitted)
         throw std::invalid_argument{"Scheduler::RegistCoroutineTaskOn: target processer is retiring"};
-    }
 
     proc->_WakeDriver();
 #ifdef BBT_COROUTINE_PROFILE
@@ -461,7 +454,7 @@ void Scheduler::_FixTimingScan()
 {
     /* worker 无进展检测：调度线程独立于 worker，每拍扫描各 worker
      * 的锁存快照。阈值=0 时整段跳过（零开销）。 */
-    const size_t warn_ms = g_bbt_coroutine_config->m_cfg_worker_stall_warn_ms;
+    const size_t warn_ms = g_bbt_coroutine_config->RuntimeSnapshot().worker_stall_warn_ms;
     if (warn_ms == 0)
         return;
 
@@ -517,8 +510,8 @@ void Scheduler::_FixTimingScan()
 
     for (auto& info : pending)
     {
-        if (g_bbt_coroutine_config->m_ext_worker_stall_callback) {
-            try { g_bbt_coroutine_config->m_ext_worker_stall_callback(info); }
+        if (g_bbt_coroutine_config->RuntimeSnapshot().worker_stall_callback) {
+            try { g_bbt_coroutine_config->RuntimeSnapshot().worker_stall_callback(info); }
             catch (...) { /* 回调契约：不得抛出；抛出吞掉保调度线程 */ }
         } else {
             /* 无回调 = stderr 告警一行 */
@@ -532,6 +525,7 @@ void Scheduler::_FixTimingScan()
 
 void Scheduler::_OnUpdate()
 {
+    g_bbt_stackpoll->DrainAllocations();
 #ifdef BBT_COROUTINE_PROFILE
     static auto prev_profile_timepoint = bbt::core::clock::now<>();
 #endif
@@ -544,8 +538,8 @@ void Scheduler::_OnUpdate()
         _ReapRetiredWorkers();
 
 #ifdef BBT_COROUTINE_PROFILE
-        if (g_bbt_coroutine_config->m_cfg_profile_printf_ms > 0 &&
-            bbt::core::clock::is_expired<bbt::core::clock::ms>((prev_profile_timepoint + bbt::core::clock::ms(g_bbt_coroutine_config->m_cfg_profile_printf_ms))))
+        if (g_bbt_coroutine_config->RuntimeSnapshot().profile_printf_ms > 0 &&
+            bbt::core::clock::is_expired<bbt::core::clock::ms>((prev_profile_timepoint + bbt::core::clock::ms(g_bbt_coroutine_config->RuntimeSnapshot().profile_printf_ms))))
         {
             std::string info = "";
             g_bbt_profiler->ProfileInfo(info);
@@ -585,7 +579,7 @@ void Scheduler::_Run()
     {
         _OnUpdate();
 
-        const size_t interval_ms = g_bbt_coroutine_config->m_cfg_scan_interval_ms;
+        const size_t interval_ms = g_bbt_coroutine_config->RuntimeSnapshot().scan_interval_ms;
 
         /* interval==0 保持既有「不停拍」语义：旧实现的 sleep_until 此时也已过期，
            两者都是立即进入下一轮。 */
@@ -613,6 +607,8 @@ void Scheduler::Start(SchedulerStartOpt opt)
     ProcesserScalingBounds bounds{};
     if (!g_bbt_coroutine_config->ResolveProcesserScalingBounds(bounds))
         throw std::invalid_argument{"Scheduler::Start: invalid processer scaling configuration"};
+    /* 兼容旧的直接 Start 调用：成功通过配置校验后完成配置冻结。 */
+    g_bbt_coroutine_config->FreezeRuntimeSetup();
 
     {
         /* Start 一次性：状态检查与转移同锁，拒绝重复与并发 Start。

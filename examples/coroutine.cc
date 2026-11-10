@@ -1,6 +1,4 @@
 #include <atomic>
-#include <future>
-#include <memory>
 #include <bbt/coroutine/coroutine.hpp>
 #include <bbt/core/clock/Clock.hpp>
 #include <bbt/coroutine/sync/Chan.hpp>
@@ -134,22 +132,12 @@ void SleepHook()
     printf("SleepHook end\n");
 }
 
-// bbtco_main 只是应用自定的函数名，由现有 bbtco 注册其调用。
-void bbtco_main() {
+int bbtco_main() {
     RequireCoroutineContext();
     Normal();
     Defer();
     SleepHook();
-}
-
-int main() {
-    g_scheduler->Start();
-    auto main_task = std::make_shared<std::packaged_task<void()>>(bbtco_main);
-    auto completed = main_task->get_future();
-    bbtco[main_task]() {
-        (*main_task)();
-    };
-    // 只等待应用入口返回；没有隐藏 main、runtime 启动器或 detached 任务排空。
-    completed.get();
     return 0;
 }
+
+BBTCO_MAIN()

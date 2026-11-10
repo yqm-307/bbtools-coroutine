@@ -30,6 +30,8 @@ StackPool::UPtr& StackPool::GetInstance()
 StackPool::StackPool():
     m_prev_adjust_pool_ts(bbt::core::clock::now<>())
 {
+    /* RuntimeMain may configure the pool before publishing the immutable snapshot. */
+    m_policy.auto_max_objects = g_bbt_coroutine_config->m_cfg_max_coroutine;
     if (g_bbt_coroutine_config->m_cfg_static_coroutine > 0)
         _Preload(g_bbt_coroutine_config->m_cfg_static_coroutine);
 
@@ -76,6 +78,7 @@ StackPool::ItemType* StackPool::_TakeIdleLocked()
         bucket->idle--;
         bucket->live--;
         m_live_count--;
+        m_committedBytes -= item->UseableSize();
 
         /* 先拷贝键：erase 会使 it->first 失效 */
         const BucketKey key = it->first;
@@ -88,67 +91,14 @@ StackPool::ItemType* StackPool::_TakeIdleLocked()
 
 StackPool::ItemType* StackPool::Apply()
 {
-    const size_t stack_size = g_bbt_coroutine_config->m_cfg_stack_size;
-    const bool stack_protect = g_bbt_coroutine_config->m_cfg_stack_protect;
+    const size_t stack_size = g_bbt_coroutine_config->RuntimeSnapshot().stack_size;
+    const bool stack_protect = g_bbt_coroutine_config->RuntimeSnapshot().stack_protect;
     return Apply(stack_size, stack_protect);
 }
 
 StackPool::ItemType* StackPool::Apply(size_t stack_size, bool stack_protect)
 {
-    /* 分桶键 = (页对齐可用字节数 U, 保护属性)。非法值在分配/指针运算前拒绝。 */
-    const size_t useable = Stack::NormalizeSize(stack_size);
-    const BucketKey key{useable, stack_protect};
-
-    ItemType* item = nullptr;
-    {
-        std::lock_guard<std::mutex> lock(m_mutex);
-
-        /* 全池容量：跨桶的同时借出 + 已预留，不是每桶上限 */
-        if (m_borrowed_count + m_pending_count >=
-            g_bbt_coroutine_config->m_cfg_stackpool_max_alloc_size)
-            return nullptr;
-
-        Bucket* bucket = _GetBucketLocked(key);
-        if (bucket->Pop(item))
-        {
-            bucket->idle--;
-            bucket->borrowed++;
-            m_borrowed_count++;
-            return item;
-        }
-
-        /* 无空闲对象：先预留容量（同时 pin 住桶），锁外再做 memalign/mprotect */
-        bucket->pending++;
-        m_pending_count++;
-    }
-
-    try
-    {
-        item = _AllocItem(useable, stack_protect);
-    }
-    catch (...)
-    {
-        /* 失败滚回预留：不留下半份计数，也不泄漏对象 */
-        std::lock_guard<std::mutex> lock(m_mutex);
-        Bucket* bucket = _GetBucketLocked(key);
-        bucket->pending--;
-        m_pending_count--;
-        _EraseBucketIfEmptyLocked(key, bucket);
-        throw;
-    }
-
-    {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        Bucket* bucket = _GetBucketLocked(key);
-        bucket->pending--;
-        m_pending_count--;
-        bucket->live++;
-        m_live_count++;
-        bucket->borrowed++;
-        m_borrowed_count++;
-    }
-
-    return item;
+    return Acquire({stack_size, stack_protect}).release();
 }
 
 void StackPool::Release(ItemType* item)
@@ -195,6 +145,7 @@ void StackPool::Release(ItemType* item)
             m_borrowed_count--;
             bucket->live--;
             m_live_count--;
+            m_committedBytes -= item->UseableSize();
             to_destroy = item;
         }
 
@@ -258,7 +209,7 @@ void StackPool::OnUpdate()
 
         if (bbt::core::clock::is_expired<bbt::core::clock::milliseconds>(
                 m_prev_rtts_sample_ts +
-                bbt::core::clock::milliseconds(g_bbt_coroutine_config->m_cfg_stackpool_sample_interval)))
+                bbt::core::clock::milliseconds(g_bbt_coroutine_config->RuntimeSnapshot().stackpool_sample_interval)))
         {
             m_co_avg = static_cast<size_t>(::floor(
                 0.875 * static_cast<double>(m_co_avg) +
@@ -272,14 +223,14 @@ void StackPool::OnUpdate()
 
         if (!bbt::core::clock::is_expired<bbt::core::clock::milliseconds>(
                 m_prev_adjust_pool_ts +
-                bbt::core::clock::milliseconds(g_bbt_coroutine_config->m_cfg_stackpool_adjust_interval)))
+                bbt::core::clock::milliseconds(g_bbt_coroutine_config->RuntimeSnapshot().stackpool_adjust_interval)))
             return;
 
         m_prev_adjust_pool_ts = bbt::core::clock::now<>();
 
         /* 全池统一保留目标 = max(最低保留数, 平均目标)；不按每桶复制最低数。
          * 只回收空闲对象，不触碰借出/申请中的栈。 */
-        keep = std::max(g_bbt_coroutine_config->m_cfg_stackpool_min_alloc_size,
+        keep = std::max(g_bbt_coroutine_config->RuntimeSnapshot().stackpool_min_alloc_size,
                         allowable_stack_num);
         to_release = m_live_count > keep ? (m_live_count - keep) : 0;
     }
@@ -321,49 +272,23 @@ void StackPool::_FreeItem(ItemType* item)
 
 size_t StackPool::_Preload(size_t preload_size)
 {
-    if (preload_size == 0)
-        return 0;
-
-    /* 预热只针对默认 U/保护桶：真正创建 min(预热数, 全池上限) 个彼此独立的栈，
-     * 不是 Apply→Release 复用循环（那样只会拿到同一个对象）。构造失败时已持有
-     * unique_ptr 的清理路径会排空已建对象后再抛，因此本函数不是 noexcept。 */
-    const size_t useable = Stack::NormalizeSize(g_bbt_coroutine_config->m_cfg_stack_size);
-    const bool protect = g_bbt_coroutine_config->m_cfg_stack_protect;
-    const size_t limit = std::min(preload_size,
-                                  g_bbt_coroutine_config->m_cfg_stackpool_max_alloc_size);
-    const BucketKey key{useable, protect};
-
-    // 未发布对象和已缓存对象共用销毁入口，失败展开也计入 PROFILE 的真实释放。
-    using PendingStack = std::unique_ptr<ItemType, decltype(&StackPool::_FreeItem)>;
-    std::vector<PendingStack> created;
+    // 先持有全部独立 lease，不能 Apply→Release 循环重复预热同一个对象。
+    const size_t limit = std::min(preload_size, g_bbt_coroutine_config->m_cfg_max_coroutine);
+    std::vector<StackLease> created;
     created.reserve(limit);
-    for (size_t i = 0; i < limit; ++i)
-        created.emplace_back(_AllocItem(useable, protect), &StackPool::_FreeItem);
-
-    size_t succ_num = 0;
-    {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        Bucket* bucket = _GetBucketLocked(key);
-        for (auto& item : created)
-        {
-#ifdef BBT_COROUTINE_STACK_TESTING
-            if (s_test_fail_push.exchange(false, std::memory_order_acq_rel))
-                break;
-#endif
-            if (!bucket->Push(item.get()))
-                break;
-
-            bucket->idle++;
-            bucket->live++;
-            m_live_count++;
-            item.release();
-            ++succ_num;
-        }
-        _EraseBucketIfEmptyLocked(key, bucket);
+    for (size_t i = 0; i < limit; ++i) {
+        auto lease = Acquire({g_bbt_coroutine_config->RuntimeSnapshot().stack_size,
+                              g_bbt_coroutine_config->RuntimeSnapshot().stack_protect});
+        if (!lease)
+            break;
+        created.push_back(std::move(lease));
     }
-
-    /* 未发布的 unique_ptr 在出锁后析构（delete），不留下半份计数 */
-    return succ_num;
+    const size_t count = created.size();
+    created.clear();
+    // 构造尚未发布：任一缓存入队失败都撤销整批预热，而不是留下半份缓存。
+    if (AllocSize() != count)
+        ReleaseUnused();
+    return AllocSize();
 }
 
 }

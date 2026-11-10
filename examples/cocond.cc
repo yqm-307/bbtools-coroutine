@@ -57,13 +57,12 @@ void NotifyAll()
     sleep(1);
 }
 
-int main()
-{
-    g_scheduler->Start();
-
-
+int bbtco_main() {
     NotifyOne();
     NotifyAll();
 
     /* process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出 */
+    return 0;
 }
+
+BBTCO_MAIN()

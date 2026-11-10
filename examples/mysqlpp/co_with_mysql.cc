@@ -1,4 +1,5 @@
 #include <bbt/coroutine/coroutine.hpp>
+#include <atomic>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -10,7 +11,7 @@
 
 void example1()
 {
-    bbt::core::thread::CountDownLatch latch{1};
+    std::atomic_bool done{false};
 
     bbtco [&]()
     {
@@ -22,14 +23,15 @@ void example1()
             
             MySQLResultParser::PrintResultSet(resultSet);
 
-            latch.Down();
+            done.store(true, std::memory_order_release);
         } catch (const std::exception& e) {
             std::cerr << "Database exception: " << e.what() << std::endl;
-            latch.Down();
+            done.store(true, std::memory_order_release);
         }
     };
 
-    latch.Wait();
+    while (!done.load(std::memory_order_acquire))
+        bbtco_sleep(1);
 }
 
 
@@ -38,14 +40,14 @@ void example2(std::shared_ptr<UserService> userService)
 {
     std::cout << "开始高级MySQL连接池示例..." << std::endl;
     
-    bbt::core::thread::CountDownLatch mainLatch{1};
+    std::atomic_bool done{false};
     
-    bbtco [userService, &mainLatch]() {
+    bbtco [userService, &done]() {
         try {
             // 1. 创建用户表
             if (!userService->CreateUserTable()) {
                 std::cerr << "创建用户表失败" << std::endl;
-                mainLatch.Down();
+                done.store(true, std::memory_order_release);
                 return;
             }
             
@@ -92,10 +94,11 @@ void example2(std::shared_ptr<UserService> userService)
             std::cerr << "主流程错误: " << e.what() << std::endl;
         }
         
-        mainLatch.Down();
+        done.store(true, std::memory_order_release);
     };
     
-    mainLatch.Wait();
+    while (!done.load(std::memory_order_acquire))
+        bbtco_sleep(1);
 }
 
 void example3(std::shared_ptr<UserService> userService)
@@ -184,13 +187,17 @@ void example3(std::shared_ptr<UserService> userService)
     std::cout << "总耗时: " << duration.count() << "ms" << std::endl;
 }
 
-int main()
-{
-    g_bbt_coroutine_config->m_cfg_stack_size = 32 * 1024;
-    g_bbt_coroutine_config->m_cfg_max_coroutine = 1000;
-    g_bbt_coroutine_config->m_cfg_static_thread_num = 6;
-    g_scheduler->Start();
-    bbt::core::thread::CountDownLatch latch{1};
+/** 默认栈与对象预算在 Start 前一次性生效；示例不再运行时改 GlobalConfig。 */
+RuntimeOptions MysqlOptions() {
+    RuntimeOptions options;
+    options.initial_workers = 6;
+    options.default_stack = StackRequest{32 * 1024, true};
+    options.stacks = StackConfig{StackPolicy::Auto, {}, 1000, 256 * 1024 * 1024};
+    return options;
+}
+
+int bbtco_main() {
+    std::atomic_bool done{false};
 
     bbtco [&](){
         // 配置连接池
@@ -201,20 +208,24 @@ int main()
         config.database = "test_db";
         config.min_connections = 3;
         config.max_connections = 10;
-        
+
         // 创建连接池和用户服务
         auto pool = std::make_shared<MySQLConnectionPool>(config);
         auto userService = std::make_shared<UserService>(pool);
-    
+
         example1();
         example2(userService);
         example3(userService);
 
-        latch.Down();
-    };    
+        done.store(true);
+    };
 
-    latch.Wait();
+    // 主协程让出等待示例结束：协程里不能用原生 latch 占住 Processer。
+    while (!done.load())
+        bbtco_sleep(100);
+
     /* process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出 */
-
     return 0;
 }
+
+BBTCO_MAIN_WITH_OPTIONS(MysqlOptions())

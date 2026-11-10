@@ -1,3 +1,4 @@
+#include <atomic>
 #include <cstddef>
 #include <bbt/coroutine/coroutine.hpp>
 
@@ -10,7 +11,7 @@
 
 void CoReadable()
 {
-    bbt::core::thread::CountDownLatch l{1};
+    std::atomic_bool done{false};
 
     int pipefd[2];
     if (pipe(pipefd) < 0) {
@@ -24,14 +25,16 @@ void CoReadable()
         char rlt[12] = {0};
         ::read(pipefd[0], rlt, sizeof(rlt));
         printf("CoReadable: %d, now<%lu>, readsucc: %s\n", pipefd[0], bbt::core::clock::gettime<>(), rlt);
-        l.Down();
+        done.store(true, std::memory_order_release);
     };
 
     sleep(1);
     printf("CoReadable: %d, now<%lu>, write a char\n", pipefd[1], bbt::core::clock::gettime<>());
     ::write(pipefd[1], "a", 1);
 
-    l.Wait();
+    // 完成可能先于等待；保留状态并让出，不能用原生 latch 占住 worker。
+    while (!done.load(std::memory_order_acquire))
+        bbtco_sleep(1);
 }
 
 void CoTimeout()
@@ -47,14 +50,14 @@ void CoTimeout()
     sleep(1);
 }
 
-int main()
-{
-    g_scheduler->Start();
-
+int bbtco_main() {
     printf("=============== readable ================\n");
     CoReadable();
     printf("=============== timeout chan ================\n");
     CoTimeout();
 
     /* process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出 */
+    return 0;
 }
+
+BBTCO_MAIN()

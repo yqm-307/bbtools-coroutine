@@ -1,4 +1,5 @@
 #include <hiredis/hiredis.h>
+#include <atomic>
 #include <random>
 #include <bbt/coroutine/coroutine.hpp>
 
@@ -153,7 +154,7 @@ void Example2()
     auto copool = bbtco_make_copool(10);
     constexpr int kWorkers = 10;
     constexpr int kOperationsPerWorker = 1000;
-    auto wg = bbt::core::thread::CountDownLatch(kWorkers);
+    std::atomic_int completed_workers{0};
     std::atomic_int success_count{0};
     std::atomic_int error_count{0};
 
@@ -190,31 +191,35 @@ void Example2()
                     }
                 }
 
-                wg.Down();
+                completed_workers.fetch_add(1, std::memory_order_release);
             } catch (const std::exception& e) {
                 error_count++;
-                wg.Down();
+                completed_workers.fetch_add(1, std::memory_order_release);
                 std::cerr << "Error: " << e.what() << std::endl;
             }
         });
     }
 
-    wg.Wait();
+    while (completed_workers.load(std::memory_order_acquire) < kWorkers)
+        bbtco_sleep(1);
     std::cout << "Total successful operations: " << success_count.load() << std::endl;
     std::cout << "Total errors: " << error_count.load() << std::endl;
 }
 
-int main()
-{
-    // 初始化，需要更大的栈，因为 hiredis 中使用了大量的栈上内存
-    g_bbt_coroutine_config->m_cfg_stack_size = 1024 * 1024; // 设置协程栈大小为1MB
-    g_bbt_coroutine_config->m_cfg_max_coroutine = 1000;
+/** hiredis 在协程栈上有较多临时缓冲：默认栈 1 MiB，全池对象预算 1000。 */
+RuntimeOptions HiredisOptions() {
+    RuntimeOptions options;
+    options.default_stack = StackRequest{1024 * 1024, true};
+    options.stacks = StackConfig{StackPolicy::Auto, {}, 1000, 256 * 1024 * 1024};
+    return options;
+}
 
-    g_scheduler->Start();
-
+int bbtco_main() {
     Example1();
     Example2();
 
     /* process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出 */
-
+    return 0;
 }
+
+BBTCO_MAIN_WITH_OPTIONS(HiredisOptions())

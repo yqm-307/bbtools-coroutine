@@ -3,6 +3,8 @@
  */
 #pragma once
 
+#include <bbt/coroutine/runtime/RuntimeMain.hpp>
+#include <bbt/coroutine/syntax/RuntimeMacros.hpp>
 #include <bbt/coroutine/detail/GlobalConfig.hpp>
 #include <bbt/coroutine/detail/Scheduler.hpp>
 #include <bbt/coroutine/detail/Hook.hpp>

@@ -89,17 +89,15 @@ void ConsumerProblems()
     sleep(100);
 }
 
-int main()
-{
+int bbtco_main() {
     printf("=== 基础读写者问题示例 ===\n");
-    
-    g_scheduler->Start();
-    
+
     // 运行基础示例
     ConsumerProblems();
-    
+
     // 等待一段时间
     /* process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出 */
-    
     return 0;
 }
+
+BBTCO_MAIN()

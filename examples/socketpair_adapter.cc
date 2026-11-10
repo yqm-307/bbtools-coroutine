@@ -103,15 +103,7 @@ static void custom_event_adapter_example()
         printf("[custom_event] FAIL: not notified\n");
 }
 
-int main()
-{
-    g_scheduler->Start(SCHE_START_OPT_SCHE_THREAD);
-    /* 无停机入口：初始化完成即视为可用（IsInitialized 一次初始化后恒真）。 */
-    if (!g_scheduler->IsInitialized()) {
-        fprintf(stderr, "scheduler start failed\n");
-        return 1;
-    }
-
+int bbtco_main() {
     printf("=== fd adapter (socketpair) ===\n");
     fd_adapter_example();
 
@@ -122,3 +114,5 @@ int main()
     printf("done\n");
     return 0;
 }
+
+BBTCO_MAIN()
