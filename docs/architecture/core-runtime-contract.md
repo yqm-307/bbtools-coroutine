@@ -251,7 +251,7 @@ public:
 
 ### 12.2 `bbtco_main` 主入口与 `RuntimeMain`
 
-主入口属于 `bbt/coroutine/runtime`：应用定义 `int bbtco_main()`，可选定义 `void setup_runtime()` 与 `int bbtco_main_thread_hook()`；生成的 native `main` 只调用 runtime 入口。`setup_runtime()` 在 Start 前执行，是设置既有 GlobalConfig 全部启动字段的唯一生命周期阶段；随后 RuntimeOptions 只覆盖 worker 数、默认栈和栈预算三类便捷输入，配置快照冻结后再执行 Start。需要非默认启动参数时，不提供第二个配置 hook 或依赖全局静态初始化。Strict/Auto 在 Start 前校验并应用到既有 StackPool，非法预算以 `StartFailed` 拒绝。
+主入口属于 `bbt/coroutine/runtime`：应用定义 `int bbtco_main()`，可选定义 `void setup_runtime()`、提交前 `int bbtco_main_thread_hook()` 与提交后 `int bbtco_main_host_hook(bbt::coroutine::HostHookContext&)`；生成的 native `main` 只调用 runtime 入口。`setup_runtime()` 在 Start 前执行，是设置既有 GlobalConfig 全部启动字段的唯一生命周期阶段；随后 RuntimeOptions 只覆盖 worker 数、默认栈和栈预算三类便捷输入，配置快照冻结后再执行 Start。需要非默认启动参数时，不提供第二个配置 hook 或依赖全局静态初始化。Strict/Auto 在 Start 前校验并应用到既有 StackPool，非法预算以 `StartFailed` 拒绝。
 
 ```cpp
 namespace bbt::coroutine {
@@ -271,16 +271,34 @@ struct RuntimeOptions {
     std::optional<StackConfig> stacks;          // 无值使用 runtime 的有限默认预算
 };
 
+// 提交后 host hook 的运行时控制面：runtime 持有，hook 只登记与观察。
+class HostHookContext {
+public:
+    // 主任务（含未捕获异常）完成时恰好调用一次；hook 运行期任意时刻可登记，
+    // 已完成时立即在登记线程回调。回调在 runtime 内部锁之外执行，不得抛异常、不得阻塞。
+    // 登记为单槽。寿命只到 host hook 返回或抛异常：此后 runtime 丢弃未取出的登记、
+    // 不再发起新回调；与完成路径竞争而已被取出的回调无法撤销，仍可能在 hook 返回后执行，
+    // 所以闭包必须以值或自有共享状态捕获，runtime 不保护任意 hook 栈引用。
+    void OnMainTaskDone(std::function<void()> callback) noexcept;
+    bool MainTaskDone() const noexcept;
+};
+
+// 提交后 host hook：在原生 main 线程调用一次；允许宿主 native 阻塞入口，
+// 但不得调用 Co 原语、不得提交主任务。
+using HostHook = int (*)(HostHookContext&);
+
 class RuntimeMain {
 public:
     enum class Terminal {
         MainReturned,   // 主任务正常返回
-        HookRejected,   // hook 返回非零，主任务未提交
-        HookThrew,      // hook 抛出异常，主任务未提交
+        HookRejected,   // 提交前 hook 返回非零，主任务未提交
+        HookThrew,      // 提交前 hook 抛出异常，主任务未提交
         SetupThrew,     // setup_runtime 抛出异常，Start 未调用
         StartFailed,    // runtime 启动/初始化失败
         SubmitFailed,   // 主任务提交失败
         MainThrew,      // 主任务未捕获异常
+        HostHookFailed, // 提交后 host hook 返回非零
+        HostHookThrew,  // 提交后 host hook 抛出异常
     };
     struct Completion { Terminal terminal; int exit_code; };
 
@@ -290,10 +308,18 @@ public:
     static Completion RunWithSetup(void (*setup_runtime)(), int (*main_task)(),
                                    int (*native_hook)() = nullptr,
                                    const RuntimeOptions& options = {}) noexcept;
+    // 提交后 host hook：主任务提交成功后才在原生 main 线程执行一次。
+    static Completion RunWithSetupAndHostHook(void (*setup_runtime)(),
+                                              int (*main_task)(), HostHook host_hook,
+                                              const RuntimeOptions& options = {}) noexcept;
     // 包住配置表达式的求值/值构造；失败也兑现同一个 StartFailed 完成记录。
     template<class OptionsFactory>
     static Completion RunWithOptions(int (*main_task)(), int (*native_hook)(),
                                      OptionsFactory make_options) noexcept;
+    template<class OptionsFactory>
+    static Completion RunWithSetupHostHookAndOptions(void (*setup_runtime)(),
+                                                     int (*main_task)(), HostHook host_hook,
+                                                     OptionsFactory make_options) noexcept;
 };
 
 } // namespace bbt::coroutine
@@ -322,9 +348,17 @@ public:
     int main() { return ::bbt::coroutine::RuntimeMain::RunWithSetupAndOptions( \
         &setup_runtime, &bbtco_main, &bbtco_main_thread_hook, \
         [] { return (options_expr); }).exit_code; }
+// 提交后 host hook：定义 int bbtco_main_host_hook(bbt::coroutine::HostHookContext&)。
+#define BBTCO_MAIN_WITH_SETUP_AND_HOST_HOOK() \
+    int main() { return ::bbt::coroutine::RuntimeMain::RunWithSetupAndHostHook( \
+        &setup_runtime, &bbtco_main, &bbtco_main_host_hook).exit_code; }
+#define BBTCO_MAIN_WITH_SETUP_HOST_HOOK_AND_OPTIONS(options_expr) \
+    int main() { return ::bbt::coroutine::RuntimeMain::RunWithSetupHostHookAndOptions( \
+        &setup_runtime, &bbtco_main, &bbtco_main_host_hook, \
+        [] { return (options_expr); }).exit_code; }
 ```
 
-`setup_runtime()` 先在 native main 同步设置既有 GlobalConfig；随后 RuntimeOptions 工厂在同一 runtime 异常边界内最多求值一次，显式字段覆盖三类便捷输入。Start 前将全部 scheduler/stack pool 配置固化为 `RuntimeConfigSnapshot`，运行期组件只读取该快照；兼容保留的公开字段即使被后续代码改写，也不改变已启动 runtime 的配置。配置门冻结后固定执行 Start（单次）→ native hook → 提交主任务 → 只等主任务 → 返回。配置阶段构造、校验或应用失败均为非零失败，不调用 Start/hook、不提交主任务；先完整校验再应用，不留下半份可重试配置。没有 setup_runtime 的旧 `Run`/`BBTCO_MAIN*` 仍兼容，直接 Start 时由 Scheduler 完成冻结。
+`setup_runtime()` 先在 native main 同步设置既有 GlobalConfig；随后 RuntimeOptions 工厂在同一 runtime 异常边界内最多求值一次，显式字段覆盖三类便捷输入。Start 前将全部 scheduler/stack pool 配置固化为 `RuntimeConfigSnapshot`，运行期组件只读取该快照；兼容保留的公开字段即使被后续代码改写，也不改变已启动 runtime 的配置。配置门冻结后固定执行 Start（单次）→ 提交前 native hook → 提交主任务 → 提交后 host hook → 等主任务与 host hook 都结束 → 返回。配置阶段构造、校验或应用失败均为非零失败，不调用 Start/hook、不提交主任务；先完整校验再应用，不留下半份可重试配置。没有 setup_runtime 的旧 `Run`/`BBTCO_MAIN*` 仍兼容，直接 Start 时由 Scheduler 完成冻结。
 
 `stacks` 有值时：Strict 要求非空、规范化键唯一、各 `max_objects > 0`，Auto 的两个字段必须为 0；Auto 要求 `strict_classes` 为空且两个上限均 > 0。校验尺寸/乘加溢出、默认栈是否为 Strict 已声明类，以及启动所需 worker/monitor 的精确规格与容量是否可接纳；不以扩大预算或跨桶分配修复非法输入。无值时的有限默认预算由实现记录，仍须通过同一校验。`initial_workers` 只覆盖既有 initial worker 数，既有 min/max/自动扩缩容校验不被绕过。
 
@@ -347,13 +381,16 @@ BBTCO_MAIN_WITH_OPTIONS(MainOptions())
 
 约束如下：
 
-- hook 在 runtime Start 之后、native 主线程、任何主协程提交之前运行；不得挂起、不得调用 `bbtco_*`/Co 等待原语，也不能等待 Engine ready/closed/physical-released、执行 Engine::Run/native join 或阻塞等待 Co worker。runtime 配置已在 Start 前冻结；Engine/资源的装配与启动参数在主 Co 任务内、Engine lifecycle Start 前冻结，不混淆两次 Start。hook 非零则不提交主任务，进程退出码取该返回值；hook 抛异常即 `HookThrew`，按失败退出，不逃出 native main。
+- hook 在 runtime Start 之后、native 主线程、任何主协程提交之前运行；不得挂起、不得调用 `bbtco_*`/Co 等待原语，也不能等待 Engine ready/closed/physical-released、执行 Engine::Run/native join 或阻塞等待 Co worker。runtime 配置已在 Start 前冻结；Engine/资源的装配与启动参数在主 Co 任务内、首次 Engine Run 前冻结，不混淆两次 Start。hook 非零则不提交主任务，进程退出码取该返回值；hook 抛异常即 `HookThrew`，按失败退出，不逃出 native main。
+- 提交后 host hook 在提交成功之后、同一 native 主线程、主任务并发运行期间执行一次。它只做宿主 native 工作的阻塞入口（framework 用它调用一次 `Engine::Run`），不能调用 Co 原语、不能提交主任务、不能假设主任务已发布任何状态；需要主任务的装配结果时用 `HostHookContext::OnMainTaskDone`/`MainTaskDone` 协调，并自行给有限等待。
+- host hook 完成与主任务完成都必须到达后 runtime 才返回。主任务（含未捕获异常）完成时 runtime 恰好一次调用已登记的 `OnMainTaskDone`；登记可在 hook 内任意时刻发生，若主任务已完成则立即在登记线程回调，回调一律在 runtime 内部锁之外执行（不持锁调用 hook 代码）。回调寿命只到 host hook 返回或抛异常为止：hook 先结束时 runtime 在同一线程丢弃未取出的登记，此后不再发起新回调，主任务之后完成既不丢失完成记录（仍兑现唯一 `MainCompletion`）也不会再调用该登记；但清除登记无法撤销已与完成路径竞争而取出的回调，它可能在 hook 返回后仍在执行，因此闭包必须以值或自有共享状态捕获，runtime 不保护任意 hook 栈引用。已发起的回调返回后 runtime 才发布主任务完成记录，`RuntimeMain` 返回时不存在本登记的在途回调；hook 抛异常同样按 `HostHookThrew` 收口并丢弃未取出的登记。该寿命规则只扩展既有单槽登记，不新增通用回调注册表，也不改提交前初始化 hook 与既有 `Run`/`BBTCO_MAIN*` 的兼容面。hook 先返回时 runtime 继续等主任务；主任务先完成时 runtime 继续等 hook 返回。完成记录仍只有一个，优先级：host hook 返回非零 → `HostHookFailed`（取该值）；host hook 抛出异常 → `HostHookThrew`（1）；主任务未捕获异常 → `MainThrew`（1）；否则 `MainReturned`（取主任务返回值）。提交前 hook 非零/抛异常仍为 `HookRejected`/`HookThrew`（主任务不提交）。
+- 两向退出是宿主责任，不是 runtime 的取消能力：主任务结束如何让 host hook 的阻塞调用返回（例如对共享 Engine 发 `RequestClose`），以及 host hook 失败如何让主任务结束（例如让主任务的有限等待观察到失败），都由 hook 与主任务之间的应用层约定保证；runtime 只保证通知恰好一次、返回前两边都结束，不提供第二个取消通道，也不用 `result.get()` 前后换位掩盖死等。
 - 主任务是一个普通受管协程，使用启动配置的默认栈请求（默认尺寸与保护属性），可正常 `bbt_co_await`。主任务正常返回即 `MainReturned`，进程退出码取其 `int` 返回值；未捕获异常在 runtime 边界转换为非零退出码。
-- 启动失败、hook 拒绝、提交失败、主任务返回/异常各自恰好兑现一次 `MainCompletion`（内部完成记录，仅一个 native 等待者）；重复 `RuntimeMain::Run`、在受管协程内调用或在 hook 中重入返回明确失败，不启动第二次 runtime、不进入永久等待、不重复通知。
-- 只等主任务：不排空 detached 任务、不新增 `Scheduler::Stop`/restart、不隐式销毁进程寿命对象。业务收口必须在 `bbtco_main` 内显式完成；`main` 返回后未收口责任不转为已关闭。
-- runtime 不消费或推进 Engine，不提供 native 网络回收槽。Engine native runner、Run 返回凭据及物理 owner 的唯一目标契约归 infra `docs/architecture/native-lifecycle-seam-contract.md`；infra 用已有 `io::GetExecutor()` 的普通 adapter callback 非阻塞检查/收割自己的 native 记录，runtime 不感知 Engine，也不执行阻塞 join。该窄 handle 尚未实现，由 infra-close-net 实现；生成式入口的文档或主任务完成不等于真实 Engine 已接线/物理释放。
-- `StartFailed`、`SubmitFailed`、`HookThrew`、`MainThrew` 的失败退出码为 `1`；正常主任务与拒绝 hook 保留其 `int` 返回值。`0` 仅表示主任务正常返回且其返回值为 0；OS 对 0–255 之外取值的处理不在 runtime 承诺内。
-- `coroutine.runtime_main_*` 通过独立子进程断言真实退出码、配置/Start/hook/submit 顺序、一次执行及主任务完成；覆盖四种生成式宏、非标准异常、启动线程失败、提交分配失败、重入和不排空 detached 任务。`stack_policy` 覆盖 Strict/Auto 成功启动；具体预算与异步所有权由 `coroutine.stack_ownership_*` 验证。
+- 启动失败、hook 拒绝、提交失败、主任务返回/异常、host hook 返回/异常各自恰好兑现一次 `MainCompletion`（内部完成记录，仅一个 native 等待者）；重复 `RuntimeMain::Run`、在受管协程内调用或在 hook 中重入返回明确失败，不启动第二次 runtime、不进入永久等待、不重复通知。
+- 只等主任务与 host hook，不排空 detached 任务、不新增 `Scheduler::Stop`/restart、不隐式销毁进程寿命对象。业务收口必须在 `bbtco_main` 内显式完成；`main` 返回后未收口责任不转为已关闭。hook 未登记/未调用（旧入口）时行为与旧契约相同：只等主任务。
+- runtime 不消费或推进 Engine，不提供 native 网络回收槽。Engine 的创建、共享与关闭语义归应用/framework（Engine 主线程宿主契约 infra `docs/architecture/native-lifecycle-seam-contract.md`）；host hook 是应用自己的函数，runtime 只负责在主任务提交之后、原生 main 线程调用它一次，不 include infra、不认识 Engine、不执行 join，也不替 hook 决定等待期限。
+- 失败退出码：`StartFailed`、`SubmitFailed`、`HookThrew`、`HostHookThrew`、`MainThrew` 为 `1`；`HookRejected`/`HostHookFailed` 取 hook 返回值；正常主任务取主任务返回值。`0` 仅表示主任务正常返回且其返回值为 0；OS 对 0–255 之外取值的处理不在 runtime 承诺内。
+- `coroutine.runtime_main_*` 通过独立子进程断言真实退出码、配置/Start/hook/submit 顺序、一次执行及主任务完成；覆盖四种生成式宏、非标准异常、启动线程失败、提交分配失败、重入和不排空 detached 任务。新增 host hook 用例覆盖：hook 等主任务发布后才运行、主任务完成触发 host 关闭、完成先于登记（立即在登记线程回调）、登记与完成竞争（恰好一次）、hook 先返回/抛异常、在途回调与 hook 栈退出、host 失败唤醒主任务与退出码优先级、host 与主任务两边都结束才返回。`stack_policy` 覆盖 Strict/Auto 成功启动；具体预算与异步所有权由 `coroutine.stack_ownership_*` 验证。
 
 ### 12.3 `ICoObject`、`CoObject` 与统计契约
 

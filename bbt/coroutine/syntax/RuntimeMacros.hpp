@@ -63,3 +63,20 @@
                    [] { return (options_expr); })                                  \
             .exit_code;                                                            \
     }
+
+/** @brief setup_runtime() 后提交主任务，并在原生 main 线程调用 bbtco_main_host_hook。 */
+#define BBTCO_MAIN_WITH_SETUP_AND_HOST_HOOK()                                      \
+    int main() {                                                                   \
+        return ::bbt::coroutine::RuntimeMain::RunWithSetupAndHostHook(              \
+                   &setup_runtime, &bbtco_main, &bbtco_main_host_hook)              \
+            .exit_code;                                                            \
+    }
+
+/** @brief setup_runtime() 后应用 RuntimeOptions，再调用提交后 host hook。 */
+#define BBTCO_MAIN_WITH_SETUP_HOST_HOOK_AND_OPTIONS(options_expr)                  \
+    int main() {                                                                   \
+        return ::bbt::coroutine::RuntimeMain::RunWithSetupHostHookAndOptions(       \
+                   &setup_runtime, &bbtco_main, &bbtco_main_host_hook,              \
+                   [] { return (options_expr); })                                  \
+            .exit_code;                                                            \
+    }

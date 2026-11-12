@@ -80,6 +80,25 @@ ProcessResult Check(const char* mode, bbt::coroutine::RuntimeMain::Terminal term
     BOOST_CHECK_EQUAL(Count(result.output, "FACTORY\n"), factory_calls);
     return result;
 }
+
+ProcessResult CheckHost(const char* mode, bbt::coroutine::RuntimeMain::Terminal terminal,
+                        int code, int main_calls, int host_calls, int callback_calls) {
+    const auto result = Run(mode);
+    BOOST_CHECK_EQUAL(result.exit_code, code);
+    const auto expected = "DONE terminal=" + std::to_string(static_cast<int>(terminal)) +
+                          " code=" + std::to_string(code) + " main=" + std::to_string(main_calls) +
+                          " hook=0 factory=1";
+    BOOST_CHECK_MESSAGE(result.output.find(expected) != std::string::npos, expected);
+    BOOST_CHECK_EQUAL(Count(result.output, "DONE "), 1u);
+    BOOST_CHECK_EQUAL(Count(result.output, "MAIN\n"), main_calls);
+    BOOST_CHECK_EQUAL(Count(result.output, "HOOK\n"), 0u);
+    BOOST_CHECK_EQUAL(Count(result.output, "FACTORY\n"), 1u);
+    BOOST_CHECK_EQUAL(Count(result.output, "SETUP\n"), 1u);
+    BOOST_CHECK_EQUAL(Count(result.output, "HOST_ENTER\n"), host_calls);
+    if (callback_calls >= 0)
+        BOOST_CHECK_EQUAL(Count(result.output, " cb=" + std::to_string(callback_calls) + "\n"), 1u);
+    return result;
+}
 using Terminal = bbt::coroutine::RuntimeMain::Terminal;
 } // namespace
 
@@ -145,17 +164,81 @@ BOOST_AUTO_TEST_CASE(detached) {
 }
 
 BOOST_AUTO_TEST_CASE(macros) {
-    for (int variant = 1; variant <= 5; ++variant) {
+    for (int variant = 1; variant <= 7; ++variant) {
         const auto result = Run("normal", variant);
         BOOST_CHECK_EQUAL(result.exit_code, 37);
         BOOST_CHECK_EQUAL(Count(result.output, "MAIN_RETURN\n"), 1u);
         BOOST_CHECK_EQUAL(Count(result.output, "HOOK\n"), variant == 2 || variant == 4 || variant == 5 ? 1u : 0u);
-        BOOST_CHECK_EQUAL(Count(result.output, "FACTORY\n"), variant >= 3 ? 1u : 0u);
-        BOOST_CHECK_EQUAL(Count(result.output, "SETUP\n"), variant == 5 ? 1u : 0u);
+        BOOST_CHECK_EQUAL(Count(result.output, "FACTORY\n"),
+                          variant == 3 || variant == 4 || variant == 5 || variant == 7 ? 1u : 0u);
+        BOOST_CHECK_EQUAL(Count(result.output, "SETUP\n"), variant == 5 || variant == 6 || variant == 7 ? 1u : 0u);
+        BOOST_CHECK_EQUAL(Count(result.output, "HOST_ENTER\n"), variant == 6 || variant == 7 ? 1u : 0u);
     }
     BOOST_CHECK_EQUAL(Run("hook_threw", 2).exit_code, 1);
     BOOST_CHECK_EQUAL(Run("factory_threw", 3).exit_code, 1);
     BOOST_CHECK_EQUAL(Run("main_threw_nonstd", 1).exit_code, 1);
+    BOOST_CHECK_EQUAL(Run("host_main_done", 6).exit_code, 21);
+    const auto host_options = Run("host_publish", 7);
+    BOOST_CHECK_EQUAL(host_options.exit_code, 37);
+    BOOST_CHECK_EQUAL(Count(host_options.output, "HOST_ENTER\n"), 1u);
+    BOOST_CHECK_EQUAL(Count(host_options.output, "FACTORY\n"), 1u);
+}
+
+BOOST_AUTO_TEST_CASE(host_publish) {
+    // hook 等主任务发布后才继续：提交前执行 hook 会在这里等不到而触发子进程超时。
+    const auto result = CheckHost("host_publish", Terminal::MainReturned, 37, 1, 1, 0);
+    BOOST_CHECK(result.output.find("MAIN\n") < result.output.find("HOST_RETURN\n"));
+    BOOST_CHECK(result.output.find("HOST_RETURN\n") < result.output.find("DONE "));
+    BOOST_CHECK(result.output.find("MAIN_RETURN\n") < result.output.find("DONE "));
+}
+
+BOOST_AUTO_TEST_CASE(host_main_done) {
+    const auto result = CheckHost("host_main_done", Terminal::MainReturned, 21, 1, 1, 1);
+    BOOST_CHECK_EQUAL(Count(result.output, "HOST_CALLBACK_SEEN\n"), 1u);
+    BOOST_CHECK(result.output.find("HOST_CALLBACK_SEEN\n") < result.output.find("DONE "));
+    // host hook 活跃期间主任务抛异常：仍先兑现通知，再以 MainThrew 收口。
+    const auto threw = CheckHost("host_main_threw", Terminal::MainThrew, 1, 1, 1, 1);
+    BOOST_CHECK_EQUAL(Count(threw.output, "HOST_CALLBACK_SEEN\n"), 1u);
+}
+
+BOOST_AUTO_TEST_CASE(host_registration) {
+    const auto late = CheckHost("host_late_register", Terminal::MainReturned, 37, 1, 1, 1);
+    BOOST_CHECK_EQUAL(Count(late.output, "HOST_LATE_REGISTER\n"), 1u);
+    const auto race = CheckHost("host_register_race", Terminal::MainReturned, 37, 1, 1, 1);
+    BOOST_CHECK_EQUAL(Count(race.output, "HOST_REGISTERED\n"), 1u);
+    // 单槽替换：两次登记都在主任务完成前提交，只有后一次被执行。
+    const auto replace = CheckHost("host_replace", Terminal::MainReturned, 37, 1, 1, 1);
+    BOOST_CHECK_EQUAL(Count(replace.output, "HOST_REPLACED\n"), 1u);
+    BOOST_CHECK_EQUAL(Count(replace.output, "STALE_RAN\n"), 0u);
+    // 替换与完成发布并发：后登记恰好一次，被替换的旧登记至多一次（不得重复发起）。
+    const auto swap = CheckHost("host_replace_race", Terminal::MainReturned, 37, 1, 1, 1);
+    BOOST_CHECK_EQUAL(Count(swap.output, "HOST_REPLACED\n"), 1u);
+    BOOST_CHECK(Count(swap.output, "STALE_RAN\n") <= 1u);
+    BOOST_CHECK(swap.output.find("MAIN_RETURN\n") < swap.output.find("DONE "));
+    // 回调在 runtime 锁外执行：回调内查询完成位并再次登记不得自我死锁。
+    const auto reentry = CheckHost("host_callback_reentry", Terminal::MainReturned, 37, 1, 1, 1);
+    BOOST_CHECK_EQUAL(Count(reentry.output, "HOST_REENTRY\n"), 1u);
+}
+
+BOOST_AUTO_TEST_CASE(host_exit) {
+    const auto exits = CheckHost("host_exits_first", Terminal::MainReturned, 37, 1, 1, -1);
+    BOOST_CHECK_EQUAL(Count(exits.output, "REENTRY_REJECTED\n"), 1u);
+    BOOST_CHECK(exits.output.find("HOST_RETURN\n") < exits.output.find("MAIN_RETURN\n"));
+    BOOST_CHECK(exits.output.find("MAIN_RETURN\n") < exits.output.find("DONE "));
+    BOOST_CHECK_EQUAL(Count(exits.output, "cb=0\n") + Count(exits.output, "cb=1\n"), 1u);
+    // 回调在 hook 返回前已开始执行、在 hook 栈析构后才完成；完成记录仍只兑现一次。
+    const auto flight = CheckHost("host_callback_in_flight", Terminal::MainReturned, 37, 1, 1, 1);
+    BOOST_CHECK_EQUAL(Count(flight.output, "HOST_RETURN\n"), 1u);
+    BOOST_CHECK(flight.output.find("HOST_RETURN\n") < flight.output.find("DONE "));
+}
+
+BOOST_AUTO_TEST_CASE(host_failure) {
+    // host hook 失败优先：退出码取 hook 的 23，而不是主任务的 99。
+    const auto failed = CheckHost("host_failed", Terminal::HostHookFailed, 23, 1, 1, 0);
+    BOOST_CHECK_EQUAL(Count(failed.output, "MAIN_ABORT\n"), 1u);
+    const auto threw = CheckHost("host_threw", Terminal::HostHookThrew, 1, 1, 1, -1);
+    BOOST_CHECK_EQUAL(Count(threw.output, "MAIN_ABORT\n"), 1u);
+    BOOST_CHECK_EQUAL(Count(threw.output, "cb=0\n") + Count(threw.output, "cb=1\n"), 1u);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

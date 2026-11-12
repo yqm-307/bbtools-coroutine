@@ -194,7 +194,7 @@ bbt_unit_test(Test_runtime_context
               "runtime:--run_test=context_runtime"
     TIMEOUT 20 LABELS "unit")
 # 入口用例通过 exec 独立进程观察 native main 的真实退出码；宏及 setup_runtime 各自编译。
-foreach(variant RANGE 0 5)
+foreach(variant RANGE 0 7)
     add_executable(Runtime_main_child_${variant} coroutine/runtime_main_child.cc)
     target_compile_definitions(Runtime_main_child_${variant} PRIVATE BBT_ENTRY_VARIANT=${variant})
     target_link_libraries(Runtime_main_child_${variant} ${MY_LIBS} ${CMAKE_DL_LIBS})
@@ -202,7 +202,8 @@ foreach(variant RANGE 0 5)
 endforeach()
 bbt_unit_test(Test_runtime_main
     MODES normal hook_failure start_failure submit_failure main_failure options
-          invalid_options stack_policy reentry detached macros
+          invalid_options stack_policy reentry detached macros host_publish host_main_done
+          host_registration host_exit host_failure
     MODE_ARGS "normal:--run_test=runtime_main/normal"
               "hook_failure:--run_test=runtime_main/hook_failure"
               "start_failure:--run_test=runtime_main/start_failure"
@@ -214,11 +215,17 @@ bbt_unit_test(Test_runtime_main
               "reentry:--run_test=runtime_main/reentry"
               "detached:--run_test=runtime_main/detached"
               "macros:--run_test=runtime_main/macros"
+              "host_publish:--run_test=runtime_main/host_publish"
+              "host_main_done:--run_test=runtime_main/host_main_done"
+              "host_registration:--run_test=runtime_main/host_registration"
+              "host_exit:--run_test=runtime_main/host_exit"
+              "host_failure:--run_test=runtime_main/host_failure"
     TIMEOUT 60 LABELS "unit;integration")
 target_compile_definitions(Test_runtime_main PRIVATE
     BBT_ENTRY_CHILD_BASE="$<TARGET_FILE_DIR:Runtime_main_child_0>/Runtime_main_child_")
 add_dependencies(Test_runtime_main Runtime_main_child_0 Runtime_main_child_1 Runtime_main_child_2
-                 Runtime_main_child_3 Runtime_main_child_4 Runtime_main_child_5)
+                 Runtime_main_child_3 Runtime_main_child_4 Runtime_main_child_5
+                 Runtime_main_child_6 Runtime_main_child_7)
 
 bbt_unit_test(Test_runtime_objects TIMEOUT 30 LABELS "unit")
 bbt_unit_test(Test_async_syntax TIMEOUT 20 LABELS "unit")

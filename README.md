@@ -65,9 +65,11 @@ CMake 常用开关（布尔项默认全部 `OFF`，完整选项以 `CMakeLists.t
 ## 基础使用
 
 应用只定义 `int bbtco_main()`，native `main` 由 `BBTCO_MAIN()` 生成：runtime 负责配置冻结、启动
-调度器、执行 native hook、提交主协程并只等它结束。需要兼容完整 scheduler 配置时，定义
-`void setup_runtime()` 并使用 `BBTCO_MAIN_WITH_SETUP*`；应用不直接调用 `g_scheduler->Start()`，也不自建
-runtime runner 或在协程内阻塞等待 native 线程。
+调度器、执行提交前 native hook、提交主协程并等该主协程结束。需要提交后在原生 main 线程阻塞运行
+宿主 native 循环（如 `Engine::Run`）时，定义 `int bbtco_main_host_hook(HostHookContext&)` 并使用
+`BBTCO_MAIN_WITH_SETUP_AND_HOST_HOOK*`；runtime 等主任务与 host hook 都结束才返回。需要兼容完整
+scheduler 配置时，定义 `void setup_runtime()` 并使用 `BBTCO_MAIN_WITH_SETUP*`；应用不直接调用
+`g_scheduler->Start()`，也不自建 runtime runner 或在协程内阻塞等待 native 线程。
 
 ```cpp
 #include <bbt/coroutine/coroutine.hpp>
