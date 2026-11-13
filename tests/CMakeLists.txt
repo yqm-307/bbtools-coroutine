@@ -231,7 +231,14 @@ bbt_unit_test(Test_runtime_objects TIMEOUT 30 LABELS "unit")
 bbt_unit_test(Test_async_syntax TIMEOUT 20 LABELS "unit")
 bbt_unit_test(Test_coroutine_exception LABELS "smoke;unit" TIMEOUT 60)
 bbt_unit_test(Test_coroutine_cancel TIMEOUT 10 LABELS "unit")
-bbt_unit_test(Test_exception_stop TIMEOUT 10 LABELS "unit")
+# 异常回调在启动时冻结；各场景独立启动 runtime，原测试名保留给空回调路径。
+bbt_unit_test(Test_exception_stop TIMEOUT 10 LABELS "unit"
+    COMMAND_ARG "--run_test=ExceptionContractTest/t_unhandled_exception_counted_without_callback")
+foreach(case exception_ptr_saved_when_callback exception_callback_throw_isolated timeout_is_status_not_exception)
+    add_test(NAME coroutine.exception_stop_${case}
+        COMMAND Test_exception_stop --run_test=ExceptionContractTest/t_${case})
+    set_tests_properties(coroutine.exception_stop_${case} PROPERTIES TIMEOUT 10 LABELS "unit")
+endforeach()
 
 # 扩缩容配置/驱动模式各独立进程，禁止一次进程重复 Start。
 add_executable(Test_scheduler_scaling coroutine/Test_scheduler_scaling.cc)

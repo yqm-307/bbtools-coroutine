@@ -1,14 +1,15 @@
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MAIN
 #include <boost/test/included/unit_test.hpp>
-#include <mutex>
 
 #include <atomic>
 #include <chrono>
 #include <exception>
+
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <utility>
 
 #include <bbt/core/thread/Lock.hpp>
 #include <bbt/core/clock/Clock.hpp>
@@ -17,73 +18,42 @@
 #include <bbt/coroutine/detail/GlobalConfig.hpp>
 #include <bbt/coroutine/detail/Scheduler.hpp>
 
-/**
- * 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
- */
-namespace {
-void EnsureRuntime()
-{
-    static std::once_flag once;
-    std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
-}
-}
-
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::detail;
 
 namespace {
-struct ConfigSnapshot {
-    size_t threads{0};
-    size_t stack_size{0};
-    bool stack_protect{false};
-    ExceptionHandleCallback callback;
-    bool saved{false};
-} g_cfg;
-
-std::atomic_bool g_started{false};
+/**
+ * 回调在 Start 时冻结；CTest 将各场景放在独立进程，保留真正的空回调路径。
+ */
+void StartRuntime(ExceptionHandleCallback callback = nullptr)
+{
+    auto* cfg = g_bbt_coroutine_config.get();
+    cfg->m_cfg_static_thread_num = 1;
+    cfg->m_cfg_stack_protect = false;
+    cfg->m_ext_coevent_exception_callback = std::move(callback);
+    g_scheduler->Start();
+    BOOST_REQUIRE(g_scheduler->IsInitialized());
+}
 }
 
 BOOST_AUTO_TEST_SUITE(ExceptionContractTest)
 
-BOOST_AUTO_TEST_CASE(t_begin)
-{
-    auto* cfg = g_bbt_coroutine_config.get();
-    if (!g_cfg.saved) {
-        g_cfg.threads = cfg->m_cfg_static_thread_num;
-        g_cfg.stack_size = cfg->m_cfg_stack_size;
-        g_cfg.stack_protect = cfg->m_cfg_stack_protect;
-        g_cfg.callback = cfg->m_ext_coevent_exception_callback;
-        g_cfg.saved = true;
-    }
-
-    cfg->m_cfg_static_thread_num = 1;
-    cfg->m_cfg_stack_protect = false;
-    cfg->m_ext_coevent_exception_callback = nullptr;
-
-    EnsureRuntime();
-    g_started.store(true);
-    BOOST_REQUIRE(g_scheduler->IsInitialized());
-}
-
 BOOST_AUTO_TEST_CASE(t_exception_ptr_saved_when_callback)
 {
-    BOOST_REQUIRE(g_started.load());
     bbt::core::thread::CountDownLatch done{1};
     std::exception_ptr saved;
 
-    auto prev = g_bbt_coroutine_config->m_ext_coevent_exception_callback;
-    g_bbt_coroutine_config->m_ext_coevent_exception_callback = [&](const bbt::core::errcode::IErrcode&) {
+    StartRuntime([&](const bbt::core::errcode::IErrcode&) {
         if (auto co = g_bbt_tls_coroutine_co)
             saved = co->GetException();
         done.Down();
-    };
+    });
 
     bbtco[]()
     {
         throw std::runtime_error("eptr-panic");
     };
     done.Wait();
-    g_bbt_coroutine_config->m_ext_coevent_exception_callback = prev;
 
     BOOST_REQUIRE(saved != nullptr);
     try {
@@ -96,10 +66,9 @@ BOOST_AUTO_TEST_CASE(t_exception_ptr_saved_when_callback)
 
 BOOST_AUTO_TEST_CASE(t_unhandled_exception_counted_without_callback)
 {
-    BOOST_REQUIRE(g_started.load());
+    StartRuntime();
     const auto before = g_bbt_coroutine_config->m_unhandled_exception_count.load();
 
-    g_bbt_coroutine_config->m_ext_coevent_exception_callback = nullptr;
     bbtco[]()
     {
         throw std::runtime_error("count-panic");
@@ -118,15 +87,13 @@ BOOST_AUTO_TEST_CASE(t_unhandled_exception_counted_without_callback)
 
 BOOST_AUTO_TEST_CASE(t_exception_callback_throw_isolated)
 {
-    BOOST_REQUIRE(g_started.load());
     bbt::core::thread::CountDownLatch boom{1};
     bbt::core::thread::CountDownLatch alive{1};
 
-    auto prev = g_bbt_coroutine_config->m_ext_coevent_exception_callback;
-    g_bbt_coroutine_config->m_ext_coevent_exception_callback = [&](const bbt::core::errcode::IErrcode&) {
+    StartRuntime([&](const bbt::core::errcode::IErrcode&) {
         boom.Down();
         throw std::runtime_error("callback boom");
-    };
+    });
 
     bbtco[]()
     {
@@ -134,7 +101,6 @@ BOOST_AUTO_TEST_CASE(t_exception_callback_throw_isolated)
     };
     boom.Wait();
 
-    g_bbt_coroutine_config->m_ext_coevent_exception_callback = prev;
     bbtco[&]()
     {
         alive.Down();
@@ -145,7 +111,7 @@ BOOST_AUTO_TEST_CASE(t_exception_callback_throw_isolated)
 
 BOOST_AUTO_TEST_CASE(t_timeout_is_status_not_exception)
 {
-    BOOST_REQUIRE(g_started.load());
+    StartRuntime();
     bbt::core::thread::CountDownLatch done{1};
     std::atomic<int> rc{-999};
     std::atomic_bool threw{false};
@@ -163,18 +129,6 @@ BOOST_AUTO_TEST_CASE(t_timeout_is_status_not_exception)
     done.Wait();
     BOOST_CHECK(!threw.load());
     BOOST_CHECK_NE(rc.load(), -999);
-}
-
-BOOST_AUTO_TEST_CASE(t_end)
-{
-    if (g_cfg.saved) {
-        auto* cfg = g_bbt_coroutine_config.get();
-        cfg->m_cfg_static_thread_num = g_cfg.threads;
-        cfg->m_cfg_stack_size = g_cfg.stack_size;
-        cfg->m_cfg_stack_protect = g_cfg.stack_protect;
-        cfg->m_ext_coevent_exception_callback = g_cfg.callback;
-        g_cfg.saved = false;
-    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()
