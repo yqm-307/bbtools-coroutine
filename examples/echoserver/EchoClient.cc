@@ -6,14 +6,15 @@
 
 using namespace bbt::coroutine;
 
-class Client
-{
+class Client {
 public:
     Client(int client_count, std::string ip, short port) : m_ip(ip), m_port(port), m_pending(client_count) {}
-    ~Client(){}
+    ~Client() {}
 
-    void Start() {
-        bbtco [this](){
+    void Start()
+    {
+        bbtco[this]()
+        {
             _Run();
             printf("success\n");
             m_pending.fetch_sub(1);
@@ -22,28 +23,31 @@ public:
 
     void Wait()
     {
-        // 主协程让出等待全部 client 结束；协程里用原生 latch 会占住 Processer。
+        /**
+         * 主协程让出等待全部 client 结束；协程里用原生 latch 会占住 Processer。
+         */
         while (m_pending.load() != 0)
             bbtco_sleep(10);
     }
 
 protected:
-    void _Run() {
+    void _Run()
+    {
         sockaddr_in addr;
         addr.sin_addr.s_addr = inet_addr("127.0.0.1");
         addr.sin_port = htons(10010);
         addr.sin_family = AF_INET;
         char read_buf[32];
         memset(read_buf, '\0', sizeof(read_buf));
-        
+
         int fd = ::socket(AF_INET, SOCK_STREAM, 0);
         Assert(fd >= 0);
         int ret = 0;
         ret = ::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (const char*)&ret, sizeof(ret));
         Assert(ret == 0);
-        ret = ::connect(fd, (sockaddr *)(&addr), sizeof(addr));
+        ret = ::connect(fd, (sockaddr*)(&addr), sizeof(addr));
         Assert(ret == 0);
-        for (int i = 0; i<10000; ++i) {
+        for (int i = 0; i < 10000; ++i) {
             std::string msg = std::to_string(i);
             ret = ::write(fd, msg.c_str(), sizeof(msg));
             printf("write\n");
@@ -57,24 +61,29 @@ protected:
 
         ::close(fd);
     }
+
 private:
     std::atomic_int m_pending{0};
     std::string m_ip;
-    short       m_port;
+    short m_port;
 };
 
-int bbtco_main() {
-    // 开100个client connection
+int bbtco_main()
+{
+    /**
+     * 开100个client connection
+     */
     Client c{100, "127.0.0.1", 10010};
 
-    for (int i = 0; i < 100; ++i)
-    {
+    for (int i = 0; i < 100; ++i) {
         c.Start();
     }
 
     c.Wait();
 
-    /* process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出 */
+    /**
+     * process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出
+     */
     return 0;
 }
 

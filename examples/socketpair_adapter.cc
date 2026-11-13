@@ -33,9 +33,14 @@ static void fd_adapter_example()
 
     std::atomic<bool> got_data{false};
 
-    /* 协程：挂起等 fd 可读 */
-    bbtco [fds, &got_data]() {
-        /* 等价于 hiredis-async 的 redisAsyncHandleRead 前的等待 */
+    /**
+     * 协程：挂起等 fd 可读
+     */
+    bbtco[fds, &got_data]()
+    {
+        /**
+         * 等价于 hiredis-async 的 redisAsyncHandleRead 前的等待
+         */
         int ret = g_bbt_tls_coroutine_co->YieldUntilFdReadable(fds[0], 5000);
         if (ret == 0) {
             char buf[64];
@@ -49,14 +54,18 @@ static void fd_adapter_example()
         }
     };
 
-    /* 模拟第三方库异步写入数据 */
+    /**
+     * 模拟第三方库异步写入数据
+     */
     std::thread writer([fds]() {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         const char* msg = "hello from adapter";
         write(fds[1], msg, 19);
     });
 
-    /* 等协程完成 */
+    /**
+     * 等协程完成
+     */
     for (int i = 0; i < 100 && !got_data.load(); ++i)
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
@@ -75,8 +84,11 @@ static void custom_event_adapter_example()
     auto waiter = sync::CoWaiter::Create();
     std::atomic<bool> notified{false};
 
-    /* 协程：挂起等外部事件 */
-    bbtco [waiter, &notified]() {
+    /**
+     * 协程：挂起等外部事件
+     */
+    bbtco[waiter, &notified]()
+    {
         int ret = waiter->WaitWithTimeout(5000);
         if (ret == 0) {
             notified.store(true);
@@ -86,7 +98,9 @@ static void custom_event_adapter_example()
         }
     };
 
-    /* 模拟第三方库回调线程 */
+    /**
+     * 模拟第三方库回调线程
+     */
     std::thread notifier([waiter]() {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         waiter->Notify();
@@ -103,14 +117,17 @@ static void custom_event_adapter_example()
         printf("[custom_event] FAIL: not notified\n");
 }
 
-int bbtco_main() {
+int bbtco_main()
+{
     printf("=== fd adapter (socketpair) ===\n");
     fd_adapter_example();
 
     printf("=== custom event adapter ===\n");
     custom_event_adapter_example();
 
-    /* process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出 */
+    /**
+     * process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出
+     */
     printf("done\n");
     return 0;
 }

@@ -21,7 +21,8 @@ using namespace bbt::coroutine;
 namespace {
 
 struct OnlyApi : CoRuntimeOnly {
-    void Enter() {
+    void Enter()
+    {
         RequireCoroutineContext();
         ++calls;
     }
@@ -36,7 +37,8 @@ static_assert(std::is_move_constructible_v<CoRuntimeOnly>);
 static_assert(std::is_copy_assignable_v<CoRuntimeOnly>);
 static_assert(std::is_move_assignable_v<CoRuntimeOnly>);
 
-bool RejectsNativeCall() {
+bool RejectsNativeCall()
+{
     try {
         RequireCoroutineContext();
     } catch (const std::logic_error&) {
@@ -45,17 +47,21 @@ bool RejectsNativeCall() {
     return false;
 }
 
-// 应用约定的普通函数，不是宏，不接管 main，也不启动 runtime。
-bool bbtco_main() {
+/**
+ * 应用约定的普通函数，不是宏，不接管 main，也不启动 runtime。
+ */
+bool bbtco_main()
+{
     RequireCoroutineContext();
     return IsInCoroutineContext();
 }
 
-} // namespace
+}
 
 BOOST_AUTO_TEST_SUITE(context_no_create)
 
-BOOST_AUTO_TEST_CASE(native_gate_does_not_create_tls_processer_or_runtime) {
+BOOST_AUTO_TEST_CASE(native_gate_does_not_create_tls_processer_or_runtime)
+{
     const auto before = detail::Processer::Create()->GetId();
     bool unchanged = false;
     std::thread thread([&]() {
@@ -71,9 +77,9 @@ BOOST_AUTO_TEST_CASE(native_gate_does_not_create_tls_processer_or_runtime) {
         try {
             moved.Enter();
             rejected = false;
-        } catch (const std::logic_error&) {}
-        unchanged = cold && rejected && moved.calls == 0 &&
-                    detail::LocalThread::TryGetTLSInst() == nullptr;
+        } catch (const std::logic_error&) {
+        }
+        unchanged = cold && rejected && moved.calls == 0 && detail::LocalThread::TryGetTLSInst() == nullptr;
     });
     thread.join();
     const auto after = detail::Processer::Create()->GetId();
@@ -82,14 +88,15 @@ BOOST_AUTO_TEST_CASE(native_gate_does_not_create_tls_processer_or_runtime) {
     BOOST_CHECK(!g_scheduler->IsInitialized());
 }
 
-BOOST_AUTO_TEST_CASE(released_tls_owner_clears_the_read_only_observer) {
+BOOST_AUTO_TEST_CASE(released_tls_owner_clears_the_read_only_observer)
+{
     bool cleared = false;
     std::thread thread([&]() {
         auto& local = detail::LocalThread::GetTLSInst();
         const bool visible = detail::LocalThread::TryGetTLSInst() == local.get();
         local.reset();
-        cleared = visible && detail::LocalThread::TryGetTLSInst() == nullptr &&
-                  !IsInCoroutineContext() && RejectsNativeCall();
+        cleared = visible && detail::LocalThread::TryGetTLSInst() == nullptr && !IsInCoroutineContext()
+                  && RejectsNativeCall();
         auto& recreated = detail::LocalThread::GetTLSInst();
         cleared = cleared && detail::LocalThread::TryGetTLSInst() == recreated.get();
     });
@@ -98,14 +105,15 @@ BOOST_AUTO_TEST_CASE(released_tls_owner_clears_the_read_only_observer) {
     BOOST_CHECK(!g_scheduler->IsInitialized());
 }
 
-BOOST_AUTO_TEST_CASE(enabled_idle_thread_is_not_a_coroutine) {
+BOOST_AUTO_TEST_CASE(enabled_idle_thread_is_not_a_coroutine)
+{
     bool rejected = false;
     std::thread thread([&]() {
         auto& local = detail::LocalThread::GetTLSInst();
         local->SetEnableUseCo(true);
         const bool no_processer = detail::Processer::TryGetLocalProcesser() == nullptr;
-        rejected = no_processer && !IsInCoroutineContext() && RejectsNativeCall() &&
-                   detail::Processer::TryGetLocalProcesser() == nullptr;
+        rejected = no_processer && !IsInCoroutineContext() && RejectsNativeCall()
+                   && detail::Processer::TryGetLocalProcesser() == nullptr;
         local->SetEnableUseCo(false);
     });
     thread.join();
@@ -117,7 +125,8 @@ BOOST_AUTO_TEST_SUITE_END()
 
 BOOST_AUTO_TEST_SUITE(context_runtime)
 
-BOOST_AUTO_TEST_CASE(real_coroutine_gate_survives_yield_and_respects_local_enable) {
+BOOST_AUTO_TEST_CASE(real_coroutine_gate_survives_yield_and_respects_local_enable)
+{
     g_bbt_coroutine_config->m_cfg_static_thread_num = 2;
     g_scheduler->Start();
     BOOST_CHECK(!IsInCoroutineContext());
@@ -137,8 +146,8 @@ BOOST_AUTO_TEST_CASE(real_coroutine_gate_survives_yield_and_respects_local_enabl
             detail::LocalThread::GetTLSInst()->SetEnableUseCo(true);
             bbtco_yield;
             object.Enter();
-            valid = valid && disabled && GetLocalCoroutineId() == id &&
-                    CoRuntimeOnly::IsInCoroutineContext() && object.calls == 2;
+            valid = valid && disabled && GetLocalCoroutineId() == id && CoRuntimeOnly::IsInCoroutineContext()
+                    && object.calls == 2;
             done->set_value(valid);
         } catch (...) {
             detail::LocalThread::GetTLSInst()->SetEnableUseCo(true);
@@ -150,7 +159,8 @@ BOOST_AUTO_TEST_CASE(real_coroutine_gate_survives_yield_and_respects_local_enabl
 
     auto main_done = std::make_shared<std::promise<bool>>();
     auto main_future = main_done->get_future();
-    bbtco[main_done]() {
+    bbtco[main_done]()
+    {
         try {
             main_done->set_value(bbtco_main());
         } catch (...) {

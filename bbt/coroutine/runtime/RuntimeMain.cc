@@ -19,7 +19,9 @@ namespace {
 using Terminal = RuntimeMain::Terminal;
 using Completion = RuntimeMain::Completion;
 
-// 单次入口门在配置求值之前认领；setup/hook/主任务重入不能再次 Start。
+/**
+ * 单次入口门在配置求值之前认领；setup/hook/主任务重入不能再次 Start。
+ */
 std::atomic_bool s_entered{false};
 
 class MainCompletion {
@@ -32,35 +34,46 @@ private:
     std::promise<Completion> m_promise;
 };
 
-std::future<Completion> MainCompletion::GetFuture() {
+std::future<Completion> MainCompletion::GetFuture()
+{
     return m_promise.get_future();
 }
 
-void MainCompletion::Complete(Completion result) {
+void MainCompletion::Complete(Completion result)
+{
     if (!m_completed.exchange(true, std::memory_order_acq_rel))
         m_promise.set_value(result);
 }
 
-} // namespace
+}
 
 namespace detail {
 
-// 提交后 host hook 与主任务完成共享的单槽状态。登记决定（替换 / 迟到）与完成发布
-// （置完成位并取槽）整体落在同一临界区内，锁的占用就是唯一线性化点：完成位可见
-// 必然等价于槽位已被取走，完成路径不会再执行一次已被替换的旧登记。
+/**
+ * 提交后 host hook 与主任务完成共享的单槽状态。登记决定（替换 / 迟到）与完成发布
+ * （置完成位并取槽）整体落在同一临界区内，锁的占用就是唯一线性化点：完成位可见
+ * 必然等价于槽位已被取走，完成路径不会再执行一次已被替换的旧登记。
+ */
 class HostHookState {
 public:
-    void Register(std::function<void()> callback) noexcept {
+    void Register(std::function<void()> callback) noexcept
+    {
         std::function<void()> taken;
         bool late = false;
         {
             std::lock_guard<std::mutex> lock(m_mutex);
             if (m_main_done) {
-                // 完成发布先线性化：本登记一律按迟到处理，取到锁外在本线程回调。
+
+                /**
+                 * 完成发布先线性化：本登记一律按迟到处理，取到锁外在本线程回调。
+                 */
                 taken = std::move(callback);
                 late = true;
             } else {
-                // 单槽替换：前一次未被取走的登记就此作废，只在锁外析构。
+
+                /**
+                 * 单槽替换：前一次未被取走的登记就此作废，只在锁外析构。
+                 */
                 taken.swap(m_callback);
                 m_callback = std::move(callback);
             }
@@ -69,26 +82,37 @@ public:
             Invoke(taken);
     }
 
-    bool MainDone() const noexcept {
+    bool MainDone() const noexcept
+    {
         std::lock_guard<std::mutex> lock(m_mutex);
         return m_main_done;
     }
 
-    // 主任务完成：完成位与取槽在同一临界区内提交，其后到来的登记全是迟到登记。
-    void PublishMainDone() noexcept {
+    /**
+     * 主任务完成：完成位与取槽在同一临界区内提交，其后到来的登记全是迟到登记。
+     */
+    void PublishMainDone() noexcept
+    {
         std::function<void()> callback;
         {
             std::lock_guard<std::mutex> lock(m_mutex);
+
+            /**
+             * 完成只发起一次
+             */
             if (m_main_done)
-                return; // 完成只发起一次
+                return;
             m_main_done = true;
             callback.swap(m_callback);
         }
         Invoke(callback);
     }
 
-    // hook 退出：丢弃未取出的登记（锁外析构）；已取出的在途回调不在这里等待或撤销。
-    void Detach() noexcept {
+    /**
+     * hook 退出：丢弃未取出的登记（锁外析构）；已取出的在途回调不在这里等待或撤销。
+     */
+    void Detach() noexcept
+    {
         std::function<void()> dropped;
         {
             std::lock_guard<std::mutex> lock(m_mutex);
@@ -97,8 +121,11 @@ public:
     }
 
 private:
-    // 回调是 hook 代码：异常不得穿过 runtime 边界，也不得因此丢完成记录。
-    static void Invoke(const std::function<void()>& callback) noexcept {
+    /**
+     * 回调是 hook 代码：异常不得穿过 runtime 边界，也不得因此丢完成记录。
+     */
+    static void Invoke(const std::function<void()>& callback) noexcept
+    {
         if (!callback)
             return;
         try {
@@ -112,35 +139,38 @@ private:
     std::function<void()> m_callback;
 };
 
-} // namespace detail
+}
 
-HostHookContext::HostHookContext(std::shared_ptr<detail::HostHookState> state)
-    : m_state(std::move(state)) {}
+HostHookContext::HostHookContext(std::shared_ptr<detail::HostHookState> state) : m_state(std::move(state)) {}
 
-void HostHookContext::OnMainTaskDone(std::function<void()> callback) noexcept {
+void HostHookContext::OnMainTaskDone(std::function<void()> callback) noexcept
+{
     m_state->Register(std::move(callback));
 }
 
-bool HostHookContext::MainTaskDone() const noexcept {
+bool HostHookContext::MainTaskDone() const noexcept
+{
     return m_state->MainDone();
 }
 
 namespace {
 
-void ApplyOptions(const RuntimeOptions& options) {
+void ApplyOptions(const RuntimeOptions& options)
+{
     auto& config = *detail::GlobalConfig::GetInstance();
     const auto old_workers = config.m_cfg_static_thread_num;
     const auto workers = options.initial_workers.value_or(old_workers);
-    const auto stack = options.default_stack.value_or(
-        StackRequest{config.m_cfg_stack_size, config.m_cfg_stack_protect});
+    const auto stack =
+        options.default_stack.value_or(StackRequest{config.m_cfg_stack_size, config.m_cfg_stack_protect});
     const auto usable = detail::Stack::NormalizeSize(stack.usable_bytes);
     const auto page = static_cast<std::size_t>(getpagesize());
     const auto max_size = static_cast<std::size_t>(std::numeric_limits<std::ptrdiff_t>::max());
     if (stack.protect && usable > max_size - page)
         throw std::length_error("RuntimeMain: stack guard page size overflow");
 
-    const auto policy = detail::StackPool::ValidateConfig(options.stacks.value_or(
-        StackConfig{StackPolicy::Auto, {}, config.m_cfg_stackpool_max_alloc_size, 256 * 1024 * 1024}),
+    const auto policy = detail::StackPool::ValidateConfig(
+        options.stacks.value_or(
+            StackConfig{StackPolicy::Auto, {}, config.m_cfg_stackpool_max_alloc_size, 256 * 1024 * 1024}),
         {usable, stack.protect});
 
     config.m_cfg_static_thread_num = workers;
@@ -156,41 +186,35 @@ void ApplyOptions(const RuntimeOptions& options) {
     config.m_cfg_stack_protect = stack.protect;
 }
 
-} // namespace
+}
 
 RuntimeMain::Completion RuntimeMain::Run(int (*main_task)(), int (*native_hook)(),
-                                         const RuntimeOptions& options) noexcept {
-    return RunWithFactory(nullptr, main_task, native_hook, nullptr, &options, [](const void* value) {
-        return *static_cast<const RuntimeOptions*>(value);
-    });
+                                         const RuntimeOptions& options) noexcept
+{
+    return RunWithFactory(nullptr, main_task, native_hook, nullptr, &options,
+                          [](const void* value) { return *static_cast<const RuntimeOptions*>(value); });
 }
 
-RuntimeMain::Completion RuntimeMain::RunWithSetup(void (*setup_runtime)(), int (*main_task)(),
-                                                  int (*native_hook)(),
-                                                  const RuntimeOptions& options) noexcept {
+RuntimeMain::Completion RuntimeMain::RunWithSetup(void (*setup_runtime)(), int (*main_task)(), int (*native_hook)(),
+                                                  const RuntimeOptions& options) noexcept
+{
     return RunWithFactory(setup_runtime, main_task, native_hook, nullptr, &options,
-                          [](const void* value) {
-                              return *static_cast<const RuntimeOptions*>(value);
-                          });
+                          [](const void* value) { return *static_cast<const RuntimeOptions*>(value); });
 }
 
-RuntimeMain::Completion RuntimeMain::RunWithSetupAndHostHook(void (*setup_runtime)(),
-                                                             int (*main_task)(),
-                                                             HostHook host_hook,
-                                                             const RuntimeOptions& options) noexcept {
+RuntimeMain::Completion RuntimeMain::RunWithSetupAndHostHook(void (*setup_runtime)(), int (*main_task)(),
+                                                             HostHook host_hook, const RuntimeOptions& options) noexcept
+{
     return RunWithFactory(setup_runtime, main_task, nullptr, host_hook, &options,
-                          [](const void* value) {
-                              return *static_cast<const RuntimeOptions*>(value);
-                          });
+                          [](const void* value) { return *static_cast<const RuntimeOptions*>(value); });
 }
 
-RuntimeMain::Completion RuntimeMain::RunWithFactory(void (*setup_runtime)(),
-                                                    int (*main_task)(), int (*native_hook)(),
+RuntimeMain::Completion RuntimeMain::RunWithFactory(void (*setup_runtime)(), int (*main_task)(), int (*native_hook)(),
                                                     HostHook host_hook, const void* factory,
-                                                    RuntimeOptions (*evaluate)(const void*)) noexcept {
+                                                    RuntimeOptions (*evaluate)(const void*)) noexcept
+{
     const Completion start_failed{Terminal::StartFailed, 1};
-    if (detail::Processer::TryGetLocalProcesser() != nullptr ||
-        s_entered.exchange(true, std::memory_order_acq_rel))
+    if (detail::Processer::TryGetLocalProcesser() != nullptr || s_entered.exchange(true, std::memory_order_acq_rel))
         return start_failed;
 
     auto failure = Terminal::StartFailed;
@@ -222,17 +246,22 @@ RuntimeMain::Completion RuntimeMain::RunWithFactory(void (*setup_runtime)(),
                 completed->Complete({Terminal::HookRejected, hook_code});
             } else {
                 failure = Terminal::SubmitFailed;
-                scheduler->RegistCoroutineTask([main_task, completed, host_state] {
-                    Completion outcome{Terminal::MainThrew, 1};
-                    try {
-                        outcome = {Terminal::MainReturned, main_task()};
-                    } catch (...) {
-                    }
-                    // 通知先于完成记录：runtime 返回时不存在本登记的在途回调。
-                    if (host_state)
-                        host_state->PublishMainDone();
-                    completed->Complete(outcome);
-                }, "bbtco_main");
+                scheduler->RegistCoroutineTask(
+                    [main_task, completed, host_state] {
+                        Completion outcome{Terminal::MainThrew, 1};
+                        try {
+                            outcome = {Terminal::MainReturned, main_task()};
+                        } catch (...) {
+                        }
+
+                        /**
+                         * 通知先于完成记录：runtime 返回时不存在本登记的在途回调。
+                         */
+                        if (host_state)
+                            host_state->PublishMainDone();
+                        completed->Complete(outcome);
+                    },
+                    "bbtco_main");
                 submitted = true;
             }
         } catch (...) {
@@ -253,7 +282,10 @@ RuntimeMain::Completion RuntimeMain::RunWithFactory(void (*setup_runtime)(),
                 host_terminal = Terminal::HostHookThrew;
                 host_code = 1;
             }
-            // 已取出的回调可能在 hook 返回后仍在执行；未取出的登记就此丢弃。
+
+            /**
+             * 已取出的回调可能在 hook 返回后仍在执行；未取出的登记就此丢弃。
+             */
             host_state->Detach();
         }
 
@@ -270,4 +302,4 @@ RuntimeMain::Completion RuntimeMain::RunWithFactory(void (*setup_runtime)(),
     }
 }
 
-} // namespace bbt::coroutine
+}

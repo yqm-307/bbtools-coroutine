@@ -9,8 +9,10 @@
 
 using namespace bbt::coroutine;
 
-/* 最小本地 listen helper：替代 bbt::core::net::CreateListen。
- * net 模块归 bbtools-infra，coroutine 不依赖；失败返回 -1 并保留 errno。 */
+/**
+ * 最小本地 listen helper：替代 bbt::core::net::CreateListen。
+ * net 模块归 bbtools-infra，coroutine 不依赖；失败返回 -1 并保留 errno。
+ */
 static int CreateListenTcp(const char* ip, short port, bool noblock)
 {
     int fd = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -27,10 +29,8 @@ static int CreateListenTcp(const char* ip, short port, bool noblock)
     else
         ::inet_pton(AF_INET, ip, &addr.sin_addr.s_addr);
 
-    bool failed =
-        (::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one)) < 0) ||
-        (::bind(fd, (sockaddr*)&addr, sizeof(addr)) < 0) ||
-        (::listen(fd, SOMAXCONN) < 0);
+    bool failed = (::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one)) < 0)
+                  || (::bind(fd, (sockaddr*)&addr, sizeof(addr)) < 0) || (::listen(fd, SOMAXCONN) < 0);
 
     if (!failed && noblock) {
         int flags = ::fcntl(fd, F_GETFL, 0);
@@ -46,29 +46,31 @@ static int CreateListenTcp(const char* ip, short port, bool noblock)
     return fd;
 }
 
-class Server
-{
+class Server {
 public:
-    Server(short listen_port):
-        m_listen_port(listen_port){}
-    ~Server(){}
+    Server(short listen_port) : m_listen_port(listen_port) {}
+    ~Server() {}
 
-    void Start(){
-        bbtco [this](){
+    void Start()
+    {
+        bbtco[this]()
+        {
             _Run();
             m_run_ended.store(true);
         };
 
-        // 主协程让出等待 accept 循环结束；协程里用原生条件变量会占住 Processer。
+        /**
+         * 主协程让出等待 accept 循环结束；协程里用原生条件变量会占住 Processer。
+         */
         while (!m_run_ended.load())
             bbtco_sleep(50);
     }
 
 protected:
-    void _Run(){
+    void _Run()
+    {
         int listen_fd = CreateListenTcp("127.0.0.1", m_listen_port, false);
-        if (listen_fd < 0)
-        {
+        if (listen_fd < 0) {
             std::cerr << "CreateListen failed, errno=" << errno << std::endl;
             return;
         }
@@ -77,30 +79,30 @@ protected:
         sockaddr_in cli_addr;
         socklen_t len = sizeof(cli_addr);
 
-        while (1)
-        {
-            int new_fd = ::accept(listen_fd, (sockaddr *)(&cli_addr), &len);
-            bbtco [new_fd](){
+        while (1) {
+            int new_fd = ::accept(listen_fd, (sockaddr*)(&cli_addr), &len);
+            bbtco[new_fd]()
+            {
                 char buf[32];
                 Assert(new_fd >= 0);
 
-                // Assert(bbt::net::Util::SetFdNoBlock(new_fd) == 0);
+                /**
+                 * Assert(bbt::net::Util::SetFdNoBlock(new_fd) == 0);
+                 */
 
                 bool close = false;
                 while (!close) {
                     memset(buf, '\0', sizeof(buf));
 
                     int read_len = ::read(new_fd, buf, sizeof(buf));
-                    if (read_len <= 0)
-                    {
+                    if (read_len <= 0) {
                         close = true;
                         break;
                     }
 
                     int write_len = 0;
                     while (write_len < read_len) {
-                        const int n = ::send(new_fd, buf + write_len,
-                                             read_len - write_len, MSG_NOSIGNAL);
+                        const int n = ::send(new_fd, buf + write_len, read_len - write_len, MSG_NOSIGNAL);
                         if (n <= 0) {
                             close = true;
                             break;
@@ -111,7 +113,9 @@ protected:
                     if (read_len <= 0 or write_len != read_len)
                         close = true;
 
-                    // printf("echo: %s\n", buf);
+                    /**
+                     * printf("echo: %s\n", buf);
+                     */
                 }
 
                 ::close(new_fd);
@@ -121,17 +125,21 @@ protected:
         }
         ::close(listen_fd);
     }
+
 private:
     std::atomic_bool m_run_ended{false};
     short m_listen_port{-1};
 };
 
-int bbtco_main() {
+int bbtco_main()
+{
     std::signal(SIGPIPE, SIG_IGN);
     Server s{10010};
     s.Start();
 
-    /* process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出 */
+    /**
+     * process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出
+     */
     return 0;
 }
 

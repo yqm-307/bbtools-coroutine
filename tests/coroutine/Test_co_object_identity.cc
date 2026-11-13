@@ -20,16 +20,15 @@
 #include <bbt/coroutine/detail/Scheduler.hpp>
 #include <bbt/coroutine/object/CoObject.hpp>
 
-/* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
- * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。 */
-namespace
-{
+/**
+ * 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
+ * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。
+ */
+namespace {
 void EnsureRuntime()
 {
     static std::once_flag once;
-    std::call_once(once, [](){
-        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
-    });
+    std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
 }
 
@@ -37,15 +36,19 @@ using namespace bbt::coroutine;
 
 BOOST_AUTO_TEST_SUITE(CoObjectIdentity)
 
-/* 运行时未初始化：没有可分配身份，CreateObjectInfo 拒绝。
- * （本用例必须先于任何 Start 执行。） */
+/**
+ * 运行时未初始化：没有可分配身份，CreateObjectInfo 拒绝。
+ * （本用例必须先于任何 Start 执行。）
+ */
 BOOST_AUTO_TEST_CASE(t_create_before_initialize_rejected)
 {
     BOOST_CHECK(!detail::Scheduler::GetInstance()->IsInitialized());
     BOOST_CHECK_THROW(CreateObjectInfo("rank-service", "player-1"), std::logic_error);
 }
 
-/* 初始化后分配身份：id 严格递增、不复用；快照是值语义；无代际字段。 */
+/**
+ * 初始化后分配身份：id 严格递增、不复用；快照是值语义；无代际字段。
+ */
 BOOST_AUTO_TEST_CASE(t_identity_after_start)
 {
     EnsureRuntime();
@@ -62,7 +65,9 @@ BOOST_AUTO_TEST_CASE(t_identity_after_start)
     BOOST_CHECK_EQUAL(first.kind, "rank-service");
     BOOST_CHECK_EQUAL(first.name, "player-1");
 
-    /* 运行时不设停机：初始化前置条件恒成立，身份可继续分配（不再有「停止后拒绝」） */
+    /**
+     * 运行时不设停机：初始化前置条件恒成立，身份可继续分配（不再有「停止后拒绝」）
+     */
     const auto fourth = CreateObjectInfo("rank-service", "player-3");
     BOOST_CHECK_EQUAL(fourth.id, third.id + 1);
 }

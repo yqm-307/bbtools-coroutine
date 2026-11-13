@@ -1,26 +1,18 @@
 /**
  * @file Attribute.hpp
- * @author your name (you@domain.com)
- * @brief GCC的属性宏封装
- * @version 0.1
- * @date 2023-09-04
- *
- * @copyright Copyright (c) 2023
- *
+ * @brief GCC 属性宏封装；每项先用 `__glibc_has_attribute` 探测，缺失则 `#error`。
  */
 #pragma once
 #include <sys/cdefs.h>
 
-
-
-//---------------------------- 函数注解 ----------------------------//
 /**
- * 函数注解需要加载函数声明的末尾
+ * 函数注解
+ *
+ * 需要加载函数声明的末尾
  */
 
 /**
- * @brief 提示函数的返回值需要被处理
- *
+ * @brief 调用点忽略返回值时产生 `-Wunused-result` 告警，不是编译错误
  */
 #if __glibc_has_attribute(warn_unused_result) >= 0
 #define BBTATTR_FUNC_WARN_UNUSERESULT __attribute__((warn_unused_result))
@@ -29,10 +21,7 @@
 #endif
 
 /**
- * @brief 冷调用，对于少见的错误处理函数，可以使用来提高cpu分支预测的性能
- * 根据局部性原理，冷函数的定义放在一起可以更有效的提高性能
- *
- * 尚未验证，也许是g++不支持
+ * @brief 冷函数提示，编译器据此把函数排到冷代码区；`-O0` 下基本无效
  */
 #if __glibc_has_attribute(cold) >= 0
 #define BBTATTR_FUNC_COLD __attribute__((cold))
@@ -41,10 +30,7 @@
 #endif
 
 /**
- * @brief 热调用，对于热点函数，可以使用来提示编译器进行更积极的优化
- * 根据局部性原理，热函数的定义放在一起可以更有效的提高性能
- *
- * 尚未验证，也许是g++不支持
+ * @brief 热函数提示，让编译器更积极地内联与布局；标错不会有错，也没有收益
  */
 #if __glibc_has_attribute(hot) >= 0
 #define BBTATTR_FUNC_HOT __attribute__((hot))
@@ -53,8 +39,7 @@
 #endif
 
 /**
- * @brief 将此函数被标记为启用的，并在调用时做编译期检测。携带弃用说明
- * 如果被标记函数被调用，则报warning
+ * @brief 标记弃用并附说明文字；调用点产生 `-Wdeprecated-declarations`，只有 `-Werror` 才编译失败
  */
 #if __glibc_has_attribute(__deprecated__) >= 0
 #define BBTATTR_FUNC_DEPRECATEDMSG(msg)    __attribute_deprecated_msg__(msg)
@@ -63,8 +48,7 @@
 #endif
 
 /**
- * @brief 将此函数被标记为启用的，并在调用时做编译期检测。
- * 如果被标记函数被调用，则报warning
+ * @brief 标记弃用，不带说明文字；调用点只有一句默认的弃用告警
  */
 #if __glibc_has_attribute(__deprecated__) >= 0
 #define BBTATTR_FUNC_DEPRECATED         __attribute_deprecated__
@@ -72,12 +56,8 @@
 #error "not exist attribute [__deprecated__]"
 #endif
 
-
 /**
- * @brief 此函数的作用是将构造函数标记为隐藏的。
- *
- * 如果显式调用会报错，隐式调用不会，其实只能从一部分避免问题的发生
- *
+ * @brief 构造函数弃用告警；只是编译期警告，不是访问控制，隐式调用（拷贝、转换）照样编译
  */
 #if __glibc_has_attribute(__deprecated__) >= 0
 #define BBTATTR_FUNC_CTOR_HIDDEN    BBTATTR_FUNC_DEPRECATEDMSG("this constructor is hidden and must not be called directly")
@@ -85,12 +65,20 @@
 #error "not exist attribute [BBTATTR_FUNC_DEPRECATEDMSG]"
 #endif
 
-//---------------------------- 通用注解 ----------------------------//
 /**
- * //TODO gcc还有一些很有用的attribute，比如内存检测、套接字检测等。
+ * 通用注解
+ */
+
+/**
+ * @brief 标记有意不使用的变量/参数/函数，压掉 `-Wunused-*` 告警
  */
 #if __glibc_has_attribute(unused) >= 0
 #define BBTATTR_COMM_UNUSED         __attribute__((unused))
 #else
 #error "not exist attribute [unused]"
 #endif
+
+/**
+ * 待补充的 GCC 属性（内存访问范围、fd 参数、nonnull 之类）等有实际调用点再加：
+ * 先出现需要约束的函数，再引入对应宏；否则只会多一批没人用的封装。
+ */

@@ -1,0 +1,44 @@
+# 公开头文件 API 文档。入口：scripts/docs/build_docs.sh（本地与 CI 共用，从仓库根运行）。
+# 一次解析同时产出 HTML（给人看）与 XML（export_ai_docs.py 转成给 AI 看的分层 Markdown）。
+# 路径均相对仓库根；输出目录、版本、主题由 build_docs.sh 通过环境变量传入。
+
+PROJECT_NAME           = "$(DOCS_PROJECT)"
+PROJECT_NUMBER         = "$(DOCS_VERSION)"
+OUTPUT_DIRECTORY       = $(DOCS_OUT)
+
+# 只导出公开头文件；detail/ 与无锁容器、debug 是实现细节，不进文档。
+INPUT                  = bbt/coroutine bbt/pollevent
+STRIP_FROM_PATH        = .
+FILE_PATTERNS          = *.hpp *.h
+RECURSIVE              = YES
+EXCLUDE_PATTERNS       = */detail/* */utils/lockfree/* */debug/*
+
+EXTRACT_ALL            = NO
+EXTRACT_PRIVATE        = NO
+EXTRACT_STATIC         = NO
+# 函数体内的说明块不进文档：模板/热路径实现集中在 __TXxx.hpp，体内注释若被
+# 吸附到下一个实体上会污染其 brief。
+HIDE_IN_BODY_DOCS      = YES
+ENABLE_PREPROCESSING   = YES
+MACRO_EXPANSION        = NO
+
+GENERATE_XML           = YES
+GENERATE_HTML          = YES
+GENERATE_LATEX         = NO
+
+HAVE_DOT               = YES
+UML_LOOK               = YES
+CALL_GRAPH             = NO
+
+# 主题（Doxygen Awesome）由 build_docs.sh 传入；未提供时回落到 Doxygen 默认样式。
+HTML_EXTRA_STYLESHEET  = $(DOXYGEN_AWESOME_CSS)
+# 导航栏布局由 build_docs.sh 现生成（含指向 ai/index.md 的入口）；为空时用 doxygen 默认布局。
+LAYOUT_FILE            = $(DOCS_LAYOUT)
+GENERATE_TREEVIEW      = YES
+HTML_COLORSTYLE        = LIGHT
+
+# 缺注释只告警；是否阻断由 build_docs.sh 的 DOCS_WERROR 决定。
+WARN_IF_UNDOCUMENTED   = YES
+WARN_IF_DOC_ERROR      = YES
+WARN_LOGFILE           = $(DOCS_OUT)/warnings.log
+QUIET                  = YES

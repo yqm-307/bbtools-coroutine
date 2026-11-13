@@ -5,12 +5,13 @@
 #include <bbt/coroutine/sync/CoCond.hpp>
 using namespace bbt::coroutine;
 
-
 #define PrintTime(flag) printf("标记点=[%s]   协程id=[%ld] 时间戳=[%ld]\n", flag, GetLocalCoroutineId(), bbt::core::clock::now<>().time_since_epoch().count());
 
 void debug_notify()
 {
-    /* 启动调度线程、Processer线程 */
+    /**
+     * 启动调度线程、Processer线程
+     */
     g_scheduler->Start();
 
     printf("=============================================================\n");
@@ -18,30 +19,51 @@ void debug_notify()
     printf("=============================================================\n");
     PrintTime("t1");
 
-    /* 注册一个 coroutine */
-    bbtco [](){
+    /**
+     * 注册一个 coroutine
+     */
+    bbtco[]()
+    {
         PrintTime("t2");
-        /* 创建条件变量 */
+
+        /**
+         * 创建条件变量
+         */
         auto cond = sync::CoWaiter::Create();
         Assert(cond != nullptr);
 
-        /* 注册一个coroutine */
-        bbtco [cond](){
+        /**
+         * 注册一个coroutine
+         */
+        bbtco[cond]()
+        {
             PrintTime("t4");
-            /* 协程休眠1s后唤醒等待中的条件变量 */
+
+            /**
+             * 协程休眠1s后唤醒等待中的条件变量
+             */
             ::sleep(1);
             cond->Notify();
         };
 
         PrintTime("t3");
-        /* 让当前协程等待条件变量变化 */
+
+        /**
+         * 让当前协程等待条件变量变化
+         */
         Assert(cond->Wait() == 0);
         PrintTime("t5");
 
-        /* 注册一个coroutine */
-        bbtco [cond](){
+        /**
+         * 注册一个coroutine
+         */
+        bbtco[cond]()
+        {
             PrintTime("t6");
-            /* 协程休眠1s后唤醒等待中的条件变量 */
+
+            /**
+             * 协程休眠1s后唤醒等待中的条件变量
+             */
             ::sleep(1);
             cond->Notify();
         };
@@ -55,7 +77,8 @@ void debug_notify()
     printf("====================== wait timeout  ========================\n");
     printf("=============================================================\n");
 
-    bbtco [](){
+    bbtco[]()
+    {
         PrintTime("p1");
         auto cond = sync::CoWaiter::Create();
         Assert(cond != nullptr);
@@ -65,29 +88,31 @@ void debug_notify()
     };
 
     std::this_thread::sleep_for(bbt::core::clock::milliseconds(2000));
-
 }
 
-// 协程挂起功能是否有问题
+/**
+ * 协程挂起功能是否有问题
+ */
 void dbg_coroutine_wait()
 {
     auto cond = sync::CoWaiter::Create();
     for (int i = 0; i < 10; ++i)
-        bbtco [&](){
+        bbtco[&]()
+        {
             while (true)
                 cond->WaitWithTimeout(1);
         };
     ::sleep(1);
-    
-    bbtco [&](){
+
+    bbtco[&]()
+    {
         while (1) {
             cond->Notify();
         }
     };
 
-    while (true) sleep(1);
-    
-
+    while (true)
+        sleep(1);
 }
 
 void cocond()
@@ -95,10 +120,12 @@ void cocond()
     bbt::core::thread::CountDownLatch l{1};
     bbt::core::thread::CountDownLatch l2{1};
 
-    bbtco [&](){
+    bbtco[&]()
+    {
         auto cond = sync::CoCond::Create();
 
-        bbtco [&](){
+        bbtco[&]()
+        {
             cond->Wait();
             l.Down();
         };
@@ -123,11 +150,13 @@ void multi_cond_check()
         l1.Reset(nmax_wait_co);
         l2.Reset(1);
         std::atomic_int wait_count{0};
-        bbtco [&, i](){
+        bbtco[&, i]()
+        {
             auto cond = sync::CoCond::Create();
 
             for (int i = 0; i < nmax_wait_co; ++i) {
-                bbtco [&](){
+                bbtco[&]()
+                {
                     wait_count++;
                     cond->Wait();
                     l1.Down();
@@ -136,9 +165,10 @@ void multi_cond_check()
 
             while (wait_count < nmax_wait_co)
                 bbtco_sleep(10);
-            
+
             cond->NotifyAll();
-            while (0 != l1.WaitTimeout(10));
+            while (0 != l1.WaitTimeout(10))
+                ;
             l2.Down();
             printf("done %d turn!\n", i);
         };
@@ -149,69 +179,72 @@ void multi_cond_check()
 
 void consumer_producer()
 {
-    bbtco [&](){
+    bbtco[&]()
+    {
         auto cond = sync::CoCond::Create();
 
-        bbtco_desc("this is consumer co!") 
-        [&](){
-            while(true) {
+        bbtco_desc("this is consumer co!")[&]()
+        {
+            while (true) {
                 cond->NotifyAll();
                 bbtco_sleep(1);
             }
         };
 
-        bbtco_desc("this is producer co!")
-        [&](){
+        bbtco_desc("this is producer co!")[&]()
+        {
             while (true) {
                 for (int i = 0; i < 200; ++i)
-                    bbtco_desc("products") [&](){
+                    bbtco_desc("products")[&]()
+                    {
                         cond->Wait();
                     };
-                
+
                 bbtco_sleep(5);
             }
         };
 
-        while(true) sleep(1);
+        while (true)
+            sleep(1);
     };
 
-    while(true) sleep(1);
+    while (true)
+        sleep(1);
 }
 
 void single_cond()
 {
     auto cond1 = sync::CoCond::Create();
     auto cond2 = sync::CoCond::Create();
-    bbtco [&](){
-        while (true)
-        {
+    bbtco[&]()
+    {
+        while (true) {
             cond1->Wait();
             while (cond2->NotifyOne() != -1)
                 bbtco_sleep(5);
         }
     };
 
-    bbtco [&](){
-        while (true)
-        {
+    bbtco[&]()
+    {
+        while (true) {
             cond2->Wait();
             while (cond1->NotifyOne() != -1)
                 bbtco_sleep(5);
         }
     };
-
-    
 }
 
 int main()
 {
     g_scheduler->Start();
 
-    // debug_notify();
-    // dbg_coroutine_wait();
-    // cocond();
-    // multi_cond_check();
-    // consumer_producer();
+    /**
+     * debug_notify();
+     * dbg_coroutine_wait();
+     * cocond();
+     * multi_cond_check();
+     * consumer_producer();
+     */
     single_cond();
-
 }

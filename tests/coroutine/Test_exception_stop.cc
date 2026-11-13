@@ -17,25 +17,22 @@
 #include <bbt/coroutine/detail/GlobalConfig.hpp>
 #include <bbt/coroutine/detail/Scheduler.hpp>
 
-/* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。 */
-namespace
-{
+/**
+ * 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
+ */
+namespace {
 void EnsureRuntime()
 {
     static std::once_flag once;
-    std::call_once(once, [](){
-        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
-    });
+    std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
 }
 
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::detail;
 
-namespace
-{
-struct ConfigSnapshot
-{
+namespace {
+struct ConfigSnapshot {
     size_t threads{0};
     size_t stack_size{0};
     bool stack_protect{false};
@@ -75,14 +72,16 @@ BOOST_AUTO_TEST_CASE(t_exception_ptr_saved_when_callback)
     std::exception_ptr saved;
 
     auto prev = g_bbt_coroutine_config->m_ext_coevent_exception_callback;
-    g_bbt_coroutine_config->m_ext_coevent_exception_callback =
-        [&](const bbt::core::errcode::IErrcode&) {
-            if (auto co = g_bbt_tls_coroutine_co)
-                saved = co->GetException();
-            done.Down();
-        };
+    g_bbt_coroutine_config->m_ext_coevent_exception_callback = [&](const bbt::core::errcode::IErrcode&) {
+        if (auto co = g_bbt_tls_coroutine_co)
+            saved = co->GetException();
+        done.Down();
+    };
 
-    bbtco []() { throw std::runtime_error("eptr-panic"); };
+    bbtco[]()
+    {
+        throw std::runtime_error("eptr-panic");
+    };
     done.Wait();
     g_bbt_coroutine_config->m_ext_coevent_exception_callback = prev;
 
@@ -101,17 +100,20 @@ BOOST_AUTO_TEST_CASE(t_unhandled_exception_counted_without_callback)
     const auto before = g_bbt_coroutine_config->m_unhandled_exception_count.load();
 
     g_bbt_coroutine_config->m_ext_coevent_exception_callback = nullptr;
-    bbtco []() { throw std::runtime_error("count-panic"); };
+    bbtco[]()
+    {
+        throw std::runtime_error("count-panic");
+    };
 
-    /* 无回调只能轮询计数；上限 1s */
+    /**
+     * 无回调只能轮询计数；上限 1s
+     */
     for (int i = 0; i < 100; ++i) {
         if (g_bbt_coroutine_config->m_unhandled_exception_count.load() > before)
             break;
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
-    BOOST_CHECK_GT(
-        g_bbt_coroutine_config->m_unhandled_exception_count.load(),
-        before);
+    BOOST_CHECK_GT(g_bbt_coroutine_config->m_unhandled_exception_count.load(), before);
 }
 
 BOOST_AUTO_TEST_CASE(t_exception_callback_throw_isolated)
@@ -121,17 +123,22 @@ BOOST_AUTO_TEST_CASE(t_exception_callback_throw_isolated)
     bbt::core::thread::CountDownLatch alive{1};
 
     auto prev = g_bbt_coroutine_config->m_ext_coevent_exception_callback;
-    g_bbt_coroutine_config->m_ext_coevent_exception_callback =
-        [&](const bbt::core::errcode::IErrcode&) {
-            boom.Down();
-            throw std::runtime_error("callback boom");
-        };
+    g_bbt_coroutine_config->m_ext_coevent_exception_callback = [&](const bbt::core::errcode::IErrcode&) {
+        boom.Down();
+        throw std::runtime_error("callback boom");
+    };
 
-    bbtco []() { throw std::runtime_error("task boom"); };
+    bbtco[]()
+    {
+        throw std::runtime_error("task boom");
+    };
     boom.Wait();
 
     g_bbt_coroutine_config->m_ext_coevent_exception_callback = prev;
-    bbtco [&]() { alive.Down(); };
+    bbtco[&]()
+    {
+        alive.Down();
+    };
     alive.Wait();
     BOOST_CHECK(true);
 }
@@ -143,7 +150,8 @@ BOOST_AUTO_TEST_CASE(t_timeout_is_status_not_exception)
     std::atomic<int> rc{-999};
     std::atomic_bool threw{false};
 
-    bbtco [&]() {
+    bbtco[&]()
+    {
         try {
             rc.store(g_bbt_tls_coroutine_co->YieldUntilTimeout(20));
         } catch (...) {
@@ -156,7 +164,6 @@ BOOST_AUTO_TEST_CASE(t_timeout_is_status_not_exception)
     BOOST_CHECK(!threw.load());
     BOOST_CHECK_NE(rc.load(), -999);
 }
-
 
 BOOST_AUTO_TEST_CASE(t_end)
 {

@@ -1,1 +1,4 @@
-extern "C" int ThirdPartyOpaque(int value) { return value * 7; }
+extern "C" int ThirdPartyOpaque(int value)
+{
+    return value * 7;
+}

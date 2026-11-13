@@ -9,20 +9,29 @@ void NotifyOne()
      * cocond可以用来在协程中挂起当前协程，并且
      * 在其他协程中进行唤醒。
      */
-    bbtco [&](){
+    bbtco[&]()
+    {
         printf("[%d] before wait\n", bbt::coroutine::GetLocalCoroutineId());
 
-        bbtco [&](){
+        bbtco[&]()
+        {
             /**
              * 这里需要休眠100ms的原因是，我们无法假设新注册的协程是否立即会被执行
              * 但是通过100ms的休眠，尽量确保cocond->Wait()已经被调用，
              */
             bbtco_sleep(100);
             printf("[%d] notify one\n", bbt::coroutine::GetLocalCoroutineId());
-            cocond->NotifyOne();  // 唤醒一个挂起的协程
+
+            /**
+             * 唤醒一个挂起的协程
+             */
+            cocond->NotifyOne();
         };
 
-        cocond->Wait();  // 挂起当前协程，等待被唤醒
+        /**
+         * 挂起当前协程，等待被唤醒
+         */
+        cocond->Wait();
         printf("[%d] after wait\n", bbt::coroutine::GetLocalCoroutineId());
     };
 
@@ -39,29 +48,44 @@ void NotifyAll()
      */
     auto cocond = bbtco_make_cocond();
 
-    for (int i = 0; i < 2; ++i)
-    {
-        bbtco [&](){
+    for (int i = 0; i < 2; ++i) {
+        bbtco[&]()
+        {
             printf("[%d] before wait\n", bbt::coroutine::GetLocalCoroutineId());
-            cocond->Wait();  // 挂起当前协程，等待被唤醒
+
+            /**
+             * 挂起当前协程，等待被唤醒
+             */
+            cocond->Wait();
             printf("[%d] after wait\n", bbt::coroutine::GetLocalCoroutineId());
         };
     }
 
-    bbtco [&](){
-        bbtco_sleep(100);  // 确保所有协程都已经注册并挂起
-        cocond->NotifyAll();  // 唤醒所有挂起的协程
+    bbtco[&]()
+    {
+        /**
+         * 确保所有协程都已经注册并挂起
+         */
+        bbtco_sleep(100);
+
+        /**
+         * 唤醒所有挂起的协程
+         */
+        cocond->NotifyAll();
         printf("[%d] notify all\n", bbt::coroutine::GetLocalCoroutineId());
     };
 
     sleep(1);
 }
 
-int bbtco_main() {
+int bbtco_main()
+{
     NotifyOne();
     NotifyAll();
 
-    /* process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出 */
+    /**
+     * process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出
+     */
     return 0;
 }
 

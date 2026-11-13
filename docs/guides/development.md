@@ -4,6 +4,12 @@
 **适用范围：** 所有 Agent 开发、PR、里程碑收口和版本发布
 **硬闸门：** GitHub Actions required checks、main branch ruleset、`v*` tag ruleset；未核对远端配置前不得视为已生效
 
+## 0. 规范与提示词入口
+
+跨仓共用的设计、编码、Review 与用例设计规范固定从 `third-party/bbtools-pub/README.md` 进入，按任务只展开对应职责路径。`AGENTS.md`、本文、`docs/architecture/` 与实际头文件补充 coroutine 的本地契约；发生冲突时以本仓明确约束和实际实现为准，并记录差异。写调用代码还需读取 `.github/skills/bbtools-coroutine/SKILL.md`。
+
+干净 clone 后先执行 `git submodule update --init --recursive`，再读取上述入口；submodule 之外的本地 pub 工作树改动不属于本仓规范证据。
+
 ## 1. 目标与职责
 
 Agent 负责在明确范围内自主完成：读取需求和契约、分析调用关系、实现、测试、创建 PR、修复业务代码导致的 CI 失败、回写证据。修改 CI/CD 配置、GitHub Actions、部署脚本或构建入口仍需用户确认；用户负责里程碑目标、计划设计、重大架构取舍、破坏性变更、进入受控使用期、RC 发布授权和 Stable 发布决策。
@@ -50,6 +56,8 @@ Issue / 里程碑计划
 | 运行时 / 公开 API | 冒烟 + 功能单测 + 直接耦合单测 | 同上 | 真实客户端 |
 | Hook / 兼容行为 | 冒烟 + 相关 hook 单测 + 直接耦合单测 | 同上 | #259 真实客户端长测（吸收 #284/#285）与发布 Gate |
 | 压测程序本身 | 短跑或相关 benchmark | `性能回归检查` | 未授权的长 soak |
+
+提交前先过格式检查：`bash scripts/ci/check_format.sh --staged`（CI 对全仓做同一检查且阻断）。
 
 本地命令见 §9。普通 PR 不把 `scripts/acceptance_real_clients.py`、1h `run_fatigue.py` / `run_parallel_stress.sh` 当合入完成证据。
 
@@ -187,15 +195,14 @@ GitHub tag ruleset 的“限制创建”按 bypass actor 授权，不能直接�
 ## 9. 本地入口
 
 ```bash
-# 本地聚焦验证（新 configure 加 ccache；JOBS 上限 nproc/4，最小 2）
+# 本地聚焦验证（新 configure 加 ccache；构建并发与排队按 AGENTS.md：固定 2，经 flock 队列）
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
   -DNEED_TEST=ON -DNEED_BENCHMARK=ON -DNEED_EXAMPLE=ON \
   -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-JOBS=$(( $(nproc) / 4 )); JOBS=$(( JOBS < 2 ? 2 : JOBS ))
 # 按验证阶梯做聚焦增量构建：<target> 填本次改动涉及的测试可执行名（如 Test_smoke，
 # 用 `ctest -N` 或 tests/CMakeLists.txt 查）；不跑裸全量 ctest——全量回归走
 # `run_test_profile.sh --profile full` 或发布 Gate。
-cmake --build build --target <target> --parallel "$JOBS"
+flock /tmp/bbt-build.lock cmake --build build --target <target> --parallel 2
 ctest --test-dir build -R <test-regex> --output-on-failure   # <test-regex> 填对应套件名正则
 
 # 真实客户端验收
@@ -215,8 +222,7 @@ python3 scripts/release_gate.py validate-version --version <rc 版本号>
 ```shell
 # 构建
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DNEED_TEST=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-JOBS=$(( $(nproc) / 4 )); JOBS=$(( JOBS < 2 ? 2 : JOBS ))
-cmake --build build --parallel "$JOBS"
+flock /tmp/bbt-build.lock cmake --build build --parallel 2
 
 # 全量 smoke（与 CI 同口径：注册集=实跑集、skipped/failure 判红）
 bash scripts/ci/run_test_profile.sh --build-dir build --profile smoke
@@ -229,7 +235,7 @@ python3 scripts/ci/run_smoke.py --build-dir build-ci-smoke
 
 # 长时 soak（默认 6 小时；先构建 unified_stress）
 cmake -S . -B build-soak -G Ninja -DCMAKE_BUILD_TYPE=Release -DNEED_BENCHMARK=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-cmake --build build-soak --target unified_stress --parallel "$JOBS"
+flock /tmp/bbt-build.lock cmake --build build-soak --target unified_stress --parallel 2
 python3 scripts/ci/run_soak.py --build-dir build-soak
 ```
 

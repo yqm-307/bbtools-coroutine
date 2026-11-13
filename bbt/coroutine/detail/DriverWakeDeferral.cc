@@ -1,8 +1,7 @@
 #include <bbt/coroutine/detail/DriverWakeDeferral.hpp>
 #include <bbt/coroutine/detail/Scheduler.hpp>
 
-namespace bbt::coroutine::detail
-{
+namespace bbt::coroutine::detail {
 
 int& DriverWakeDeferral::_TlsDepth() noexcept
 {
@@ -30,7 +29,10 @@ DriverWakeDeferral::~DriverWakeDeferral() noexcept
     if (--_TlsDepth() > 0)
         return;
 
-    _TlsDepth() = 0;    // 防下溢（异常配对破坏时归位）
+    /**
+     * 防下溢（异常配对破坏时归位）
+     */
+    _TlsDepth() = 0;
     if (!_TlsPending())
         return;
 

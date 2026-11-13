@@ -25,7 +25,7 @@ BOOST_AUTO_TEST_CASE(t_backend_is_eventloop)
     BOOST_REQUIRE(loop != nullptr);
 
     std::atomic_int n{0};
-    auto event = CoPollEvent::Create(1, [&](auto, int, int){ n++; });
+    auto event = CoPollEvent::Create(1, [&](auto, int, int) { n++; });
 
     BOOST_REQUIRE_EQUAL(event->InitFdEvent(-1, bbt::pollevent::EventOpt::TIMEOUT, 40), 0);
     BOOST_REQUIRE_EQUAL(event->Regist(), 0);

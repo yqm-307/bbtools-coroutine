@@ -1,4 +1,5 @@
-/** @file RuntimeMain.hpp
+/**
+ * @file RuntimeMain.hpp
  * @brief runtime 拥有的 native main 薄入口及主任务完成结果。
  */
 #pragma once
@@ -39,8 +40,10 @@ private:
     std::shared_ptr<detail::HostHookState> m_state;
 };
 
-/** @brief 提交后 host hook：在原生 main 线程调用一次；允许宿主 native 阻塞入口，
- *  但不得调用 Co 原语、不得提交主任务。 */
+/**
+ * @brief 提交后 host hook：在原生 main 线程调用一次；允许宿主 native 阻塞入口，
+ *  但不得调用 Co 原语、不得提交主任务。
+ */
 using HostHook = int (*)(HostHookContext&);
 
 /**
@@ -54,7 +57,9 @@ using HostHook = int (*)(HostHookContext&);
  */
 class RuntimeMain {
 public:
-    /** @brief 主入口唯一完成结果的原因。 */
+    /**
+     * @brief 主入口唯一完成结果的原因。
+     */
     enum class Terminal {
         MainReturned,
         HookRejected,
@@ -67,13 +72,17 @@ public:
         HostHookThrew,
     };
 
-    /** @brief 原因与 native main 返回值；异常/启动/提交失败的退出码为 1。 */
+    /**
+     * @brief 原因与 native main 返回值；异常/启动/提交失败的退出码为 1。
+     */
     struct Completion {
         Terminal terminal;
         int exit_code;
     };
 
-    /** @brief 兼容无 setup_runtime 的旧入口。 */
+    /**
+     * @brief 兼容无 setup_runtime 的旧入口。
+     */
     static Completion Run(int (*main_task)(), int (*native_hook)() = nullptr,
                           const RuntimeOptions& options = {}) noexcept;
 
@@ -81,39 +90,41 @@ public:
      * @brief 执行 setup_runtime 后固定执行 options → Start → hook → submit。
      * setup_runtime 在 native 线程、Start 前执行，可以设置 GlobalConfig 的全部启动字段。
      */
-    static Completion RunWithSetup(void (*setup_runtime)(), int (*main_task)(),
-                                   int (*native_hook)() = nullptr,
+    static Completion RunWithSetup(void (*setup_runtime)(), int (*main_task)(), int (*native_hook)() = nullptr,
                                    const RuntimeOptions& options = {}) noexcept;
 
-    /** @brief 提交成功后，在原生 main 线程执行一次提交后 host hook。 */
-    static Completion RunWithSetupAndHostHook(void (*setup_runtime)(),
-                                              int (*main_task)(), HostHook host_hook,
+    /**
+     * @brief 提交成功后，在原生 main 线程执行一次提交后 host hook。
+     */
+    static Completion RunWithSetupAndHostHook(void (*setup_runtime)(), int (*main_task)(), HostHook host_hook,
                                               const RuntimeOptions& options = {}) noexcept;
 
-    /** @brief 在同一异常边界内只求值一次 RuntimeOptions 工厂。 */
+    /**
+     * @brief 在同一异常边界内只求值一次 RuntimeOptions 工厂。
+     */
     template <class OptionsFactory>
-    static Completion RunWithOptions(int (*main_task)(), int (*native_hook)(),
-                                     OptionsFactory&& make_options) noexcept;
+    static Completion RunWithOptions(int (*main_task)(), int (*native_hook)(), OptionsFactory&& make_options) noexcept;
 
-    /** @brief setup_runtime 后在同一异常边界内只求值一次 RuntimeOptions 工厂。 */
+    /**
+     * @brief setup_runtime 后在同一异常边界内只求值一次 RuntimeOptions 工厂。
+     */
     template <class OptionsFactory>
-    static Completion RunWithSetupAndOptions(void (*setup_runtime)(), int (*main_task)(),
-                                             int (*native_hook)(),
+    static Completion RunWithSetupAndOptions(void (*setup_runtime)(), int (*main_task)(), int (*native_hook)(),
                                              OptionsFactory&& make_options) noexcept;
 
-    /** @brief 提交后 host hook 与 RuntimeOptions 工厂共用同一 runtime 异常边界。 */
+    /**
+     * @brief 提交后 host hook 与 RuntimeOptions 工厂共用同一 runtime 异常边界。
+     */
     template <class OptionsFactory>
-    static Completion RunWithSetupHostHookAndOptions(void (*setup_runtime)(),
-                                                     int (*main_task)(), HostHook host_hook,
+    static Completion RunWithSetupHostHookAndOptions(void (*setup_runtime)(), int (*main_task)(), HostHook host_hook,
                                                      OptionsFactory&& make_options) noexcept;
 
 private:
-    static Completion RunWithFactory(void (*setup_runtime)(), int (*main_task)(),
-                                     int (*native_hook)(), HostHook host_hook,
-                                     const void* factory,
+    static Completion RunWithFactory(void (*setup_runtime)(), int (*main_task)(), int (*native_hook)(),
+                                     HostHook host_hook, const void* factory,
                                      RuntimeOptions (*evaluate)(const void*)) noexcept;
 };
 
-} // namespace bbt::coroutine
+}
 
-#include <bbt/coroutine/runtime/RuntimeMainImpl.hpp>
+#include <bbt/coroutine/runtime/__TRuntimeMain.hpp>

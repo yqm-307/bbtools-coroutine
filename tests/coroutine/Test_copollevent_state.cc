@@ -24,30 +24,26 @@
 #include <bbt/coroutine/detail/CoPoller.hpp>
 #include <bbt/coroutine/detail/GlobalConfig.hpp>
 
-/* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
- * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。 */
-namespace
-{
+/**
+ * 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
+ * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。
+ */
+namespace {
 void EnsureRuntime()
 {
     static std::once_flag once;
-    std::call_once(once, [](){
-        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
-    });
+    std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
 }
 
 using namespace bbt::coroutine::detail;
 
-namespace
-{
+namespace {
 
-bool WaitForAtLeast(const std::atomic_int& value, int expected,
-                    std::chrono::steady_clock::duration timeout)
+bool WaitForAtLeast(const std::atomic_int& value, int expected, std::chrono::steady_clock::duration timeout)
 {
     const auto deadline = std::chrono::steady_clock::now() + timeout;
-    while (value.load(std::memory_order_acquire) < expected)
-    {
+    while (value.load(std::memory_order_acquire) < expected) {
         if (std::chrono::steady_clock::now() >= deadline)
             return false;
         std::this_thread::yield();
@@ -55,57 +51,38 @@ bool WaitForAtLeast(const std::atomic_int& value, int expected,
     return true;
 }
 
-class StaticProcesserCountRestore
-{
+class StaticProcesserCountRestore {
 public:
-    explicit StaticProcesserCountRestore(GlobalConfig& config):
-        m_config(config),
-        m_previous_count(config.m_cfg_static_thread_num)
+    explicit StaticProcesserCountRestore(GlobalConfig& config)
+        : m_config(config), m_previous_count(config.m_cfg_static_thread_num)
     {
     }
 
-    ~StaticProcesserCountRestore()
-    {
-        Restore();
-    }
+    ~StaticProcesserCountRestore() { Restore(); }
 
-    void Restore()
-    {
-        m_config.m_cfg_static_thread_num = m_previous_count;
-    }
+    void Restore() { m_config.m_cfg_static_thread_num = m_previous_count; }
 
-    size_t PreviousCount() const
-    {
-        return m_previous_count;
-    }
+    size_t PreviousCount() const { return m_previous_count; }
 
 private:
     GlobalConfig& m_config;
     const size_t m_previous_count;
 };
 
-class SchedulerStopGuard
-{
+class SchedulerStopGuard {
 public:
-    explicit SchedulerStopGuard(Scheduler& scheduler):
-        m_scheduler(scheduler)
-    {
-    }
+    explicit SchedulerStopGuard(Scheduler& scheduler) : m_scheduler(scheduler) {}
 
-    ~SchedulerStopGuard()
-    {
-        Stop();
-    }
+    ~SchedulerStopGuard() { Stop(); }
 
-    void MarkStarted()
-    {
-        m_started = true;
-    }
+    void MarkStarted() { m_started = true; }
 
     void Stop()
     {
-        /* 进程寿命：运行时不再有停机入口（Scheduler::Stop 已删除）。
-         * 本 guard 保留为无操作——用例级停机不存在，也不新增替代停机路径。 */
+        /**
+         * 进程寿命：运行时不再有停机入口（Scheduler::Stop 已删除）。
+         * 本 guard 保留为无操作——用例级停机不存在，也不新增替代停机路径。
+         */
         if (!m_started)
             return;
         m_started = false;
@@ -116,19 +93,14 @@ private:
     bool m_started{false};
 };
 
-class ExceptionCallbackRestore
-{
+class ExceptionCallbackRestore {
 public:
-    explicit ExceptionCallbackRestore(GlobalConfig& config):
-        m_config(config),
-        m_previous(config.m_ext_coevent_exception_callback)
+    explicit ExceptionCallbackRestore(GlobalConfig& config)
+        : m_config(config), m_previous(config.m_ext_coevent_exception_callback)
     {
     }
 
-    ~ExceptionCallbackRestore()
-    {
-        m_config.m_ext_coevent_exception_callback = std::move(m_previous);
-    }
+    ~ExceptionCallbackRestore() { m_config.m_ext_coevent_exception_callback = std::move(m_previous); }
 
 private:
     GlobalConfig& m_config;
@@ -250,9 +222,7 @@ BOOST_AUTO_TEST_CASE(t_repeated_trigger_has_one_winner)
 BOOST_AUTO_TEST_CASE(t_trigger_and_unregister_compete_for_parked_event)
 {
     std::atomic_int callback_count{0};
-    auto event = CoPollEvent::Create(1, [&](auto, int, int) {
-        callback_count.fetch_add(1);
-    });
+    auto event = CoPollEvent::Create(1, [&](auto, int, int) { callback_count.fetch_add(1); });
 
     BOOST_REQUIRE_EQUAL(event->InitCustomEvent(POLL_EVENT_CUSTOM_COND, nullptr), 0);
     BOOST_REQUIRE_EQUAL(event->Regist(), 0);
@@ -309,9 +279,7 @@ BOOST_AUTO_TEST_CASE(t_pending_trigger_flags_preserve_first_outcome)
 BOOST_AUTO_TEST_CASE(t_final_event_cannot_be_reused)
 {
     std::atomic_int callback_count{0};
-    auto event = CoPollEvent::Create(1, [&](auto, int, int) {
-        callback_count.fetch_add(1);
-    });
+    auto event = CoPollEvent::Create(1, [&](auto, int, int) { callback_count.fetch_add(1); });
 
     BOOST_REQUIRE_EQUAL(event->InitCustomEvent(POLL_EVENT_CUSTOM_COND, nullptr), 0);
     BOOST_REQUIRE_EQUAL(event->Regist(), 0);
@@ -330,9 +298,7 @@ BOOST_AUTO_TEST_CASE(t_final_event_cannot_be_reused)
 BOOST_AUTO_TEST_CASE(t_cancelled_event_cannot_be_reused)
 {
     std::atomic_int callback_count{0};
-    auto event = CoPollEvent::Create(1, [&](auto, int, int) {
-        callback_count.fetch_add(1);
-    });
+    auto event = CoPollEvent::Create(1, [&](auto, int, int) { callback_count.fetch_add(1); });
 
     BOOST_REQUIRE_EQUAL(event->InitCustomEvent(POLL_EVENT_CUSTOM_COND, nullptr), 0);
     BOOST_REQUIRE_EQUAL(event->Regist(), 0);
@@ -352,12 +318,10 @@ BOOST_AUTO_TEST_CASE(t_trigger_and_commit_park_race_completes_each_event_once)
 {
     constexpr int kRounds = 256;
 
-    for (int round = 0; round < kRounds; ++round)
-    {
+    for (int round = 0; round < kRounds; ++round) {
         std::atomic_int callback_count{0};
-        auto event = CoPollEvent::Create(round + 1, [&](auto, int, int) {
-            callback_count.fetch_add(1, std::memory_order_relaxed);
-        });
+        auto event = CoPollEvent::Create(
+            round + 1, [&](auto, int, int) { callback_count.fetch_add(1, std::memory_order_relaxed); });
 
         BOOST_REQUIRE_EQUAL(event->InitCustomEvent(POLL_EVENT_CUSTOM_COND, nullptr), 0);
         BOOST_REQUIRE_EQUAL(event->Regist(), 0);
@@ -395,12 +359,10 @@ BOOST_AUTO_TEST_CASE(t_multiple_trigger_threads_have_one_winner)
 {
     constexpr int kRounds = 64;
     constexpr int kTriggerThreads = 8;
-    for (int round = 0; round < kRounds; ++round)
-    {
+    for (int round = 0; round < kRounds; ++round) {
         std::atomic_int callback_count{0};
-        auto event = CoPollEvent::Create(round + 1, [&](auto, int, int) {
-            callback_count.fetch_add(1, std::memory_order_relaxed);
-        });
+        auto event = CoPollEvent::Create(
+            round + 1, [&](auto, int, int) { callback_count.fetch_add(1, std::memory_order_relaxed); });
 
         BOOST_REQUIRE_EQUAL(event->InitCustomEvent(POLL_EVENT_CUSTOM_COND, nullptr), 0);
         BOOST_REQUIRE_EQUAL(event->Regist(), 0);
@@ -411,8 +373,7 @@ BOOST_AUTO_TEST_CASE(t_multiple_trigger_threads_have_one_winner)
         std::array<int, kTriggerThreads> trigger_results{};
         std::vector<std::thread> trigger_threads;
         trigger_threads.reserve(kTriggerThreads);
-        for (int i = 0; i < kTriggerThreads; ++i)
-        {
+        for (int i = 0; i < kTriggerThreads; ++i) {
             trigger_threads.emplace_back([&, i] {
                 ready_count.fetch_add(1, std::memory_order_release);
                 while (!start.load(std::memory_order_acquire))
@@ -421,8 +382,7 @@ BOOST_AUTO_TEST_CASE(t_multiple_trigger_threads_have_one_winner)
             });
         }
 
-        const bool ready_result = WaitForAtLeast(ready_count, kTriggerThreads,
-                                                 std::chrono::seconds(1));
+        const bool ready_result = WaitForAtLeast(ready_count, kTriggerThreads, std::chrono::seconds(1));
         start.store(true, std::memory_order_release);
         for (auto& thread : trigger_threads)
             thread.join();
@@ -479,16 +439,17 @@ BOOST_AUTO_TEST_CASE(t_timeout_and_custom_trigger_have_one_first_outcome)
         BOOST_REQUIRE_EQUAL(event->Regist(), 0);
 
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
-        while (event->GetStatus() != POLLEVENT_TRIGGER &&
-               std::chrono::steady_clock::now() < deadline)
-        {
+        while (event->GetStatus() != POLLEVENT_TRIGGER && std::chrono::steady_clock::now() < deadline) {
             g_bbt_poller->PollOnce();
             if (event->GetStatus() != POLLEVENT_TRIGGER)
                 std::this_thread::yield();
         }
 
         BOOST_REQUIRE_EQUAL(callback_count.load(std::memory_order_acquire), 0);
-        // 内部 PENDING 阶段对外映射为 POLLEVENT_TRIGGER。
+
+        /**
+         * 内部 PENDING 阶段对外映射为 POLLEVENT_TRIGGER。
+         */
         BOOST_REQUIRE_EQUAL(event->GetStatus(), POLLEVENT_TRIGGER);
 
         BOOST_REQUIRE(event->CommitPark());
@@ -513,9 +474,7 @@ BOOST_AUTO_TEST_CASE(t_timeout_and_custom_trigger_have_one_first_outcome)
 
         bool poll_dispatched = false;
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
-        while (callback_count.load(std::memory_order_acquire) == 0 &&
-               std::chrono::steady_clock::now() < deadline)
-        {
+        while (callback_count.load(std::memory_order_acquire) == 0 && std::chrono::steady_clock::now() < deadline) {
             poll_dispatched = g_bbt_poller->PollOnce() || poll_dispatched;
             if (callback_count.load(std::memory_order_acquire) == 0)
                 std::this_thread::yield();
@@ -554,8 +513,7 @@ BOOST_AUTO_TEST_CASE(t_system_readable_event_can_be_pending_before_commit)
 
     BOOST_REQUIRE(event->CommitPark());
     BOOST_CHECK_EQUAL(callback_count.load(std::memory_order_acquire), 1);
-    BOOST_CHECK_EQUAL(callback_flags.load(std::memory_order_acquire),
-                      bbt::pollevent::EventOpt::READABLE);
+    BOOST_CHECK_EQUAL(callback_flags.load(std::memory_order_acquire), bbt::pollevent::EventOpt::READABLE);
     BOOST_CHECK(event->IsFinal());
     BOOST_CHECK_EQUAL(event->GetStatus(), POLLEVENT_FINAL);
 
@@ -599,7 +557,7 @@ BOOST_AUTO_TEST_CASE(t_peer_close_completes_readable_wait)
     BOOST_REQUIRE_EQUAL(::pipe(fds), 0);
 
     std::atomic_int n{0};
-    auto event = CoPollEvent::Create(1, [&](auto, int, int){ n.fetch_add(1); });
+    auto event = CoPollEvent::Create(1, [&](auto, int, int) { n.fetch_add(1); });
 
     BOOST_REQUIRE_EQUAL(event->InitFdEvent(fds[0], bbt::pollevent::EventOpt::READABLE, 0), 0);
     BOOST_REQUIRE_EQUAL(event->Regist(), 0);
@@ -626,7 +584,7 @@ BOOST_AUTO_TEST_CASE(t_destroy_parked_event_does_not_callback)
 {
     std::atomic_int n{0};
     {
-        auto event = CoPollEvent::Create(1, [&](auto, int, int){ n.fetch_add(1); });
+        auto event = CoPollEvent::Create(1, [&](auto, int, int) { n.fetch_add(1); });
         BOOST_REQUIRE_EQUAL(event->InitFdEvent(-1, bbt::pollevent::EventOpt::TIMEOUT, 40), 0);
         BOOST_REQUIRE_EQUAL(event->Regist(), 0);
         BOOST_REQUIRE_EQUAL(event->CommitPark(), false);
@@ -650,8 +608,7 @@ BOOST_AUTO_TEST_CASE(t_multi_processer_yield_requeues_each_coroutine_once_per_it
     std::array<std::atomic_int, kCoroutineCount> exited;
     std::array<std::atomic_int, kCoroutineCount> active;
     std::array<std::atomic_int, kCoroutineCount> completed_per_coroutine;
-    for (int i = 0; i < kCoroutineCount; ++i)
-    {
+    for (int i = 0; i < kCoroutineCount; ++i) {
         entered[i].store(0, std::memory_order_relaxed);
         exited[i].store(0, std::memory_order_relaxed);
         active[i].store(0, std::memory_order_relaxed);
@@ -671,35 +628,34 @@ BOOST_AUTO_TEST_CASE(t_multi_processer_yield_requeues_each_coroutine_once_per_it
     EnsureRuntime();
     scheduler_stop.MarkStarted();
 
-    for (int coroutine_index = 0; coroutine_index < kCoroutineCount; ++coroutine_index)
-    {
+    for (int coroutine_index = 0; coroutine_index < kCoroutineCount; ++coroutine_index) {
         bool registered = false;
-        scheduler->RegistCoroutineTask([&, coroutine_index] {
-            for (int iteration = 0; iteration < kIterations; ++iteration)
-            {
-                if (active[coroutine_index].fetch_add(1, std::memory_order_acq_rel) != 0)
-                    duplicate_resume.fetch_add(1, std::memory_order_relaxed);
-                entered[coroutine_index].fetch_add(1, std::memory_order_relaxed);
+        scheduler->RegistCoroutineTask(
+            [&, coroutine_index] {
+                for (int iteration = 0; iteration < kIterations; ++iteration) {
+                    if (active[coroutine_index].fetch_add(1, std::memory_order_acq_rel) != 0)
+                        duplicate_resume.fetch_add(1, std::memory_order_relaxed);
+                    entered[coroutine_index].fetch_add(1, std::memory_order_relaxed);
 
-                if (iteration + 1 < kIterations)
-                    bbtco_yield;
+                    if (iteration + 1 < kIterations)
+                        bbtco_yield;
 
-                active[coroutine_index].fetch_sub(1, std::memory_order_release);
-                exited[coroutine_index].fetch_add(1, std::memory_order_relaxed);
-            }
-            completed_per_coroutine[coroutine_index].fetch_add(1, std::memory_order_relaxed);
-            if (completed_count.fetch_add(1, std::memory_order_release) + 1 == kCoroutineCount)
-                completed_cond.notify_one();
-        }, registered);
+                    active[coroutine_index].fetch_sub(1, std::memory_order_release);
+                    exited[coroutine_index].fetch_add(1, std::memory_order_relaxed);
+                }
+                completed_per_coroutine[coroutine_index].fetch_add(1, std::memory_order_relaxed);
+                if (completed_count.fetch_add(1, std::memory_order_release) + 1 == kCoroutineCount)
+                    completed_cond.notify_one();
+            },
+            registered);
         if (!registered)
             registration_failures.fetch_add(1, std::memory_order_relaxed);
     }
 
     std::unique_lock<std::mutex> completed_lock(completed_mutex);
-    const bool completed_result = completed_cond.wait_for(
-        completed_lock, std::chrono::seconds(5), [&] {
-            return completed_count.load(std::memory_order_acquire) == kCoroutineCount;
-        });
+    const bool completed_result = completed_cond.wait_for(completed_lock, std::chrono::seconds(5), [&] {
+        return completed_count.load(std::memory_order_acquire) == kCoroutineCount;
+    });
     completed_lock.unlock();
 
     scheduler_stop.Stop();
@@ -708,8 +664,7 @@ BOOST_AUTO_TEST_CASE(t_multi_processer_yield_requeues_each_coroutine_once_per_it
     BOOST_CHECK_EQUAL(registration_failures.load(std::memory_order_acquire), 0);
     BOOST_CHECK_EQUAL(config.m_cfg_static_thread_num, restore_processer_count.PreviousCount());
     BOOST_CHECK_EQUAL(duplicate_resume.load(std::memory_order_acquire), 0);
-    for (int i = 0; i < kCoroutineCount; ++i)
-    {
+    for (int i = 0; i < kCoroutineCount; ++i) {
         BOOST_CHECK_EQUAL(entered[i].load(std::memory_order_acquire), kIterations);
         BOOST_CHECK_EQUAL(exited[i].load(std::memory_order_acquire), kIterations);
         BOOST_CHECK_EQUAL(active[i].load(std::memory_order_acquire), 0);
@@ -719,8 +674,10 @@ BOOST_AUTO_TEST_CASE(t_multi_processer_yield_requeues_each_coroutine_once_per_it
 
 BOOST_AUTO_TEST_CASE(t_init_fd_event_with_live_duplicate_never_throws)
 {
-    /* Event 为每个用户 fd 保留私有 dup，重复监听不再因
-     * epoll 使用同一 fd 号而报 EEXIST；两个监听都应能注册且不抛异常。 */
+    /**
+     * Event 为每个用户 fd 保留私有 dup，重复监听不再因
+     * epoll 使用同一 fd 号而报 EEXIST；两个监听都应能注册且不抛异常。
+     */
     int fds[2];
     BOOST_REQUIRE_EQUAL(::pipe(fds), 0);
 
@@ -742,7 +699,8 @@ BOOST_AUTO_TEST_CASE(t_init_fd_event_with_live_duplicate_never_throws)
 
 BOOST_AUTO_TEST_CASE(t_init_during_close_window_is_closed_not_admitted)
 {
-    /* 协议级确定性复现「BeginFdClose → InitFdEvent → 底层 close →
+    /**
+     * 协议级确定性复现「BeginFdClose → InitFdEvent → 底层 close →
      * EndFdClose → Regist」交错。修复前 Init 在 closing 窗口内只采到已
      * 推进的新 epoch，EndFdClose 解 closing 后 Regist 会把旧等待误当
      * 新代准入——旧等待就此混进新代 waiters 表，本应随 close 收敛
@@ -773,14 +731,23 @@ BOOST_AUTO_TEST_CASE(t_init_during_close_window_is_closed_not_admitted)
      * 进程死在栈展开前，不 UAF 继续下一用例）。
      */
 
-    int fds[2] = {-1, -1};   // close 目标：旧对象 [0] + 存活的旧 peer [1]
-    int np[2]  = {-1, -1};   // 独立复用源：dup2(np[0]→fds[0])，[1] 是新 peer
+    /**
+     * close 目标：旧对象 [0] + 存活的旧 peer [1]
+     */
+    int fds[2] = {-1, -1};
+
+    /**
+     * 独立复用源：dup2(np[0]→fds[0])，[1] 是新 peer
+     */
+    int np[2] = {-1, -1};
     BOOST_REQUIRE_EQUAL(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
     BOOST_REQUIRE_EQUAL(::socketpair(AF_UNIX, SOCK_STREAM, 0, np), 0);
 
-    /* 新对象身份/数据判别预置：np[0] 自带 O_NONBLOCK，np[1] 预放 'N'。
+    /**
+     * 新对象身份/数据判别预置：np[0] 自带 O_NONBLOCK，np[1] 预放 'N'。
      * 旧 peer 侧 fds[1] 预放 'O'——close 后旧对象对新号不再可达，若
-     * 协议失效让旧等待被当新代准入，后续可观察到的是 np 的对象。 */
+     * 协议失效让旧等待被当新代准入，后续可观察到的是 np 的对象。
+     */
     const int fl_new_src = ::fcntl(np[0], F_GETFL, 0);
     BOOST_REQUIRE(fl_new_src >= 0);
     BOOST_REQUIRE_EQUAL(::fcntl(np[0], F_SETFL, fl_new_src | O_NONBLOCK), 0);
@@ -798,9 +765,16 @@ BOOST_AUTO_TEST_CASE(t_init_during_close_window_is_closed_not_admitted)
 
     std::mutex gate_mu;
     std::condition_variable gate_cv;
-    int gate = 0;  // 0=等 Begin 完成; 1=可做 Init; 2=Init 已回; 3=可做 Regist; 4=done
+
+    /**
+     * 0=等 Begin 完成; 1=可做 Init; 2=Init 已回; 3=可做 Regist; 4=done
+     */
+    int gate = 0;
     auto set_gate = [&](int v) {
-        { std::lock_guard<std::mutex> lk(gate_mu); gate = v; }
+        {
+            std::lock_guard<std::mutex> lk(gate_mu);
+            gate = v;
+        }
         gate_cv.notify_all();
     };
     auto wait_gate = [&](int v) -> bool {
@@ -808,86 +782,145 @@ BOOST_AUTO_TEST_CASE(t_init_during_close_window_is_closed_not_admitted)
         return gate_cv.wait_for(lk, std::chrono::seconds(5), [&] { return gate >= v; });
     };
 
-    /* 门超时语义：T_init 可能仍阻塞在 wait_gate 内、借用本用例栈上的
+    /**
+     * 门超时语义：T_init 可能仍阻塞在 wait_gate 内、借用本用例栈上的
      * gate/event。此时展开栈继续跑后续用例会 UAF，所以 gate_ready
      * 为 false 时直接 BOOST_ERROR+abort——进程死在借用释放之前，
-     * 而不是假装「已清理」。std::thread 析构 terminate 同理不算清理。 */
+     * 而不是假装「已清理」。std::thread 析构 terminate 同理不算清理。
+     */
     std::atomic_bool gate_broken{false};
     auto stop_on_timeout = [&](const char* what) -> void {
         gate_broken.store(true, std::memory_order_release);
-        { std::lock_guard<std::mutex> lk(gate_mu); gate = 99; }
-        gate_cv.notify_all();   // 放行仍在门内的 T_init，让它尽快自然退出
-        BOOST_ERROR("close-window handshake timed out at " << what
-                    << "; aborting before borrowed stack unwinds");
+        {
+            std::lock_guard<std::mutex> lk(gate_mu);
+            gate = 99;
+        }
+
+        /**
+         * 放行仍在门内的 T_init，让它尽快自然退出
+         */
+        gate_cv.notify_all();
+        BOOST_ERROR("close-window handshake timed out at " << what << "; aborting before borrowed stack unwinds");
         std::abort();
     };
 
     std::atomic_int init_ret{-99};
     std::atomic_int regist_ret{-99};
-    std::atomic_int worker_phase{0};   // T_init 推进到的阶段（排障用）
+
+    /**
+     * T_init 推进到的阶段（排障用）
+     */
+    std::atomic_int worker_phase{0};
     std::thread t_init([&] {
-        if (!wait_gate(1)) { init_ret.store(-2); return; }
-        /* 在 主线程已 claim closing、底层 close 未返回时建立等待——
-         * 这正是被复用的同号新对象上看不见旧代的窗口。 */
+        if (!wait_gate(1)) {
+            init_ret.store(-2);
+            return;
+        }
+
+        /**
+         * 在 主线程已 claim closing、底层 close 未返回时建立等待——
+         * 这正是被复用的同号新对象上看不见旧代的窗口。
+         */
         init_ret.store(event->InitFdEvent(fds[0], bbt::pollevent::EventOpt::READABLE, 0));
         worker_phase.store(1, std::memory_order_release);
         set_gate(2);
-        if (!wait_gate(3)) { regist_ret.store(-2); return; }
+        if (!wait_gate(3)) {
+            regist_ret.store(-2);
+            return;
+        }
         regist_ret.store(event->Regist());
         worker_phase.store(2, std::memory_order_release);
         set_gate(4);
     });
 
-    /* 线程与门的 RAII 兜底：任何早退（含下面哪一步意外失败）都先放行
-     * 并 join，不把仍 joinable 的 std::thread 留给析构 terminate。 */
+    /**
+     * 线程与门的 RAII 兜底：任何早退（含下面哪一步意外失败）都先放行
+     * 并 join，不把仍 joinable 的 std::thread 留给析构 terminate。
+     */
     struct ThreadJoinGuard {
         std::thread& t;
         std::function<void(int)> release;
-        ~ThreadJoinGuard() {
-            if (!t.joinable()) return;
+        ~ThreadJoinGuard()
+        {
+            if (!t.joinable())
+                return;
             release(99);
             t.join();
         }
     } join_guard{t_init, set_gate};
 
-    const bool begin_ok = CoPollEvent::BeginFdClose(fds[0]);  // claim + 推进 epoch + closing
+    /**
+     * claim + 推进 epoch + closing
+     */
+    const bool begin_ok = CoPollEvent::BeginFdClose(fds[0]);
     set_gate(1);
-    bool gate_ready = begin_ok && wait_gate(2);               // Init 已在 closing 窗口内完成采样
+
+    /**
+     * Init 已在 closing 窗口内完成采样
+     */
+    bool gate_ready = begin_ok && wait_gate(2);
     if (!gate_ready)
         stop_on_timeout("BeginFdClose/InitFdEvent");
 
-    /* Hook_Close 内层真正的 close（单次 raw syscall，不经公开 Hook_Close） */
+    /**
+     * Hook_Close 内层真正的 close（单次 raw syscall，不经公开 Hook_Close）
+     */
     if (::syscall(SYS_close, fds[0]) != 0)
         stop_on_timeout("raw close");
 
-    /* 立即在同号上放一个独立新对象——窗口内该 fd 数字已物理换代，
+    /**
+     * 立即在同号上放一个独立新对象——窗口内该 fd 数字已物理换代，
      * close 之后这个数字不再指向旧对象。注意旧端点并未因此「物理死
      * 亡」：底层 Event 若已用私有 dup 持有旧 open file description（旧
      * peer fds[1] 也仍活着），它照样可能就绪；但那不使本次等待对新代
-     * 有效。 */
+     * 有效。
+     */
     if (::dup2(np[0], fds[0]) != fds[0])
         stop_on_timeout("dup2(np[0]->fds[0])");
 
-    CoPollEvent::EndFdClose(fds[0]);                     // 解 closing；新对象属新一代
+    /**
+     * 解 closing；新对象属新一代
+     */
+    CoPollEvent::EndFdClose(fds[0]);
     set_gate(3);
     if (!wait_gate(4))
         stop_on_timeout("Regist");
 
     t_init.join();
-    join_guard.release = [](int){};                      // 已 join，守卫不再动作
+    join_guard.release = [](int) {
+        /**
+         * 已 join，守卫不再动作
+         */
+    };
 
-    /* 行为断言（修复后）：Init 成功建立等待（0），但 Regist 不得把建立于
+    /**
+     * 行为断言（修复后）：Init 成功建立等待（0），但 Regist 不得把建立于
      * 旧代的等待准入为新代有效等待——事件应被锁存为 CLOSED 首胜，由
-     * CommitPark 消费 PENDING 后唯一完成，且绝不进入 waiters 表。 */
+     * CommitPark 消费 PENDING 后唯一完成，且绝不进入 waiters 表。
+     */
     BOOST_CHECK_EQUAL(worker_phase.load(std::memory_order_acquire), 2);
     BOOST_CHECK_EQUAL(init_ret.load(), 0);
-    BOOST_CHECK_EQUAL(regist_ret.load(), 0);   // Regist 语义为「建立完成」，非「等待有效」
-    BOOST_CHECK_EQUAL(CoPollEvent::FdWaiterCount(fds[0]), 0);  // 未登记到新代 waiters
-    BOOST_CHECK_EQUAL(event->GetStatus(), POLLEVENT_TRIGGER);  // PENDING → 对外映射 TRIGGER
 
-    /* 新对象身份判别：fds[0] 现在是 np[0] 的承载体——应自带 O_NONBLOCK，
+    /**
+     * Regist 语义为「建立完成」，非「等待有效」
+     */
+    BOOST_CHECK_EQUAL(regist_ret.load(), 0);
+
+    /**
+     * 未登记到新代 waiters
+     */
+    BOOST_CHECK_EQUAL(CoPollEvent::FdWaiterCount(fds[0]), 0);
+
+    /**
+     * PENDING → 对外映射 TRIGGER
+     */
+    BOOST_CHECK_EQUAL(event->GetStatus(), POLLEVENT_TRIGGER);
+
+    /**
+     * 新对象身份判别：fds[0] 现在是 np[0] 的承载体——应自带 O_NONBLOCK，
      * 且读到的是新 peer 预放的 'N'（MSG_DONTWAIT，无数据不挂）。这组
-     * 断言同时证明 dup2 落在正确数字上、旧 'O' 没有混到新对象里。 */
+     * 断言同时证明 dup2 落在正确数字上、旧 'O' 没有混到新对象里。
+     */
     const int fl_now = ::fcntl(fds[0], F_GETFL, 0);
     BOOST_REQUIRE(fl_now >= 0);
     BOOST_CHECK(fl_now & O_NONBLOCK);
@@ -895,17 +928,33 @@ BOOST_AUTO_TEST_CASE(t_init_during_close_window_is_closed_not_admitted)
     BOOST_REQUIRE_EQUAL(::recv(fds[0], &seen, 1, MSG_DONTWAIT), 1);
     BOOST_CHECK_EQUAL(seen, new_byte);
 
-    BOOST_REQUIRE(event->CommitPark());        // 消费锁存的 CLOSED 首胜
+    /**
+     * 消费锁存的 CLOSED 首胜
+     */
+    BOOST_REQUIRE(event->CommitPark());
     BOOST_CHECK_EQUAL(callback_count.load(std::memory_order_acquire), 1);
     BOOST_CHECK_EQUAL(callback_flags.load(std::memory_order_acquire), POLL_EVENT_CLOSED);
     BOOST_CHECK(event->IsFinal());
     BOOST_CHECK_EQUAL(event->GetStatus(), POLLEVENT_FINAL);
-    BOOST_CHECK_EQUAL(event->Trigger(POLL_EVENT_CUSTOM), -1);   // 唯一完成，二次触发拒绝
+
+    /**
+     * 唯一完成，二次触发拒绝
+     */
+    BOOST_CHECK_EQUAL(event->Trigger(POLL_EVENT_CUSTOM), -1);
 
     ::close(np[0]);
     ::close(np[1]);
-    ::close(fds[1]);                          // 旧 peer 收尾
-    if (::fcntl(fds[0], F_GETFD) >= 0) ::close(fds[0]);   // 新对象收尾
+
+    /**
+     * 旧 peer 收尾
+     */
+    ::close(fds[1]);
+
+    /**
+     * 新对象收尾
+     */
+    if (::fcntl(fds[0], F_GETFD) >= 0)
+        ::close(fds[0]);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

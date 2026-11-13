@@ -12,16 +12,17 @@ int main()
 
     auto pool = bbtco_make_copool(100);
 
-    bbtco [&](){
+    bbtco[&]()
+    {
         for (int i = 0; i < nsum_co; ++i) {
-            pool->Submit([&](){ l.Down(); });
+            pool->Submit([&]() { l.Down(); });
         }
     };
 
     l.Wait();
 
-
-    /* process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出 */
+    /**
+     * process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出
+     */
     printf("time cost: %ldms\n", bbt::core::clock::gettime() - begin);
-
 }

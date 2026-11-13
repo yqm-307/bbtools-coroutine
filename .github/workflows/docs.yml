@@ -1,0 +1,122 @@
+# bbtools-coroutine API 文档导出：一次 Doxygen 解析，同时产出两份文档（入口 scripts/docs/build_docs.sh，本地同样可跑）。
+#   人看：Doxygen HTML（Doxygen Awesome 主题），发布到 GitHub Pages 根；
+#   AI 看：分层 Markdown（L0 index.md → L1 modules → L2 symbols，渐进式披露），
+#          随 Pages 发布在 /ai/，同时作为 artifact `ai-docs` 可下载。
+# 触发：
+#   - main 上的 CI 成功后（workflow_run）：构建 + 发布 Pages（“每次 CI 完之后自动导出”）；
+#   - 相关 PR：只构建并报告，不发布；
+#   - 手动：只构建。
+# 缺注释的 Doxygen 告警当前只报告不阻断；转为门禁时在 build 步骤加 DOCS_WERROR: 1。
+# 前置（仓库设置，非本文件可配置）：Settings → Pages → Source 选 “GitHub Actions”，否则 deploy 作业会失败。
+# 安全：ubuntu-24.04；顶层 permissions: {}；uses 全 40-hex SHA pin；persist-credentials: false；
+#       workflow_run 只处理 main 的 push 触发且 CI 成功的运行，检出的是该运行的 head_sha。
+name: Docs
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "bbt/**"
+      - "scripts/docs/**"
+      - ".github/workflows/docs.yml"
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+concurrency:
+  # PR 只保留最新一次；main 的发布排队、不取消，保证最后一次成功的 CI 对应的文档会发布。
+  group: docs-${{ github.event_name == 'pull_request' && github.ref || 'main' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+env:
+  # 工具版本固定：Doxygen 输出随版本变化，不用 runner 自带版本（apt 的 1.9.8 与本地验证的 1.15.0 XML 不同）。
+  DOXYGEN_VERSION: "1.15.0"
+  DOXYGEN_SHA256: "0ec2e5b2c3cd82b7106d19cb42d8466450730b8cb7a9e85af712be38bf4523a1"
+  # Doxygen Awesome v2.4.2
+  DOXYGEN_AWESOME_TAG: "v2.4.2"
+  DOXYGEN_AWESOME_SHA: "d52eafe3e9303399fda15661f3d7bb8fe3d7eabc"
+jobs:
+  build:
+    name: "导出文档"
+    if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: "拉取代码库"
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false
+      - name: "安装 graphviz（类图）"
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends graphviz
+      - name: "安装固定版本 Doxygen（校验 sha256）"
+        run: |
+          set -euo pipefail
+          url="https://github.com/doxygen/doxygen/releases/download/Release_${DOXYGEN_VERSION//./_}/doxygen-${DOXYGEN_VERSION}.linux.bin.tar.gz"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/doxygen.tar.gz" "$url"
+          echo "${DOXYGEN_SHA256}  $RUNNER_TEMP/doxygen.tar.gz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/doxygen"
+          tar -xzf "$RUNNER_TEMP/doxygen.tar.gz" -C "$RUNNER_TEMP/doxygen" --strip-components=1
+          echo "$RUNNER_TEMP/doxygen/bin" >> "$GITHUB_PATH"
+      - name: "获取固定版本 Doxygen Awesome 主题（校验 commit）"
+        run: |
+          set -euo pipefail
+          git clone -q --depth 1 --branch "$DOXYGEN_AWESOME_TAG" https://github.com/jothepro/doxygen-awesome-css.git "$RUNNER_TEMP/awesome"
+          test "$(git -C "$RUNNER_TEMP/awesome" rev-parse HEAD)" = "$DOXYGEN_AWESOME_SHA"
+      - name: "导出人类版 HTML + AI 版 Markdown"
+        env:
+          DOCS_OUT: ${{ runner.temp }}/docs
+          DOXYGEN_AWESOME_CSS: ${{ runner.temp }}/awesome/doxygen-awesome.css
+        run: scripts/docs/build_docs.sh
+      - name: "写入摘要（说明覆盖率与告警数）"
+        env:
+          DOCS_OUT: ${{ runner.temp }}/docs
+        run: |
+          set -euo pipefail
+          python3 -I - >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          import json, os, pathlib
+          out = pathlib.Path(os.environ["DOCS_OUT"])
+          cov = json.loads((out / "ai/manifest.json").read_text())["coverage"]
+          warn = sum(1 for _ in (out / "warnings.log").open())
+          print("### API 文档导出")
+          print(f"- 说明覆盖：{cov['documented']} / {cov['total']}（{100 * cov['documented'] // max(cov['total'], 1)}%）")
+          print(f"- Doxygen 告警：{warn} 条（当前只报告，不阻断）")
+          print("- AI 版入口：`ai/index.md`（随 Pages 发布在 `/ai/`，也可下载 artifact `ai-docs`）")
+          EOF
+      - name: "上传 AI 版与告警日志"
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ai-docs
+          path: |
+            ${{ runner.temp }}/docs/ai
+            ${{ runner.temp }}/docs/warnings.log
+          retention-days: 30
+          if-no-files-found: error
+      - name: "上传 Pages 站点"
+        if: ${{ github.event_name == 'workflow_run' }}
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9
+        with:
+          path: ${{ runner.temp }}/docs/site
+
+  deploy:
+    name: "发布 Pages"
+    needs: build
+    if: ${{ github.event_name == 'workflow_run' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: "部署到 GitHub Pages"
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346

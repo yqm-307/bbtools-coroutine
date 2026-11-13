@@ -1,4 +1,5 @@
-/** @file StackPoolAllocation.cc
+/**
+ * @file StackPoolAllocation.cc
  * @brief 精确栈预算与维护流交付；不拥有线程或独立分配器。
  */
 #include <bbt/coroutine/detail/StackPool.hpp>
@@ -12,23 +13,17 @@
 
 namespace bbt::coroutine::detail {
 
-void StackReturner::operator()(Stack* stack) const noexcept {
-    if (stack != nullptr)
-        pool->Release(stack);
-}
-
-StackWaitError::StackWaitError(WaitStatus status)
-    : std::runtime_error("coroutine stack acquisition interrupted"), m_status(status) {}
-
-WaitStatus StackWaitError::Status() const noexcept {
-    return m_status;
-}
-
 struct StackPool::Allocation {
     Allocation(StackPool* owner, BucketKey bucket_key)
-        : pool(owner), key(bucket_key), lease(nullptr, StackReturner{owner}) {}
-    ~Allocation() {
-        // 请求共享保活，栈本身始终独占；最后一个 owner 兜底撤销未交付的预留。
+        : pool(owner), key(bucket_key), lease(nullptr, StackReturner{owner})
+    {
+    }
+    ~Allocation()
+    {
+
+        /**
+         * 请求共享保活，栈本身始终独占；最后一个 owner 兜底撤销未交付的预留。
+         */
         if (reserved) {
             std::lock_guard<std::mutex> lock(pool->m_mutex);
             pool->_RollbackLocked(key);
@@ -45,16 +40,18 @@ struct StackPool::Allocation {
 };
 
 namespace {
-StackRequest NormalizeRequest(StackRequest request) {
+StackRequest NormalizeRequest(StackRequest request)
+{
     request.usable_bytes = Stack::NormalizeSize(request.usable_bytes);
-    if (request.protect && request.usable_bytes >
-                               static_cast<size_t>(std::numeric_limits<std::ptrdiff_t>::max()) - getpagesize())
+    if (request.protect
+        && request.usable_bytes > static_cast<size_t>(std::numeric_limits<std::ptrdiff_t>::max()) - getpagesize())
         throw std::length_error("coroutine stack guard page size overflow");
     return request;
 }
-} // namespace
+}
 
-StackConfig StackPool::ValidateConfig(const StackConfig& config, StackRequest default_stack) {
+StackConfig StackPool::ValidateConfig(const StackConfig& config, StackRequest default_stack)
+{
     auto result = config;
     default_stack = NormalizeRequest(default_stack);
     if (result.policy == StackPolicy::Strict) {
@@ -70,9 +67,9 @@ StackConfig StackPool::ValidateConfig(const StackConfig& config, StackRequest de
             const size_t size = key.first;
             if (!count || !keys.emplace(key, count).second)
                 throw std::invalid_argument("duplicate or empty Strict stack class");
-            if (count > std::numeric_limits<size_t>::max() / size ||
-                objects > std::numeric_limits<size_t>::max() - count ||
-                bytes > std::numeric_limits<size_t>::max() - count * size)
+            if (count > std::numeric_limits<size_t>::max() / size
+                || objects > std::numeric_limits<size_t>::max() - count
+                || bytes > std::numeric_limits<size_t>::max() - count * size)
                 throw std::length_error("Strict stack budget overflow");
             objects += count;
             bytes += count * size;
@@ -81,8 +78,8 @@ StackConfig StackPool::ValidateConfig(const StackConfig& config, StackRequest de
         if (!found_default)
             throw std::invalid_argument("default stack class missing from Strict budget");
     } else if (result.policy == StackPolicy::Auto) {
-        if (!result.strict_classes.empty() || !result.auto_max_objects ||
-            !result.auto_max_usable_bytes || default_stack.usable_bytes > result.auto_max_usable_bytes)
+        if (!result.strict_classes.empty() || !result.auto_max_objects || !result.auto_max_usable_bytes
+            || default_stack.usable_bytes > result.auto_max_usable_bytes)
             throw std::invalid_argument("invalid Auto stack budget");
     } else {
         throw std::invalid_argument("invalid stack policy");
@@ -90,14 +87,18 @@ StackConfig StackPool::ValidateConfig(const StackConfig& config, StackRequest de
     return result;
 }
 
-void StackPool::Configure(const StackConfig& config, StackRequest default_stack) {
+void StackPool::Configure(const StackConfig& config, StackRequest default_stack)
+{
     auto validated = ValidateConfig(config, default_stack);
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         if (m_borrowed_count || m_pending_count)
             throw std::logic_error("stack policy cannot change with outstanding stacks");
     }
-    // 启动前旧预热缓存不占新预算；先完成值校验，最后以 noexcept move 提交策略。
+
+    /**
+     * 启动前旧预热缓存不占新预算；先完成值校验，最后以 noexcept move 提交策略。
+     */
     ReleaseUnused();
     std::lock_guard<std::mutex> lock(m_mutex);
     if (m_borrowed_count || m_pending_count)
@@ -106,58 +107,96 @@ void StackPool::Configure(const StackConfig& config, StackRequest default_stack)
     m_legacyLimit = false;
 }
 
-StackPoolSnapshot StackPool::Observe() const {
+StackPoolSnapshot StackPool::Observe() const
+{
     std::lock_guard<std::mutex> lock(m_mutex);
-    return {m_live_count, m_borrowed_count, m_live_count - m_borrowed_count,
+    return {m_live_count,    m_borrowed_count, m_live_count - m_borrowed_count,
             m_pending_count, m_committedBytes, m_pendingBytes};
 }
 
-bool StackPool::CanAdmit(StackRequest request, size_t count) const {
+bool StackPool::CanAdmit(StackRequest request, size_t count) const
+{
     request.usable_bytes = Stack::NormalizeSize(request.usable_bytes);
     if (count == 0)
         return false;
     const BucketKey key{request.usable_bytes, request.protect};
     std::lock_guard<std::mutex> lock(m_mutex);
-    size_t held_objects = 0, held_pending = 0;
+    size_t held_objects = 0, held_idle = 0, held_borrowed = 0, held_pending = 0;
     const auto bucket = m_buckets.find(key);
     if (bucket != m_buckets.end()) {
         held_objects = bucket->second->live;
+        held_idle = bucket->second->idle;
+        held_borrowed = bucket->second->borrowed;
         held_pending = bucket->second->pending;
     }
     if (m_policy.policy == StackPolicy::Strict) {
-        const auto declared = std::find_if(m_policy.strict_classes.begin(), m_policy.strict_classes.end(),
-                                           [&key](const StackClassLimit& limit) {
-                                               return BucketKey{limit.request.usable_bytes, limit.request.protect} == key;
-                                           });
+        const auto declared = std::find_if(
+            m_policy.strict_classes.begin(), m_policy.strict_classes.end(), [&key](const StackClassLimit& limit) {
+                return BucketKey{limit.request.usable_bytes, limit.request.protect} == key;
+            });
         if (declared == m_policy.strict_classes.end())
             return false;
-        const size_t used = held_objects + held_pending;
-        return used < declared->max_objects && declared->max_objects - used >= count;
+        if (held_objects < held_borrowed || held_borrowed > declared->max_objects
+            || held_pending > declared->max_objects - held_borrowed)
+            return false;
+        return count <= declared->max_objects - held_borrowed - held_pending;
     }
-    // Auto 与兼容默认入口共用真实预算口径；只读，不回收 idle、不改计数。
-    const size_t objects = m_legacyLimit ? g_bbt_coroutine_config->RuntimeSnapshot().max_coroutine
-                                         : m_policy.auto_max_objects;
-    const size_t used = (m_legacyLimit ? m_borrowed_count : m_live_count) + m_pending_count;
-    if (used >= objects || objects - used < count)
+
+    /**
+     * Auto 与兼容默认入口共用真实预算口径；只读，不回收 idle、不改计数。
+     */
+    const size_t objects =
+        m_legacyLimit ? g_bbt_coroutine_config->RuntimeSnapshot().max_coroutine : m_policy.auto_max_objects;
+    if (m_borrowed_count > objects || m_pending_count > objects - m_borrowed_count)
         return false;
-    const size_t free_bytes = m_policy.auto_max_usable_bytes - m_committedBytes - m_pendingBytes;
-    return free_bytes / key.first >= count;
+    const size_t used = m_borrowed_count + m_pending_count;
+    if (count > objects - used)
+        return false;
+
+    size_t idle_bytes = 0;
+    for (const auto& [idle_key, idle_bucket] : m_buckets) {
+        if (idle_key.first != 0 && idle_bucket->idle > std::numeric_limits<size_t>::max() / idle_key.first)
+            return false;
+        const size_t bucket_idle_bytes = idle_bucket->idle * idle_key.first;
+        if (idle_bytes > std::numeric_limits<size_t>::max() - bucket_idle_bytes)
+            return false;
+        idle_bytes += bucket_idle_bytes;
+    }
+    if (key.first != 0 && held_idle > std::numeric_limits<size_t>::max() / key.first)
+        return false;
+    const size_t reusable_idle_bytes = held_idle * key.first;
+    if (reusable_idle_bytes > idle_bytes || idle_bytes - reusable_idle_bytes > m_committedBytes)
+        return false;
+    const size_t needed_new = count > held_idle ? count - held_idle : 0;
+    const size_t object_needed = m_legacyLimit ? count : needed_new;
+    if (object_needed > objects - used)
+        return false;
+
+    const size_t reclaimed_idle_bytes = idle_bytes - reusable_idle_bytes;
+    const size_t retained_bytes = m_committedBytes - reclaimed_idle_bytes;
+    if (retained_bytes > m_policy.auto_max_usable_bytes
+        || m_pendingBytes > m_policy.auto_max_usable_bytes - retained_bytes)
+        return false;
+    const size_t free_bytes = m_policy.auto_max_usable_bytes - retained_bytes - m_pendingBytes;
+    return free_bytes / key.first >= needed_new;
 }
 
-bool StackPool::_FitsLocked(const BucketKey& key, Bucket* bucket) const {
+bool StackPool::_FitsLocked(const BucketKey& key, StackBucket* bucket) const
+{
     if (m_policy.policy == StackPolicy::Strict) {
         for (const auto& limit : m_policy.strict_classes)
             if (BucketKey{limit.request.usable_bytes, limit.request.protect} == key)
                 return bucket->live + bucket->pending < limit.max_objects;
         return false;
     }
-    const size_t objects = m_legacyLimit ? g_bbt_coroutine_config->RuntimeSnapshot().max_coroutine : m_policy.auto_max_objects;
+    const size_t objects =
+        m_legacyLimit ? g_bbt_coroutine_config->RuntimeSnapshot().max_coroutine : m_policy.auto_max_objects;
     const size_t used = (m_legacyLimit ? m_borrowed_count : m_live_count) + m_pending_count;
-    return used < objects &&
-           key.first <= m_policy.auto_max_usable_bytes - m_committedBytes - m_pendingBytes;
+    return used < objects && key.first <= m_policy.auto_max_usable_bytes - m_committedBytes - m_pendingBytes;
 }
 
-std::shared_ptr<StackPool::Allocation> StackPool::_Prepare(StackRequest request) {
+std::shared_ptr<StackPool::Allocation> StackPool::_Prepare(StackRequest request)
+{
     request = NormalizeRequest(request);
     const BucketKey key{request.usable_bytes, request.protect};
     auto allocation = std::make_shared<Allocation>(this, key);
@@ -165,14 +204,15 @@ std::shared_ptr<StackPool::Allocation> StackPool::_Prepare(StackRequest request)
         Stack* discard = nullptr;
         {
             std::lock_guard<std::mutex> lock(m_mutex);
-            if (m_legacyLimit && m_borrowed_count + m_pending_count >=
-                                     g_bbt_coroutine_config->RuntimeSnapshot().max_coroutine)
+            if (m_legacyLimit
+                && m_borrowed_count + m_pending_count >= g_bbt_coroutine_config->RuntimeSnapshot().max_coroutine)
                 return nullptr;
             if (m_policy.policy == StackPolicy::Strict) {
-                const auto declared = std::find_if(m_policy.strict_classes.begin(), m_policy.strict_classes.end(),
-                                                   [&key](const StackClassLimit& limit) {
-                                                       return BucketKey{limit.request.usable_bytes, limit.request.protect} == key;
-                                                   });
+                const auto declared =
+                    std::find_if(m_policy.strict_classes.begin(), m_policy.strict_classes.end(),
+                                 [&key](const StackClassLimit& limit) {
+                                     return BucketKey{limit.request.usable_bytes, limit.request.protect} == key;
+                                 });
                 if (declared == m_policy.strict_classes.end())
                     return nullptr;
             }
@@ -194,7 +234,10 @@ std::shared_ptr<StackPool::Allocation> StackPool::_Prepare(StackRequest request)
                 return allocation;
             }
             _EraseBucketIfEmptyLocked(key, bucket);
-            // Auto 只有预算压力时逐个摘 idle；精确桶永远不向大桶借栈。
+
+            /**
+             * Auto 只有预算压力时逐个摘 idle；精确桶永远不向大桶借栈。
+             */
             if (m_policy.policy == StackPolicy::Auto)
                 discard = _TakeIdleLocked();
         }
@@ -204,7 +247,8 @@ std::shared_ptr<StackPool::Allocation> StackPool::_Prepare(StackRequest request)
     }
 }
 
-void StackPool::_RollbackLocked(const BucketKey& key) {
+void StackPool::_RollbackLocked(const BucketKey& key)
+{
     auto* bucket = m_buckets.at(key).get();
     --bucket->pending;
     --m_pending_count;
@@ -212,7 +256,8 @@ void StackPool::_RollbackLocked(const BucketKey& key) {
     _EraseBucketIfEmptyLocked(key, bucket);
 }
 
-void StackPool::_Allocate(const std::shared_ptr<Allocation>& allocation) noexcept {
+void StackPool::_Allocate(const std::shared_ptr<Allocation>& allocation) noexcept
+{
     {
         std::lock_guard<std::mutex> lock(allocation->mutex);
         if (allocation->cancelled)
@@ -234,7 +279,10 @@ void StackPool::_Allocate(const std::shared_ptr<Allocation>& allocation) noexcep
     } catch (...) {
         error = std::current_exception();
     }
-    // 取消与提交由请求锁仲裁；memalign/mprotect 不持请求锁或池锁。
+
+    /**
+     * 取消与提交由请求锁仲裁；memalign/mprotect 不持请求锁或池锁。
+     */
     {
         std::lock_guard<std::mutex> request_lock(allocation->mutex);
         {
@@ -269,7 +317,8 @@ void StackPool::_Allocate(const std::shared_ptr<Allocation>& allocation) noexcep
         allocation->waiter->Notify();
 }
 
-void StackPool::_Cancel(const std::shared_ptr<Allocation>& allocation) noexcept {
+void StackPool::_Cancel(const std::shared_ptr<Allocation>& allocation) noexcept
+{
     StackLease returned(nullptr, StackReturner{this});
     {
         std::lock_guard<std::mutex> request_lock(allocation->mutex);
@@ -277,19 +326,20 @@ void StackPool::_Cancel(const std::shared_ptr<Allocation>& allocation) noexcept 
         returned = std::move(allocation->lease);
         if (allocation->reserved && !allocation->allocating) {
             std::lock_guard<std::mutex> pool_lock(m_mutex);
-            m_allocations.erase(std::remove(m_allocations.begin(), m_allocations.end(), allocation), m_allocations.end());
+            m_allocations.erase(std::remove(m_allocations.begin(), m_allocations.end(), allocation),
+                                m_allocations.end());
             _RollbackLocked(allocation->key);
             allocation->reserved = false;
         }
     }
 }
 
-StackLease StackPool::Acquire(StackRequest request, const WaitOptions& wait) {
+StackLease StackPool::Acquire(StackRequest request, const WaitOptions& wait)
+{
     if (wait.deadline <= std::chrono::steady_clock::now())
         throw StackWaitError(WaitStatus::TimedOut);
     const auto processer = Processer::TryGetLocalProcesser();
-    if (processer && processer->GetCurrentCoroutine() &&
-        processer->GetCurrentCoroutine()->IsCancelRequested())
+    if (processer && processer->GetCurrentCoroutine() && processer->GetCurrentCoroutine()->IsCancelRequested())
         throw StackWaitError(WaitStatus::Cancelled);
     auto allocation = _Prepare(request);
     if (!allocation)
@@ -337,8 +387,12 @@ StackLease StackPool::Acquire(StackRequest request, const WaitOptions& wait) {
     return std::move(allocation->lease);
 }
 
-void StackPool::DrainAllocations() {
-    // 每拍一个，避免持续提交让维护流无限排空；不另建线程或通用任务平台。
+void StackPool::DrainAllocations()
+{
+
+    /**
+     * 每拍一个，避免持续提交让维护流无限排空；不另建线程或通用任务平台。
+     */
     std::shared_ptr<Allocation> allocation;
     {
         std::lock_guard<std::mutex> lock(m_mutex);
@@ -354,15 +408,18 @@ void StackPool::DrainAllocations() {
 std::atomic_bool StackPool::s_test_fail_post{false};
 std::atomic<void (*)()> StackPool::s_test_before_allocation{nullptr};
 std::atomic<void (*)()> StackPool::s_test_after_commit{nullptr};
-void StackPool::_TestFailNextPost() noexcept {
+void StackPool::_TestFailNextPost() noexcept
+{
     s_test_fail_post.store(true);
 }
-void StackPool::_TestBeforeAllocation(void (*hook)()) noexcept {
+void StackPool::_TestBeforeAllocation(void (*hook)()) noexcept
+{
     s_test_before_allocation.store(hook);
 }
-void StackPool::_TestAfterCommit(void (*hook)()) noexcept {
+void StackPool::_TestAfterCommit(void (*hook)()) noexcept
+{
     s_test_after_commit.store(hook);
 }
 #endif
 
-} // namespace bbt::coroutine::detail
+}

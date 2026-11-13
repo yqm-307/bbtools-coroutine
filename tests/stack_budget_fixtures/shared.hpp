@@ -7,12 +7,10 @@
 int CrossCallee(int);
 extern "C" int ThirdPartyOpaque(int);
 
-struct StackBudgetOperation
-{
+struct StackBudgetOperation {
     virtual int Run(int) = 0;
 };
 
-struct StackBudgetConcrete : StackBudgetOperation
-{
+struct StackBudgetConcrete : StackBudgetOperation {
     int Run(int value) override { return value + 17; }
 };

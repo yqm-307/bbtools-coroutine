@@ -10,15 +10,16 @@ void FixSizeChan()
 
     /**
      * 展示了chan的基本用法和特征。
-     * 
+     *
      * 需要注意读写都可能导致当前协程挂起。
-     * 
+     *
      * 读挂起：当chan中没有可读数据时，当前协程会挂起，直到有可读数据。
      * 写挂起：当chan中没有可写空间时，当前协程会挂起，直到有可写空间。
-     * 
+     *
      */
 
-    bbtco_ref {
+    bbtco_ref
+    {
         printf("co_%lu write time<%ld>\n", bbt::co::GetLocalCoroutineId(), bbt::core::clock::gettime<>());
         chan << 1;
         printf("co_%lu write succ time<%ld>\n", bbt::co::GetLocalCoroutineId(), bbt::core::clock::gettime<>());
@@ -31,43 +32,45 @@ void FixSizeChan()
         printf("co_%lu write succ time<%ld>\n", bbt::co::GetLocalCoroutineId(), bbt::core::clock::gettime<>());
     };
 
-    bbtco_ref {
+    bbtco_ref
+    {
         bbtco_sleep(100);
         int value = 0;
         printf("co_%lu read time<%ld>\n", bbt::co::GetLocalCoroutineId(), bbt::core::clock::gettime<>());
         chan >> value;
-        printf("co_%lu read succ time<%ld>, value: %d\n", bbt::co::GetLocalCoroutineId(), bbt::core::clock::gettime<>(), value);
+        printf("co_%lu read succ time<%ld>, value: %d\n", bbt::co::GetLocalCoroutineId(), bbt::core::clock::gettime<>(),
+               value);
     };
 
     sleep(1);
-
 }
 
 void MultiWrite()
 {
     /**
      * chan多写挂起：
-     * 
+     *
      * 对一个满的chan进行的写会导致全部挂起，唤醒不保证顺序，随机唤醒
      */
     auto chan = sync::Chan<int, 1>{};
 
-    for (int i = 0; i < 5; ++i)
-    {
-        bbtco_ref {
+    for (int i = 0; i < 5; ++i) {
+        bbtco_ref
+        {
             printf("co_%lu write time<%ld>\n", bbt::co::GetLocalCoroutineId(), bbt::core::clock::gettime<>());
             chan << 1;
             printf("co_%lu write succ time<%ld>\n", bbt::co::GetLocalCoroutineId(), bbt::core::clock::gettime<>());
         };
     }
 
-    bbtco_ref {
+    bbtco_ref
+    {
         bbtco_sleep(200);
-        for (int i = 0; i < 5; ++i)
-        {
+        for (int i = 0; i < 5; ++i) {
             int value = 0;
             chan >> value;
-            printf("co_%lu read succ time<%ld>, value: %d\n", bbt::co::GetLocalCoroutineId(), bbt::core::clock::gettime<>(), value);
+            printf("co_%lu read succ time<%ld>, value: %d\n", bbt::co::GetLocalCoroutineId(),
+                   bbt::core::clock::gettime<>(), value);
         }
     };
 
@@ -77,16 +80,23 @@ void MultiWrite()
 void CloseNotify()
 {
 
-    // 创建一个协程
-    bbtco [](){
+    /**
+     * 创建一个协程
+     */
+    bbtco[]()
+    {
         sync::Chan<char, 0> c;
-        // 创建协程写入并关闭，此时会唤醒阻塞在Read操作上的协程
-        bbtco_ref {
+
+        /**
+         * 创建协程写入并关闭，此时会唤醒阻塞在Read操作上的协程
+         */
+        bbtco_ref
+        {
             printf("co2 beg %ld\n", bbt::core::clock::gettime<>());
 
             /**
              * 保证read操作已经挂起
-             * 
+             *
              * close后会将所有挂起的读操作唤醒，
              * 并且会将所有挂起的写操作唤醒。
              */
@@ -95,11 +105,12 @@ void CloseNotify()
             printf("co2 close chan end %ld\n", bbt::core::clock::gettime<>());
         };
 
-        bbtco_ref {
+        bbtco_ref
+        {
             printf("co3 beg %ld\n", bbt::core::clock::gettime<>());
             /**
              * 读取一个字符，挂起直到关闭或者可读
-             * 
+             *
              * 注意：如果没有可读元素，Read会挂起当前协程，
              * 直到有可读元素或者chan被关闭。
              */
@@ -119,27 +130,33 @@ void CloseNotify()
 
 void NoCacheChan()
 {
-    // 创建一个无缓存的chan
+    /**
+     * 创建一个无缓存的chan
+     */
     auto chan = sync::Chan<int, 0>{};
 
-    bbtco_ref {
+    bbtco_ref
+    {
         printf("co_%lu write time<%ld>\n", bbt::co::GetLocalCoroutineId(), bbt::core::clock::gettime<>());
         chan << 1;
         printf("co_%lu write succ time<%ld>\n", bbt::co::GetLocalCoroutineId(), bbt::core::clock::gettime<>());
     };
 
-    bbtco_ref {
+    bbtco_ref
+    {
         sleep(100);
         int value = 0;
         printf("co_%lu read time<%ld>\n", bbt::co::GetLocalCoroutineId(), bbt::core::clock::gettime<>());
         chan >> value;
-        printf("co_%lu read succ time<%ld>, value: %d\n", bbt::co::GetLocalCoroutineId(), bbt::core::clock::gettime<>(), value);
+        printf("co_%lu read succ time<%ld>, value: %d\n", bbt::co::GetLocalCoroutineId(), bbt::core::clock::gettime<>(),
+               value);
     };
 
     sleep(1);
 }
 
-int bbtco_main() {
+int bbtco_main()
+{
     printf("=============== fixsize chan ================\n");
     FixSizeChan();
     printf("=============== multi write chan ================\n");
@@ -148,7 +165,10 @@ int bbtco_main() {
     CloseNotify();
     printf("=============== no cache chan ================\n");
     NoCacheChan();
-    /* process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出 */
+
+    /**
+     * process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出
+     */
     return 0;
 }
 

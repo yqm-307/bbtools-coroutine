@@ -1,0 +1,3 @@
+[submodule "third-party/bbtools-pub"]
+	path = third-party/bbtools-pub
+	url = https://github.com/yqm-307/bbtools-pub.git

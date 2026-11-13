@@ -1,6 +1,14 @@
-# 三仓共用编码与维护规范
+# bbtools-coroutine 本仓开发细则
 
-本规范供 `bbt-framework`、`bbtools-infra`、`bbtools-coroutine` 逐字复用。仓库现有实现风格与本规范冲突时，不做无关格式化或重命名；新增代码采用以下约定，明确的架构边界与安全约束优先。`.clang-format` 是 C++ 格式细则的唯一真源，本文件不展开其参数。
+跨仓公共设计、编码、Review 与用例规则以 `third-party/bbtools-pub/README.md` 及其职责入口为真源；本文件保留 coroutine 的生命周期、API、示例、测试、CI 和发布细则。仓库现有实现风格与本规范冲突时，不做无关格式化或重命名；新增代码采用以下约定，明确的架构边界与安全约束优先。`.clang-format` 是 C++ 格式细则的唯一真源，本文件不展开其参数。本文已有的通用条款作为本仓兼容入口保留；与 pub 重叠时以 pub 的当前正文为基线，本仓特有约束以本文为准。
+
+## 共用规范入口
+
+- 设计：`third-party/bbtools-pub/docs/10-design/README.md`
+- 编码与文档：`third-party/bbtools-pub/docs/20-coding/README.md`
+- Review：`third-party/bbtools-pub/docs/30-review/README.md`
+- 用例设计：`third-party/bbtools-pub/docs/40-testcase/README.md`
+- 本仓实现与验证：本文及 `docs/guides/`、`docs/architecture/`
 
 ## 1. 命名
 
@@ -26,7 +34,7 @@ cmake/                 CMake 模块
 
 - 根目录保留各仓入口文件（如 `AGENTS.md`、`README.md`、`CMakeLists.txt`、`.clang-format`、`.editorconfig`、`.gitignore`）。新目录按上表归类，不另建工具工作流或任务状态目录。
 - 现有目录在本轮按已定迁移边界处理：coroutine 的 `unit_test/`、`example/`、`benchmark_test/` 已迁至 `tests/`、`examples/`、`benchmarks/`；framework 的 `framework/` 与 infra 的 `include/`、`src/` 暂不改名。不要把目标布局解释为要求一次性移动所有旧文件。
-- 每个公开类原则上由独立 `.hpp` 声明；有非内联实现时配对 `.cc`。接口抽象放 `interface/` 子目录，纯虚基类使用 `I` 前缀；头文件用 `#pragma once`。目录层级与命名空间保持一致。
+- 每个公开类原则上由独立 `.hpp` 声明；有非内联实现时配对 `.cc`。非模板有状态类的成员实现放配对 `.cc`；模板、`constexpr` 与必须头内可见的 `inline` 实现放同目录 `__TXxx.hpp`，由主头末尾 include，主头只留声明、访问分区与数据成员。接口抽象放 `interface/` 子目录，纯虚基类使用 `I` 前缀；头文件用 `#pragma once`。目录层级与命名空间保持一致。
 - include 顺序遵循仓库现有约定：对应/本文件所需头文件、标准库、项目公共头（如 `bbt/xxx`）、子模块头；避免无关 include。
 
 ## 3. 语言、架构与依赖
@@ -48,7 +56,7 @@ cmake/                 CMake 模块
 ## 5. 注释
 
 - **语言分工**：注释用中文（英文术语、标识符、API 名保留原样）；断言消息、异常 `what()`、日志/控制台错误与错误码 `message` 用英文。原因是这些字符串会进终端与日志管道，中文在各平台编码下容易变成乱码，而注释只被人读。不翻译业务 payload 里的原文。
-- **Doxygen 格式**：文件职责用文件头注释；公开类、结构体、自由函数、公开成员函数用 `/** @brief ... */`，字段/参数/返回值按需用 `@param`/`@return`，字段尾注用 `///<`。私有实现里的 WHY 行注释保持普通 `//`，不要机械加空 `@brief`。局部变量不逐个注释。
+- **注释形态**：自有 C/C++ 注释统一为多行 `/**` 块——`/**` 与 `*/` 各自独占一行，正文每行以 ` * ` 开头，短注释同样；`//`、`///`、`///<`、单行 `/* ... */` 一律按此写。行尾注释移到被说明语句上方；无大括号的控制体，注释挂在控制头上方。注释组与前后代码空一行、紧贴被说明代码；访问说明符后不空行，文件首块不空行；`}` 结束命名空间不写尾注。分区横幅用 `/** @name ... @{ */` 与 `/** @} */` 成对包住，避免吸附到下一个实体；函数体内的说明块由 Doxygen `HIDE_IN_BODY_DOCS` 挡在文档外。工具/法律必需指令（`// clang-format`、`NOLINT`、许可证原文、第三方头原文）保持原样。公开类、结构体、自由函数、公开成员函数用 `@brief`，字段/参数/返回值按需用 `@param`/`@return`；不要机械加空 `@brief`，局部变量不逐个注释。
 - **描述当前状态**：注释只说明现在为什么这样写。不留历史堆砌、旧方案叙事、审查编号、阶段/修复代号或契约行号；需要长期保留的决策写进 `docs/`（架构契约、ADR、指南），过程关联留在 commit/PR/Issue。
 - 解释 WHY，不复述代码已经表达的 WHAT。涉及线程/协程交错、挂起/唤醒、取消、事件顺序、所有权或资源关闭时，写明必须成立的时序/生命周期约束。
 - **复杂机制配图**：状态机、多阶段关闭、责任转移这类靠文字很难读准的机制，允许并鼓励用几行 ASCII 图或一段 PlantUML 说明事件流；图只服务于这段代码，不新建文档站点、不接 CI 渲染。
@@ -58,20 +66,29 @@ cmake/                 CMake 模块
 正反例：
 
 ```cpp
-// 差：术语堆叠、没有信息、AI 味重
-// 本模块基于统一责任编排范式，实现全链路、多维度、可观测的关闭语义闭环。
+/**
+ * 差：术语堆叠、没有信息、AI 味重
+ * 本模块基于统一责任编排范式，实现全链路、多维度、可观测的关闭语义闭环。
+ */
 
-// 差：堆历史，读者无法判断当前行为
-// P2-5 修复了早期版本在 reader 上阻塞的问题，旧实现曾经直接 Fail()。
+/**
+ * 差：堆历史，读者无法判断当前行为
+ * P2-5 修复了早期版本在 reader 上阻塞的问题，旧实现曾经直接 Fail()。
+ */
 
-// 好：先说约束，再说做法
-// reader 只有一个，不能在这里等写终态——写背压会把后续 Response/System
-// 帧一起堵住。所以这里只入队错误帧，写责任仍由 WriterLoop/Kill 结算。
+/**
+ * 好：先说约束，再说做法
+ * reader 只有一个，不能在这里等写终态——写背压会把后续 Response/System
+ * 帧一起堵住。所以这里只入队错误帧，写责任仍由 WriterLoop/Kill 结算。
+ */
 
-// 好：多阶段关闭画出来（复杂机制允许少量字符画）
-//   Close(deadline)
-//     ├─ Seal：拒新 Call/Send，在途 link RequestClose
-//     └─ WaitStopped：listener/worker/conn 全部真实回收才算收口
+/**
+ * 好：多阶段关闭画出来（复杂机制允许少量字符画）
+ *
+ *   Close(deadline)
+ *     ├─ Seal：拒新 Call/Send，在途 link RequestClose
+ *     └─ WaitStopped：listener/worker/conn 全部真实回收才算收口
+ */
 ```
 
 - 断言/异常消息示例：`static_assert(..., "ManagerBase: automatic key requires TKey == CoObjectId")`、`throw std::invalid_argument("ManagerBase: creator returned an empty owner")`。
@@ -92,7 +109,7 @@ cmake/                 CMake 模块
 
 - 新测试须在对应 `CMakeLists.txt` 添加 target 并用 `add_test()` 注册到 CTest；核对构建开关、注册集合及 CI 执行路径。测试覆盖正常路径、竞争/并发、超时、重入、状态清理与错误边界等相关情形。
 - 并发/生命周期用例先证明已进入目标阶段再注入故障或关闭，检查结果和资源收口；用同步原语（如 coroutine 的 `CountDownLatch`）建立时序，固定 `sleep`、用例名或通过数量不能替代阶段证据。fixture 只补时序控制，不能替代真实后端集成。
-- 新增行为要有可运行验证；CI 全绿只证明实际执行范围，不能替代新路径验收。权限、环境或依赖不足时明确标为 `BLOCKED`，不以 stub、跳过断言或放宽检查伪装完成。三仓统一本地边界见 `agents-common.md`：冒烟、本次功能与直接耦合测试，本地不跑全量。
+- 新增行为要有可运行验证；CI 全绿只证明实际执行范围，不能替代新路径验收。权限、环境或依赖不足时明确标为 `BLOCKED`，不以 stub、跳过断言或放宽检查伪装完成。三仓统一本地边界见 `AGENTS.md`：冒烟、本次功能与直接耦合测试，本地不跑全量。
 - 测试优先使用自有进程与动态端口；共享服务须说明复用/互斥及清理边界，不终止他人进程、不覆盖共享前缀。无法隔离时先报告阻塞。
 
 ## 7. 示例
@@ -125,8 +142,10 @@ cmake/                 CMake 模块
 ## 9. 格式、构建与警告
 
 - C++ 格式参数由 `.clang-format` 定义；`.editorconfig` 统一 UTF-8、LF、4 空格缩进和文件末尾换行，Makefile/YAML 例外按需设置。
-- CI 只对 PR 改动行运行 `clang-format-diff`；不强制格式化存量代码。全仓格式化须单独决策和提交，不夹带在功能变更中。
-- 使用 CMake；不得引入新编译器警告。新模块/测试需接入相应 `CMakeLists.txt`。本地构建并发和验证边界见 `agents-common.md`，禁止无参数并行构建。
+- 全仓按 `.clang-format` 格式化：空函数及能在 120 列内排下的短小类内函数允许单行，简单返回、赋值和短小转发不机械展开；其余函数定义的大括号独占下一行，其他结构（`if`/`for`/类/`namespace`/lambda）大括号同行，4 空格缩进。字符串字面量不自动拆分；第三方代码由 `.clang-format-ignore` 排除。
+- CI 对全仓运行 `scripts/ci/check_format.sh`，违规即失败；clang-format 版本固定为 23.1.3（`pip install clang-format==23.1.3`），升级版本时同一次变更重新格式化全仓。
+- 提交前本地检查：`bash scripts/ci/check_format.sh --staged`；一次性安装钩子见该脚本头部注释。格式化变更单独提交，不夹带功能改动。
+- 使用 CMake；不得引入新编译器警告。新模块/测试需接入相应 `CMakeLists.txt`。本地构建并发和验证边界见 `AGENTS.md`，禁止无参数并行构建。
 
 ## 10. CI 骨架
 

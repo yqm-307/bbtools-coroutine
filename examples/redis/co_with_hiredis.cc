@@ -7,18 +7,16 @@ using namespace bbt::coroutine;
 
 /**
  * 此示例和构建方法用来展示我们如何hook一个第三方库。并使用协程
- * 
+ *
  * 这个例子中有几个注意点：
  * 1、构建时需要确保 hiredis 在 bbt_coroutine 之后链接，这样才能正确覆盖系统调用。（参考examples/CMakeLists.txt）；
  * 2、使用同步接口无损的转化为协程接口。并且不会导致线程的阻塞；
  * 3、使用CoPool来处理任务；
  */
 
-class RedisClient
-{
+class RedisClient {
 public:
-    RedisClient(const std::string& host, int port):
-        m_context(redisConnect(host.c_str(), port))
+    RedisClient(const std::string& host, int port) : m_context(redisConnect(host.c_str(), port))
     {
         if (m_context == nullptr || m_context->err) {
             throw std::runtime_error("Could not connect to Redis server");
@@ -104,13 +102,14 @@ public:
         freeReplyObject(reply);
     }
 
-    void Run() {
-        while (m_is_running) { sleep(1); };
+    void Run()
+    {
+        while (m_is_running) {
+            sleep(1);
+        };
     };
 
-    void Stop() {
-        m_is_running = false;
-    }
+    void Stop() { m_is_running = false; }
 
 private:
     redisContext* m_context{nullptr};
@@ -124,15 +123,20 @@ void Example1()
 {
     RedisClient client("127.0.0.1", 6379);
 
-    // 这里可以设置同步操作
+    /**
+     * 这里可以设置同步操作
+     */
     client.Set("key1", "value1");
     std::string value = client.Get("key1");
     std::cout << "Value for key1: " << value << std::endl;
 
-    // 同时我们可以直接使用hiredis的同步接口在一个hiredis的同步上下文中
-    // 同时因为hiredis的同步接口是阻塞的，所以我们可以在协程中使用
-    // 注意：hiredis的redisContext不是线程安全的
-    bbtco [&](){
+    /**
+     * 同时我们可以直接使用hiredis的同步接口在一个hiredis的同步上下文中
+     * 同时因为hiredis的同步接口是阻塞的，所以我们可以在协程中使用
+     * 注意：hiredis的redisContext不是线程安全的
+     */
+    bbtco[&]()
+    {
         try {
             client.Set("key2", "value2");
             std::string value2 = client.Get("key2");
@@ -143,7 +147,6 @@ void Example1()
 
         client.Stop();
     };
-
 
     client.Run();
 }
@@ -160,8 +163,7 @@ void Example2()
     std::atomic_int success_count{0};
     std::atomic_int error_count{0};
 
-    for (int worker = 0; worker < kWorkers; ++worker)
-    {
+    for (int worker = 0; worker < kWorkers; ++worker) {
         copool->Submit([&, worker]() {
             try {
                 RedisClient client("127.0.0.1", 6379);
@@ -208,19 +210,25 @@ void Example2()
     std::cout << "Total errors: " << error_count.load() << std::endl;
 }
 
-/** hiredis 在协程栈上有较多临时缓冲：默认栈 1 MiB，全池对象预算 1000。 */
-RuntimeOptions HiredisOptions() {
+/**
+ * hiredis 在协程栈上有较多临时缓冲：默认栈 1 MiB，全池对象预算 1000。
+ */
+RuntimeOptions HiredisOptions()
+{
     RuntimeOptions options;
     options.default_stack = StackRequest{1024 * 1024, true};
     options.stacks = StackConfig{StackPolicy::Auto, {}, 1000, 256 * 1024 * 1024};
     return options;
 }
 
-int bbtco_main() {
+int bbtco_main()
+{
     Example1();
     Example2();
 
-    /* process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出 */
+    /**
+     * process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出
+     */
     return 0;
 }
 

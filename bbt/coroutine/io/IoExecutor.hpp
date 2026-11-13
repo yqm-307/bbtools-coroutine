@@ -1,8 +1,7 @@
 #pragma once
 #include <boost/asio/any_io_executor.hpp>
 
-namespace bbt::coroutine::io
-{
+namespace bbt::coroutine::io {
 
 /**
  * @brief 获取 coroutine 运行时共享的 Asio executor

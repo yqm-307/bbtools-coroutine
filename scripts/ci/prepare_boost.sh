@@ -26,6 +26,13 @@
 # 用法：scripts/ci/prepare_boost.sh <empty-prefix> [--jobs N] [--print-plan]
 #   <empty-prefix> 必须不存在；已存在（含空目录/悬浮符号链接）一律拒绝。
 #   --print-plan    只打印将下载的 URL/校验值/组件，不产生任何副作用（离线冒烟用）。
+#
+# 跨 run 源码缓存（可选，只经环境变量开关，不新增命令行参数）：BOOST_SOURCE_CACHE
+# 指向缓存目录。命中条件是该目录下 boost_<ver>.tar.gz 通过下方锁定 SHA256 校验；
+# 命中则跳过下载，缺失/损坏/符号链接一律回到原下载路径，下载且校验通过后才回写。
+# 复制到工作目录后对副本再校验同一 SHA256，只有副本仍命中才算 hit（解包用的是副本）。
+# 只缓存原始归档：解包树与安装 prefix 的字节没有可信锚点（GitHub 缓存内容不签名、
+# 不校验），跨 run 复用它们等于把不可验的编译产物放进可信构建。
 set -euo pipefail
 
 BOOST_VERSION="1.90.0"
@@ -98,12 +105,61 @@ mkdir -p "$(dirname "$PREFIX")"
 STAGING="$(mktemp -d "${PREFIX}.tmp.XXXXXX")"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/bbt-boost-src.XXXXXX")"
 
-log "下载 $ARCHIVE_URL（sha256 校验 fail-closed）"
-curl --fail --location --retry 3 --retry-all-errors --silent --show-error \
-    "$ARCHIVE_URL" -o "$WORK/boost.tar.gz" \
-    || { echo "[prepare-boost] FATAL: Boost 归档下载失败" >&2; exit 3; }
-printf '%s  %s\n' "$BOOST_SHA256" "$WORK/boost.tar.gz" | sha256sum --check --status \
-    || { echo "[prepare-boost] FATAL: Boost 归档 sha256 不符（拒绝继续）" >&2; exit 3; }
+# 缓存本身不可信：命中后仍走与下载完全相同的 SHA256 门，校验失败即丢弃重下。
+# 路径为符号链接时忽略缓存，避免把写入引到缓存目录之外。
+CACHED_ARCHIVE=""
+if [ -n "${BOOST_SOURCE_CACHE:-}" ]; then
+    if [ -L "$BOOST_SOURCE_CACHE" ]; then
+        log "警告：BOOST_SOURCE_CACHE 是符号链接，忽略源码缓存"
+    elif [ -L "$BOOST_SOURCE_CACHE/boost_${V_US}.tar.gz" ]; then
+        log "警告：源码缓存条目是符号链接，忽略源码缓存"
+    else
+        CACHED_ARCHIVE="$BOOST_SOURCE_CACHE/boost_${V_US}.tar.gz"
+    fi
+fi
+
+FROM_CACHE=0
+if [ -n "$CACHED_ARCHIVE" ] && [ -f "$CACHED_ARCHIVE" ]; then
+    if printf '%s  %s\n' "$BOOST_SHA256" "$CACHED_ARCHIVE" | sha256sum --check --status; then
+        # 复制失败也退回下载：缓存故障不得让构建失败。
+        if cp "$CACHED_ARCHIVE" "$WORK/boost.tar.gz"; then
+            # 判定 hit 只能基于工作副本字节：校验与复制之间源可能被替换，
+            # 而解包用的是工作副本，不是刚才校过的那份缓存条目。
+            if printf '%s  %s\n' "$BOOST_SHA256" "$WORK/boost.tar.gz" | sha256sum --check --status; then
+                log "命中源码缓存（sha256 已校验，跳过下载）: $CACHED_ARCHIVE"
+                FROM_CACHE=1
+            else
+                log "警告：源码缓存副本 sha256 不符，改为下载"
+                rm -f "$WORK/boost.tar.gz"
+            fi
+        else
+            log "警告：源码缓存复制失败，改为下载"
+        fi
+    else
+        # 保留条目路径：本次校验通过的字节会在下载后覆盖它（写临时名再改名）。
+        log "警告：源码缓存 sha256 不符，丢弃并重新下载"
+    fi
+fi
+
+if [ "$FROM_CACHE" -ne 1 ]; then
+    log "下载 $ARCHIVE_URL（sha256 校验 fail-closed）"
+    curl --fail --location --retry 3 --retry-all-errors --silent --show-error \
+        "$ARCHIVE_URL" -o "$WORK/boost.tar.gz" \
+        || { echo "[prepare-boost] FATAL: Boost 归档下载失败" >&2; exit 3; }
+    printf '%s  %s\n' "$BOOST_SHA256" "$WORK/boost.tar.gz" | sha256sum --check --status \
+        || { echo "[prepare-boost] FATAL: Boost 归档 sha256 不符（拒绝继续）" >&2; exit 3; }
+    # 只有通过上面校验的字节才回写缓存；写临时名再改名，不跟随既有符号链接。
+    if [ -n "$CACHED_ARCHIVE" ]; then
+        if mkdir -p "$BOOST_SOURCE_CACHE" 2>/dev/null \
+            && cp "$WORK/boost.tar.gz" "$CACHED_ARCHIVE.tmp.$$" \
+            && mv -f "$CACHED_ARCHIVE.tmp.$$" "$CACHED_ARCHIVE"; then
+            log "已回写源码缓存: $CACHED_ARCHIVE"
+        else
+            rm -f "$CACHED_ARCHIVE.tmp.$$"
+            log "警告：源码缓存回写失败（不影响本次构建）"
+        fi
+    fi
+fi
 
 mkdir -p "$WORK/boost"
 tar xzf "$WORK/boost.tar.gz" -C "$WORK/boost" --strip-components=1

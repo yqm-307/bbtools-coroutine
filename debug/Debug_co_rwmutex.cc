@@ -2,8 +2,6 @@
 
 using namespace bbt::coroutine;
 
-
-
 void rwlock_test()
 {
     const int nread_co = 200;
@@ -12,24 +10,30 @@ void rwlock_test()
     int n = 0;
     int m = 0;
 
-    bbtco [&](){
+    bbtco[&]()
+    {
         auto rwlock = sync::CoRWMutex::Create();
 
         for (int i = 0; i < nread_co; ++i) {
-            bbtco [&, rwlock, i](){            
+            bbtco[&, rwlock, i]()
+            {
                 while (true) {
                     rwlock->RLock();
                     Assert(n == m);
                     vec[i]++;
                     rwlock->RUnLock();
-                    // bbtco_sleep(1);
+
+                    /**
+                     * bbtco_sleep(1);
+                     */
                     bbtco_yield;
-                }    
+                }
             };
         }
 
         for (int i = 0; i < nwrite_co; ++i) {
-            bbtco [&, rwlock, i](){
+            bbtco[&, rwlock, i]()
+            {
                 while (true) {
                     rwlock->WLock();
                     Assert(n == m);
@@ -41,7 +45,8 @@ void rwlock_test()
             };
         }
 
-        bbtco [&](){
+        bbtco[&]()
+        {
             while (true) {
                 printf("\n=====================================\n");
                 for (auto v : vec) {
@@ -53,8 +58,8 @@ void rwlock_test()
         };
     };
 
-    while (true) sleep(1);
-    
+    while (true)
+        sleep(1);
 }
 
 int main()
@@ -62,5 +67,4 @@ int main()
     g_scheduler->Start();
 
     rwlock_test();
-
 }

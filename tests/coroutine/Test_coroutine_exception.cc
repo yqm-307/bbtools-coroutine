@@ -13,62 +13,54 @@
 #include <bbt/coroutine/detail/Scheduler.hpp>
 #include <bbt/coroutine/detail/Define.hpp>
 
-/* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。 */
-namespace
-{
+/**
+ * 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
+ */
+namespace {
 void EnsureRuntime()
 {
     static std::once_flag once;
-    std::call_once(once, [](){
-        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
-    });
+    std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
 }
 
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::detail;
 
-namespace
-{
-struct ScopedExceptionHandler : std::enable_shared_from_this<ScopedExceptionHandler>
-{
-    ExceptionHandleCallback previous;
+namespace {
+struct ScopedExceptionHandler;
+
+/**
+ * 异常回调属于启动前配置，Start 冻结后再写 m_ext_coevent_exception_callback 不生效。
+ * 所以 t_begin 在 Start 前装一个转发回调，各用例只替换转发目标。
+ */
+std::mutex g_active_mutex;
+std::weak_ptr<ScopedExceptionHandler> g_active_handler;
+
+struct ScopedExceptionHandler : std::enable_shared_from_this<ScopedExceptionHandler> {
     std::vector<std::string> messages;
     mutable std::mutex guard;
     std::function<void()> notify;
 
-    explicit ScopedExceptionHandler(std::function<void()> on_notify = {}):
-        notify(std::move(on_notify))
-    {
-        previous = g_bbt_coroutine_config->m_ext_coevent_exception_callback;
-    }
+    explicit ScopedExceptionHandler(std::function<void()> on_notify = {}) : notify(std::move(on_notify)) {}
 
-    // 安装 callback（必须在 shared_ptr 管理后调用，for weak_ptr capture）
+    /**
+     * 设为转发目标（必须在 shared_ptr 管理后调用，for weak_ptr capture）
+     */
     void Install()
     {
-        std::weak_ptr<ScopedExceptionHandler> wp = shared_from_this();
-        g_bbt_coroutine_config->m_ext_coevent_exception_callback = [wp](const bbt::core::errcode::IErrcode& err) {
-            auto sp = wp.lock();
-            if (!sp) return;  // handler 已析构 — 安全忽略
-
-            {
-                std::lock_guard<std::mutex> lock(sp->guard);
-                sp->messages.emplace_back(err.What());
-            }
-
-            if (sp->notify)
-                sp->notify();
-
-            if (sp->previous)
-                sp->previous(err);
-        };
+        std::lock_guard<std::mutex> lock(g_active_mutex);
+        g_active_handler = shared_from_this();
     }
 
-    ~ScopedExceptionHandler()
+    void OnException(const bbt::core::errcode::IErrcode& err)
     {
-        // 恢复 previous — 注意：callback 已捕获 weak_ptr，不再引用裸 this
-        // 无需 lock_guard — 无法再产生 UAF（weak_ptr::lock 提供保护）
-        g_bbt_coroutine_config->m_ext_coevent_exception_callback = previous;
+        {
+            std::lock_guard<std::mutex> lock(guard);
+            messages.emplace_back(err.What());
+        }
+        if (notify)
+            notify();
     }
 
     std::vector<std::string> Snapshot() const
@@ -78,8 +70,22 @@ struct ScopedExceptionHandler : std::enable_shared_from_this<ScopedExceptionHand
     }
 };
 
-struct ConfigSnapshot
+void ForwardException(const bbt::core::errcode::IErrcode& err)
 {
+    std::shared_ptr<ScopedExceptionHandler> handler;
+    {
+        std::lock_guard<std::mutex> lock(g_active_mutex);
+        handler = g_active_handler.lock();
+    }
+
+    /**
+     * 目标已析构则安全忽略
+     */
+    if (handler)
+        handler->OnException(err);
+}
+
+struct ConfigSnapshot {
     size_t threads{0};
     size_t stack_size{0};
     bool stack_protect{false};
@@ -88,7 +94,7 @@ struct ConfigSnapshot
 
 std::atomic_bool g_scheduler_started{false};
 
-} // namespace
+}
 
 BOOST_AUTO_TEST_SUITE(CoroutineExceptionTest)
 
@@ -104,6 +110,7 @@ BOOST_AUTO_TEST_CASE(t_begin)
 
     cfg->m_cfg_static_thread_num = 1;
     cfg->m_cfg_stack_protect = false;
+    cfg->m_ext_coevent_exception_callback = ForwardException;
 
     EnsureRuntime();
     g_scheduler_started.store(true);
@@ -130,9 +137,7 @@ BOOST_AUTO_TEST_CASE(t_coroutine_throw_without_handler)
     });
     handler->Install();
 
-    g_scheduler->RegistCoroutineTask([]() {
-        throw std::runtime_error("co panic");
-    });
+    g_scheduler->RegistCoroutineTask([]() { throw std::runtime_error("co panic"); });
 
     auto wait_result = status_future.wait_for(std::chrono::seconds(1));
     BOOST_REQUIRE(wait_result == std::future_status::ready);
@@ -145,39 +150,47 @@ BOOST_AUTO_TEST_CASE(t_coroutine_throw_without_handler)
     BOOST_CHECK_EQUAL(status, CoroutineStatus::CO_FINAL);
 }
 
-// BOOST_AUTO_TEST_CASE(t_coroutine_throw_without_handler_terminate)
-// {
-//     auto previous = g_bbt_coroutine_config->m_ext_coevent_exception_callback;
-//     g_bbt_coroutine_config->m_ext_coevent_exception_callback = nullptr;
+/**
+ * BOOST_AUTO_TEST_CASE(t_coroutine_throw_without_handler_terminate)
+ * {
+ *     auto previous = g_bbt_coroutine_config->m_ext_coevent_exception_callback;
+ *     g_bbt_coroutine_config->m_ext_coevent_exception_callback = nullptr;
+ */
 
-//     Coroutine::Ptr co = Coroutine::Create(4096, []() {
-//         throw std::runtime_error("boom");
-//     });
+/**
+ *     Coroutine::Ptr co = Coroutine::Create(4096, []() {
+ *         throw std::runtime_error("boom");
+ *     });
+ */
 
-//     bool terminated = false;
-//     try {
-//         // 这里没法catch到异常，因为异常会在线程外抛出
-//         co->Resume();
-//     } catch (const std::exception& e) {
-//         terminated = true;
-//         BOOST_CHECK_EQUAL(std::string(e.what()), std::string("boom"));
-//     }
+/**
+ *     bool terminated = false;
+ *     try {
+ *         // 这里没法catch到异常，因为异常会在线程外抛出
+ *         co->Resume();
+ *     } catch (const std::exception& e) {
+ *         terminated = true;
+ *         BOOST_CHECK_EQUAL(std::string(e.what()), std::string("boom"));
+ *     }
+ */
 
-//     g_bbt_coroutine_config->m_ext_coevent_exception_callback = previous;
-//     BOOST_CHECK(terminated);
-//     BOOST_CHECK_EQUAL(co->GetStatus(), CoroutineStatus::CO_FINAL);
-// }
+/**
+ *     g_bbt_coroutine_config->m_ext_coevent_exception_callback = previous;
+ *     BOOST_CHECK(terminated);
+ *     BOOST_CHECK_EQUAL(co->GetStatus(), CoroutineStatus::CO_FINAL);
+ * }
+ */
 
 BOOST_AUTO_TEST_CASE(t_end)
 {
     if (g_scheduler_started.exchange(false))
-    if (g_cfg_snapshot.saved) {
-        auto* cfg = g_bbt_coroutine_config.get();
-        cfg->m_cfg_static_thread_num = g_cfg_snapshot.threads;
-        cfg->m_cfg_stack_size = g_cfg_snapshot.stack_size;
-        cfg->m_cfg_stack_protect = g_cfg_snapshot.stack_protect;
-        g_cfg_snapshot.saved = false;
-    }
+        if (g_cfg_snapshot.saved) {
+            auto* cfg = g_bbt_coroutine_config.get();
+            cfg->m_cfg_static_thread_num = g_cfg_snapshot.threads;
+            cfg->m_cfg_stack_size = g_cfg_snapshot.stack_size;
+            cfg->m_cfg_stack_protect = g_cfg_snapshot.stack_protect;
+            g_cfg_snapshot.saved = false;
+        }
 }
 
 BOOST_AUTO_TEST_SUITE_END()

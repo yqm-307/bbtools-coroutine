@@ -6,7 +6,7 @@
 
 1. 有栈协程，支持协程间的高效切换
 2. 丰富的协程同步原语（Chan、CoSelect、CoMutex、CoRWMutex、CoCond、CoPool 等）
-3. 支持协程池，方便管理和复用协程；尺寸路由池按 `(U, protect)` 把任务投递到固定栈规格的 worker 子池
+3. 支持协程池，方便管理和复用协程
 4. 类似 Go 语言的协程语法和使用体验
 5. 事件驱动 I/O，Poller 后端可替换
 6. syscall hook：协程内 socket / sleep / poll / DNS 等阻塞调用转为协程等待，不阻塞调度线程；非协程上下文直通原生
@@ -25,6 +25,7 @@
 | [docs/guides/stack-budget.md](docs/guides/stack-budget.md) | 协程入口栈预算工具与可选运行诊断 |
 | [docs/guides/real-client-acceptance.md](docs/guides/real-client-acceptance.md) | 真实客户端验收场景说明（发布 Gate） |
 | [docs/guides/ci.md](docs/guides/ci.md) | CI 流水线使用指南（唯一 CI 落点） |
+| [third-party/bbtools-pub/README.md](third-party/bbtools-pub/README.md) | 跨仓设计、编码、Review 与用例设计规范入口（固定 submodule） |
 | [.github/skills/bbtools-coroutine/SKILL.md](.github/skills/bbtools-coroutine/SKILL.md) | Agent 写调用代码的入口 |
 
 ## 安装
@@ -39,6 +40,7 @@
 ```shell
 git clone https://github.com/yqm-307/bbtools-coroutine.git
 cd bbtools-coroutine
+git submodule update --init --recursive
 ./scripts/install/install.sh    # 构建到 build-install 并安装到 ~/.local，无需 root
 ```
 
@@ -48,7 +50,7 @@ cd bbtools-coroutine
 
 ```shell
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-cmake --build build --parallel 2
+flock /tmp/bbt-build.lock cmake --build build --parallel 2
 ```
 
 CMake 常用开关（布尔项默认全部 `OFF`，完整选项以 `CMakeLists.txt` 为准）：
@@ -64,19 +66,17 @@ CMake 常用开关（布尔项默认全部 `OFF`，完整选项以 `CMakeLists.t
 
 ## 基础使用
 
-应用只定义 `int bbtco_main()`，native `main` 由 `BBTCO_MAIN()` 生成：runtime 负责配置冻结、启动
-调度器、执行提交前 native hook、提交主协程并等该主协程结束。需要提交后在原生 main 线程阻塞运行
-宿主 native 循环（如 `Engine::Run`）时，定义 `int bbtco_main_host_hook(HostHookContext&)` 并使用
-`BBTCO_MAIN_WITH_SETUP_AND_HOST_HOOK*`；runtime 等主任务与 host hook 都结束才返回。需要兼容完整
-scheduler 配置时，定义 `void setup_runtime()` 并使用 `BBTCO_MAIN_WITH_SETUP*`；应用不直接调用
-`g_scheduler->Start()`，也不自建 runtime runner 或在协程内阻塞等待 native 线程。
+以后台线程模式启动调度器，注册协程并运行：
 
 ```cpp
 #include <bbt/coroutine/coroutine.hpp>
 using namespace bbt::coroutine;
 
-int bbtco_main()
+int main()
 {
+    // 启动调度器
+    g_scheduler->Start();
+
     // 创建协程 - 基础语法
     bbtco [](){
         printf("i am coroutine %lu\n", GetLocalCoroutineId());
@@ -89,18 +89,11 @@ int bbtco_main()
         bbtco_sleep(100);  // 协程睡眠100ms
     };
 
-    sleep(1);  // 协程内 sleep 被 Hook 成协程等待，不阻塞调度线程
+    sleep(1);
     // 无停机入口：进程寿命模型下调度器随进程退出，不需要 Stop
     return 0;
 }
-
-BBTCO_MAIN()
 ```
-
-需要非默认启动参数（worker 数、默认栈、多尺寸栈预算）时用 `BBTCO_MAIN_WITH_OPTIONS(<表达式>)`，
-表达式返回 `RuntimeOptions`，在 `Start` 前一次求值并校验；它只覆盖这三类便捷配置。完整 scheduler
-配置由 `setup_runtime()` 在同一阶段设置。尺寸路由池示例见
-[examples/copool.cc](examples/copool.cc)。
 
 Chan、CoCond、CoMutex、CoPool、CoSelect、CoRWMutex、WaitFor、defer、Hook 等完整示例见[使用手册](docs/guides/user-guide.md)；完整签名与返回码见 [API 参考](docs/guides/api-reference.md)。
 
@@ -110,7 +103,7 @@ Chan、CoCond、CoMutex、CoPool、CoSelect、CoRWMutex、WaitFor、defer、Hook
 
 ```shell
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DNEED_TEST=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-cmake --build build --parallel 2
+flock /tmp/bbt-build.lock cmake --build build --parallel 2
 bash scripts/ci/run_test_profile.sh --build-dir build --profile smoke   # 全量 smoke；套件数以 `ctest -N` 为准
 ```
 
