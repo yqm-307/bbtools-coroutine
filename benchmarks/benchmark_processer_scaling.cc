@@ -1,4 +1,5 @@
-/* 可重复短跑入口；同一进程只 Start 一次。fixed-old 必须显式按旧头/库编译，
+/**
+ * 可重复短跑入口；同一进程只 Start 一次。fixed-old 必须显式按旧头/库编译，
  * 不能把候选 runtime 关闭 auto 后冒充旧实现。CSV 为观测值，不作性能门槛判定。
  */
 #include <algorithm>
@@ -26,7 +27,9 @@ using Clock = std::chrono::steady_clock;
 
 namespace {
 #ifdef BBT_SCALING_LEGACY_RUNTIME
-// 防止把候选头/库仅改标签后冒充 fixed-old；实际旧 DSO 身份仍须调用方记录。
+/**
+ * 防止把候选头/库仅改标签后冒充 fixed-old；实际旧 DSO 身份仍须调用方记录。
+ */
 template <class T, class = void> struct HasResize : std::false_type {};
 template <class T>
 struct HasResize<T, std::void_t<decltype(std::declval<T&>().SetProcesserNum(size_t{}))>> : std::true_type {};
@@ -162,7 +165,9 @@ void Run(const Options& options, size_t run, bool warmup, std::ostream& output)
         g_scheduler->RegistCoroutineTask([state, i, task_us = options.task_us] {
             const auto until = Clock::now() + std::chrono::microseconds(task_us);
             while (!state->abort.load(std::memory_order_relaxed) && Clock::now() < until) {
-                // 故意不 yield：短 CPU burst，busy 与 backlog 均可被 auto 观测。
+                /**
+                 * 故意不 yield：短 CPU burst，busy 与 backlog 均可被 auto 观测。
+                 */
                 std::atomic_signal_fence(std::memory_order_seq_cst);
             }
             state->hits[i].fetch_add(1, std::memory_order_relaxed);
@@ -206,8 +211,12 @@ void Run(const Options& options, size_t run, bool warmup, std::ostream& output)
 #endif
     const double elapsed = std::chrono::duration<double>(drained - start).count();
     resources = ReadResources();
+
+/**
+ * 旧 API 无 active 查询，不把配置值伪装成采样峰值。
+ */
 #ifdef BBT_SCALING_LEGACY_RUNTIME
-    const std::string worker_peak = "NA"; // 旧 API 无 active 查询，不把配置值伪装成采样峰值。
+    const std::string worker_peak = "NA";
 #else
     const std::string worker_peak = std::to_string(peak_workers);
 #endif
@@ -218,7 +227,7 @@ void Run(const Options& options, size_t run, bool warmup, std::ostream& output)
            << '\n';
     output.flush();
 }
-} // namespace
+}
 
 int main(int argc, char** argv)
 {

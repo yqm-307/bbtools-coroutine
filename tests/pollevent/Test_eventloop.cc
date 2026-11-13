@@ -14,7 +14,9 @@
 
 using namespace bbt::pollevent;
 
-/* ── 辅助 ── */
+/**
+ * ── 辅助 ──
+ */
 static std::pair<int, int> make_pipe()
 {
     int fds[2];
@@ -22,19 +24,25 @@ static std::pair<int, int> make_pipe()
     return {fds[0], fds[1]};
 }
 
-/* ═══ EventBase ═══ */
+/**
+ * ═══ EventBase ═══
+ */
 BOOST_AUTO_TEST_SUITE(EventBaseTest)
 
 BOOST_AUTO_TEST_CASE(t_default_construct)
 {
-    // io_context 构造即有效（无对应 GetRawBase 接口）
+    /**
+     * io_context 构造即有效（无对应 GetRawBase 接口）
+     */
     detail::EventBase base;
     BOOST_CHECK_EQUAL(base.GetEventNum(), 0);
 }
 
 BOOST_AUTO_TEST_CASE(t_construct_with_flag)
 {
-    // flag 保留兼容，ASIO 忽略
+    /**
+     * flag 保留兼容，ASIO 忽略
+     */
     detail::EventBase base(detail::EventBaseConfigFlag::PRECISE_TIMER);
 }
 
@@ -49,7 +57,9 @@ BOOST_AUTO_TEST_CASE(t_get_time_of_day)
 
 BOOST_AUTO_TEST_SUITE_END()
 
-/* ═══ EventLoop 基础 ═══ */
+/**
+ * ═══ EventLoop 基础 ═══
+ */
 BOOST_AUTO_TEST_SUITE(EventLoopBasicTest)
 
 BOOST_AUTO_TEST_CASE(t_default_construct_destruct)
@@ -66,7 +76,10 @@ BOOST_AUTO_TEST_CASE(t_external_base_no_autofree)
         EventLoop loop(base, false);
         BOOST_CHECK(loop.GetEventBase() != nullptr);
     }
-    // base 未被释放，可继续使用
+
+    /**
+     * base 未被释放，可继续使用
+     */
     BOOST_CHECK_EQUAL(base->GetEventNum(), 0);
     delete base;
 }
@@ -77,14 +90,20 @@ BOOST_AUTO_TEST_CASE(t_external_base_autofree)
     {
         EventLoop loop(base, true);
     }
-    // base freed by loop destructor
+
+    /**
+     * base freed by loop destructor
+     */
 }
 
 BOOST_AUTO_TEST_CASE(t_startloop_nonblock_without_events)
 {
     auto loop = std::make_shared<EventLoop>();
     int ret = loop->StartLoop(EventLoopOpt::LOOP_NONBLOCK);
-    // event_base_loop(NONBLOCK) 无事件时返回 1
+
+    /**
+     * event_base_loop(NONBLOCK) 无事件时返回 1
+     */
     BOOST_CHECK(ret == 0 || ret == 1);
 }
 
@@ -121,10 +140,11 @@ BOOST_AUTO_TEST_CASE(t_gettimeofday_cached)
 
 BOOST_AUTO_TEST_SUITE_END()
 
-/* ═══ Event fd 事件 ═══
-   关键契约: LOOP_NONBLOCK 不调用后端 I/O 多路复用(epoll_wait)，
-   仅派发已就绪事件。fd 事件需 LOOP_ONCE 来驱动后端发现。
-*/
+/**
+ * ═══ Event fd 事件 ═══
+ * 关键契约: LOOP_NONBLOCK 不调用后端 I/O 多路复用(epoll_wait)，
+ * 仅派发已就绪事件。fd 事件需 LOOP_ONCE 来驱动后端发现。
+ */
 BOOST_AUTO_TEST_SUITE(EventFdTest)
 
 BOOST_AUTO_TEST_CASE(t_readable_pipe_fires_callback)
@@ -225,10 +245,17 @@ BOOST_AUTO_TEST_CASE(t_cancellisten_prevents_callback)
 
     char c = 'x';
     (void)write(wfd, &c, 1);
-    loop->StartLoop(EventLoopOpt::LOOP_NONBLOCK); // 取消后无事可等
+
+    /**
+     * 取消后无事可等
+     */
+    loop->StartLoop(EventLoopOpt::LOOP_NONBLOCK);
     BOOST_CHECK(!fired.load());
 
-    BOOST_CHECK(fcntl(rfd, F_GETFL) >= 0); // fd still open
+    /**
+     * fd still open
+     */
+    BOOST_CHECK(fcntl(rfd, F_GETFL) >= 0);
     close(rfd);
     close(wfd);
 }
@@ -241,7 +268,11 @@ BOOST_AUTO_TEST_CASE(t_cancellisten_closes_fd)
     auto ev = loop->CreateEvent(rfd, EventOpt::READABLE, [](int, short, EventId) {});
     ev->StartListen(0);
     ev->CancelListen(true);
-    BOOST_CHECK(fcntl(rfd, F_GETFL) == -1); // fd closed
+
+    /**
+     * fd closed
+     */
+    BOOST_CHECK(fcntl(rfd, F_GETFL) == -1);
 
     close(wfd);
 }
@@ -272,7 +303,9 @@ BOOST_AUTO_TEST_CASE(t_get_events_returns_flags)
 
 BOOST_AUTO_TEST_SUITE_END()
 
-/* ═══ Event 超时 ═══ */
+/**
+ * ═══ Event 超时 ═══
+ */
 BOOST_AUTO_TEST_SUITE(EventTimeoutTest)
 
 BOOST_AUTO_TEST_CASE(t_timeout_fires_after_duration)
@@ -289,7 +322,11 @@ BOOST_AUTO_TEST_CASE(t_timeout_fires_after_duration)
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
 
     BOOST_CHECK(fired.load());
-    BOOST_CHECK(ms >= 40); // 容差 10ms
+
+    /**
+     * 容差 10ms
+     */
+    BOOST_CHECK(ms >= 40);
 }
 
 BOOST_AUTO_TEST_CASE(t_timeout_minimal_fires_quickly)
@@ -298,19 +335,29 @@ BOOST_AUTO_TEST_CASE(t_timeout_minimal_fires_quickly)
     std::atomic_bool fired{false};
 
     auto ev = loop->CreateEvent(-1, EventOpt::TIMEOUT, [&](int, short, EventId) { fired = true; });
-    ev->StartListen(1); // 1ms — 最小超时；0=永不超时
+
+    /**
+     * 1ms — 最小超时；0=永不超时
+     */
+    ev->StartListen(1);
     loop->StartLoop(EventLoopOpt::LOOP_ONCE);
     BOOST_CHECK(fired.load());
 }
 
 BOOST_AUTO_TEST_CASE(t_loop_nonblock_returns_immediately_with_pending_timer)
 {
-    // 回归测试：LOOP_NONBLOCK 不应阻塞等待未就绪的 timer。
-    // run_one() 底层走 epoll_wait，在有 pending timer 时会阻塞，
-    // 导致 scheduler 线程卡死 → 全系统死锁。
+    /**
+     * 回归测试：LOOP_NONBLOCK 不应阻塞等待未就绪的 timer。
+     * run_one() 底层走 epoll_wait，在有 pending timer 时会阻塞，
+     * 导致 scheduler 线程卡死 → 全系统死锁。
+     */
     auto loop = std::make_shared<EventLoop>();
     auto ev = loop->CreateEvent(-1, EventOpt::TIMEOUT, [](int, short, EventId) {});
-    ev->StartListen(10000); // 10s 后才到期
+
+    /**
+     * 10s 后才到期
+     */
+    ev->StartListen(10000);
 
     auto t0 = std::chrono::steady_clock::now();
     int ret = loop->StartLoop(EventLoopOpt::LOOP_NONBLOCK);
@@ -318,7 +365,11 @@ BOOST_AUTO_TEST_CASE(t_loop_nonblock_returns_immediately_with_pending_timer)
         std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
 
     BOOST_CHECK(ret == 0 || ret == 1);
-    BOOST_CHECK(elapsed_ms < 100); // 不应阻塞超过 100ms
+
+    /**
+     * 不应阻塞超过 100ms
+     */
+    BOOST_CHECK(elapsed_ms < 100);
 }
 
 BOOST_AUTO_TEST_CASE(t_get_timeout_ms_default_minus_one)
@@ -332,7 +383,9 @@ BOOST_AUTO_TEST_CASE(t_get_timeout_ms_default_minus_one)
 
 BOOST_AUTO_TEST_SUITE_END()
 
-/* ═══ Event 边界 ═══ */
+/**
+ * ═══ Event 边界 ═══
+ */
 BOOST_AUTO_TEST_SUITE(EventEdgeCaseTest)
 
 BOOST_AUTO_TEST_CASE(t_destroy_event_before_poll)
@@ -372,8 +425,16 @@ BOOST_AUTO_TEST_CASE(t_multiple_events_same_loop)
     char c = 'x';
     (void)write(wfd, &c, 1);
     (void)write(wfd2, &c, 1);
-    loop->StartLoop(EventLoopOpt::LOOP_ONCE); // 第一个事件
-    loop->StartLoop(EventLoopOpt::LOOP_ONCE); // 第二个事件
+
+    /**
+     * 第一个事件
+     */
+    loop->StartLoop(EventLoopOpt::LOOP_ONCE);
+
+    /**
+     * 第二个事件
+     */
+    loop->StartLoop(EventLoopOpt::LOOP_ONCE);
     BOOST_CHECK_EQUAL(cnt.load(), 2);
 
     e1->CancelListen(true);
@@ -412,19 +473,25 @@ BOOST_AUTO_TEST_CASE(t_callback_receives_correct_params)
 
 BOOST_AUTO_TEST_SUITE_END()
 
-/* ═══ EvThread 基本属性 ═══
-   注: EvThread::~EvThread() 调用 Stop() 在 m_thread==nullptr 时
-   会解引用空指针，故不测试 Start/Stop 生命周期。
-*/
+/**
+ * ═══ EvThread 基本属性 ═══
+ * 注: EvThread::~EvThread() 调用 Stop() 在 m_thread==nullptr 时
+ * 会解引用空指针，故不测试 Start/Stop 生命周期。
+ */
 BOOST_AUTO_TEST_SUITE(EvThreadTest)
 
 BOOST_AUTO_TEST_CASE(t_default_construct_tid_nonnegative)
 {
-    // 析构会 crash (m_thread==nullptr)，用 new 手动管理避免析构
+    /**
+     * 析构会 crash (m_thread==nullptr)，用 new 手动管理避免析构
+     */
     auto* evthread = new EvThread();
     BOOST_CHECK(evthread->GetTid() >= 0);
     BOOST_CHECK(!evthread->IsRunning());
-    // 不 delete，接受内存泄漏来避免析构 crash
+
+    /**
+     * 不 delete，接受内存泄漏来避免析构 crash
+     */
 }
 
 BOOST_AUTO_TEST_CASE(t_get_eventloop_not_null)

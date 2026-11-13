@@ -1,4 +1,5 @@
-/* 运行时契约的进程寿命条款。CTest 每模式独立进程：runtime 每进程只 Start 一次。
+/**
+ * 运行时契约的进程寿命条款。CTest 每模式独立进程：runtime 每进程只 Start 一次。
  * fake gate 仅制造受控交错，不作为合规 driver 示例；不修改 runtime/seam。
  */
 #define BOOST_TEST_MAIN
@@ -71,10 +72,7 @@ struct Gate {
 };
 struct OpenOnExit {
     std::shared_ptr<Gate> gate;
-    ~OpenOnExit()
-    {
-        gate->Open();
-    }
+    ~OpenOnExit() { gate->Open(); }
 };
 
 void Configure(size_t initial, size_t minimum, size_t maximum)
@@ -97,9 +95,7 @@ void CheckCounts(size_t active, size_t target, size_t retiring, size_t exited)
 
 class Driver final : public IProcesserDriver {
 public:
-    explicit Driver(std::shared_ptr<Gate> gate = {}) : m_gate(std::move(gate))
-    {
-    }
+    explicit Driver(std::shared_ptr<Gate> gate = {}) : m_gate(std::move(gate)) {}
     std::atomic_bool fail{false};
     ProcesserDriverResult OnTick(ProcesserDriverPhase) override
     {
@@ -206,7 +202,8 @@ void Boundaries()
     BOOST_CHECK(g_scheduler->GetProcesserScalingMode() == ProcesserScalingMode::Manual);
 }
 
-/* 两个 worker 都被真实用户代码门占住，故投递必在退役提交之前排队，
+/**
+ * 两个 worker 都被真实用户代码门占住，故投递必在退役提交之前排队，
  * 退役者当前 Resume 不会强杀，开门后必须 drain 而不能 Resume 下个任务。
  * producer 的前半批完成 -> resize 提交 -> 后半批，固定交会而非概率压测。
  */
@@ -239,8 +236,12 @@ void RetireAndReap(bool manual_reaper)
     });
     BOOST_REQUIRE(second->WaitEntered());
     BOOST_REQUIRE(id_first->load() != id_second->load());
+
+/**
+ * 没有隐藏 S/监控线程
+ */
 #if defined(__linux__)
-    BOOST_CHECK_EQUAL(ThreadCount(), before + 2); // 没有隐藏 S/监控线程
+    BOOST_CHECK_EQUAL(ThreadCount(), before + 2);
 #endif
     constexpr size_t tasks = 256;
     struct Batch {
@@ -280,7 +281,10 @@ void RetireAndReap(bool manual_reaper)
         }
         batch->producer_done = true;
     });
-    // 不把 join 留给 fatal 断言展开；producer 的门自身也有 5s 上限。
+
+    /**
+     * 不把 join 留给 fatal 断言展开；producer 的门自身也有 5s 上限。
+     */
     const bool halfway = batch->halfway.WaitEntered();
     const auto result = g_scheduler->SetProcesserNum(1);
     const auto active = g_scheduler->GetWorkerProcesserIds();
@@ -314,7 +318,10 @@ void RetireAndReap(bool manual_reaper)
     CheckCounts(1, 1, 0, 1);
     const auto tls_retired = retired == id_first->load() ? tls_first : tls_second;
     BOOST_REQUIRE(WaitUntil([tls_retired] { return tls_retired->load(); }));
-    // Getter 不推进 reaper；观察窗口跨过实际线程返回，不靠 sleep 判退出。
+
+    /**
+     * Getter 不推进 reaper；观察窗口跨过实际线程返回，不靠 sleep 判退出。
+     */
     for (int i = 0; i < 100; ++i)
         CheckCounts(1, 1, 0, 1);
     BOOST_REQUIRE(WaitUntil([manual_reaper] {
@@ -324,7 +331,11 @@ void RetireAndReap(bool manual_reaper)
             g_scheduler->LoopOnce();
         return g_scheduler->GetProcesserExitedUnjoinedNum() == 0;
     }));
-    CheckCounts(1, 1, 0, 0); // join 返回后才从 exited-unjoined 移除
+
+    /**
+     * join 返回后才从 exited-unjoined 移除
+     */
+    CheckCounts(1, 1, 0, 0);
 #if defined(__linux__)
     BOOST_REQUIRE(WaitUntil([before] { return ThreadCount() == before + 1; }));
 #endif
@@ -355,7 +366,10 @@ void DriverAndParked()
         done->Down();
     });
     BOOST_REQUIRE(WaitUntil([registered] { return registered->load(); }));
-    // 单 worker 上随后任务完成，证明上一个 Resume 已完成 park disposition。
+
+    /**
+     * 单 worker 上随后任务完成，证明上一个 Resume 已完成 park disposition。
+     */
     auto parked = std::make_shared<bbt::core::thread::CountDownLatch>(1);
     g_scheduler->RegistCoroutineTask([parked] { parked->Down(); });
     BOOST_REQUIRE_EQUAL(parked->WaitTimeout(5000), 0);
@@ -374,7 +388,11 @@ void DriverAndParked()
         return destroyed->load() && g_scheduler->GetProcesserRetiringNum() == 0
                && g_scheduler->GetProcesserExitedUnjoinedNum() == 0;
     }));
-    BOOST_CHECK(done->WaitTimeout(0) != 0); // 退役未取消/展开 parked 用户栈
+
+    /**
+     * 退役未取消/展开 parked 用户栈
+     */
+    BOOST_CHECK(done->WaitTimeout(0) != 0);
     BOOST_CHECK_EQUAL(waiter->Notify(), 0);
     BOOST_REQUIRE_EQUAL(done->WaitTimeout(5000), 0);
     BOOST_CHECK(result->load() == WaitStatus::Completed);
@@ -383,7 +401,8 @@ void DriverAndParked()
     keep.Release();
 }
 
-/* NO_LOOP 控制采样：用时钟越过采样间隔，不用 sleep 猜 worker 的交错。
+/**
+ * NO_LOOP 控制采样：用时钟越过采样间隔，不用 sleep 猜 worker 的交错。
  * LoopOnce 可能内部多拍；断言返回耗时小于 interval，防止样本计数退化。
  */
 void Sample()
@@ -434,7 +453,10 @@ void AutoScale(bool queue_signal)
     BOOST_REQUIRE_EQUAL(done->WaitTimeout(5000), 0);
     if (binding)
         binding->Release();
-    // 排空后重置采样；前两拍不得缩，连续第三拍才允许 2 -> 1。
+
+    /**
+     * 排空后重置采样；前两拍不得缩，连续第三拍才允许 2 -> 1。
+     */
     BOOST_REQUIRE(g_scheduler->SetProcesserAutoScale(true) == ProcesserResizeResult::Ok);
     Sample();
     BOOST_CHECK_EQUAL(g_scheduler->GetProcesserNum(), 2u);
@@ -458,7 +480,9 @@ void ReapAll()
     }));
 }
 
-// 两个真实 Resume 占满 P，TLS 析构门与业务门分离；主线程始终能清理两门。
+/**
+ * 两个真实 Resume 占满 P，TLS 析构门与业务门分离；主线程始终能清理两门。
+ */
 void TlsReaper(bool threaded)
 {
     Configure(2, 1, 2);
@@ -493,7 +517,10 @@ void TlsReaper(bool threaded)
             *returned = true;
         });
         progress = WaitUntil([returned, event] { return returned->load() && event->load(); }, 1000ms);
-        // 若旧 reaper 阻塞 join，先真实开门再 join caller，不能析构 joinable thread。
+
+        /**
+         * 若旧 reaper 阻塞 join，先真实开门再 join caller，不能析构 joinable thread。
+         */
         if (!progress)
             tls->Open();
         caller.join();
@@ -567,7 +594,10 @@ void DriverPins(const std::string& state)
             return g_scheduler->QueryProcesserDriver(ids.front(), snapshot) == ProcesserDriverStatus::Ok
                    && snapshot.m_state == ProcesserDriverState::Detaching;
         });
-        // 不在 joinable thread 存活时触发 fatal 断言。
+
+        /**
+         * 不在 joinable thread 存活时触发 fatal 断言。
+         */
         if (!observed) {
             gate->Open();
             detacher.join();
@@ -621,7 +651,10 @@ void OutstandingLimit()
         });
         return gate->WaitEntered();
     };
-    // Survivor 也占住，保证定向任务不会被它 steal，33 个新任务各占唯一新 P。
+
+    /**
+     * Survivor 也占住，保证定向任务不会被它 steal，33 个新任务各占唯一新 P。
+     */
     BOOST_REQUIRE(occupy(survivor));
     for (int i = 0; i < 33; ++i) {
         BOOST_REQUIRE(g_scheduler->SetProcesserNum(2) == ProcesserResizeResult::Ok);
@@ -642,7 +675,10 @@ void OutstandingLimit()
     for (auto& gate : gates.values)
         gate->Open();
     BOOST_REQUIRE(WaitUntil([completed] { return completed->load() == 34; }));
-    // 关闭 auto 后再推进 LoopOnce，避免本用例引入额外策略请求。
+
+    /**
+     * 关闭 auto 后再推进 LoopOnce，避免本用例引入额外策略请求。
+     */
     BOOST_REQUIRE(g_scheduler->SetProcesserAutoScale(false) == ProcesserResizeResult::Ok);
     ReapAll();
     BOOST_CHECK(g_scheduler->SetProcesserNum(1) == ProcesserResizeResult::Pending);
@@ -697,7 +733,10 @@ void ConcurrentControl()
     BOOST_REQUIRE(WaitUntil([completed] { return completed->load() == count; }));
     for (auto& hit : *hits)
         BOOST_CHECK_EQUAL(hit.load(), 1);
-    // 最后的手动栅栏在全部调用返回后提交：终态必须唯一且不被旧请求覆盖。
+
+    /**
+     * 最后的手动栅栏在全部调用返回后提交：终态必须唯一且不被旧请求覆盖。
+     */
     const auto terminal = g_scheduler->SetProcesserNum(2);
     BOOST_CHECK(terminal == ProcesserResizeResult::Ok || terminal == ProcesserResizeResult::Pending);
     ReapAll();
@@ -754,7 +793,11 @@ void AutoReverse()
     BOOST_CHECK(manual_rc.load() == ProcesserResizeResult::Pending);
     ReapAll();
     Sample();
-    CheckCounts(1, 1, 0, 0); // Auto 持锁准备扩容期间相反手动请求排队；后提交者终态唯一。
+
+    /**
+     * Auto 持锁准备扩容期间相反手动请求排队；后提交者终态唯一。
+     */
+    CheckCounts(1, 1, 0, 0);
     BOOST_REQUIRE(g_scheduler->SetProcesserAutoScale(true) == ProcesserResizeResult::Ok);
     Sample();
     CheckCounts(2, 2, 0, 0);
@@ -832,12 +875,11 @@ void ProfileCycles()
 }
 #endif
 
-// 使用受保护成员的合法 member pointer，不改产品头、不把基类强转成派生对象。
+/**
+ * 使用受保护成员的合法 member pointer，不改产品头、不把基类强转成派生对象。
+ */
 struct ProcesserAccess : Processer {
-    static auto Add()
-    {
-        return &ProcesserAccess::AddCoroutineTask;
-    }
+    static auto Add() { return &ProcesserAccess::AddCoroutineTask; }
 };
 struct AdmissionState {
     Processer::SPtr target;
@@ -867,7 +909,11 @@ void Admission(int point)
     });
     BOOST_REQUIRE(victim_gate->WaitEntered());
     AdmissionState state;
-    state.target = *captured; // 保留退役之前的真实 P 强引用（旧快照）。
+
+    /**
+     * 保留退役之前的真实 P 强引用（旧快照）。
+     */
+    state.target = *captured;
     state.pause_point = point;
     OpenOnExit release_pause{state.pause};
     auto hits = std::make_shared<std::atomic_int>(0);
@@ -892,10 +938,14 @@ void Admission(int point)
     const bool at_drain = WaitUntil([&] { return state.drain_entered.load(); });
     bool before_resume = false;
     if (point == 1) {
-        // 首次 admission 通过但尚未登记；允许 drain 完成，然后复查必须拒绝。
+        /**
+         * 首次 admission 通过但尚未登记；允许 drain 完成，然后复查必须拒绝。
+         */
         before_resume = WaitUntil([&] { return state.drained.load(); });
     } else {
-        // 已登记并通过复查、尚未 enqueue；drain 必须等待 producer 槽位。
+        /**
+         * 已登记并通过复查、尚未 enqueue；drain 必须等待 producer 槽位。
+         */
         before_resume =
             !WaitUntil([&] { return state.drained.load(); }, 100ms) && g_scheduler->GetProcesserRetiringNum() == 1;
     }
@@ -903,8 +953,12 @@ void Admission(int point)
     producer.join();
     const bool drained = WaitUntil([&] { return state.drained.load(); });
     admission_state = nullptr;
+
+    /**
+     * false 保留调用者所有权。
+     */
     if (!accepted.load())
-        delete coroutine; // false 保留调用者所有权。
+        delete coroutine;
     survivor_gate->Open();
     BOOST_REQUIRE(paused);
     BOOST_REQUIRE(resize == ProcesserResizeResult::Pending);
@@ -924,7 +978,7 @@ void Admission(int point)
     BOOST_CHECK(!victim_gate->timed_out.load());
     keep.Release();
 }
-} // namespace
+}
 
 namespace {
 void RebalanceShortBacklog()
@@ -957,14 +1011,21 @@ void RebalanceShortBacklog()
             completed->fetch_add(1, std::memory_order_release);
         });
     }
-    // 刷新原 worker 的本次 Resume 起点，不能靠排队准备耗时越过旧偷取阈值。
+
+    /**
+     * 刷新原 worker 的本次 Resume 起点，不能靠排队准备耗时越过旧偷取阈值。
+     */
     first->Open();
     BOOST_REQUIRE(current->WaitEntered());
     BOOST_REQUIRE(g_scheduler->SetProcesserNum(4) == ProcesserResizeResult::Ok);
     current->Open();
     BOOST_REQUIRE(WaitUntil([completed] { return completed->load(std::memory_order_acquire) >= tasks; }));
     BOOST_CHECK_EQUAL(completed->load(), tasks);
-    BOOST_CHECK_GT(on_new->load(), 0); // 容量增加必须能消费原有短任务积压，而非仅增加线程。
+
+    /**
+     * 容量增加必须能消费原有短任务积压，而非仅增加线程。
+     */
+    BOOST_CHECK_GT(on_new->load(), 0);
     for (const auto& hit : *hits)
         BOOST_CHECK_EQUAL(hit.load(), 1);
     BOOST_CHECK(!first->timed_out.load());
@@ -972,9 +1033,11 @@ void RebalanceShortBacklog()
     BOOST_CHECK(g_scheduler->SetProcesserNum(1) == ProcesserResizeResult::Pending);
     ReapAll();
 }
-} // namespace
+}
 
-// CMake 的测试专用 Processer.cc 副本仅加入观察点，条件/原子序/锁均原样保留。
+/**
+ * CMake 的测试专用 Processer.cc 副本仅加入观察点，条件/原子序/锁均原样保留。
+ */
 void ScalingAutoCommitProbe()
 {
     if (auto* gate = auto_commit_gate.load())

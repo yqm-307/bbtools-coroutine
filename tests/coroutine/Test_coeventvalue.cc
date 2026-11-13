@@ -21,7 +21,9 @@ using namespace bbt::coroutine;
 
 namespace {
 
-/* 与本文件内其它类型同尺寸、但登记 ID 不同：必须互相拒绝 */
+/**
+ * 与本文件内其它类型同尺寸、但登记 ID 不同：必须互相拒绝
+ */
 struct SameSizeOtherType {
     std::int64_t seq;
     std::uint32_t code{0};
@@ -35,15 +37,19 @@ struct Pod24 {
     unsigned char bytes[24];
 };
 
-/* 自定义登记区间上界（0xFFFF）：指针层级容量的最坏基数 */
+/**
+ * 自定义登记区间上界（0xFFFF）：指针层级容量的最坏基数
+ */
 struct HugeIdPayload {
     unsigned char bytes[8];
 };
 
-} // namespace
+}
 
-/* 登记写在全局命名空间作用域：显式特化只能声明在包裹模板命名空间的命名空间里
- * （与 std::hash 特化同一语言规则），放进匿名/用户命名空间会报 “does not enclose”。 */
+/**
+ * 登记写在全局命名空间作用域：显式特化只能声明在包裹模板命名空间的命名空间里
+ * （与 std::hash 特化同一语言规则），放进匿名/用户命名空间会报 “does not enclose”。
+ */
 BBT_COEVENT_VALUE_REGISTER_TYPE(SameSizeOtherType, 0x201);
 BBT_COEVENT_VALUE_REGISTER_TYPE(Pod23, 0x202);
 BBT_COEVENT_VALUE_REGISTER_TYPE(Pod24, 0x203);
@@ -58,7 +64,11 @@ BOOST_AUTO_TEST_CASE(t_default_is_empty_and_get_rejects)
 
     std::int64_t out{123};
     BOOST_CHECK(!empty.Get(out));
-    BOOST_CHECK_EQUAL(out, 123); // 失败不得修改 out
+
+    /**
+     * 失败不得修改 out
+     */
+    BOOST_CHECK_EQUAL(out, 123);
 }
 
 BOOST_AUTO_TEST_CASE(t_integer_roundtrip)
@@ -70,7 +80,9 @@ BOOST_AUTO_TEST_CASE(t_integer_roundtrip)
     BOOST_CHECK(v.Get(out));
     BOOST_CHECK_EQUAL(out, 7);
 
-    /* 基础类型的登记 ID 是公共常量，跨 TU 一致 */
+    /**
+     * 基础类型的登记 ID 是公共常量，跨 TU 一致
+     */
     BOOST_CHECK_EQUAL(CoEventValueTraits<std::int64_t>::id, kCoEventValueInt64);
     BOOST_CHECK_EQUAL(CoEventValueTraits<int>::id, kCoEventValueInt);
 }
@@ -80,11 +92,21 @@ BOOST_AUTO_TEST_CASE(t_same_size_other_type_rejected)
     const auto v = CoEventValue::From(std::int64_t{7});
 
     SameSizeOtherType other{99, 99};
-    BOOST_CHECK(!v.Get(other));       // 仅按 sizeof 校验会误判为通过
-    BOOST_CHECK_EQUAL(other.seq, 99); // 失败不得修改 out
+
+    /**
+     * 仅按 sizeof 校验会误判为通过
+     */
+    BOOST_CHECK(!v.Get(other));
+
+    /**
+     * 失败不得修改 out
+     */
+    BOOST_CHECK_EQUAL(other.seq, 99);
     BOOST_CHECK_EQUAL(other.code, 99u);
 
-    /* 同类型仍可正常读回 */
+    /**
+     * 同类型仍可正常读回
+     */
     std::int64_t ok{0};
     BOOST_CHECK(v.Get(ok));
     BOOST_CHECK_EQUAL(ok, 7);
@@ -104,7 +126,11 @@ BOOST_AUTO_TEST_CASE(t_capacity_boundary_23_24)
     Pod24 p24{};
     for (std::size_t i = 0; i < sizeof(p24.bytes); ++i)
         p24.bytes[i] = static_cast<unsigned char>(i + 5);
-    const auto v24 = CoEventValue::From(p24); // 恰好 24B：必须可编译可读回
+
+    /**
+     * 恰好 24B：必须可编译可读回
+     */
+    const auto v24 = CoEventValue::From(p24);
     Pod24 r24{};
     BOOST_CHECK(v24.Get(r24));
     BOOST_CHECK_EQUAL(r24.bytes[23], 28);
@@ -117,9 +143,15 @@ BOOST_AUTO_TEST_CASE(t_pointer_borrow_per_pointee_id)
 
     std::int64_t* out = nullptr;
     BOOST_CHECK(v.Get(out));
-    BOOST_CHECK(out == &target); // 只借用地址，不延寿、不复制对象
 
-    /* 不同被指类型的指针 ID 不同：不得塌缩成统一 Pointer */
+    /**
+     * 只借用地址，不延寿、不复制对象
+     */
+    BOOST_CHECK(out == &target);
+
+    /**
+     * 不同被指类型的指针 ID 不同：不得塌缩成统一 Pointer
+     */
     double* wrong = nullptr;
     BOOST_CHECK(!v.Get(wrong));
     BOOST_CHECK(wrong == nullptr);
@@ -131,15 +163,19 @@ BOOST_AUTO_TEST_CASE(t_pointer_borrow_per_pointee_id)
 
 BOOST_AUTO_TEST_CASE(t_custom_id_out_of_range_rejected_at_compile_time)
 {
-    /* 自定义 ID 区间契约：>= kCoEventValueCustomBegin 且 < kCoEventValuePointerBegin。
+    /**
+     * 自定义 ID 区间契约：>= kCoEventValueCustomBegin 且 < kCoEventValuePointerBegin。
      * 越界登记由 traits 里的 static_assert 拒绝（负向编译检查见 CMake 的
-     * BBT_COEVENT_VALUE_TRAITS_RANGE_CHECK）。 */
+     * BBT_COEVENT_VALUE_TRAITS_RANGE_CHECK）。
+     */
     BOOST_CHECK(CoEventValueTraits<SameSizeOtherType>::id >= kCoEventValueCustomBegin);
     BOOST_CHECK(CoEventValueTraits<SameSizeOtherType>::id < kCoEventValuePointerBegin);
 }
 
-/* 基础类型身份：char / signed char / unsigned char 是三种不同类型，ID 必须互异，
- * 不能因 sizeof 相同或 char 的符号性而互相识别。 */
+/**
+ * 基础类型身份：char / signed char / unsigned char 是三种不同类型，ID 必须互异，
+ * 不能因 sizeof 相同或 char 的符号性而互相识别。
+ */
 BOOST_AUTO_TEST_CASE(t_char_family_distinct)
 {
     BOOST_CHECK(CoEventValueTraits<char>::id != CoEventValueTraits<signed char>::id);
@@ -148,8 +184,16 @@ BOOST_AUTO_TEST_CASE(t_char_family_distinct)
 
     const char c = 'A';
     signed char sc = 0;
-    BOOST_CHECK(!CoEventValue::From(c).Get(sc)); // char 不得读成 signed char
-    BOOST_CHECK_EQUAL(sc, 0);                    // 失败不得修改 out
+
+    /**
+     * char 不得读成 signed char
+     */
+    BOOST_CHECK(!CoEventValue::From(c).Get(sc));
+
+    /**
+     * 失败不得修改 out
+     */
+    BOOST_CHECK_EQUAL(sc, 0);
     char back = 0;
     BOOST_CHECK(CoEventValue::From(c).Get(back));
     BOOST_CHECK_EQUAL(back, 'A');
@@ -160,15 +204,21 @@ BOOST_AUTO_TEST_CASE(t_char_family_distinct)
     BOOST_CHECK_EQUAL(s3, -5);
 }
 
-/* LP64 下 long long 与 int64_t（= long）是不同类型，不得共享 64 位登记位；
- * 若某平台 int64_t 恰好就是 long long，则退化为「同类型同 ID」。 */
+/**
+ * LP64 下 long long 与 int64_t（= long）是不同类型，不得共享 64 位登记位；
+ * 若某平台 int64_t 恰好就是 long long，则退化为「同类型同 ID」。
+ */
 BOOST_AUTO_TEST_CASE(t_long_long_vs_int64_alias)
 {
     if constexpr (!std::is_same<long long, std::int64_t>::value) {
         BOOST_CHECK(CoEventValueTraits<long long>::id != CoEventValueTraits<std::int64_t>::id);
         const auto v = CoEventValue::From(7LL);
         std::int64_t got = 0;
-        BOOST_CHECK(!v.Get(got)); // long long 不得读成 int64_t
+
+        /**
+         * long long 不得读成 int64_t
+         */
+        BOOST_CHECK(!v.Get(got));
         BOOST_CHECK_EQUAL(got, 0);
         long long ll = 0;
         BOOST_CHECK(v.Get(ll));
@@ -178,8 +228,10 @@ BOOST_AUTO_TEST_CASE(t_long_long_vs_int64_alias)
     }
 }
 
-/* 被指 cv 与指针层级都是身份的一部分：const int* 不得读成 int*，
- * 二级指针不得读成一级指针。 */
+/**
+ * 被指 cv 与指针层级都是身份的一部分：const int* 不得读成 int*，
+ * 二级指针不得读成一级指针。
+ */
 BOOST_AUTO_TEST_CASE(t_pointer_pointee_cv_and_depth)
 {
     BOOST_CHECK(CoEventValueTraits<const int*>::id != CoEventValueTraits<int*>::id);
@@ -190,7 +242,11 @@ BOOST_AUTO_TEST_CASE(t_pointer_pointee_cv_and_depth)
     const int* cp = &original;
     int* mutablep = nullptr;
     const auto v = CoEventValue::From(cp);
-    BOOST_CHECK(!v.Get(mutablep)); // 不得丢弃被指 const
+
+    /**
+     * 不得丢弃被指 const
+     */
+    BOOST_CHECK(!v.Get(mutablep));
     BOOST_CHECK(mutablep == nullptr);
     const int* cp_out = nullptr;
     BOOST_CHECK(v.Get(cp_out));
@@ -199,18 +255,24 @@ BOOST_AUTO_TEST_CASE(t_pointer_pointee_cv_and_depth)
     int* p = nullptr;
     int** pp = &p;
     int* p_out = nullptr;
-    BOOST_CHECK(!CoEventValue::From(pp).Get(p_out)); // 二级不得读成一级
+
+    /**
+     * 二级不得读成一级
+     */
+    BOOST_CHECK(!CoEventValue::From(pp).Get(p_out));
     BOOST_CHECK(p_out == nullptr);
     int** pp_out = nullptr;
     BOOST_CHECK(CoEventValue::From(pp).Get(pp_out));
     BOOST_CHECK(pp_out == &p);
 }
 
-/* void 与 void* 的身份分离（r1 已证 3 组碰撞）：
+/**
+ * void 与 void* 的身份分离（r1 已证 3 组碰撞）：
  *  - const void* 与 void* const*、volatile / const volatile 两对历史同为
  *    65585/65586/65587，错型 Get 能按 sizeof 读回 8 字节并改写 out；
  *  - 根因是 cv-void 指针的全特化与通用指针公式数值重合（void 与 void*
- *    共用登记 ID 12）。 */
+ *    共用登记 ID 12）。
+ */
 BOOST_AUTO_TEST_CASE(t_void_pointer_family_ids_distinct)
 {
     BOOST_CHECK(CoEventValueTraits<const void*>::id != CoEventValueTraits<void* const*>::id);
@@ -220,7 +282,9 @@ BOOST_AUTO_TEST_CASE(t_void_pointer_family_ids_distinct)
     BOOST_CHECK(CoEventValueTraits<void*>::id != CoEventValueTraits<const void*>::id);
     BOOST_CHECK(CoEventValueTraits<void>::id == kCoEventValueVoid);
 
-    /* 端到端：const void* 载荷不得被 void* const* 读回，且 out 不变 */
+    /**
+     * 端到端：const void* 载荷不得被 void* const* 读回，且 out 不变
+     */
     int dummy = 0;
     const void* cp = &dummy;
     const auto v = CoEventValue::From(cp);
@@ -237,7 +301,9 @@ BOOST_AUTO_TEST_CASE(t_void_pointer_family_ids_distinct)
     BOOST_CHECK(v.Get(cp_out));
     BOOST_CHECK(cp_out == &dummy);
 
-    /* 反向：void* const* 载荷不得被 const void* 读回 */
+    /**
+     * 反向：void* const* 载荷不得被 const void* 读回
+     */
     void* p = &dummy;
     void* const* ppv = &p;
     const auto v2 = CoEventValue::From(ppv);
@@ -251,9 +317,11 @@ BOOST_AUTO_TEST_CASE(t_void_pointer_family_ids_distinct)
     BOOST_CHECK(ppv_out == &p);
 }
 
-/* 指针层级容量：最高合法层级（kCoEventValueMaxPointerDepth=7）必须可区分、
+/**
+ * 指针层级容量：最高合法层级（kCoEventValueMaxPointerDepth=7）必须可区分、
  * 可往返，且最坏基数（自定义登记区间上界）下逐层严格递增（无 uint32 回绕）。
- * 更深层级由 CMake 负向编译检查（too_deep.cc）拒绝，不做静默回绕。 */
+ * 更深层级由 CMake 负向编译检查（too_deep.cc）拒绝，不做静默回绕。
+ */
 BOOST_AUTO_TEST_CASE(t_pointer_depth_within_capacity)
 {
     using I1 = int*;
@@ -282,11 +350,17 @@ BOOST_AUTO_TEST_CASE(t_pointer_depth_within_capacity)
     BOOST_CHECK(v.Get(out));
     BOOST_CHECK(out == p7);
     I6 wrong = nullptr;
-    BOOST_CHECK(!v.Get(wrong)); // 7 层不得读成 6 层
+
+    /**
+     * 7 层不得读成 6 层
+     */
+    BOOST_CHECK(!v.Get(wrong));
     BOOST_CHECK(wrong == nullptr);
 
-    /* 最坏基数：0xFFFF 登记 ID 的 7 层指针必须逐层严格递增（回绕会让
-     * 高层的 ID 落回低位区间，进而与低层类型撞号） */
+    /**
+     * 最坏基数：0xFFFF 登记 ID 的 7 层指针必须逐层严格递增（回绕会让
+     * 高层的 ID 落回低位区间，进而与低层类型撞号）
+     */
     using H1 = HugeIdPayload*;
     using H2 = H1*;
     using H3 = H2*;
@@ -302,7 +376,10 @@ BOOST_AUTO_TEST_CASE(t_pointer_depth_within_capacity)
         BOOST_CHECK_MESSAGE(worst[i] > worst[i - 1], "worst-case pointer depth "
                                                          << i + 1 << " id " << worst[i] << " did not grow past "
                                                          << worst[i - 1] << " (uint32 overflow)");
-    /* 每层乘 4 → 每层比内层大至少 3 倍，末层远小于 uint32 上界 */
+
+    /**
+     * 每层乘 4 → 每层比内层大至少 3 倍，末层远小于 uint32 上界
+     */
     BOOST_CHECK(worst[6] < 0xFFFFFFFFu / 3u);
 }
 

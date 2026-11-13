@@ -1,4 +1,6 @@
-/* 协程对象 Coroutine：创建/恢复/让出/取消与诊断现场。 */
+/**
+ * 协程对象 Coroutine：创建/恢复/让出/取消与诊断现场。
+ */
 #pragma once
 #include <atomic>
 #include <bbt/coroutine/detail/CfsRunQueue.hpp>
@@ -23,7 +25,9 @@ enum FollowEventStatus {
     READABLE = 2,
 };
 
-/* 仅用于 Processer 在上下文切回后决定 Coroutine 的交接方式。 */
+/**
+ * 仅用于 Processer 在上下文切回后决定 Coroutine 的交接方式。
+ */
 enum class CoroutineYieldDisposition {
     MANUAL,
     READY,
@@ -44,15 +48,18 @@ class Coroutine : public ICoroutine {
 public:
     typedef Coroutine* Ptr;
 
-    /* sync 层 Wait 族与 CoMutex 等待路径均经同一登记路径挂起，必须能访问
+    /**
+     * sync 层 Wait 族与 CoMutex 等待路径均经同一登记路径挂起，必须能访问
      * _RegistAwaitEvent（取消预检），否则 custom 等待不响应预取消。
-     * 仅开放给工具层等待原语，不扩大为公共 API。 */
+     * 仅开放给工具层等待原语，不扩大为公共 API。
+     */
     friend class bbt::coroutine::sync::CoWaiter;
     friend class bbt::coroutine::sync::CoMutex;
     friend class Scheduler;
     friend class Processer;
 
     Coroutine(size_t stack_size, const CoroutineCallback& co_func, bool need_protect);
+    Coroutine(StackLease stack, const CoroutineCallback& co_func);
     virtual ~Coroutine();
 
     /**
@@ -61,6 +68,8 @@ public:
      */
     static Ptr Create(size_t stack_size, const CoroutineCallback& co_func, bool need_protect = true,
                       const char* desc = nullptr);
+    static Ptr Create(StackLease stack, const CoroutineCallback& co_func, const char* desc = nullptr);
+
     /**
      * @brief 唤醒并切进协程，返回时协程已再次让出。
      * 只能在持有该协程的 Processer 线程调用；运行状态不是 CO_RUNNABLE/CO_SUSPEND 时 Assert。
@@ -93,27 +102,36 @@ public:
      */
     CoroutineYieldDisposition CommitYield();
 
-    /** @brief 协程 id，进程内单调递增，创建后不变。 */
+    /**
+     * @brief 协程 id，进程内单调递增，创建后不变。
+     */
     virtual CoroutineId GetId() const noexcept override;
-    /** @brief 运行状态快照；由持有它的 Processer 线程写入，m_run_status 是 volatile 非原子，无同步的跨线程并发读不安全。 */
+
+    /**
+     * @brief 运行状态快照；由持有它的 Processer 线程写入，m_run_status 是 volatile 非原子，无同步的跨线程并发读不安全。
+     */
     virtual CoroutineStatus GetStatus() const noexcept override;
+
     /**
      * @brief 最后一次导致唤醒的事件掩码（PollEventType 口径，含 TIMEOUT/CANCELLED/CLOSED 位）。
      * @return 尚未被事件唤醒过时返回 -1。
      */
     int GetLastResumeEvent() const noexcept;
-    /** @brief 本协程可用栈的字节数。 */
+
+    /**
+     * @brief 本协程可用栈的字节数。
+     */
     size_t GetStackSize() const noexcept;
 
 #ifdef BBT_COROUTINE_STACK_DIAGNOSTICS
-    /* 同 Context::GetStackBudgetSample 的安全点前置条件：owner 协程在自身
+
+    /**
+     * 同 Context::GetStackBudgetSample 的安全点前置条件：owner 协程在自身
      * 同步安全点调用，或调用方已同步确认协程不在运行（Resume 已返回/协程
      * 已让出或终态）；无同步的并发读禁止。PARTIAL 观测样本，不是栈用量
-     * 上下界。 */
-    StackBudgetSample GetStackBudgetSample() const noexcept
-    {
-        return m_context.GetStackBudgetSample();
-    }
+     * 上下界。
+     */
+    StackBudgetSample GetStackBudgetSample() const noexcept { return m_context.GetStackBudgetSample(); }
 #endif
 
     /**
@@ -133,17 +151,18 @@ public:
      * GetWaitInfo：仅协程**自身**（同 Processer 线程）可安全读取——parked
      * 现场成员无锁，跨线程统一快照由 WorkerStallInfo 承载。未处于事件等待时返回 -1。
      */
-    const std::string& GetDescription() const noexcept
-    {
-        return m_desc;
-    }
+    const std::string& GetDescription() const noexcept { return m_desc; }
     int GetWaitInfo(CoroutineWaitInfo& out) const noexcept;
+
     /**
      * @brief 记录异常并把协程推进到终态（FINAL），顺手取消尚未完成的 await 事件。
      * 在 Context 的 catch 和用户主函数的 catch 里都会调用；异常本身由 GetException 交付。
      */
     void OnException(std::exception_ptr eptr = nullptr) noexcept;
-    /** @brief 取保存的异常；未发生过异常时为空。 */
+
+    /**
+     * @brief 取保存的异常；未发生过异常时为空。
+     */
     std::exception_ptr GetException() const noexcept;
 
     /**
@@ -151,34 +170,22 @@ public:
      * 运行中的协程在检查点（IsCancelRequested / 等待返回后）自行退出，RAII 照常展开。
      */
     void RequestCancel() noexcept;
-    /** @brief 是否已请求取消；acquire 语义，配合 RequestCancel 的 release 发布。 */
+
+    /**
+     * @brief 是否已请求取消；acquire 语义，配合 RequestCancel 的 release 发布。
+     */
     bool IsCancelRequested() const noexcept;
 
     /**
      * MLFQ 调度支持：OnCoPollEvent 按 1ms 时间片决定唤醒优先级，超时降级（最多 3 次），时长收敛则逐次恢复。
      */
-    uint64_t GetLastRunTimeUs() const noexcept
-    {
-        return m_last_run_us;
-    }
-    void SetLastRunTimeUs(uint64_t us)
-    {
-        m_last_run_us = us;
-    }
-    int GetMlfqDemotions() const noexcept
-    {
-        return m_mlfq_demotions;
-    }
-    void IncrementDemotions()
-    {
-        m_mlfq_demotions++;
-    }
-    void ResetDemotions()
-    {
-        m_mlfq_demotions = 0;
-    }
+    uint64_t GetLastRunTimeUs() const noexcept { return m_last_run_us; }
+    void SetLastRunTimeUs(uint64_t us) { m_last_run_us = us; }
+    int GetMlfqDemotions() const noexcept { return m_mlfq_demotions; }
+    void IncrementDemotions() { m_mlfq_demotions++; }
+    void ResetDemotions() { m_mlfq_demotions = 0; }
 
-    /*
+    /**
      * 事件等待族：先在 m_await_event 备好 CoPollEvent，再经 YieldWithCallback 在挂起后注册——注册早于
      * 让出的话 poller 可能在协程还没让出时就把它标成就绪。唤醒来源不止两种：Scheduler 派发就绪事件、
      * 其他 Processer 触发 custom 事件、native Notify、取消与 close 都会推进完成；都只入队，运行状态
@@ -186,11 +193,16 @@ public:
      * 返回码：0 = 已注册并在被唤醒后返回（原因看 GetLastResumeEvent）；-1 = 事件创建/初始化/注册失败，
      * 协程未真正挂起；1 = 进入时已有取消请求（未挂起）。同一时刻最多一个 await_event，已有事件时 Assert。
      */
-
     int YieldUntilTimeout(int ms);
-    /** @brief 登记一个 custom 事件，由外部 Trigger 唤醒；已有 await_event 或初始化失败返回 nullptr。 */
+
+    /**
+     * @brief 登记一个 custom 事件，由外部 Trigger 唤醒；已有 await_event 或初始化失败返回 nullptr。
+     */
     std::shared_ptr<CoPollEvent> RegistCustom(int key);
-    /** @brief 同上，另加超时；超时与 custom 谁先到都算唤醒。 */
+
+    /**
+     * @brief 同上，另加超时；超时与 custom 谁先到都算唤醒。
+     */
     std::shared_ptr<CoPollEvent> RegistCustom(int key, int timeout_ms);
     int YieldUntilFdReadable(int fd);
     int YieldUntilFdReadable(int fd, int timeout_ms);
@@ -211,52 +223,98 @@ public:
     static void _TestFailNextAwaitRegist() noexcept;
 
 protected:
-    // 唤醒入口：归一化掩码、清 await、按 MLFQ/超时规则定优先级后交给 Scheduler 入队。执行线程不固定——
-    // PENDING 由 CommitPark 所在 Processer 完成，PARKED 由 Trigger 调用线程同步完成。
+    /**
+     * 唤醒入口：归一化掩码、清 await、按 MLFQ/超时规则定优先级后交给 Scheduler 入队。执行线程不固定——
+     * PENDING 由 CommitPark 所在 Processer 完成，PARKED 由 Trigger 调用线程同步完成。
+     */
     void OnCoPollEvent(int event, int custom_key);
 
 protected:
-    // 进程内单调递增，从 INVALID_COROUTINE_ID 之后开始
+    /**
+     * 进程内单调递增，从 INVALID_COROUTINE_ID 之后开始
+     */
     static CoroutineId _GenCoroutineId();
 
 private:
-    // 挂起后注册当前 await 事件：先做取消预检与单测注入，注册失败则清 await、回滚 disposition。
+    /**
+     * 挂起后注册当前 await 事件：先做取消预检与单测注入，注册失败则清 await、回滚 disposition。
+     */
     bool _RegistAwaitEvent();
-    // 锁内拷贝一份 shared_ptr：调用方拿到后即使槽被清空，事件对象仍然存活。
+
+    /**
+     * 锁内拷贝一份 shared_ptr：调用方拿到后即使槽被清空，事件对象仍然存活。
+     */
     std::shared_ptr<CoPollEvent> _AwaitEvent() const;
-    // 按值接管所有权；传 nullptr 即清空槽位。
+
+    /**
+     * 按值接管所有权；传 nullptr 即清空槽位。
+     */
     void _SetAwaitEvent(std::shared_ptr<CoPollEvent> ev);
 
-    /* 单测故障注入标志：见 _TestFailNextAwaitRegist 注释 */
+    /**
+     * 单测故障注入标志：见 _TestFailNextAwaitRegist 注释
+     */
     static std::atomic_bool s_test_fail_await_regist;
 
 private:
-    // CFS 节点，随本对象生灭
+    /**
+     * CFS 节点，随本对象生灭
+     */
     CfsEntity m_cfs;
     Context m_context;
     const CoroutineId m_id{BBT_COROUTINE_INVALID_COROUTINE_ID};
-    volatile CoroutineStatus m_run_status{CoroutineStatus::CO_DEFAULT}; // 只有持有它的 Processer 线程写
 
-    /* 当前等待事件：挂起前建好、挂起后注册，唤醒时被消费清空。
-     * 由 m_await_mu 保护，所以 poller 派发和其他 worker 的 Notify 能取到引用并 Trigger。 */
+    /**
+     * 只有持有它的 Processer 线程写
+     */
+    volatile CoroutineStatus m_run_status{CoroutineStatus::CO_DEFAULT};
+
+    /**
+     * 当前等待事件：挂起前建好、挂起后注册，唤醒时被消费清空。
+     * 由 m_await_mu 保护，所以 poller 派发和其他 worker 的 Notify 能取到引用并 Trigger。
+     */
     std::shared_ptr<CoPollEvent> m_await_event{nullptr};
     mutable std::mutex m_await_mu;
     std::atomic_bool m_cancel_requested{false};
     std::exception_ptr m_exception;
     CoroutineOnYieldCallback m_co_onyield_callback{nullptr};
-    /* 本次让出的去向，由 Coroutine::Yield* 写入、CommitYield 读出后交给 Processer。 */
+
+    /**
+     * 本次让出的去向，由 Coroutine::Yield* 写入、CommitYield 读出后交给 Processer。
+     */
     CoroutineYieldDisposition m_yield_disposition{CoroutineYieldDisposition::MANUAL};
 
-    int m_last_resume_event{-1}; // 最后一次导致此协程唤醒的事件（PollEventType 归一化掩码）
-    /* 恢复时由 OnCoPollEvent 从消费掉的 await_event 捕获，供
-     * FdWaitEpochValid 在重试 syscall 前比对；仅协程自身线程读写。 */
+    /**
+     * 最后一次导致此协程唤醒的事件（PollEventType 归一化掩码）
+     */
+    int m_last_resume_event{-1};
+
+    /**
+     * 恢复时由 OnCoPollEvent 从消费掉的 await_event 捕获，供
+     * FdWaitEpochValid 在重试 syscall 前比对；仅协程自身线程读写。
+     */
     int m_last_wait_fd{-1};
     uint64_t m_last_wait_epoch{0};
-    uint64_t m_last_run_us{0}; // 上次运行时长（微秒），用于 MLFQ
-    int m_mlfq_demotions{0};   // MLFQ 连续降级次数
 
-    std::string m_desc{};    // bbtco_desc 任务描述
-    uint64_t m_parked_us{0}; // 进入事件等待的时刻
+    /**
+     * 上次运行时长（微秒），用于 MLFQ
+     */
+    uint64_t m_last_run_us{0};
+
+    /**
+     * MLFQ 连续降级次数
+     */
+    int m_mlfq_demotions{0};
+
+    /**
+     * bbtco_desc 任务描述
+     */
+    std::string m_desc{};
+
+    /**
+     * 进入事件等待的时刻
+     */
+    uint64_t m_parked_us{0};
 };
 
 }

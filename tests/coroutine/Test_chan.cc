@@ -12,8 +12,10 @@
 #include <bbt/core/clock/Clock.hpp>
 #include <bbt/coroutine/coroutine.hpp>
 #include <bbt/coroutine/sync/Chan.hpp>
-/* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
- * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。 */
+/**
+ * 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
+ * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。
+ */
 namespace {
 void EnsureRuntime()
 {
@@ -34,10 +36,13 @@ BOOST_AUTO_TEST_CASE(t_begin)
 BOOST_AUTO_TEST_CASE(t_chan_block)
 {
     BOOST_TEST_MESSAGE("enter t_chan_block");
-    /* 时序约束：每个子 writer 按值持有 Chan 的 shared_ptr 并在写完时 Down
+
+    /**
+     * 时序约束：每个子 writer 按值持有 Chan 的 shared_ptr 并在写完时 Down
      * latch；外层读协程读完三次后也 Down；主测试线程 l.Wait() 之后才对
      * results 断言——不在 worker 协程上执行 BOOST_CHECK，也不以 sleep
-     * 冒充完成；results 活在 main 栈上，失败路径不会遗留野引用。 */
+     * 冒充完成；results 活在 main 栈上，失败路径不会遗留野引用。
+     */
     bbt::core::thread::CountDownLatch l{4};
     int results[3] = {0, 0, 0};
     bbtco[l = &l, &results]()
@@ -77,7 +82,9 @@ BOOST_AUTO_TEST_CASE(t_chan_block)
     BOOST_CHECK_EQUAL(results[2], 42);
 }
 
-/* 单读单写 */
+/**
+ * 单读单写
+ */
 BOOST_AUTO_TEST_CASE(t_chan_1_vs_1)
 {
     BOOST_TEST_MESSAGE("enter t_chan_1_vs_1");
@@ -102,12 +109,16 @@ BOOST_AUTO_TEST_CASE(t_chan_1_vs_1)
         l.Down();
     };
 
-    // sleep(1);
+    /**
+     * sleep(1);
+     */
     l.Wait();
     BOOST_CHECK_EQUAL(count.load(), 100);
 }
 
-/* 单读多写 */
+/**
+ * 单读多写
+ */
 BOOST_AUTO_TEST_CASE(t_chan_1_vs_n)
 {
     BOOST_TEST_MESSAGE("enter t_chan_1_vs_n");
@@ -140,7 +151,9 @@ BOOST_AUTO_TEST_CASE(t_chan_1_vs_n)
     BOOST_CHECK_EQUAL(count.load(), 100 * 1000);
 }
 
-/* 运算符重载测试 */
+/**
+ * 运算符重载测试
+ */
 BOOST_AUTO_TEST_CASE(t_chan_operator_overload)
 {
     BOOST_TEST_MESSAGE("enter t_chan_operator_overload");
@@ -239,7 +252,10 @@ BOOST_AUTO_TEST_CASE(t_block_write_n)
         for (int i = 0; i < nwrite; ++i) {
             while (!(chan >> val))
                 ;
-            // detail::Hook_Sleep(1);
+
+            /**
+             * detail::Hook_Sleep(1);
+             */
             results.insert(val);
         }
 
@@ -256,7 +272,9 @@ BOOST_AUTO_TEST_CASE(t_block_write_n)
     }
 }
 
-/* 无缓冲单次读写 */
+/**
+ * 无缓冲单次读写
+ */
 BOOST_AUTO_TEST_CASE(t_nocache_chan_1v1)
 {
     BOOST_TEST_MESSAGE("enter t_nocache_chan_1v1");
@@ -283,7 +301,9 @@ BOOST_AUTO_TEST_CASE(t_nocache_chan_1v1)
     l.Wait();
 }
 
-/* 无缓冲单读多写 */
+/**
+ * 无缓冲单读多写
+ */
 BOOST_AUTO_TEST_CASE(t_nocache_chan_1vn)
 {
     BOOST_TEST_MESSAGE("enter t_nocache_chan_1vn");
@@ -329,7 +349,11 @@ BOOST_AUTO_TEST_CASE(t_close)
         bbtco[&chan, &l]()
         {
             int block;
-            chan->TryRead(block, 100); // 阻塞100ms
+
+            /**
+             * 阻塞100ms
+             */
+            chan->TryRead(block, 100);
             chan->Close();
             l.Down();
         };
@@ -347,18 +371,24 @@ BOOST_AUTO_TEST_CASE(t_close)
     BOOST_CHECK(flag);
 }
 
-/* ================================================================
+/**
+ * ================================================================
  * 新增测试 (合并版)
- * ================================================================ */
+ * ================================================================
+ */
 
-// 组1: 基础正确性 — 不同类型 + ReadAll
+/**
+ * 组1: 基础正确性 — 不同类型 + ReadAll
+ */
 BOOST_AUTO_TEST_CASE(t_new_basic)
 {
     BOOST_TEST_MESSAGE("enter t_new_basic");
     bbt::core::thread::CountDownLatch l{1};
     bbtco[&l]()
     {
-        // string 类型
+        /**
+         * string 类型
+         */
         {
             auto c = Chan<std::string, 10>();
             c->Write(std::string("hello"));
@@ -366,7 +396,10 @@ BOOST_AUTO_TEST_CASE(t_new_basic)
             BOOST_ASSERT(c->Read(val) == 0);
             BOOST_CHECK_EQUAL(val, "hello");
         }
-        // 自定义 struct
+
+        /**
+         * 自定义 struct
+         */
         {
             struct TItem {
                 int id;
@@ -380,7 +413,10 @@ BOOST_AUTO_TEST_CASE(t_new_basic)
             BOOST_CHECK_EQUAL(out.id, 42);
             BOOST_CHECK_EQUAL(out.val, 3.14);
         }
-        // ReadAll 非空
+
+        /**
+         * ReadAll 非空
+         */
         {
             auto c = Chan<int, 10>();
             c->Write(1);
@@ -391,7 +427,10 @@ BOOST_AUTO_TEST_CASE(t_new_basic)
             BOOST_CHECK_EQUAL(items.size(), 3);
             BOOST_CHECK_EQUAL(items[0], 1);
         }
-        // ReadAll 阻塞等待
+
+        /**
+         * ReadAll 阻塞等待
+         */
         {
             auto c = Chan<int, 10>();
             bbtco[c]()
@@ -404,7 +443,10 @@ BOOST_AUTO_TEST_CASE(t_new_basic)
             BOOST_ASSERT(c->ReadAll(items) == 0);
             BOOST_CHECK_EQUAL(items.size(), 2);
         }
-        // ReadAll 读空后再写入
+
+        /**
+         * ReadAll 读空后再写入
+         */
         {
             auto c = Chan<int, 10>();
             c->Write(1);
@@ -421,11 +463,16 @@ BOOST_AUTO_TEST_CASE(t_new_basic)
         l.Down();
     };
     l.Wait();
-    // Chan<0> ReadAll 不可访问 (protected 继承)
+
+    /**
+     * Chan<0> ReadAll 不可访问 (protected 继承)
+     */
     BOOST_TEST_MESSAGE("Chan<0> ReadAll/TryWrite/TryRead inaccessible via protected inheritance");
 }
 
-// 组2: TryWrite 全部场景
+/**
+ * 组2: TryWrite 全部场景
+ */
 BOOST_AUTO_TEST_CASE(t_new_trywrite)
 {
     BOOST_TEST_MESSAGE("enter t_new_trywrite");
@@ -433,16 +480,25 @@ BOOST_AUTO_TEST_CASE(t_new_trywrite)
     bbtco[&l]()
     {
         auto c = Chan<int, 10>();
-        // 成功
+
+        /**
+         * 成功
+         */
         BOOST_CHECK_EQUAL(c->TryWrite(42), 0);
         int val = 0;
         BOOST_ASSERT(c->Read(val) == 0);
         BOOST_CHECK_EQUAL(val, 42);
-        // 满队列失败
+
+        /**
+         * 满队列失败
+         */
         auto c1 = Chan<int, 1>();
         BOOST_ASSERT(c1->Write(1) == 0);
         BOOST_CHECK_NE(c1->TryWrite(2), 0);
-        // 超时
+
+        /**
+         * 超时
+         */
         {
             auto c2 = Chan<int, 1>();
             BOOST_ASSERT(c2->Write(1) == 0);
@@ -451,7 +507,10 @@ BOOST_AUTO_TEST_CASE(t_new_trywrite)
             BOOST_CHECK_EQUAL(ret, 1);
             BOOST_CHECK(bbt::core::clock::gettime<>() - t1 >= 90);
         }
-        // 超时被消费后成功
+
+        /**
+         * 超时被消费后成功
+         */
         {
             auto c2 = Chan<int, 1>();
             BOOST_ASSERT(c2->Write(1) == 0);
@@ -468,7 +527,9 @@ BOOST_AUTO_TEST_CASE(t_new_trywrite)
     l.Wait();
 }
 
-// 组3: TryRead 全部场景 + m_is_reading 缺陷暴露
+/**
+ * 组3: TryRead 全部场景 + m_is_reading 缺陷暴露
+ */
 BOOST_AUTO_TEST_CASE(t_new_tryread)
 {
     BOOST_TEST_MESSAGE("enter t_new_tryread");
@@ -476,21 +537,33 @@ BOOST_AUTO_TEST_CASE(t_new_tryread)
     bbtco[&l]()
     {
         auto c = Chan<int, 10>();
-        // 成功
+
+        /**
+         * 成功
+         */
         c->Write(42);
         int val = 0;
         BOOST_CHECK_EQUAL(c->TryRead(val), 0);
         BOOST_CHECK_EQUAL(val, 42);
-        // 队列空失败
+
+        /**
+         * 队列空失败
+         */
         BOOST_CHECK_NE(c->TryRead(val), 0);
-        // 超时
+
+        /**
+         * 超时
+         */
         {
             auto tc = Chan<int, 10>();
             int v2 = 0;
             int ret = tc->TryRead(v2, 100);
             BOOST_CHECK_NE(ret, 0);
         }
-        // 超时期间写入后成功 (使用独立 Chan)
+
+        /**
+         * 超时期间写入后成功 (使用独立 Chan)
+         */
         {
             auto tc = Chan<int, 10>();
             bbtco[tc]()
@@ -503,7 +576,10 @@ BOOST_AUTO_TEST_CASE(t_new_tryread)
             BOOST_CHECK_EQUAL(ret, 0);
             BOOST_CHECK_EQUAL(v3, 99);
         }
-        // ⚠️ m_is_reading 泄露: TryRead 成功后 Read 应可用
+
+        /**
+         * ⚠️ m_is_reading 泄露: TryRead 成功后 Read 应可用
+         */
         {
             auto c2 = Chan<int, 10>();
             c2->Write(1);
@@ -515,7 +591,10 @@ BOOST_AUTO_TEST_CASE(t_new_tryread)
             if (ret == 0)
                 BOOST_CHECK_EQUAL(tv, 2);
         }
-        // ⚠️ m_is_reading 泄露: TryRead(timeout) 后 Read 应可用
+
+        /**
+         * ⚠️ m_is_reading 泄露: TryRead(timeout) 后 Read 应可用
+         */
         {
             auto c2 = Chan<int, 10>();
             int tv = 0;
@@ -532,14 +611,18 @@ BOOST_AUTO_TEST_CASE(t_new_tryread)
     l.Wait();
 }
 
-// 组4: Close 生命周期 (关闭后操作 + 唤醒阻塞协程)
+/**
+ * 组4: Close 生命周期 (关闭后操作 + 唤醒阻塞协程)
+ */
 BOOST_AUTO_TEST_CASE(t_new_close_lifecycle)
 {
     BOOST_TEST_MESSAGE("enter t_new_close_lifecycle");
     bbt::core::thread::CountDownLatch l{1};
     bbtco[&l]()
     {
-        // 关闭后所有操作返回 -1
+        /**
+         * 关闭后所有操作返回 -1
+         */
         {
             auto c = Chan<int, 10>();
             BOOST_CHECK(!c->IsClosed());
@@ -552,9 +635,16 @@ BOOST_AUTO_TEST_CASE(t_new_close_lifecycle)
             BOOST_CHECK_NE(c->TryRead(val), 0);
             std::vector<int> items;
             BOOST_CHECK_EQUAL(c->ReadAll(items), -1);
-            c->Close(); // 重复 Close 安全
+
+            /**
+             * 重复 Close 安全
+             */
+            c->Close();
         }
-        // Close 唤醒阻塞 Read
+
+        /**
+         * Close 唤醒阻塞 Read
+         */
         {
             bbt::core::thread::CountDownLatch l2{2};
             std::atomic_bool read_done{false};
@@ -572,7 +662,10 @@ BOOST_AUTO_TEST_CASE(t_new_close_lifecycle)
             l2.Wait();
             BOOST_CHECK(read_done.load());
         }
-        // Close 唤醒阻塞 Write (单个)
+
+        /**
+         * Close 唤醒阻塞 Write (单个)
+         */
         {
             bbt::core::thread::CountDownLatch l2{2};
             auto c = Chan<int, 1>();
@@ -591,12 +684,19 @@ BOOST_AUTO_TEST_CASE(t_new_close_lifecycle)
             l2.Wait();
             BOOST_CHECK(write_done.load());
         }
-        // Close 唤醒阻塞 TryRead(timeout) + TryWrite(timeout)
+
+        /**
+         * Close 唤醒阻塞 TryRead(timeout) + TryWrite(timeout)
+         */
         {
             bbt::core::thread::CountDownLatch l2{2};
             std::atomic_bool tr{false}, tw{false};
             auto c = Chan<int, 1>();
-            c->Write(1); // 填满，使得 TryWrite 阻塞
+
+            /**
+             * 填满，使得 TryWrite 阻塞
+             */
+            c->Write(1);
             bbtco[c, &l2, &tr]()
             {
                 int v;
@@ -615,7 +715,10 @@ BOOST_AUTO_TEST_CASE(t_new_close_lifecycle)
             l2.Wait();
             BOOST_CHECK(tr.load() && tw.load());
         }
-        // 无缓冲 Close 后操作
+
+        /**
+         * 无缓冲 Close 后操作
+         */
         {
             auto c = Chan<int, 0>();
             c->Close();
@@ -623,7 +726,10 @@ BOOST_AUTO_TEST_CASE(t_new_close_lifecycle)
             int val;
             BOOST_CHECK_EQUAL(c->Read(val), -1);
         }
-        // 无缓冲 Close 唤醒阻塞写
+
+        /**
+         * 无缓冲 Close 唤醒阻塞写
+         */
         {
             bbt::core::thread::CountDownLatch l2{2};
             std::atomic_bool wd{false};
@@ -641,24 +747,35 @@ BOOST_AUTO_TEST_CASE(t_new_close_lifecycle)
             l2.Wait();
             BOOST_CHECK(wd.load());
         }
-        // 析构自动 Close (验证不崩溃)
+
+        /**
+         * 析构自动 Close (验证不崩溃)
+         */
         {
             auto c = Chan<int, 10>();
-            c->Write(1); /* 析构 */
+
+            /**
+             * 析构
+             */
+            c->Write(1);
         }
         l.Down();
     };
     l.Wait();
 }
 
-// 组5: 并发竞争
+/**
+ * 组5: 并发竞争
+ */
 BOOST_AUTO_TEST_CASE(t_new_concurrency)
 {
     BOOST_TEST_MESSAGE("enter t_new_concurrency");
     bbt::core::thread::CountDownLatch l{1};
     bbtco[&l]()
     {
-        // Read CAS: 两个协程同时 Read，第二个失败
+        /**
+         * Read CAS: 两个协程同时 Read，第二个失败
+         */
         {
             bbt::core::thread::CountDownLatch l2{1};
             std::atomic_int r1{0}, r2{0};
@@ -685,7 +802,10 @@ BOOST_AUTO_TEST_CASE(t_new_concurrency)
             BOOST_CHECK_EQUAL(r1.load(), 0);
             BOOST_CHECK_NE(r2.load(), 0);
         }
-        // TryRead CAS 竞争
+
+        /**
+         * TryRead CAS 竞争
+         */
         {
             bbt::core::thread::CountDownLatch l2{2};
             std::atomic_int r1{0}, r2{0};
@@ -708,7 +828,10 @@ BOOST_AUTO_TEST_CASE(t_new_concurrency)
             int sv = (r1.load() == 0) ? v1 : v2;
             BOOST_CHECK_EQUAL(sv, 42);
         }
-        // Read 完成后新 Read 可进入
+
+        /**
+         * Read 完成后新 Read 可进入
+         */
         {
             auto c = Chan<int, 10>();
             c->Write(1);
@@ -719,7 +842,10 @@ BOOST_AUTO_TEST_CASE(t_new_concurrency)
             BOOST_ASSERT(c->Read(v2) == 0);
             BOOST_CHECK_EQUAL(v2, 2);
         }
-        // 多读者数据完整性 (简化: 1读)
+
+        /**
+         * 多读者数据完整性 (简化: 1读)
+         */
         {
             const int N = 50;
             auto c = Chan<int, 100>();
@@ -738,14 +864,18 @@ BOOST_AUTO_TEST_CASE(t_new_concurrency)
     l.Wait();
 }
 
-// 组6: 运算符与数据完整性
+/**
+ * 组6: 运算符与数据完整性
+ */
 BOOST_AUTO_TEST_CASE(t_new_operators)
 {
     BOOST_TEST_MESSAGE("enter t_new_operators");
     bbt::core::thread::CountDownLatch l{1};
     bbtco[&l]()
     {
-        // Close 后 << >> 返回 false
+        /**
+         * Close 后 << >> 返回 false
+         */
         {
             auto c = Chan<int, 10>();
             c->Close();
@@ -753,7 +883,10 @@ BOOST_AUTO_TEST_CASE(t_new_operators)
             int val;
             BOOST_CHECK(!(c >> val));
         }
-        // shared_ptr << >>
+
+        /**
+         * shared_ptr << >>
+         */
         {
             auto c = std::make_shared<sync::Chan<int, 10>>();
             BOOST_CHECK(c << 42);
@@ -761,7 +894,10 @@ BOOST_AUTO_TEST_CASE(t_new_operators)
             BOOST_CHECK(c >> val);
             BOOST_CHECK_EQUAL(val, 42);
         }
-        // FIFO 严格顺序
+
+        /**
+         * FIFO 严格顺序
+         */
         {
             auto c = Chan<int, 100>();
             for (int i = 0; i < 100; ++i)
@@ -772,7 +908,10 @@ BOOST_AUTO_TEST_CASE(t_new_operators)
                 BOOST_CHECK_EQUAL(v, i);
             }
         }
-        // 无缓冲值匹配
+
+        /**
+         * 无缓冲值匹配
+         */
         {
             auto c = Chan<int, 0>();
             bbtco[c]()
@@ -793,7 +932,9 @@ BOOST_AUTO_TEST_CASE(t_new_operators)
     l.Wait();
 }
 
-// 组7: 多写者并发完整性 (轻量)
+/**
+ * 组7: 多写者并发完整性 (轻量)
+ */
 BOOST_AUTO_TEST_CASE(t_new_multi_writer)
 {
     BOOST_TEST_MESSAGE("enter t_new_multi_writer");
@@ -822,11 +963,15 @@ BOOST_AUTO_TEST_CASE(t_new_multi_writer)
     l.Wait();
     BOOST_CHECK_EQUAL(result_set.size(), 15);
 }
-/*
- * 原新增测试 End
- * ================================================================ */
 
-// 1.2 有缓冲 Chan 自定义 struct 元素读写
+/**
+ * 原新增测试 End
+ * ================================================================
+ */
+
+/**
+ * 1.2 有缓冲 Chan 自定义 struct 元素读写
+ */
 struct TestItem {
     int id;
     double val;
@@ -849,7 +994,9 @@ BOOST_AUTO_TEST_CASE(t_chan_custom_struct)
     l.Wait();
 }
 
-// 1.3 有缓冲 Chan ReadAll 队列非空时一次性读出
+/**
+ * 1.3 有缓冲 Chan ReadAll 队列非空时一次性读出
+ */
 BOOST_AUTO_TEST_CASE(t_readall_nonempty)
 {
     BOOST_TEST_MESSAGE("enter t_readall_nonempty");
@@ -871,7 +1018,9 @@ BOOST_AUTO_TEST_CASE(t_readall_nonempty)
     l.Wait();
 }
 
-// 1.4 有缓冲 Chan ReadAll 队列为空时阻塞直到有数据
+/**
+ * 1.4 有缓冲 Chan ReadAll 队列为空时阻塞直到有数据
+ */
 BOOST_AUTO_TEST_CASE(t_readall_block)
 {
     BOOST_TEST_MESSAGE("enter t_readall_block");
@@ -893,7 +1042,9 @@ BOOST_AUTO_TEST_CASE(t_readall_block)
     l.Wait();
 }
 
-// 1.5 有缓冲 Chan ReadAll 读空后再写入再 ReadAll
+/**
+ * 1.5 有缓冲 Chan ReadAll 读空后再写入再 ReadAll
+ */
 BOOST_AUTO_TEST_CASE(t_readall_refill)
 {
     BOOST_TEST_MESSAGE("enter t_readall_refill");
@@ -916,20 +1067,29 @@ BOOST_AUTO_TEST_CASE(t_readall_refill)
     l.Wait();
 }
 
-// 1.6 无缓冲 Chan ReadAll 行为（protected 继承导致 ReadAll 不可访问）
+/**
+ * 1.6 无缓冲 Chan ReadAll 行为（protected 继承导致 ReadAll 不可访问）
+ */
 BOOST_AUTO_TEST_CASE(t_nocache_readall)
 {
     BOOST_TEST_MESSAGE("enter t_nocache_readall");
-    // Chan<T,0> 通过 protected 继承 Chan<T,1>，ReadAll 不可从外部访问
+
+    /**
+     * Chan<T,0> 通过 protected 继承 Chan<T,1>，ReadAll 不可从外部访问
+     */
     BOOST_TEST_MESSAGE("Chan<0> ReadAll is inaccessible via protected inheritance");
     BOOST_CHECK(true);
 }
 
-/* ================================================================
+/**
+ * ================================================================
  * 新增测试: 2.TryWrite 系列
- * ================================================================ */
+ * ================================================================
+ */
 
-// 2.1 TryWrite 缓冲区未满时成功
+/**
+ * 2.1 TryWrite 缓冲区未满时成功
+ */
 BOOST_AUTO_TEST_CASE(t_trywrite_success)
 {
     BOOST_TEST_MESSAGE("enter t_trywrite_success");
@@ -946,7 +1106,9 @@ BOOST_AUTO_TEST_CASE(t_trywrite_success)
     l.Wait();
 }
 
-// 2.2 TryWrite 缓冲区已满时失败
+/**
+ * 2.2 TryWrite 缓冲区已满时失败
+ */
 BOOST_AUTO_TEST_CASE(t_trywrite_full)
 {
     BOOST_TEST_MESSAGE("enter t_trywrite_full");
@@ -961,7 +1123,9 @@ BOOST_AUTO_TEST_CASE(t_trywrite_full)
     l.Wait();
 }
 
-// 2.3 TryWrite(timeout) 缓冲区满等待超时
+/**
+ * 2.3 TryWrite(timeout) 缓冲区满等待超时
+ */
 BOOST_AUTO_TEST_CASE(t_trywrite_timeout)
 {
     BOOST_TEST_MESSAGE("enter t_trywrite_timeout");
@@ -969,18 +1133,32 @@ BOOST_AUTO_TEST_CASE(t_trywrite_timeout)
     bbtco[&l]()
     {
         auto c = Chan<int, 1>();
-        BOOST_ASSERT(c->Write(1) == 0); // 填满
+
+        /**
+         * 填满
+         */
+        BOOST_ASSERT(c->Write(1) == 0);
         auto t1 = bbt::core::clock::gettime<>();
         int ret = c->TryWrite(2, 100);
         auto t2 = bbt::core::clock::gettime<>();
-        BOOST_CHECK_EQUAL(ret, 1);  // 超时返回 1（非 -1）
-        BOOST_CHECK(t2 - t1 >= 90); // 至少等了 90ms
+
+        /**
+         * 超时返回 1（非 -1）
+         */
+        BOOST_CHECK_EQUAL(ret, 1);
+
+        /**
+         * 至少等了 90ms
+         */
+        BOOST_CHECK(t2 - t1 >= 90);
         l.Down();
     };
     l.Wait();
 }
 
-// 2.4 TryWrite(timeout) 缓冲区满期间被消费后成功
+/**
+ * 2.4 TryWrite(timeout) 缓冲区满期间被消费后成功
+ */
 BOOST_AUTO_TEST_CASE(t_trywrite_timeout_success)
 {
     BOOST_TEST_MESSAGE("enter t_trywrite_timeout_success");
@@ -988,12 +1166,20 @@ BOOST_AUTO_TEST_CASE(t_trywrite_timeout_success)
     bbtco[&l]()
     {
         auto c = Chan<int, 1>();
-        BOOST_ASSERT(c->Write(1) == 0); // 填满
+
+        /**
+         * 填满
+         */
+        BOOST_ASSERT(c->Write(1) == 0);
         bbtco[&c]()
         {
             detail::Hook_Sleep(50);
             int val;
-            c->Read(val); // 消费掉，腾出空间
+
+            /**
+             * 消费掉，腾出空间
+             */
+            c->Read(val);
         };
         int ret = c->TryWrite(2, 500);
         BOOST_CHECK_EQUAL(ret, 0);
@@ -1002,20 +1188,29 @@ BOOST_AUTO_TEST_CASE(t_trywrite_timeout_success)
     l.Wait();
 }
 
-// 2.5 无缓冲 Chan TryWrite 行为（protected 继承导致不可访问）
+/**
+ * 2.5 无缓冲 Chan TryWrite 行为（protected 继承导致不可访问）
+ */
 BOOST_AUTO_TEST_CASE(t_nocache_trywrite)
 {
     BOOST_TEST_MESSAGE("enter t_nocache_trywrite");
-    // Chan<T,0> 通过 protected 继承 Chan<T,1>，TryWrite 不可从外部访问
+
+    /**
+     * Chan<T,0> 通过 protected 继承 Chan<T,1>，TryWrite 不可从外部访问
+     */
     BOOST_TEST_MESSAGE("Chan<0> TryWrite is inaccessible via protected inheritance");
     BOOST_CHECK(true);
 }
 
-/* ================================================================
+/**
+ * ================================================================
  * 新增测试: 3.TryRead 系列
- * ================================================================ */
+ * ================================================================
+ */
 
-// 3.1 TryRead 队列非空时成功
+/**
+ * 3.1 TryRead 队列非空时成功
+ */
 BOOST_AUTO_TEST_CASE(t_tryread_success)
 {
     BOOST_TEST_MESSAGE("enter t_tryread_success");
@@ -1032,7 +1227,9 @@ BOOST_AUTO_TEST_CASE(t_tryread_success)
     l.Wait();
 }
 
-// 3.2 TryRead 队列为空时失败
+/**
+ * 3.2 TryRead 队列为空时失败
+ */
 BOOST_AUTO_TEST_CASE(t_tryread_empty)
 {
     BOOST_TEST_MESSAGE("enter t_tryread_empty");
@@ -1047,7 +1244,9 @@ BOOST_AUTO_TEST_CASE(t_tryread_empty)
     l.Wait();
 }
 
-// 3.3 TryRead(timeout) 队列空等待超时
+/**
+ * 3.3 TryRead(timeout) 队列空等待超时
+ */
 BOOST_AUTO_TEST_CASE(t_tryread_timeout)
 {
     BOOST_TEST_MESSAGE("enter t_tryread_timeout");
@@ -1066,7 +1265,9 @@ BOOST_AUTO_TEST_CASE(t_tryread_timeout)
     l.Wait();
 }
 
-// 3.4 TryRead(timeout) 队列空期间写入后成功
+/**
+ * 3.4 TryRead(timeout) 队列空期间写入后成功
+ */
 BOOST_AUTO_TEST_CASE(t_tryread_timeout_success)
 {
     BOOST_TEST_MESSAGE("enter t_tryread_timeout_success");
@@ -1088,7 +1289,9 @@ BOOST_AUTO_TEST_CASE(t_tryread_timeout_success)
     l.Wait();
 }
 
-// 3.5 TryRead 成功后 m_is_reading 是否正确重置（预期暴露缺陷）
+/**
+ * 3.5 TryRead 成功后 m_is_reading 是否正确重置（预期暴露缺陷）
+ */
 BOOST_AUTO_TEST_CASE(t_tryread_m_is_reading_reset)
 {
     BOOST_TEST_MESSAGE("enter t_tryread_m_is_reading_reset");
@@ -1098,11 +1301,21 @@ BOOST_AUTO_TEST_CASE(t_tryread_m_is_reading_reset)
         auto c = Chan<int, 10>();
         c->Write(1);
         int val = 0;
-        BOOST_REQUIRE(c->TryRead(val) == 0); // TryRead 成功但可能未重置 m_is_reading
+
+        /**
+         * TryRead 成功但可能未重置 m_is_reading
+         */
+        BOOST_REQUIRE(c->TryRead(val) == 0);
         BOOST_CHECK_EQUAL(val, 1);
-        // 再次写入
+
+        /**
+         * 再次写入
+         */
         c->Write(2);
-        // 尝试 Read — 如果 m_is_reading 未重置，CAS 会失败返回 -1
+
+        /**
+         * 尝试 Read — 如果 m_is_reading 未重置，CAS 会失败返回 -1
+         */
         int ret = c->Read(val);
         BOOST_TEST_MESSAGE("Read after TryRead => ret=" << ret << " (expect 0, -1 = m_is_reading leak)");
         if (ret == 0)
@@ -1112,7 +1325,9 @@ BOOST_AUTO_TEST_CASE(t_tryread_m_is_reading_reset)
     l.Wait();
 }
 
-// 3.6 TryRead(timeout) 超时后队列仍空时 m_is_reading 是否正确重置（预期暴露缺陷）
+/**
+ * 3.6 TryRead(timeout) 超时后队列仍空时 m_is_reading 是否正确重置（预期暴露缺陷）
+ */
 BOOST_AUTO_TEST_CASE(t_tryread_timeout_m_is_reading)
 {
     BOOST_TEST_MESSAGE("enter t_tryread_timeout_m_is_reading");
@@ -1122,10 +1337,20 @@ BOOST_AUTO_TEST_CASE(t_tryread_timeout_m_is_reading)
         auto c = Chan<int, 10>();
         int val = 0;
         int ret1 = c->TryRead(val, 100);
-        BOOST_CHECK_NE(ret1, 0); // 超时
-        // 现在写入数据
+
+        /**
+         * 超时
+         */
+        BOOST_CHECK_NE(ret1, 0);
+
+        /**
+         * 现在写入数据
+         */
         c->Write(42);
-        // 尝试 Read — 如果 m_is_reading 未重置，CAS 会失败返回 -1
+
+        /**
+         * 尝试 Read — 如果 m_is_reading 未重置，CAS 会失败返回 -1
+         */
         int ret2 = c->Read(val);
         BOOST_TEST_MESSAGE("Read after TryRead(timeout) => ret=" << ret2 << " (expect 0, -1 = m_is_reading leak)");
         if (ret2 == 0)
@@ -1135,22 +1360,31 @@ BOOST_AUTO_TEST_CASE(t_tryread_timeout_m_is_reading)
     l.Wait();
 }
 
-// 3.7 无缓冲 Chan TryRead 行为（protected 继承导致不可访问）
+/**
+ * 3.7 无缓冲 Chan TryRead 行为（protected 继承导致不可访问）
+ */
 BOOST_AUTO_TEST_CASE(t_nocache_tryread)
 {
     BOOST_TEST_MESSAGE("enter t_nocache_tryread");
-    // Chan<T,0> 通过 protected 继承 Chan<T,1>，TryRead 不可从外部访问
+
+    /**
+     * Chan<T,0> 通过 protected 继承 Chan<T,1>，TryRead 不可从外部访问
+     */
     BOOST_TEST_MESSAGE("Chan<0> TryRead is inaccessible via protected inheritance");
     BOOST_CHECK(true);
 }
 
-/* ================================================================
+/**
+ * ================================================================
  * 新增测试: 4.Close 生命周期
- * ================================================================ */
+ * ================================================================
+ */
 
-// ================================================================
-// 合并测试：Close Write/Read/Try/ReadAll 关闭后操作 + IsClosed
-// ================================================================
+/**
+ * ================================================================
+ * 合并测试：Close Write/Read/Try/ReadAll 关闭后操作 + IsClosed
+ * ================================================================
+ */
 BOOST_AUTO_TEST_CASE(t_close_all_ops)
 {
     BOOST_TEST_MESSAGE("enter t_close_all_ops");
@@ -1168,14 +1402,20 @@ BOOST_AUTO_TEST_CASE(t_close_all_ops)
         BOOST_CHECK_NE(c->TryRead(val), 0);
         std::vector<int> items;
         BOOST_CHECK_EQUAL(c->ReadAll(items), -1);
-        c->Close(); // 重复 Close 安全
+
+        /**
+         * 重复 Close 安全
+         */
+        c->Close();
         BOOST_CHECK(c->IsClosed());
         l.Down();
     };
     l.Wait();
 }
 
-// 4.8 Close 唤醒阻塞中的 Read 协程
+/**
+ * 4.8 Close 唤醒阻塞中的 Read 协程
+ */
 BOOST_AUTO_TEST_CASE(t_close_wake_read)
 {
     BOOST_TEST_MESSAGE("enter t_close_wake_read");
@@ -1184,17 +1424,27 @@ BOOST_AUTO_TEST_CASE(t_close_wake_read)
     bbtco[&l, &read_returned]()
     {
         auto c = Chan<int, 10>();
-        // 读端挂起
+
+        /**
+         * 读端挂起
+         */
         bbtco[c, &l, &read_returned]()
         {
             int val;
             int ret = c->Read(val);
             read_returned.store(true);
-            BOOST_CHECK_EQUAL(ret, -1); // Close 唤醒后 Read 返回 -1
+
+            /**
+             * Close 唤醒后 Read 返回 -1
+             */
+            BOOST_CHECK_EQUAL(ret, -1);
             l.Down();
         };
         detail::Hook_Sleep(50);
-        // Close 唤醒读端
+
+        /**
+         * Close 唤醒读端
+         */
         c->Close();
         l.Down();
     };
@@ -1202,7 +1452,9 @@ BOOST_AUTO_TEST_CASE(t_close_wake_read)
     BOOST_CHECK(read_returned.load());
 }
 
-// 4.9 Close 唤醒单个阻塞中的 Write 协程
+/**
+ * 4.9 Close 唤醒单个阻塞中的 Write 协程
+ */
 BOOST_AUTO_TEST_CASE(t_close_wake_write_single)
 {
     BOOST_TEST_MESSAGE("enter t_close_wake_write_single");
@@ -1211,13 +1463,27 @@ BOOST_AUTO_TEST_CASE(t_close_wake_write_single)
     bbtco[&l, &write_returned]()
     {
         auto c = Chan<int, 1>();
-        c->Write(1); // 填满
-        // 写端挂起
+
+        /**
+         * 填满
+         */
+        c->Write(1);
+
+        /**
+         * 写端挂起
+         */
         bbtco[c, &l, &write_returned]()
         {
-            int ret = c->Write(2); // 阻塞
+            /**
+             * 阻塞
+             */
+            int ret = c->Write(2);
             write_returned.store(true);
-            BOOST_CHECK_EQUAL(ret, -1); // Close 唤醒后 Write 应返回 -1
+
+            /**
+             * Close 唤醒后 Write 应返回 -1
+             */
+            BOOST_CHECK_EQUAL(ret, -1);
             l.Down();
         };
         detail::Hook_Sleep(50);
@@ -1228,25 +1494,40 @@ BOOST_AUTO_TEST_CASE(t_close_wake_write_single)
     BOOST_CHECK(write_returned.load());
 }
 
-// 4.10 Close 唤醒多个阻塞中的 Write 协程（已知缺陷：Close 后所有写者被唤醒并尝试 push，导致队列溢出崩溃）
+/**
+ * 4.10 Close 唤醒多个阻塞中的 Write 协程（已知缺陷：Close 后所有写者被唤醒并尝试 push，导致队列溢出崩溃）
+ */
 BOOST_AUTO_TEST_CASE(t_close_wake_write_multi)
 {
     BOOST_TEST_MESSAGE("enter t_close_wake_write_multi");
-    // 注意：Close 会唤醒所有阻塞的写者，但它们都会尝试 push 到已清空的队列，
-    // 导致超出 m_max_size 的 push，触发内存访问违规。此处仅验证基本唤醒行为。
+
+    /**
+     * 注意：Close 会唤醒所有阻塞的写者，但它们都会尝试 push 到已清空的队列，
+     * 导致超出 m_max_size 的 push，触发内存访问违规。此处仅验证基本唤醒行为。
+     */
     BOOST_TEST_MESSAGE("Known issue: Close wakes all blocked writers, causing queue overflow crash with >1 writer");
     bbt::core::thread::CountDownLatch l{2};
     std::atomic_bool write_returned{false};
     bbtco[&l, &write_returned]()
     {
         auto c = Chan<int, 1>();
-        c->Write(1); // 填满
-        // 单写者：避免多写者溢出崩溃
+
+        /**
+         * 填满
+         */
+        c->Write(1);
+
+        /**
+         * 单写者：避免多写者溢出崩溃
+         */
         bbtco[c, &l, &write_returned]()
         {
             int ret = c->Write(2);
             write_returned.store(true);
-            // ret=0: IsClosed 仅在入口检查，唤醒后 Write 仍成功
+
+            /**
+             * ret=0: IsClosed 仅在入口检查，唤醒后 Write 仍成功
+             */
             BOOST_CHECK(ret == 0 || ret == -1);
             l.Down();
         };
@@ -1258,7 +1539,9 @@ BOOST_AUTO_TEST_CASE(t_close_wake_write_multi)
     BOOST_CHECK(write_returned.load());
 }
 
-// 4.11 Close 唤醒阻塞中的 TryRead(timeout) 协程
+/**
+ * 4.11 Close 唤醒阻塞中的 TryRead(timeout) 协程
+ */
 BOOST_AUTO_TEST_CASE(t_close_wake_tryread_timeout)
 {
     BOOST_TEST_MESSAGE("enter t_close_wake_tryread_timeout");
@@ -1270,9 +1553,17 @@ BOOST_AUTO_TEST_CASE(t_close_wake_tryread_timeout)
         bbtco[c, &l, &tryread_returned]()
         {
             int val;
-            int ret = c->TryRead(val, 5000); // 长超时
+
+            /**
+             * 长超时
+             */
+            int ret = c->TryRead(val, 5000);
             tryread_returned.store(true);
-            BOOST_CHECK_EQUAL(ret, -1); // Close 唤醒后 TryRead 返回 -1
+
+            /**
+             * Close 唤醒后 TryRead 返回 -1
+             */
+            BOOST_CHECK_EQUAL(ret, -1);
             l.Down();
         };
         detail::Hook_Sleep(50);
@@ -1283,7 +1574,9 @@ BOOST_AUTO_TEST_CASE(t_close_wake_tryread_timeout)
     BOOST_CHECK(tryread_returned.load());
 }
 
-// 4.12 Close 唤醒阻塞中的 TryWrite(timeout) 协程
+/**
+ * 4.12 Close 唤醒阻塞中的 TryWrite(timeout) 协程
+ */
 BOOST_AUTO_TEST_CASE(t_close_wake_trywrite_timeout)
 {
     BOOST_TEST_MESSAGE("enter t_close_wake_trywrite_timeout");
@@ -1292,12 +1585,23 @@ BOOST_AUTO_TEST_CASE(t_close_wake_trywrite_timeout)
     bbtco[&l, &trywrite_returned]()
     {
         auto c = Chan<int, 1>();
-        c->Write(1); // 填满
+
+        /**
+         * 填满
+         */
+        c->Write(1);
         bbtco[c, &l, &trywrite_returned]()
         {
-            int ret = c->TryWrite(2, 5000); // 长超时
+            /**
+             * 长超时
+             */
+            int ret = c->TryWrite(2, 5000);
             trywrite_returned.store(true);
-            BOOST_CHECK_EQUAL(ret, -1); // Close 唤醒后 TryWrite 应返回 -1
+
+            /**
+             * Close 唤醒后 TryWrite 应返回 -1
+             */
+            BOOST_CHECK_EQUAL(ret, -1);
             l.Down();
         };
         detail::Hook_Sleep(50);
@@ -1308,7 +1612,9 @@ BOOST_AUTO_TEST_CASE(t_close_wake_trywrite_timeout)
     BOOST_CHECK(trywrite_returned.load());
 }
 
-// 4.13 无缓冲 Close 后 Write/Read 返回 -1
+/**
+ * 4.13 无缓冲 Close 后 Write/Read 返回 -1
+ */
 BOOST_AUTO_TEST_CASE(t_nocache_close_ops)
 {
     BOOST_TEST_MESSAGE("enter t_nocache_close_ops");
@@ -1325,7 +1631,9 @@ BOOST_AUTO_TEST_CASE(t_nocache_close_ops)
     l.Wait();
 }
 
-// 4.14 无缓冲 Close 唤醒阻塞写协程
+/**
+ * 4.14 无缓冲 Close 唤醒阻塞写协程
+ */
 BOOST_AUTO_TEST_CASE(t_nocache_close_wake_write)
 {
     BOOST_TEST_MESSAGE("enter t_nocache_close_wake_write");
@@ -1336,9 +1644,16 @@ BOOST_AUTO_TEST_CASE(t_nocache_close_wake_write)
         auto c = Chan<int, 0>();
         bbtco[c, &l, &write_returned]()
         {
-            int ret = c->Write(1); // 无读者，阻塞
+            /**
+             * 无读者，阻塞
+             */
+            int ret = c->Write(1);
             write_returned.store(true);
-            BOOST_CHECK_EQUAL(ret, 0); // IsClosed 仅在入口检查，Close 唤醒后 Write 仍成功
+
+            /**
+             * IsClosed 仅在入口检查，Close 唤醒后 Write 仍成功
+             */
+            BOOST_CHECK_EQUAL(ret, 0);
             l.Down();
         };
         detail::Hook_Sleep(50);
@@ -1349,7 +1664,9 @@ BOOST_AUTO_TEST_CASE(t_nocache_close_wake_write)
     BOOST_CHECK(write_returned.load());
 }
 
-// 4.15 Chan 析构自动 Close
+/**
+ * 4.15 Chan 析构自动 Close
+ */
 BOOST_AUTO_TEST_CASE(t_chan_dtor_close)
 {
     BOOST_TEST_MESSAGE("enter t_chan_dtor_close");
@@ -1360,9 +1677,15 @@ BOOST_AUTO_TEST_CASE(t_chan_dtor_close)
         {
             auto c = Chan<int, 10>();
             c->Write(1);
-            // c 离开作用域时析构，应自动 Close
+
+            /**
+             * c 离开作用域时析构，应自动 Close
+             */
         }
-        // 无法直接检查析构后的状态，通过不崩溃来验证
+
+        /**
+         * 无法直接检查析构后的状态，通过不崩溃来验证
+         */
         closed = true;
         BOOST_CHECK(closed);
         l.Down();
@@ -1370,11 +1693,15 @@ BOOST_AUTO_TEST_CASE(t_chan_dtor_close)
     l.Wait();
 }
 
-/* ================================================================
+/**
+ * ================================================================
  * 新增测试: 5.并发竞争
- * ================================================================ */
+ * ================================================================
+ */
 
-// 5.1 两个协程同时 Read 第二个因 CAS 失败返回 -1
+/**
+ * 5.1 两个协程同时 Read 第二个因 CAS 失败返回 -1
+ */
 BOOST_AUTO_TEST_CASE(t_concurrent_read_cas)
 {
     BOOST_TEST_MESSAGE("enter t_concurrent_read_cas");
@@ -1384,21 +1711,33 @@ BOOST_AUTO_TEST_CASE(t_concurrent_read_cas)
     bbtco[&l, &result1, &result2]()
     {
         auto c = Chan<int, 10>();
-        // Reader 1: 先进入 Read，CAS 成功，阻塞等待数据
+
+        /**
+         * Reader 1: 先进入 Read，CAS 成功，阻塞等待数据
+         */
         bbtco[&c, &result1]()
         {
             int val;
             result1.store(c->Read(val));
         };
-        // 等待 Reader 1 完成 CAS
+
+        /**
+         * 等待 Reader 1 完成 CAS
+         */
         detail::Hook_Sleep(30);
-        // Reader 2: CAS 应失败，立即返回 -1
+
+        /**
+         * Reader 2: CAS 应失败，立即返回 -1
+         */
         bbtco[&c, &result2]()
         {
             int val;
             result2.store(c->Read(val));
         };
-        // 写入数据唤醒 Reader 1
+
+        /**
+         * 写入数据唤醒 Reader 1
+         */
         detail::Hook_Sleep(30);
         bbtco[&c]()
         {
@@ -1408,11 +1747,21 @@ BOOST_AUTO_TEST_CASE(t_concurrent_read_cas)
         l.Down();
     };
     l.Wait();
-    BOOST_CHECK_EQUAL(result1.load(), 0); // Reader 1 应成功
-    BOOST_CHECK_NE(result2.load(), 0);    // Reader 2 应因 CAS 失败
+
+    /**
+     * Reader 1 应成功
+     */
+    BOOST_CHECK_EQUAL(result1.load(), 0);
+
+    /**
+     * Reader 2 应因 CAS 失败
+     */
+    BOOST_CHECK_NE(result2.load(), 0);
 }
 
-// 5.2 两个协程同时 TryRead CAS 竞争
+/**
+ * 5.2 两个协程同时 TryRead CAS 竞争
+ */
 BOOST_AUTO_TEST_CASE(t_concurrent_tryread_cas)
 {
     BOOST_TEST_MESSAGE("enter t_concurrent_tryread_cas");
@@ -1424,7 +1773,10 @@ BOOST_AUTO_TEST_CASE(t_concurrent_tryread_cas)
     {
         auto c = Chan<int, 10>();
         c->Write(42);
-        // 两个 TryRead 并发，CAS 只允许一个成功
+
+        /**
+         * 两个 TryRead 并发，CAS 只允许一个成功
+         */
         bbtco[c, &result1, &val1, &l]()
         {
             result1.store(c->TryRead(val1));
@@ -1435,17 +1787,25 @@ BOOST_AUTO_TEST_CASE(t_concurrent_tryread_cas)
             result2.store(c->TryRead(val2));
             l.Down();
         };
-        // 确保内层协程先执行，外协程不提前返回
+
+        /**
+         * 确保内层协程先执行，外协程不提前返回
+         */
         detail::Hook_Sleep(50);
     };
     l.Wait();
-    // 一个应成功 (0)，另一个应失败 (-1)
+
+    /**
+     * 一个应成功 (0)，另一个应失败 (-1)
+     */
     BOOST_CHECK((result1.load() == 0 && result2.load() != 0) || (result1.load() != 0 && result2.load() == 0));
     int success_val = (result1.load() == 0) ? val1 : val2;
     BOOST_CHECK_EQUAL(success_val, 42);
 }
 
-// 5.3 Read 完成后新 Read 可正常进入
+/**
+ * 5.3 Read 完成后新 Read 可正常进入
+ */
 BOOST_AUTO_TEST_CASE(t_read_after_read)
 {
     BOOST_TEST_MESSAGE("enter t_read_after_read");
@@ -1458,14 +1818,20 @@ BOOST_AUTO_TEST_CASE(t_read_after_read)
         int val1, val2;
         BOOST_ASSERT(c->Read(val1) == 0);
         BOOST_CHECK_EQUAL(val1, 1);
-        BOOST_ASSERT(c->Read(val2) == 0); // 第二个 Read 应能正常进入
+
+        /**
+         * 第二个 Read 应能正常进入
+         */
+        BOOST_ASSERT(c->Read(val2) == 0);
         BOOST_CHECK_EQUAL(val2, 2);
         l.Down();
     };
     l.Wait();
 }
 
-// 5.4 2 个读者并发读有缓冲 Chan 数据完整性
+/**
+ * 5.4 2 个读者并发读有缓冲 Chan 数据完整性
+ */
 BOOST_AUTO_TEST_CASE(t_multi_reader_integrity)
 {
     BOOST_TEST_MESSAGE("enter t_multi_reader_integrity");
@@ -1504,10 +1870,17 @@ BOOST_AUTO_TEST_CASE(t_multi_reader_integrity)
             }
             l.Down();
         };
-        // 外协程等待所有元素消费完后关闭 chan
+
+        /**
+         * 外协程等待所有元素消费完后关闭 chan
+         */
         while (total_read.load() < N)
             detail::Hook_Sleep(1);
-        c->Close(); // 唤醒可能阻塞的读者，此时队列已空不会丢数据
+
+        /**
+         * 唤醒可能阻塞的读者，此时队列已空不会丢数据
+         */
+        c->Close();
         l.Down();
     };
     l.Wait();
@@ -1519,7 +1892,9 @@ BOOST_AUTO_TEST_CASE(t_multi_reader_integrity)
         BOOST_CHECK(all.find(i) != all.end());
 }
 
-// 5.5 无缓冲 Chan 多读者场景
+/**
+ * 5.5 无缓冲 Chan 多读者场景
+ */
 BOOST_AUTO_TEST_CASE(t_nocache_multi_reader)
 {
     BOOST_TEST_MESSAGE("enter t_nocache_multi_reader");
@@ -1539,7 +1914,10 @@ BOOST_AUTO_TEST_CASE(t_nocache_multi_reader)
             r2_ok.store(c->Read(val));
         };
         detail::Hook_Sleep(50);
-        // 写入一个元素后关闭，确保两个读者都能退出
+
+        /**
+         * 写入一个元素后关闭，确保两个读者都能退出
+         */
         bbtco[c]()
         {
             c->Write(1);
@@ -1553,11 +1931,15 @@ BOOST_AUTO_TEST_CASE(t_nocache_multi_reader)
     l.Wait();
 }
 
-/* ================================================================
+/**
+ * ================================================================
  * 新增测试: 6.运算符与数据完整性
- * ================================================================ */
+ * ================================================================
+ */
 
-// 6.1 Close 后 << 返回 false
+/**
+ * 6.1 Close 后 << 返回 false
+ */
 BOOST_AUTO_TEST_CASE(t_close_shift_write)
 {
     BOOST_TEST_MESSAGE("enter t_close_shift_write");
@@ -1572,7 +1954,9 @@ BOOST_AUTO_TEST_CASE(t_close_shift_write)
     l.Wait();
 }
 
-// 6.2 Close 后 >> 返回 false
+/**
+ * 6.2 Close 后 >> 返回 false
+ */
 BOOST_AUTO_TEST_CASE(t_close_shift_read)
 {
     BOOST_TEST_MESSAGE("enter t_close_shift_read");
@@ -1588,7 +1972,9 @@ BOOST_AUTO_TEST_CASE(t_close_shift_read)
     l.Wait();
 }
 
-// 6.3 shared_ptr 版本 << 写入成功
+/**
+ * 6.3 shared_ptr 版本 << 写入成功
+ */
 BOOST_AUTO_TEST_CASE(t_shared_ptr_shift_write)
 {
     BOOST_TEST_MESSAGE("enter t_shared_ptr_shift_write");
@@ -1605,7 +1991,9 @@ BOOST_AUTO_TEST_CASE(t_shared_ptr_shift_write)
     l.Wait();
 }
 
-// 6.4 shared_ptr 版本 >> 读取成功且值正确
+/**
+ * 6.4 shared_ptr 版本 >> 读取成功且值正确
+ */
 BOOST_AUTO_TEST_CASE(t_shared_ptr_shift_read)
 {
     BOOST_TEST_MESSAGE("enter t_shared_ptr_shift_read");
@@ -1622,7 +2010,9 @@ BOOST_AUTO_TEST_CASE(t_shared_ptr_shift_read)
     l.Wait();
 }
 
-// 6.5 有缓冲 Chan 单写单读 FIFO 严格顺序
+/**
+ * 6.5 有缓冲 Chan 单写单读 FIFO 严格顺序
+ */
 BOOST_AUTO_TEST_CASE(t_fifo_order)
 {
     BOOST_TEST_MESSAGE("enter t_fifo_order");
@@ -1635,14 +2025,20 @@ BOOST_AUTO_TEST_CASE(t_fifo_order)
         for (int i = 0; i < 100; ++i) {
             int val;
             BOOST_ASSERT(c->Read(val) == 0);
-            BOOST_CHECK_EQUAL(val, i); // 严格 FIFO
+
+            /**
+             * 严格 FIFO
+             */
+            BOOST_CHECK_EQUAL(val, i);
         }
         l.Down();
     };
     l.Wait();
 }
 
-// 6.6 无缓冲 Chan 多次写读值匹配
+/**
+ * 6.6 无缓冲 Chan 多次写读值匹配
+ */
 BOOST_AUTO_TEST_CASE(t_nocache_value_match)
 {
     BOOST_TEST_MESSAGE("enter t_nocache_value_match");
@@ -1671,11 +2067,16 @@ BOOST_AUTO_TEST_CASE(t_nocache_value_match)
     l.Wait();
 }
 
-// 6.7 多写者并发写入后逐一消费数据完整性（暂时简化：调度器累积协程过多）
+/**
+ * 6.7 多写者并发写入后逐一消费数据完整性（暂时简化：调度器累积协程过多）
+ */
 BOOST_AUTO_TEST_CASE(t_multi_write_integrity)
 {
     BOOST_TEST_MESSAGE("enter t_multi_write_integrity (simplified)");
-    // 前序测试累积的协程数已接近调度器上限，此处简化为基本验证
+
+    /**
+     * 前序测试累积的协程数已接近调度器上限，此处简化为基本验证
+     */
     bbt::core::thread::CountDownLatch l{1};
     bbtco[&l]()
     {
@@ -1689,8 +2090,10 @@ BOOST_AUTO_TEST_CASE(t_multi_write_integrity)
     l.Wait();
 }
 
-// 带 deadline 的 latch 等待。CountDownLatch::WaitTimeout 在旧 bbtools-core
-// （CI 链接的系统库）里恒立即超时，改用 WaitTimeout(1) 轮询，版本兼容。
+/**
+ * 带 deadline 的 latch 等待。CountDownLatch::WaitTimeout 在旧 bbtools-core
+ * （CI 链接的系统库）里恒立即超时，改用 WaitTimeout(1) 轮询，版本兼容。
+ */
 static void WaitLatch(bbt::core::thread::CountDownLatch& latch, int timeout_ms)
 {
     auto deadline = bbt::core::clock::nowAfter(bbt::core::clock::milliseconds(timeout_ms));
@@ -1702,8 +2105,10 @@ static void WaitLatch(bbt::core::thread::CountDownLatch& latch, int timeout_ms)
     BOOST_ERROR("latch wait timed out");
 }
 
-// TryWrite(timeout) 超时留下的失效 waiter 不得吞掉真正 writer 的唤醒
-// 旧行为：_OnEnableWrite 只 pop 一个，僵尸 waiter Notify==-1 即返回，B 永远挂死
+/**
+ * TryWrite(timeout) 超时留下的失效 waiter 不得吞掉真正 writer 的唤醒
+ * 旧行为：_OnEnableWrite 只 pop 一个，僵尸 waiter Notify==-1 即返回，B 永远挂死
+ */
 BOOST_AUTO_TEST_CASE(t_chan_trywrite_timeout_does_not_steal_wakeup)
 {
     BOOST_TEST_MESSAGE("enter t_chan_trywrite_timeout_does_not_steal_wakeup");
@@ -1711,9 +2116,15 @@ BOOST_AUTO_TEST_CASE(t_chan_trywrite_timeout_does_not_steal_wakeup)
     bbtco[&l]()
     {
         auto c = Chan<int, 1>();
-        BOOST_CHECK_EQUAL(c->TryWrite(1), 0); // 填满缓冲
 
-        // A：写不进，80ms 后超时退出，留下失效 waiter
+        /**
+         * 填满缓冲
+         */
+        BOOST_CHECK_EQUAL(c->TryWrite(1), 0);
+
+        /**
+         * A：写不进，80ms 后超时退出，留下失效 waiter
+         */
         bbtco[c]()
         {
             BOOST_CHECK_EQUAL(c->TryWrite(2, 80), 1);
@@ -1721,19 +2132,34 @@ BOOST_AUTO_TEST_CASE(t_chan_trywrite_timeout_does_not_steal_wakeup)
 
         bbt::core::thread::CountDownLatch lb{1};
         std::atomic_int bret{-999};
-        detail::Hook_Sleep(20); // 让 A 先入队，B 排在僵尸 waiter 之后
+
+        /**
+         * 让 A 先入队，B 排在僵尸 waiter 之后
+         */
+        detail::Hook_Sleep(20);
         bbtco[c, &lb, &bret]()
         {
             bret = c->Write(3);
             lb.Down();
         };
 
-        detail::Hook_Sleep(120); // 等 A 超时（其 waiter 已被 Cancel）
+        /**
+         * 等 A 超时（其 waiter 已被 Cancel）
+         */
+        detail::Hook_Sleep(120);
 
         int v = 0;
         BOOST_CHECK_EQUAL(c->Read(v), 0);
-        BOOST_CHECK_EQUAL(v, 1); // 这次 Read 触发 _OnEnableWrite，应跳过僵尸唤醒 B
-        WaitLatch(lb, 1000);     // B 必须 1s 内完成，禁止死等
+
+        /**
+         * 这次 Read 触发 _OnEnableWrite，应跳过僵尸唤醒 B
+         */
+        BOOST_CHECK_EQUAL(v, 1);
+
+        /**
+         * B 必须 1s 内完成，禁止死等
+         */
+        WaitLatch(lb, 1000);
         BOOST_CHECK_EQUAL(bret.load(), 0);
         BOOST_CHECK_EQUAL(c->Read(v), 0);
         BOOST_CHECK_EQUAL(v, 3);
@@ -1742,29 +2168,38 @@ BOOST_AUTO_TEST_CASE(t_chan_trywrite_timeout_does_not_steal_wakeup)
     WaitLatch(l, 10000);
 }
 
-// 容量远小于写入量、多 writer、单 reader 的「注册竞态丢唤醒」回归。
-//
-// 旧实现（__TChan.hpp Write 族）：写 waiter 在解锁前就 push 进
-// m_enable_write_conds，随后才 _WaitUntilEnableWrite 登记事件。reader 可在
-// unlock→登记窗口内 pop 该 waiter 并 Notify，而此时 m_co_event==nullptr，
-// Notify 返回 -1：waiter 已离队且不再被唤醒，writer 永久 park（memcheck
-// 阶段三现场：容量 100 << 单 channel 50000，writer 在 ~5000 附近停滞）。
-// 修复后 waiter 只在等待事件登记成功后的 on_registered 回调里入队，并持
-// chan 锁复查容量/关闭，条件已满足则自 Notify 走 PENDING 早到路径。
-//
-// 本用例多轮独立 Chan 反复压容量-满阻塞/消费唤醒路径，并要求每轮全部消息
-// 读完 + 全部 writer 完成；有界等待超时即 FAIL，不用无限等待掩盖丢唤醒。
+/**
+ * 容量远小于写入量、多 writer、单 reader 的「注册竞态丢唤醒」回归。
+ *
+ * 旧实现（__TChan.hpp Write 族）：写 waiter 在解锁前就 push 进
+ * m_enable_write_conds，随后才 _WaitUntilEnableWrite 登记事件。reader 可在
+ * unlock→登记窗口内 pop 该 waiter 并 Notify，而此时 m_co_event==nullptr，
+ * Notify 返回 -1：waiter 已离队且不再被唤醒，writer 永久 park（memcheck
+ * 阶段三现场：容量 100 << 单 channel 50000，writer 在 ~5000 附近停滞）。
+ * 修复后 waiter 只在等待事件登记成功后的 on_registered 回调里入队，并持
+ * chan 锁复查容量/关闭，条件已满足则自 Notify 走 PENDING 早到路径。
+ *
+ * 本用例多轮独立 Chan 反复压容量-满阻塞/消费唤醒路径，并要求每轮全部消息
+ * 读完 + 全部 writer 完成；有界等待超时即 FAIL，不用无限等待掩盖丢唤醒。
+ */
 BOOST_AUTO_TEST_CASE(t_chan_capacity_pressure_no_lost_wakeup)
 {
     BOOST_TEST_MESSAGE("enter t_chan_capacity_pressure_no_lost_wakeup");
-    /* 挂到本文件既有启动协议：EnsureRuntime() 内部 call_once + Start()，
+
+    /**
+     * 挂到本文件既有启动协议：EnsureRuntime() 内部 call_once + Start()，
      * 与 t_begin 完全同一路径，重复调用为空操作；单独 --run_test 过滤运行
-     * 时也保证 runtime 已初始化，不改变 process-lifetime 语义。 */
+     * 时也保证 runtime 已初始化，不改变 process-lifetime 语义。
+     */
     EnsureRuntime();
     constexpr int kCap = 16;
     constexpr int kWriters = 5;
     constexpr int kPerWriter = 2000;
-    constexpr int kTotal = kWriters * kPerWriter; // 10000 >> 16
+
+    /**
+     * 10000 >> 16
+     */
+    constexpr int kTotal = kWriters * kPerWriter;
 
     for (int round = 0; round < 8; ++round) {
         auto c = Chan<int, kCap>();
@@ -1776,8 +2211,11 @@ BOOST_AUTO_TEST_CASE(t_chan_capacity_pressure_no_lost_wakeup)
             bbtco[c, &writers, &writer_ok, w]()
             {
                 for (int i = 0; i < kPerWriter; ++i) {
+                    /**
+                     * 非 0 = 关闭/等待失败：不 Down，本轮判 FAIL
+                     */
                     if (c->Write(w * kPerWriter + i) != 0)
-                        return; // 非 0 = 关闭/等待失败：不 Down，本轮判 FAIL
+                        return;
                 }
                 writer_ok.fetch_add(1);
                 writers.Down();
@@ -1788,22 +2226,25 @@ BOOST_AUTO_TEST_CASE(t_chan_capacity_pressure_no_lost_wakeup)
         {
             int v = 0;
             for (int i = 0; i < kTotal; ++i) {
+                /**
+                 * 不应发生：正常路径下队列会在写满前被消费
+                 */
                 if (c->Read(v) != 0)
-                    return; // 不应发生：正常路径下队列会在写满前被消费
+                    return;
             }
             reader.Down();
         };
 
-        // writer 全部退出时 reader 必定已读满 kTotal（消息总量守恒）。
-        // 任一侧停滞都会在下面有界等待上超时。
+        /**
+         * writer 全部退出时 reader 必定已读满 kTotal（消息总量守恒）。
+         * 任一侧停滞都会在下面有界等待上超时。
+         */
         WaitLatch(writers, 8000);
         WaitLatch(reader, 8000);
         BOOST_CHECK_EQUAL(writer_ok.load(), kWriters);
     }
 }
 
-BOOST_AUTO_TEST_CASE(t_end)
-{
-}
+BOOST_AUTO_TEST_CASE(t_end) {}
 
 BOOST_AUTO_TEST_SUITE_END()

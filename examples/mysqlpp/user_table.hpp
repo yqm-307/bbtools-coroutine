@@ -6,7 +6,9 @@
 #include <atomic>
 #include <random>
 
-// 模拟用户数据结构
+/**
+ * 模拟用户数据结构
+ */
 struct User {
     int id;
     std::string name;
@@ -14,14 +16,16 @@ struct User {
     int age;
 };
 
-// 用户服务类，演示如何在实际应用中使用连接池
+/**
+ * 用户服务类，演示如何在实际应用中使用连接池
+ */
 class UserService {
 public:
-    explicit UserService(std::shared_ptr<MySQLConnectionPool> pool) : m_pool(pool)
-    {
-    }
+    explicit UserService(std::shared_ptr<MySQLConnectionPool> pool) : m_pool(pool) {}
 
-    // 创建用户表（如果不存在）
+    /**
+     * 创建用户表（如果不存在）
+     */
     bool CreateUserTable()
     {
         if (!m_pool)
@@ -74,7 +78,9 @@ public:
         }
     }
 
-    // 插入用户
+    /**
+     * 插入用户
+     */
     bool InsertUser(const User& user)
     {
         if (!m_pool)
@@ -99,7 +105,9 @@ public:
         }
     }
 
-    // 查询所有用户
+    /**
+     * 查询所有用户
+     */
     std::vector<User> GetAllUsers()
     {
         std::vector<User> users;
@@ -132,7 +140,9 @@ public:
         return users;
     }
 
-    // 根据ID查询用户
+    /**
+     * 根据ID查询用户
+     */
     bool GetUserById(int id, User& user)
     {
         if (!m_pool)
@@ -163,7 +173,9 @@ public:
         return false;
     }
 
-    // 更新用户
+    /**
+     * 更新用户
+     */
     bool UpdateUser(const User& user)
     {
         if (!m_pool)
@@ -187,7 +199,9 @@ public:
         }
     }
 
-    // 删除用户
+    /**
+     * 删除用户
+     */
     bool DeleteUser(int id)
     {
         if (!m_pool)

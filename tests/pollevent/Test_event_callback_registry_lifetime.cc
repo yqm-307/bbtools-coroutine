@@ -1,4 +1,5 @@
-/* runtime 与仍存活的 Event 可跨过 main 返回；回调注册表不能提前析构。
+/**
+ * runtime 与仍存活的 Event 可跨过 main 返回；回调注册表不能提前析构。
  * exit_live_event 留存一个活 Event，以捕获对象的析构退出码观察此边界。
  * normal_reclaim / cancel_reclaim 同时验证正常销毁与取消仍逐项回收回调。
  * 每种模式由 CTest 启动独立进程，退出哨兵用 _exit 避免递归静态析构。
@@ -136,7 +137,7 @@ int RunCancelReclaim()
     return 0;
 }
 
-} // namespace
+}
 
 int main(int argc, char** argv)
 {

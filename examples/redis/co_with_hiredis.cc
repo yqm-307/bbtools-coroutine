@@ -1,10 +1,13 @@
 #include <hiredis/hiredis.h>
+#include <atomic>
 #include <random>
 #include <bbt/coroutine/coroutine.hpp>
 
+using namespace bbt::coroutine;
+
 /**
  * 此示例和构建方法用来展示我们如何hook一个第三方库。并使用协程
- * 
+ *
  * 这个例子中有几个注意点：
  * 1、构建时需要确保 hiredis 在 bbt_coroutine 之后链接，这样才能正确覆盖系统调用。（参考examples/CMakeLists.txt）；
  * 2、使用同步接口无损的转化为协程接口。并且不会导致线程的阻塞；
@@ -106,10 +109,7 @@ public:
         };
     };
 
-    void Stop()
-    {
-        m_is_running = false;
-    }
+    void Stop() { m_is_running = false; }
 
 private:
     redisContext* m_context{nullptr};
@@ -123,14 +123,18 @@ void Example1()
 {
     RedisClient client("127.0.0.1", 6379);
 
-    // 这里可以设置同步操作
+    /**
+     * 这里可以设置同步操作
+     */
     client.Set("key1", "value1");
     std::string value = client.Get("key1");
     std::cout << "Value for key1: " << value << std::endl;
 
-    // 同时我们可以直接使用hiredis的同步接口在一个hiredis的同步上下文中
-    // 同时因为hiredis的同步接口是阻塞的，所以我们可以在协程中使用
-    // 注意：hiredis的redisContext不是线程安全的
+    /**
+     * 同时我们可以直接使用hiredis的同步接口在一个hiredis的同步上下文中
+     * 同时因为hiredis的同步接口是阻塞的，所以我们可以在协程中使用
+     * 注意：hiredis的redisContext不是线程安全的
+     */
     bbtco[&]()
     {
         try {
@@ -155,7 +159,7 @@ void Example2()
     auto copool = bbtco_make_copool(10);
     constexpr int kWorkers = 10;
     constexpr int kOperationsPerWorker = 1000;
-    auto wg = bbt::core::thread::CountDownLatch(kWorkers);
+    std::atomic_int completed_workers{0};
     std::atomic_int success_count{0};
     std::atomic_int error_count{0};
 
@@ -191,30 +195,41 @@ void Example2()
                     }
                 }
 
-                wg.Down();
+                completed_workers.fetch_add(1, std::memory_order_release);
             } catch (const std::exception& e) {
                 error_count++;
-                wg.Down();
+                completed_workers.fetch_add(1, std::memory_order_release);
                 std::cerr << "Error: " << e.what() << std::endl;
             }
         });
     }
 
-    wg.Wait();
+    while (completed_workers.load(std::memory_order_acquire) < kWorkers)
+        bbtco_sleep(1);
     std::cout << "Total successful operations: " << success_count.load() << std::endl;
     std::cout << "Total errors: " << error_count.load() << std::endl;
 }
 
-int main()
+/**
+ * hiredis 在协程栈上有较多临时缓冲：默认栈 1 MiB，全池对象预算 1000。
+ */
+RuntimeOptions HiredisOptions()
 {
-    // 初始化，需要更大的栈，因为 hiredis 中使用了大量的栈上内存
-    g_bbt_coroutine_config->m_cfg_stack_size = 1024 * 1024; // 设置协程栈大小为1MB
-    g_bbt_coroutine_config->m_cfg_max_coroutine = 1000;
+    RuntimeOptions options;
+    options.default_stack = StackRequest{1024 * 1024, true};
+    options.stacks = StackConfig{StackPolicy::Auto, {}, 1000, 256 * 1024 * 1024};
+    return options;
+}
 
-    g_scheduler->Start();
-
+int bbtco_main()
+{
     Example1();
     Example2();
 
-    /* process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出 */
+    /**
+     * process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出
+     */
+    return 0;
 }
+
+BBTCO_MAIN_WITH_OPTIONS(HiredisOptions())

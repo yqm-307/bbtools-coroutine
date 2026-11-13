@@ -3,27 +3,29 @@
 #include <boost/test/included/unit_test.hpp>
 #include <mutex>
 
-// FD epoch 线性化回归：close 后同号 fd 复用不得把旧等待/新等待串线。
-// 建立窗口（Begin→Init→End→Regist）协议级用例在
-// Test_copollevent_state.cc；本文件补真实 park 的 write sibling。
-//
-// 判别性用例：
-//  1) 正常事件后恢复窗口：协程因 READABLE 唤醒但尚未恢复执行时，
-//     另一线程 close+dup2 复用同号——恢复路径不得以旧 fd 数字重试
-//     syscall（必须返回 -1/EBADF，不得读到新对象数据，且非阻塞守卫
-//     Dismiss 不得回写旧 flags 到新对象）。
-//  2) close 返回后的新代 waiter 与旧操作恢复重叠：旧操作必须报 EBADF，
-//     新 waiter 应被真实事件正常唤醒；不强制内部 closing 窗口。
-//  4) 并发重复 close 的败方收口（声明已收窄，见用例注释）。
-//  6) 真实 park 的 write sibling：发送缓冲填满到 EAGAIN 后挂起，
-//     close+reuse 后旧写 -1/EBADF、不写字节到新 peer、守卫不回写新 flags。
-//  （多 worker close+reuse 移到独立可执行 Test_hook_fd_epoch_multi，见该文件。）
-//
-// 同步约定：本文件全部用单 worker（m_cfg_static_thread_num=1）；
-// 协程内禁止阻塞等待（会饿死同 worker 其它协程），通常用 atomic flag +
-// bbtco_sleep 让出轮询；唯有用例 1 的恢复窗口
-// 必须占住 worker、只让驱动线程前进。主线程侧等全部参与者退出。
-// 复用源一律取独立 socketpair（dup2 同 socket 会因对端已关闭而 EPIPE）。
+/**
+ * FD epoch 线性化回归：close 后同号 fd 复用不得把旧等待/新等待串线。
+ * 建立窗口（Begin→Init→End→Regist）协议级用例在
+ * Test_copollevent_state.cc；本文件补真实 park 的 write sibling。
+ *
+ * 判别性用例：
+ *  1) 正常事件后恢复窗口：协程因 READABLE 唤醒但尚未恢复执行时，
+ *     另一线程 close+dup2 复用同号——恢复路径不得以旧 fd 数字重试
+ *     syscall（必须返回 -1/EBADF，不得读到新对象数据，且非阻塞守卫
+ *     Dismiss 不得回写旧 flags 到新对象）。
+ *  2) close 返回后的新代 waiter 与旧操作恢复重叠：旧操作必须报 EBADF，
+ *     新 waiter 应被真实事件正常唤醒；不强制内部 closing 窗口。
+ *  4) 并发重复 close 的败方收口（声明已收窄，见用例注释）。
+ *  6) 真实 park 的 write sibling：发送缓冲填满到 EAGAIN 后挂起，
+ *     close+reuse 后旧写 -1/EBADF、不写字节到新 peer、守卫不回写新 flags。
+ *  （多 worker close+reuse 移到独立可执行 Test_hook_fd_epoch_multi，见该文件。）
+ *
+ * 同步约定：本文件全部用单 worker（m_cfg_static_thread_num=1）；
+ * 协程内禁止阻塞等待（会饿死同 worker 其它协程），通常用 atomic flag +
+ * bbtco_sleep 让出轮询；唯有用例 1 的恢复窗口
+ * 必须占住 worker、只让驱动线程前进。主线程侧等全部参与者退出。
+ * 复用源一律取独立 socketpair（dup2 同 socket 会因对端已关闭而 EPIPE）。
+ */
 
 #include <atomic>
 #include <algorithm>
@@ -49,7 +51,9 @@
 #include <bbt/pollevent/Event.hpp>
 #include <bbt/pollevent/EventLoop.hpp>
 
-/* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。 */
+/**
+ * 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
+ */
 namespace {
 void EnsureRuntime()
 {
@@ -91,7 +95,9 @@ struct CoFixture {
     void (*m_old_pipe)(int){SIG_DFL};
 };
 
-// 主线程侧有界等待（主线程不是 worker，可阻塞）
+/**
+ * 主线程侧有界等待（主线程不是 worker，可阻塞）
+ */
 bool WaitParticipants(const std::atomic<int>& remaining, int ms)
 {
     const auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
@@ -102,21 +108,26 @@ bool WaitParticipants(const std::atomic<int>& remaining, int ms)
     }
     if (remaining.load(std::memory_order_acquire) == 0)
         return true;
-    // detached 协程借用测试栈：超时后不能展开该栈并继续下一个用例。
+
+    /**
+     * detached 协程借用测试栈：超时后不能展开该栈并继续下一个用例。
+     */
     BOOST_ERROR("fd epoch participants did not finish before the lifetime barrier");
     std::abort();
 }
 
 struct DoneOnExit {
     std::atomic<int>& done;
-    // 完成谓词只由参与者退出发布；条件变量被唤醒不代表借用已经结束。
-    ~DoneOnExit()
-    {
-        done.fetch_sub(1, std::memory_order_acq_rel);
-    }
+
+    /**
+     * 完成谓词只由参与者退出发布；条件变量被唤醒不代表借用已经结束。
+     */
+    ~DoneOnExit() { done.fetch_sub(1, std::memory_order_acq_rel); }
 };
 
-// 协程内非阻塞等待 flag（让出轮询，不占死 worker）；返回 false 表示超时
+/**
+ * 协程内非阻塞等待 flag（让出轮询，不占死 worker）；返回 false 表示超时
+ */
 bool CoWaitFlag(std::atomic<bool>& flag, int max_ms)
 {
     for (int i = 0; i < max_ms && !flag.load(std::memory_order_acquire); ++i)
@@ -124,9 +135,11 @@ bool CoWaitFlag(std::atomic<bool>& flag, int max_ms)
     return flag.load(std::memory_order_acquire);
 }
 
-/* 真实 park 同步：等到 fd 上确有 waiter 登记（A 已完成
+/**
+ * 真实 park 同步：等到 fd 上确有 waiter 登记（A 已完成
  * InitFdEvent+Regist+_TrackWaiter），而不是靠「lambda 启动 + 固定
- * sleep」猜时序。返回 false 表示超时未观察到登记。 */
+ * sleep」猜时序。返回 false 表示超时未观察到登记。
+ */
 bool CoWaitFdWaiter(int fd, int max_ms)
 {
     for (int i = 0; i < max_ms; ++i) {
@@ -137,9 +150,10 @@ bool CoWaitFdWaiter(int fd, int max_ms)
     return false;
 }
 
-} // namespace
+}
 
-/* ------------------------------------------------------------------ *
+/**
+ * ------------------------------------------------------------------ *
  * 用例 1：正常 READABLE 事件已触发、协程尚未恢复执行时的 close+dup2。
  *
  * 时序：A 在 fds[0] park（读等）→ 对端 fds[1] 写 'r' 使 A 的 epoll 就绪，
@@ -149,36 +163,57 @@ bool CoWaitFdWaiter(int fd, int max_ms)
  *
  * 判别力：若缺少恢复后 epoch 校验，A 会以 fds[0] 数字重试 read，
  *         读到 'z' 返回 1（错误或新对象数据）。
- * ------------------------------------------------------------------ */
+ * ------------------------------------------------------------------
+ */
 BOOST_AUTO_TEST_CASE(t_readable_resume_window_returns_ebadf)
 {
     CoFixture fx{1};
-    int fds[2] = {-1, -1}; // A 等待的旧对象
-    int np[2] = {-1, -1};  // 复用源：dup2(np[0] -> fds[0])，对端 np[1] 供写数据
+
+    /**
+     * A 等待的旧对象
+     */
+    int fds[2] = {-1, -1};
+
+    /**
+     * 复用源：dup2(np[0] -> fds[0])，对端 np[1] 供写数据
+     */
+    int np[2] = {-1, -1};
     BOOST_REQUIRE_EQUAL(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
     BOOST_REQUIRE_EQUAL(::socketpair(AF_UNIX, SOCK_STREAM, 0, np), 0);
 
-    /* flags 差异是 Dismiss 判别力的来源：
+    /**
+     * flags 差异是 Dismiss 判别力的来源：
      *  - 旧对象 fds[0] 保持「默认阻塞」：Hook_Read 的 CoIoNonblockGuard
      *    必须临时置 O_NONBLOCK 才能走协程等待；若恢复侧丢了 Dismiss，
      *    守卫析构会把这组旧 flags 回写到同号新对象上。
      *  - 复用源 np[0] 预置 O_NONBLOCK：dup2 后 fds[0] 上的新对象自带
      *    O_NONBLOCK。正确语义下守卫被 Dismiss，新对象保留自己的
      *    O_NONBLOCK；若误回写，fds[0] 会被刷成「旧对象的原始 flags」
-     *    （阻塞），F_GETFL 上 O_NONBLOCK 丢失即判死刑。 */
+     *    （阻塞），F_GETFL 上 O_NONBLOCK 丢失即判死刑。
+     */
     const int fl_old = ::fcntl(fds[0], F_GETFL, 0);
     BOOST_REQUIRE(fl_old >= 0);
-    BOOST_REQUIRE_EQUAL(fl_old & O_NONBLOCK, 0); // 旧对象确为阻塞
+
+    /**
+     * 旧对象确为阻塞
+     */
+    BOOST_REQUIRE_EQUAL(fl_old & O_NONBLOCK, 0);
     BOOST_REQUIRE_EQUAL(::fcntl(np[0], F_SETFL, fl_old | O_NONBLOCK), 0);
     const int fl_new = ::fcntl(np[0], F_GETFL, 0);
     BOOST_REQUIRE(fl_new >= 0);
-    BOOST_REQUIRE(fl_new & O_NONBLOCK); // 新对象自带 O_NONBLOCK
+
+    /**
+     * 新对象自带 O_NONBLOCK
+     */
+    BOOST_REQUIRE(fl_new & O_NONBLOCK);
 
     std::atomic<int> done{2};
     std::atomic<ssize_t> result{12345};
     std::atomic_int errcode{0};
 
-    // 协程 A：在 fds[0] 上挂起读（socketpair 无数据 → EAGAIN → park）
+    /**
+     * 协程 A：在 fds[0] 上挂起读（socketpair 无数据 → EAGAIN → park）
+     */
     bbtco[&]()
     {
         DoneOnExit signal{done};
@@ -189,23 +224,36 @@ BOOST_AUTO_TEST_CASE(t_readable_resume_window_returns_ebadf)
         errcode.store(errno);
     };
 
-    // 控制协程：等 A 真正进入等待表（FdWaiterCount 探针），再写就绪数据让
-    // A 的 waiter 被正常 READABLE 触发；随后轮询到 FdWaiterCount==0（驱动
-    // 线程已 _Complete 摘表）但 A 尚未恢复前，完成
-    // close+dup2+新对象就绪——确定性命中「触发后未恢复」窗口。
+    /**
+     * 控制协程：等 A 真正进入等待表（FdWaiterCount 探针），再写就绪数据让
+     * A 的 waiter 被正常 READABLE 触发；随后轮询到 FdWaiterCount==0（驱动
+     * 线程已 _Complete 摘表）但 A 尚未恢复前，完成
+     * close+dup2+新对象就绪——确定性命中「触发后未恢复」窗口。
+     */
     bbtco[&]()
     {
         DoneOnExit signal{done};
         BOOST_REQUIRE(CoWaitFdWaiter(fds[0], 3000));
         const char r = 'r';
-        BOOST_REQUIRE_EQUAL(::write(fds[1], &r, 1), 1); // A 的 fd 就绪 → 唤醒入队
-        /* 只让 OS 线程调度，不让出当前协程。驱动线程可完成 READABLE，
-         * 但单 worker 上的 A 不能恢复；bbtco_sleep 会破坏这个窗口。 */
+
+        /**
+         * A 的 fd 就绪 → 唤醒入队
+         */
+        BOOST_REQUIRE_EQUAL(::write(fds[1], &r, 1), 1);
+
+        /**
+         * 只让 OS 线程调度，不让出当前协程。驱动线程可完成 READABLE，
+         * 但单 worker 上的 A 不能恢复；bbtco_sleep 会破坏这个窗口。
+         */
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(3000);
         while (CoPollEvent::FdWaiterCount(fds[0]) != 0 && std::chrono::steady_clock::now() < deadline)
             std::this_thread::yield();
         BOOST_REQUIRE_EQUAL(CoPollEvent::FdWaiterCount(fds[0]), 0);
-        BOOST_REQUIRE_EQUAL(result.load(), 12345); // A 确实尚未返回，不能拿先读到 'r' 冒充窗口
+
+        /**
+         * A 确实尚未返回，不能拿先读到 'r' 冒充窗口
+         */
+        BOOST_REQUIRE_EQUAL(result.load(), 12345);
         BOOST_REQUIRE_EQUAL(::close(fds[0]), 0);
         BOOST_REQUIRE_EQUAL(::dup2(np[0], fds[0]), fds[0]);
         const char z = 'z';
@@ -218,8 +266,14 @@ BOOST_AUTO_TEST_CASE(t_readable_resume_window_returns_ebadf)
     BOOST_CHECK_EQUAL(errcode.load(), EBADF);
     char remaining = 0;
     BOOST_REQUIRE_EQUAL(::recv(fds[0], &remaining, 1, MSG_DONTWAIT), 1);
-    BOOST_CHECK_EQUAL(remaining, 'z'); // 旧读没有偷走新对象的数据
-    /* Dismiss 判别：旧对象阻塞、新对象自带 O_NONBLOCK。守卫
+
+    /**
+     * 旧读没有偷走新对象的数据
+     */
+    BOOST_CHECK_EQUAL(remaining, 'z');
+
+    /**
+     * Dismiss 判别：旧对象阻塞、新对象自带 O_NONBLOCK。守卫
      * 正确 Dismiss 时 fds[0] 保留 O_NONBLOCK；若把旧对象原始 flags 回写到
      * 同号新对象，O_NONBLOCK 会丢失（变成阻塞）。
      *
@@ -228,7 +282,8 @@ BOOST_AUTO_TEST_CASE(t_readable_resume_window_returns_ebadf)
      *     通过——这是已实测的单行变异（mutation-diff.patch）。
      *   - 若移除恢复侧 fd 失效校验、使 CoWaitFdReady 误报就绪，A 可在
      *     同号新对象上重试 read；其未 Dismiss 的 CoIoNonblockGuard 也可能
-     *     在正常析构中回写旧 flags。此为调用链推断，未做该变异实测。 */
+     *     在正常析构中回写旧 flags。此为调用链推断，未做该变异实测。
+     */
     const int fl_after = ::fcntl(fds[0], F_GETFL, 0);
     BOOST_REQUIRE(fl_after >= 0);
     BOOST_CHECK_MESSAGE(fl_after & O_NONBLOCK,
@@ -240,7 +295,8 @@ BOOST_AUTO_TEST_CASE(t_readable_resume_window_returns_ebadf)
     ::close(np[1]);
 }
 
-/* ------------------------------------------------------------------ *
+/**
+ * ------------------------------------------------------------------ *
  * 用例 2：close 与新 waiter 并发——BeginFdClose 摘表 → EndFdClose 解
  * closing 之间到达的同号 waiter 不得被误摘/误醒，并在 close 完成后正常
  * 等待新对象的就绪事件。
@@ -253,7 +309,8 @@ BOOST_AUTO_TEST_CASE(t_readable_resume_window_returns_ebadf)
  *
  * 判别力：旧操作与新 waiter 共用 fd 数字但属于不同代际，close 不得让
  *         旧操作读走新数据，也不得误伤 close 返回后登记的新 waiter。
- * ------------------------------------------------------------------ */
+ * ------------------------------------------------------------------
+ */
 BOOST_AUTO_TEST_CASE(t_concurrent_close_and_new_waiter_not_miswoken)
 {
     CoFixture fx{1};
@@ -269,7 +326,9 @@ BOOST_AUTO_TEST_CASE(t_concurrent_close_and_new_waiter_not_miswoken)
     std::atomic_int errno_a{0};
     std::atomic<char> byte_b{0};
 
-    // A：等旧 fds[0]，将被 close+dup2 唤醒（应得 EBADF）
+    /**
+     * A：等旧 fds[0]，将被 close+dup2 唤醒（应得 EBADF）
+     */
     bbtco[&]()
     {
         DoneOnExit signal{done};
@@ -280,22 +339,37 @@ BOOST_AUTO_TEST_CASE(t_concurrent_close_and_new_waiter_not_miswoken)
         result_a.store(r);
     };
 
-    // 控制协程：等 A 真正进入等待表后 close+dup2 复用；等 C 在新 fd 上
-    // park 后由 np[1] 写数据唤醒
+    /**
+     * 控制协程：等 A 真正进入等待表后 close+dup2 复用；等 C 在新 fd 上
+     * park 后由 np[1] 写数据唤醒
+     */
     bbtco[&]()
     {
         DoneOnExit signal{done};
-        BOOST_REQUIRE(CoWaitFdWaiter(fds[0], 3000)); // A 已登记
+
+        /**
+         * A 已登记
+         */
+        BOOST_REQUIRE(CoWaitFdWaiter(fds[0], 3000));
         BOOST_REQUIRE_EQUAL(::close(fds[0]), 0);
         BOOST_REQUIRE_EQUAL(::dup2(np[0], fds[0]), fds[0]);
         fd_reused.store(true, std::memory_order_release);
-        // 等 C 在新 fd 上完成登记（同一 fd 号，FdWaiterCount 重新 >0）
+
+        /**
+         * 等 C 在新 fd 上完成登记（同一 fd 号，FdWaiterCount 重新 >0）
+         */
         BOOST_REQUIRE(CoWaitFdWaiter(fds[0], 3000));
         const char c = 'q';
-        BOOST_REQUIRE_EQUAL(::write(np[1], &c, 1), 1); // 新对象对端可读事件
+
+        /**
+         * 新对象对端可读事件
+         */
+        BOOST_REQUIRE_EQUAL(::write(np[1], &c, 1), 1);
     };
 
-    // C：在复用后的新 fds[0] 上挂起读，应由真实事件唤醒读到 'q'
+    /**
+     * C：在复用后的新 fds[0] 上挂起读，应由真实事件唤醒读到 'q'
+     */
     bbtco[&]()
     {
         DoneOnExit signal{done};
@@ -309,10 +383,18 @@ BOOST_AUTO_TEST_CASE(t_concurrent_close_and_new_waiter_not_miswoken)
 
     const bool fin = WaitParticipants(done, 5000);
     BOOST_REQUIRE_MESSAGE(fin, "coroutines did not finish: A or C still parked after close+dup2");
-    BOOST_CHECK_EQUAL(result_a.load(), -1); // 旧 waiter EBADF
+
+    /**
+     * 旧 waiter EBADF
+     */
+    BOOST_CHECK_EQUAL(result_a.load(), -1);
     BOOST_CHECK_EQUAL(errno_a.load(), EBADF);
     BOOST_CHECK_EQUAL(byte_b.load(), 'q');
-    BOOST_CHECK_EQUAL(result_b.load(), 1); // 新 waiter 正常读 'q'
+
+    /**
+     * 新 waiter 正常读 'q'
+     */
+    BOOST_CHECK_EQUAL(result_b.load(), 1);
     if (::fcntl(fds[0], F_GETFD) >= 0)
         ::close(fds[0]);
     ::close(fds[1]);
@@ -320,10 +402,13 @@ BOOST_AUTO_TEST_CASE(t_concurrent_close_and_new_waiter_not_miswoken)
     ::close(np[1]);
 }
 
-/* 用例 3（多 worker close+reuse）已移至独立可执行 Test_hook_fd_epoch_multi：
- * worker 数在首次 Start 时固定，同进程内无法从 1 切换为 4（一次初始化契约）。 */
+/**
+ * 用例 3（多 worker close+reuse）已移至独立可执行 Test_hook_fd_epoch_multi：
+ * worker 数在首次 Start 时固定，同进程内无法从 1 切换为 4（一次初始化契约）。
+ */
 
-/* ------------------------------------------------------------------ *
+/**
+ * ------------------------------------------------------------------ *
  * 用例 4：并发重复 close 的败方收口。
  *
  * 时序：协程 A 在 fds[0] 上 park 读 → 主线程 T1 close(fds[0]) claim
@@ -345,7 +430,8 @@ BOOST_AUTO_TEST_CASE(t_concurrent_close_and_new_waiter_not_miswoken)
  *     若在复用后才返回会不会误关新对象」。
  *   - 并发判别不能由普通顺序双关替代：本用例的价值恰在于两个 close
  *     真实并发；顺序的 close→close 不触发 BeginFdClose=false 路径。
- * ------------------------------------------------------------------ */
+ * ------------------------------------------------------------------
+ */
 BOOST_AUTO_TEST_CASE(t_concurrent_double_close_loser_ebadf_then_reuse_survives)
 {
     CoFixture fx{1};
@@ -357,7 +443,9 @@ BOOST_AUTO_TEST_CASE(t_concurrent_double_close_loser_ebadf_then_reuse_survives)
     std::atomic<int> done{1};
     std::atomic<ssize_t> result_a{12345};
 
-    // A：park 在旧 fds[0] 上，被 close 摘表唤醒（EBADF 语义由既有路径覆盖）
+    /**
+     * A：park 在旧 fds[0] 上，被 close 摘表唤醒（EBADF 语义由既有路径覆盖）
+     */
     bbtco[&]()
     {
         DoneOnExit signal{done};
@@ -366,15 +454,19 @@ BOOST_AUTO_TEST_CASE(t_concurrent_double_close_loser_ebadf_then_reuse_survives)
         result_a.store(r);
     };
 
-    // 主线程：等 A 登记后，T1 claim close；T2 在确定性 stall 窗口内并发 close
+    /**
+     * 主线程：等 A 登记后，T1 claim close；T2 在确定性 stall 窗口内并发 close
+     */
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(3000);
     while (CoPollEvent::FdWaiterCount(fds[0]) == 0 && std::chrono::steady_clock::now() < deadline)
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     BOOST_REQUIRE(CoPollEvent::FdWaiterCount(fds[0]) > 0);
 
-    /* T1 走 ::close → Hook_Close：BeginFdClose claim 后在底层 close 前
+    /**
+     * T1 走 ::close → Hook_Close：BeginFdClose claim 后在底层 close 前
      * stall 50ms——T2 在此窗口内必然观察到 FdIsClosing 并发起并发
-     * close（命中 BeginFdClose=false 分支）。 */
+     * close（命中 BeginFdClose=false 分支）。
+     */
     g_bbt_fd_close_stall_for_test_ms.store(50, std::memory_order_release);
 
     std::atomic<int> t2_ret{-2};
@@ -382,28 +474,40 @@ BOOST_AUTO_TEST_CASE(t_concurrent_double_close_loser_ebadf_then_reuse_survives)
     std::atomic<bool> t2_issued{false};
 
     std::thread t2([&]() {
-        // 自旋到 T1 已 claim（stall 窗口保证必然命中）
+        /**
+         * 自旋到 T1 已 claim（stall 窗口保证必然命中）
+         */
         for (int i = 0; i < 10000 && !CoPollEvent::FdIsClosing(fds[0]); ++i) {
         }
         BOOST_REQUIRE(CoPollEvent::FdIsClosing(fds[0]));
         errno = 0;
-        const int r = ::close(fds[0]); // BeginFdClose=false 路径
+
+        /**
+         * BeginFdClose=false 路径
+         */
+        const int r = ::close(fds[0]);
         t2_ret.store(r);
         t2_errno.store(errno);
         t2_issued.store(true, std::memory_order_release);
     });
 
-    // T1：claim + stall + 底层 close + EndFdClose
+    /**
+     * T1：claim + stall + 底层 close + EndFdClose
+     */
     BOOST_REQUIRE_EQUAL(::close(fds[0]), 0);
     g_bbt_fd_close_stall_for_test_ms.store(0, std::memory_order_release);
     t2.join();
     BOOST_REQUIRE(t2_issued.load());
 
-    // T2 必须得到 -1/EBADF，且没有对 fd 号发起第二次底层 close
+    /**
+     * T2 必须得到 -1/EBADF，且没有对 fd 号发起第二次底层 close
+     */
     BOOST_CHECK_EQUAL(t2_ret.load(), -1);
     BOOST_CHECK_EQUAL(t2_errno.load(), EBADF);
 
-    // 复用同号：新对象必须未被 T2 的 close 误关
+    /**
+     * 复用同号：新对象必须未被 T2 的 close 误关
+     */
     BOOST_REQUIRE_EQUAL(::dup2(np[0], fds[0]), fds[0]);
     int fl = ::fcntl(fds[0], F_GETFD);
     BOOST_REQUIRE_MESSAGE(fl >= 0, "reused fd was closed by the losing concurrent close (EBADF on fcntl)");
@@ -418,7 +522,8 @@ BOOST_AUTO_TEST_CASE(t_concurrent_double_close_loser_ebadf_then_reuse_survives)
     ::close(np[1]);
 }
 
-/* ------------------------------------------------------------------ *
+/**
+ * ------------------------------------------------------------------ *
  * 用例 5：Event 构造失败时 callback_map 与
  * 内部 dup fd 均回滚——把进程 fd 上限压到当前占用，使 Event 构造期的
  * ::dup 必然以 EMFILE 失败。
@@ -432,29 +537,19 @@ BOOST_AUTO_TEST_CASE(t_concurrent_double_close_loser_ebadf_then_reuse_survives)
  *
  * 判别：InitFdEvent / Event 构造失败必须收敛为 EMFILE 异常，且不残留
  *       callback 条目（CallbackEntryCount 不变）、fd 集合一个不多一个不少。
- * ------------------------------------------------------------------ */
+ * ------------------------------------------------------------------
+ */
 struct RlimitRestoreGuard {
-    explicit RlimitRestoreGuard(const struct rlimit& saved) : m_saved(saved)
-    {
-    }
-    ~RlimitRestoreGuard()
-    {
-        ::setrlimit(RLIMIT_NOFILE, &m_saved);
-    }
+    explicit RlimitRestoreGuard(const struct rlimit& saved) : m_saved(saved) {}
+    ~RlimitRestoreGuard() { ::setrlimit(RLIMIT_NOFILE, &m_saved); }
     RlimitRestoreGuard(const RlimitRestoreGuard&) = delete;
     RlimitRestoreGuard& operator=(const RlimitRestoreGuard&) = delete;
     struct rlimit m_saved;
 };
 
 struct FillerFdGuard {
-    ~FillerFdGuard()
-    {
-        CloseAll();
-    }
-    std::vector<int>& Fds()
-    {
-        return m_fds;
-    }
+    ~FillerFdGuard() { CloseAll(); }
+    std::vector<int>& Fds() { return m_fds; }
     void CloseAll()
     {
         for (const int fd : m_fds)
@@ -464,8 +559,10 @@ struct FillerFdGuard {
     std::vector<int> m_fds;
 };
 
-/* 稳定 fd 快照：/proc/self/fd 集合剔除测量自身打开的目录 fd，升序返回。
- * 打开目录失败时返回空集（调用方以非空断言暴露）。 */
+/**
+ * 稳定 fd 快照：/proc/self/fd 集合剔除测量自身打开的目录 fd，升序返回。
+ * 打开目录失败时返回空集（调用方以非空断言暴露）。
+ */
 std::vector<int> OpenFdSnapshot()
 {
     std::vector<int> fds;
@@ -476,10 +573,18 @@ std::vector<int> OpenFdSnapshot()
     while (struct dirent* ent = ::readdir(dir)) {
         char* end = nullptr;
         const long value = std::strtol(ent->d_name, &end, 10);
+
+        /**
+         * ".", ".." 等非数字项
+         */
         if (end == ent->d_name || *end != '\0')
-            continue; // ".", ".." 等非数字项
+            continue;
+
+        /**
+         * 测量自身，不计入
+         */
         if (static_cast<int>(value) == self_fd)
-            continue; // 测量自身，不计入
+            continue;
         fds.push_back(static_cast<int>(value));
     }
     ::closedir(dir);
@@ -489,9 +594,11 @@ std::vector<int> OpenFdSnapshot()
 
 BOOST_AUTO_TEST_CASE(t_event_construct_dup_failure_rolls_back)
 {
-    /* 进程 fd 集合/上限属于全进程状态。前面用例的 runtime 会在驱动线程
+    /**
+     * 进程 fd 集合/上限属于全进程状态。前面用例的 runtime 会在驱动线程
      * 延迟销毁 Event 的 dup fd，参与者退出不等于底层 fd 已物理释放。
-     * 在无 runtime 的新进程执行原断言，不靠 sleep 猜析构完成时间。 */
+     * 在无 runtime 的新进程执行原断言，不靠 sleep 猜析构完成时间。
+     */
     if (g_scheduler->IsInitialized()) {
         pid_t child = -1;
         char executable[] = "/proc/self/exe";
@@ -512,21 +619,28 @@ BOOST_AUTO_TEST_CASE(t_event_construct_dup_failure_rolls_back)
     int sp[2] = {-1, -1};
     BOOST_REQUIRE_EQUAL(::socketpair(AF_UNIX, SOCK_STREAM, 0, sp), 0);
 
-    /* EventBase/io_context 自身要占 fd（eventfd 等），须在压上限之前建好；
-     * Event 构造期间的 ::dup 才会是唯一的失败点。 */
+    /**
+     * EventBase/io_context 自身要占 fd（eventfd 等），须在压上限之前建好；
+     * Event 构造期间的 ::dup 才会是唯一的失败点。
+     */
     bbt::pollevent::detail::EventBase base;
 
     const std::vector<int> fds_before = OpenFdSnapshot();
-    /* 度量稳定性自证：同状态下连续两次快照必须一致（排除测量自身 fd 后
-     * 与 fd 号复用、分配顺序无关）。 */
+
+    /**
+     * 度量稳定性自证：同状态下连续两次快照必须一致（排除测量自身 fd 后
+     * 与 fd 号复用、分配顺序无关）。
+     */
     BOOST_REQUIRE(fds_before == OpenFdSnapshot());
     BOOST_REQUIRE(!fds_before.empty());
     const long cb_before = static_cast<long>(bbt::pollevent::Event::CallbackEntryCount());
 
-    /* RLIMIT_NOFILE 限制的是 fd 数值上限而非当前 fd 数量。先压到当前最大
+    /**
+     * RLIMIT_NOFILE 限制的是 fd 数值上限而非当前 fd 数量。先压到当前最大
      * fd+1，再用 openat 填满上限以下的空洞，确保 Event 构造期 ::dup(fd)
      * 稳定失败（EMFILE），走资源创建失败路径；callback 尚未注册，
-     * callback_map 不得残留。setrlimit 是进程级操作，由 RAII 保证恢复。 */
+     * callback_map 不得残留。setrlimit 是进程级操作，由 RAII 保证恢复。
+     */
     struct rlimit old_lim{};
     BOOST_REQUIRE_EQUAL(::getrlimit(RLIMIT_NOFILE, &old_lim), 0);
     struct rlimit cap = old_lim;
@@ -544,8 +658,10 @@ BOOST_AUTO_TEST_CASE(t_event_construct_dup_failure_rolls_back)
         fillers.Fds().push_back(filler);
     }
 
-    /* 直接构造 Event：内部 dup 抛 boost::system::system_error（EMFILE）。
-     * 修复语义：失败前没有 callback_map 残留，已有 fd 不受影响。 */
+    /**
+     * 直接构造 Event：内部 dup 抛 boost::system::system_error（EMFILE）。
+     * 修复语义：失败前没有 callback_map 残留，已有 fd 不受影响。
+     */
     std::exception_ptr eptr{nullptr};
     try {
         auto ev = std::make_shared<bbt::pollevent::Event>(&base, sp[0], bbt::pollevent::EventOpt::READABLE,
@@ -554,7 +670,9 @@ BOOST_AUTO_TEST_CASE(t_event_construct_dup_failure_rolls_back)
         eptr = std::current_exception();
     }
 
-    /* 恢复上限与 filler 后再断言：空洞填满状态下无法再打开目录 fd 做快照。 */
+    /**
+     * 恢复上限与 filler 后再断言：空洞填满状态下无法再打开目录 fd 做快照。
+     */
     BOOST_REQUIRE_EQUAL(::setrlimit(RLIMIT_NOFILE, &old_lim), 0);
     fillers.CloseAll();
 
@@ -579,12 +697,17 @@ BOOST_AUTO_TEST_CASE(t_event_construct_dup_failure_rolls_back)
                                                                              << " after=" << fds_after.size());
     BOOST_CHECK_MESSAGE(fds_after == fds_before,
                         "fd set changed across failed Event ctor (rollback leak or spurious close)");
-    BOOST_CHECK_EQUAL(static_cast<long>(::fcntl(sp[0], F_GETFD)), 0); // 原 fd 未被误关
+
+    /**
+     * 原 fd 未被误关
+     */
+    BOOST_CHECK_EQUAL(static_cast<long>(::fcntl(sp[0], F_GETFD)), 0);
     ::close(sp[0]);
     ::close(sp[1]);
 }
 
-/* ------------------------------------------------------------------ *
+/**
+ * ------------------------------------------------------------------ *
  * 用例 6：真实 park 的 write sibling——旧写必须 EBADF，
  * 不得把字节写到新 peer，旧守卫不得回写新对象 flags。
  *
@@ -600,18 +723,29 @@ BOOST_AUTO_TEST_CASE(t_event_construct_dup_failure_rolls_back)
  *     新对象的 O_NONBLOCK 丢失；
  *   - 不是真 park：靠控制协程在单 worker 上取得执行权证明——若 A 仍
  *     占着 worker，控制协程根本跑不到 close 那一步。
- * ------------------------------------------------------------------ */
+ * ------------------------------------------------------------------
+ */
 BOOST_AUTO_TEST_CASE(t_parked_write_close_reuse_returns_ebadf)
 {
     CoFixture fx{1};
-    int fds[2] = {-1, -1}; // A 在其 [0] 上写等；[1] 是旧 peer
-    int np[2] = {-1, -1};  // 复用源：dup2(np[0] -> fds[0])，[1] 是新 peer
+
+    /**
+     * A 在其 [0] 上写等；[1] 是旧 peer
+     */
+    int fds[2] = {-1, -1};
+
+    /**
+     * 复用源：dup2(np[0] -> fds[0])，[1] 是新 peer
+     */
+    int np[2] = {-1, -1};
     BOOST_REQUIRE_EQUAL(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
     BOOST_REQUIRE_EQUAL(::socketpair(AF_UNIX, SOCK_STREAM, 0, np), 0);
 
-    /* 压小发送缓冲，保证能在断言规模内填满到 EAGAIN；同时让新对象与旧
+    /**
+     * 压小发送缓冲，保证能在断言规模内填满到 EAGAIN；同时让新对象与旧
      * 对象的「守卫回写判别」可观察：旧对象默认阻塞，新对象预置
-     * O_NONBLOCK。守卫正确 Dismiss 时新对象保留 O_NONBLOCK。 */
+     * O_NONBLOCK。守卫正确 Dismiss 时新对象保留 O_NONBLOCK。
+     */
     int sndbuf = 64 * 1024;
     BOOST_REQUIRE_EQUAL(::setsockopt(fds[0], SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf)), 0);
     const int fl_old = ::fcntl(fds[0], F_GETFL, 0);
@@ -619,8 +753,10 @@ BOOST_AUTO_TEST_CASE(t_parked_write_close_reuse_returns_ebadf)
     BOOST_REQUIRE_EQUAL(fl_old & O_NONBLOCK, 0);
     BOOST_REQUIRE_EQUAL(::fcntl(np[0], F_SETFL, fl_old | O_NONBLOCK), 0);
 
-    /* 填到 EAGAIN：全部 O_NONBLOCK 直写，不走 Hook；最后一字节留下，由
-     * 协程里的 write 真正触发挂起（避免「首个 write 已成功」冒充）。 */
+    /**
+     * 填到 EAGAIN：全部 O_NONBLOCK 直写，不走 Hook；最后一字节留下，由
+     * 协程里的 write 真正触发挂起（避免「首个 write 已成功」冒充）。
+     */
     std::vector<char> fill(4096, 'f');
     size_t filled = 0;
     for (;;) {
@@ -630,7 +766,11 @@ BOOST_AUTO_TEST_CASE(t_parked_write_close_reuse_returns_ebadf)
             break;
         }
         filled += static_cast<size_t>(w);
-        BOOST_REQUIRE_LT(filled, size_t(64) * 1024 * 1024); // 上限防御
+
+        /**
+         * 上限防御
+         */
+        BOOST_REQUIRE_LT(filled, size_t(64) * 1024 * 1024);
     }
     BOOST_REQUIRE_GT(filled, 0);
 
@@ -644,37 +784,55 @@ BOOST_AUTO_TEST_CASE(t_parked_write_close_reuse_returns_ebadf)
         DoneOnExit signal{done};
         const char c = 'A';
         errno = 0;
-        const ssize_t r = ::write(fds[0], &c, 1); // EAGAIN → 真 park
+
+        /**
+         * EAGAIN → 真 park
+         */
+        const ssize_t r = ::write(fds[0], &c, 1);
         result_a.store(r);
         errno_a.store(errno);
     };
 
-    /* 控制协程与 A 同 worker：先等 A 的 waiter 登记，再等驱动线程把
+    /**
+     * 控制协程与 A 同 worker：先等 A 的 waiter 登记，再等驱动线程把
      * 「worker 已被 A 交还」变成可观察——本协程能继续跑本身就是证据
-     * （单 worker 上 A 若不真让出，这里到不了）。随后 close+dup2。 */
+     * （单 worker 上 A 若不真让出，这里到不了）。随后 close+dup2。
+     */
     bbtco[&]()
     {
         DoneOnExit signal{done};
         BOOST_REQUIRE(CoWaitFdWaiter(fds[0], 3000));
-        control_ran.store(true, std::memory_order_release); // 已拿到 worker
+
+        /**
+         * 已拿到 worker
+         */
+        control_ran.store(true, std::memory_order_release);
         BOOST_REQUIRE_EQUAL(::close(fds[0]), 0);
         BOOST_REQUIRE_EQUAL(::dup2(np[0], fds[0]), fds[0]);
     };
 
     const bool ok = WaitParticipants(done, 5000);
     BOOST_REQUIRE_MESSAGE(ok, "write-park coroutine did not finish after close+dup2");
-    BOOST_REQUIRE(control_ran.load()); // 证明是交还 worker 的真 park
+
+    /**
+     * 证明是交还 worker 的真 park
+     */
+    BOOST_REQUIRE(control_ran.load());
     BOOST_CHECK_EQUAL(result_a.load(), -1);
     BOOST_CHECK_EQUAL(errno_a.load(), EBADF);
 
-    /* 字节判别：新 peer np[1] 必须读不到 A 写的 'A'。用 DONTWAIT 探测，
-     * 避免在无数据时挂住。 */
+    /**
+     * 字节判别：新 peer np[1] 必须读不到 A 写的 'A'。用 DONTWAIT 探测，
+     * 避免在无数据时挂住。
+     */
     char probe = 0;
     const ssize_t got = ::recv(np[1], &probe, 1, MSG_DONTWAIT);
     BOOST_CHECK_MESSAGE(got < 0 && (errno == EAGAIN || errno == EWOULDBLOCK),
                         "stale write pushed a byte onto the reused peer (got=" << got << ", errno=" << errno << ")");
 
-    /* flags 判别：旧守卫 Dismiss 后新对象应保留自己的 O_NONBLOCK。 */
+    /**
+     * flags 判别：旧守卫 Dismiss 后新对象应保留自己的 O_NONBLOCK。
+     */
     const int fl_after = ::fcntl(fds[0], F_GETFL, 0);
     BOOST_REQUIRE(fl_after >= 0);
     BOOST_CHECK_MESSAGE(fl_after & O_NONBLOCK,

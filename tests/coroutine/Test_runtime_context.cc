@@ -47,14 +47,16 @@ bool RejectsNativeCall()
     return false;
 }
 
-// 应用约定的普通函数，不是宏，不接管 main，也不启动 runtime。
+/**
+ * 应用约定的普通函数，不是宏，不接管 main，也不启动 runtime。
+ */
 bool bbtco_main()
 {
     RequireCoroutineContext();
     return IsInCoroutineContext();
 }
 
-} // namespace
+}
 
 BOOST_AUTO_TEST_SUITE(context_no_create)
 

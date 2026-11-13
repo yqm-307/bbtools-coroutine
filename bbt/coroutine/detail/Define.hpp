@@ -1,4 +1,6 @@
-/* 运行时公共类型：状态枚举、事件位与回调 typedef；只放声明，不含实现。 */
+/**
+ * 运行时公共类型：状态枚举、事件位与回调 typedef；只放声明，不含实现。
+ */
 #pragma once
 #include <set>
 #include <map>
@@ -18,15 +20,18 @@
 #include <bbt/core/errcode/Errcode.hpp>
 #include <bbt/coroutine/utils/lockfree/blockingconcurrentqueue.h>
 
-// #define BBT_COROUTINE_PROFILE
-
+/**
+ * #define BBT_COROUTINE_PROFILE
+ */
 #define g_scheduler                 (bbt::coroutine::detail::Scheduler::GetInstance())
 
 #define g_bbt_tls_helper            (bbt::coroutine::detail::LocalThread::GetTLSInst())
 
 #define g_bbt_tls_processer         (g_bbt_tls_helper->GetProcesser())
 
-/* 当前线程正在运行的 coroutine */
+/**
+ * 当前线程正在运行的 coroutine
+ */
 #define g_bbt_tls_coroutine_co      (g_bbt_tls_processer ? g_bbt_tls_processer->GetCurrentCoroutine() : nullptr)
 
 #define g_bbt_poller                (bbt::coroutine::detail::CoPoller::GetInstance())
@@ -41,22 +46,33 @@
 
 namespace bbt::coroutine {
 
-/* 启动模式：THREAD 起后台调度线程后立即返回；LOOP 在当前线程阻塞调度；NO_LOOP 由用户
- * 调 LoopOnce 驱动。初始化完成后 IsInitialized() 恒为 true，与模式无关。 */
+/**
+ * 启动模式：THREAD 起后台调度线程后立即返回；LOOP 在当前线程阻塞调度；NO_LOOP 由用户
+ * 调 LoopOnce 驱动。初始化完成后 IsInitialized() 恒为 true，与模式无关。
+ */
 enum SchedulerStartOpt {
-    SCHE_START_OPT_SCHE_THREAD = 1,  // 线程模式，几乎不阻塞，开启后台调度线程
-    SCHE_START_OPT_SCHE_LOOP = 2,    // 循环模式，阻塞并在当前线程调度
-    SCHE_START_OPT_SCHE_NO_LOOP = 3, // 非循环模式，需要用户手动LoopOnce来驱动调度
+    /**
+     * 线程模式，几乎不阻塞，开启后台调度线程
+     */
+    SCHE_START_OPT_SCHE_THREAD = 1,
+    /**
+     * 循环模式，阻塞并在当前线程调度
+     */
+    SCHE_START_OPT_SCHE_LOOP = 2,
+    /**
+     * 非循环模式，需要用户手动LoopOnce来驱动调度
+     */
+    SCHE_START_OPT_SCHE_NO_LOOP = 3,
 };
 
 /**
  * @brief 对外注册协程事件函数
  * @param fd 套接字，如果不存在则为-1
  * @param event 触发事件
- * 
+ *
  * @return 对于persist事件，返回false会自动注销掉当前事件
  */
-typedef std::function<void(int /*fd*/, short /*trigger event*/)> ExtCoEventCallback;
+typedef std::function<void(int fd, short trigger_event)> ExtCoEventCallback;
 
 /**
  * @brief 异常处理回调：Context 捕获用户任务异常后调用，参数是提取出的 what 文本（构造为 Errcode）。
@@ -81,29 +97,29 @@ class CoWaiter;
 class CoCond;
 class CoMutex;
 
-/*
-@startuml
-[*] --> CHAN_DEFAUTL
-CHAN_DEFAUTL --> CHAN_OPEN  : 初始化
-CHAN_OPEN    --> CHAN_CLOSE : 主动关闭此信道
-CHAN_CLOSE   --> [*]
-@enduml
-*/
+/**
+ * @startuml
+ * [*] --> CHAN_DEFAUTL
+ * CHAN_DEFAUTL --> CHAN_OPEN  : 初始化
+ * CHAN_OPEN    --> CHAN_CLOSE : 主动关闭此信道
+ * CHAN_CLOSE   --> [*]
+ * @enduml
+ */
 enum ChanStatus : int32_t {
     CHAN_DEFAUTL = 0,
     CHAN_OPEN = 1,
     CHAN_CLOSE = 2,
 };
 
-/*
-@startuml
-[*] --> COND_DEFAULT
-COND_DEFAULT    --> COND_FREE
-COND_FREE       --> COND_WAIT
-COND_WAIT       --> COND_ACTIVE
-COND_ACTIVE     --> COND_FREE
-@enduml
-*/
+/**
+ * @startuml
+ * [*] --> COND_DEFAULT
+ * COND_DEFAULT    --> COND_FREE
+ * COND_FREE       --> COND_WAIT
+ * COND_WAIT       --> COND_ACTIVE
+ * COND_ACTIVE     --> COND_FREE
+ * @enduml
+ */
 enum CoCondStatus : int32_t {
     COND_DEFAULT = 0,
     COND_FREE = 1,
@@ -127,48 +143,77 @@ enum CoRWMutexStatus {
 namespace detail {
 
 /**
-@startuml
-[*] --> Runnable : Create() 完成。CO_DEFAULT 只是成员初值，构造后不可观察
-Runnable --> Running : Resume()
-Running --> Suspend : Yield / YieldWithCallback / YieldAndPushGCoQueue
-Suspend --> Running : Resume()。事件入队不改写状态
-Running --> Final : 用户函数返回，或异常经 OnException
-Final --> [*] : 销毁。不可再 Resume
-
-note right of Suspend
-  有无 await_event 都进入 Suspend。
-  唤醒只负责入队，状态保持 Suspend 直到 Resume。
-end note
-@enduml
+ * @startuml
+ * [*] --> Runnable : Create() 完成。CO_DEFAULT 只是成员初值，构造后不可观察
+ * Runnable --> Running : Resume()
+ * Running --> Suspend : Yield / YieldWithCallback / YieldAndPushGCoQueue
+ * Suspend --> Running : Resume()。事件入队不改写状态
+ * Running --> Final : 用户函数返回，或异常经 OnException
+ * Final --> [*] : 销毁。不可再 Resume
+ *
+ * note right of Suspend
+ * 有无 await_event 都进入 Suspend。
+ * 唤醒只负责入队，状态保持 Suspend 直到 Resume。
+ * end note
+ * @enduml
  */
 enum CoroutineStatus : int32_t {
-    CO_DEFAULT = 0,  // 成员初值；Create 完成后不可观察
-    CO_RUNNABLE = 1, // 已创建、尚未 Resume；Yield 后不再回到此状态
-    CO_RUNNING = 2,  // Resume 后在协程栈上执行
-    CO_SUSPEND = 3,  // 主动让出或等待事件；入队后仍保持直到再次 Resume
-    CO_FINAL = 4,    // 正常返回或异常后的终态，不可再 Resume
+    /**
+     * 成员初值；Create 完成后不可观察
+     */
+    CO_DEFAULT = 0,
+    /**
+     * 已创建、尚未 Resume；Yield 后不再回到此状态
+     */
+    CO_RUNNABLE = 1,
+    /**
+     * Resume 后在协程栈上执行
+     */
+    CO_RUNNING = 2,
+    /**
+     * 主动让出或等待事件；入队后仍保持直到再次 Resume
+     */
+    CO_SUSPEND = 3,
+    /**
+     * 正常返回或异常后的终态，不可再 Resume
+     */
+    CO_FINAL = 4,
 };
 
 /**
-@startuml
-[*] --> Default
-Default --> Suspend : 初始化完成，挂起
-Suspend --> Running : 被调度器唤醒
-Running --> Suspend : 本地队列执行完
-
-Running: **执行任务**
-Suspend: **挂起中**
-
-@enduml
+ * @startuml
+ * [*] --> Default
+ * Default --> Suspend : 初始化完成，挂起
+ * Suspend --> Running : 被调度器唤醒
+ * Running --> Suspend : 本地队列执行完
+ *
+ * Running: **执行任务**
+ * Suspend: **挂起中**
+ *
+ * @enduml
  */
 enum ProcesserStatus : int32_t {
-    PROC_DEFAULT = 0, // 默认。尚未初始化
-    PROC_SUSPEND = 1, // 挂起中
-    PROC_RUNNING = 2, // 运行中。在执行任务
-    PROC_EXIT = 3,    // 调度函数发布退出；不证明线程返回、用户 TLS 析构或 join 完成
+    /**
+     * 默认。尚未初始化
+     */
+    PROC_DEFAULT = 0,
+    /**
+     * 挂起中
+     */
+    PROC_SUSPEND = 1,
+    /**
+     * 运行中。在执行任务
+     */
+    PROC_RUNNING = 2,
+    /**
+     * 调度函数发布退出；不证明线程返回、用户 TLS 析构或 join 完成
+     */
+    PROC_EXIT = 3,
 };
 
-/* 与 ProcesserStatus 的运行/挂起状态正交；Joined 只能在锁外 join 返回后发布。 */
+/**
+ * 与 ProcesserStatus 的运行/挂起状态正交；Joined 只能在锁外 join 返回后发布。
+ */
 enum class ProcesserLifecycleState {
     Preparing,
     Active,
@@ -182,61 +227,139 @@ enum class ProcesserScalingMode {
     Auto,
 };
 
-/* 供 Scheduler 扩缩容入口使用，不改变既有 driver adapter 的结果集合。 */
+/**
+ * 供 Scheduler 扩缩容入口使用，不改变既有 driver adapter 的结果集合。
+ */
 enum class ProcesserResizeResult {
-    Ok,      // 目标已提交；不等同于物理 join 完成
-    Pending, // 目标已提交，仍有退役/物理回收待推进
+    /**
+     * 目标已提交；不等同于物理 join 完成
+     */
+    Ok,
+    /**
+     * 目标已提交，仍有退役/物理回收待推进
+     */
+    Pending,
     NotInitialized,
-    InvalidTarget, // 数量不在合法范围
-    DriverBound,   // Bound/Failed/Detaching 的归属约束阻止缩容
-    CreateFailed,  // 未公开的扩容批次创建失败；旧 active/target/mode 不变
-    SelfRetire,    // 会等待自身退役的调用上下文；无副作用拒绝
-    Busy,          // 未完成退役批次等暂态限制；未接受新目标
+    /**
+     * 数量不在合法范围
+     */
+    InvalidTarget,
+    /**
+     * Bound/Failed/Detaching 的归属约束阻止缩容
+     */
+    DriverBound,
+    /**
+     * 未公开的扩容批次创建失败；旧 active/target/mode 不变
+     */
+    CreateFailed,
+    /**
+     * 会等待自身退役的调用上下文；无副作用拒绝
+     */
+    SelfRetire,
+    /**
+     * 未完成退役批次等暂态限制；未接受新目标
+     */
+    Busy,
 };
 
 enum ScheudlerStatus : int32_t {
-    SCHE_DEFAULT = 0, // 默认
-    SCHE_RUNNING = 1, // 执行中
-    SCHE_SUSPEND = 2, // 挂起
-    SCHE_EXIT = 3,    // 结束
+    /**
+     * 默认
+     */
+    SCHE_DEFAULT = 0,
+    /**
+     * 执行中
+     */
+    SCHE_RUNNING = 1,
+    /**
+     * 挂起
+     */
+    SCHE_SUSPEND = 2,
+    /**
+     * 结束
+     */
+    SCHE_EXIT = 3,
 };
 
-/*
-@startuml
-[*] --> POLLEVENT_DEFAULT
-POLLEVENT_DEFAULT --> POLLEVENT_INITED : 创建监听事件
-POLLEVENT_INITED  --> POLLEVENT_LISTEN : 注册到poller中
-POLLEVENT_LISTEN  --> POLLEVENT_TRIGGER: 触发监听事件
-POLLEVENT_TRIGGER --> POLLEVENT_FINAL  : 监听完成
-POLLEVENT_LISTEN  --> POLLEVENT_CANNEL : 取消监听
-POLLEVENT_FINAL   --> [*]
-@enduml
+/**
+ * @startuml
+ * [*] --> POLLEVENT_DEFAULT
+ * POLLEVENT_DEFAULT --> POLLEVENT_INITED : 创建监听事件
+ * POLLEVENT_INITED  --> POLLEVENT_LISTEN : 注册到poller中
+ * POLLEVENT_LISTEN  --> POLLEVENT_TRIGGER: 触发监听事件
+ * POLLEVENT_TRIGGER --> POLLEVENT_FINAL  : 监听完成
+ * POLLEVENT_LISTEN  --> POLLEVENT_CANNEL : 取消监听
+ * POLLEVENT_FINAL   --> [*]
+ * @enduml
+ *
+ * 对外可见的事件状态，由 CoPollEventPhase 映射：ARMING/ARMED/PARKED 都是 LISTEN，
+ * PENDING 与 TRIGGERING 都报 TRIGGER，CANCELLED 报 CANNEL。
  */
-/* 对外可见的事件状态，由 CoPollEventPhase 映射：ARMING/ARMED/PARKED 都是 LISTEN，
- * PENDING 与 TRIGGERING 都报 TRIGGER，CANCELLED 报 CANNEL。 */
 enum CoPollEventStatus : int32_t {
-    POLLEVENT_DEFAULT = 0, // 默认
-    POLLEVENT_INITED = 1,  // 初始化完成
-    POLLEVENT_LISTEN = 2,  // 监听中
-    POLLEVENT_TRIGGER = 3, // 触发中
-    POLLEVENT_FINAL = 4,   // 监听结束
-    POLLEVENT_CANNEL = 5,  // 取消事件
+    /**
+     * 默认
+     */
+    POLLEVENT_DEFAULT = 0,
+    /**
+     * 初始化完成
+     */
+    POLLEVENT_INITED = 1,
+    /**
+     * 监听中
+     */
+    POLLEVENT_LISTEN = 2,
+    /**
+     * 触发中
+     */
+    POLLEVENT_TRIGGER = 3,
+    /**
+     * 监听结束
+     */
+    POLLEVENT_FINAL = 4,
+    /**
+     * 取消事件
+     */
+    POLLEVENT_CANNEL = 5,
 };
 
-/*
+/**
  * CoPollEvent 内部阶段；flags 与阶段必须保存在同一个状态字中。
  * 正常：INITED -> ARMING -> ARMED -> PARKED -> TRIGGERING -> FINAL。
  * 提前触发：ARMING/ARMED -> PENDING -> TRIGGERING -> FINAL；取消进入 CANCELLED。
  */
 enum class CoPollEventPhase : uint8_t {
-    INITED = 0,     // 已初始化，尚未注册底层事件
-    ARMING = 1,     // 正在注册，底层事件仅由注册方持有
-    ARMED = 2,      // 注册完成，等待 Processer 提交 park
-    PARKED = 3,     // 协程已 park，可由触发方完成
-    PENDING = 4,    // park 前已触发，等待 Processer 消费
-    TRIGGERING = 5, // 完成权已被唯一触发方取得
-    FINAL = 6,      // 完成回调已提交，终态
-    CANCELLED = 7,  // 已取消，终态
+    /**
+     * 已初始化，尚未注册底层事件
+     */
+    INITED = 0,
+    /**
+     * 正在注册，底层事件仅由注册方持有
+     */
+    ARMING = 1,
+    /**
+     * 注册完成，等待 Processer 提交 park
+     */
+    ARMED = 2,
+    /**
+     * 协程已 park，可由触发方完成
+     */
+    PARKED = 3,
+    /**
+     * park 前已触发，等待 Processer 消费
+     */
+    PENDING = 4,
+    /**
+     * 完成权已被唯一触发方取得
+     */
+    TRIGGERING = 5,
+    /**
+     * 完成回调已提交，终态
+     */
+    FINAL = 6,
+    /**
+     * 已取消，终态
+     */
+    CANCELLED = 7,
 };
 
 constexpr uint64_t CO_POLLEVENT_PHASE_MASK = 0xffULL;
@@ -259,24 +382,30 @@ constexpr short GetCoPollEventFlags(uint64_t state)
     return static_cast<short>((state & CO_POLLEVENT_FLAGS_MASK) >> CO_POLLEVENT_FLAGS_SHIFT);
 }
 
-/* PollEventType表示触发的事件类型 */
+/**
+ * PollEventType表示触发的事件类型
+ */
 enum PollEventType {
     POLL_EVENT_DEFAULT = 0,
     POLL_EVENT_TIMEOUT = 1 << 0,
     POLL_EVENT_WRITEABLE = 1 << 1,
     POLL_EVENT_READABLE = 1 << 2,
     POLL_EVENT_CUSTOM = 1 << 3,
-    /* 本次唤醒原因是取消（协程级 RequestCancel，或等待者订阅的取消令牌
+    /**
+     * 本次唤醒原因是取消（协程级 RequestCancel，或等待者订阅的取消令牌
      * 经 CoPoller::NotifyCancelEvent 触发），与 POLL_EVENT_TIMEOUT 分离，使
      * 「本次等待为何结束」可在仲裁点（唤醒原因掩码）直接读出。
      * 取 bit8 以上：core 的 EventOpt 沿用 libevent 数值（0x01~0x80，含 core
      * 尚未定义的 EV_ET 0x20），取高位与之彻底错开，不必依赖「某些位绝不会到达
-     * 触发掩码」这类边界不变量。 */
+     * 触发掩码」这类边界不变量。
+     */
     POLL_EVENT_CANCELLED = 1 << 8,
-    /* 本次唤醒原因是 fd 被 Hook_Close 摘除（close+代际推进的
+    /**
+     * 本次唤醒原因是 fd 被 Hook_Close 摘除（close+代际推进的
      * 线性化点内完成）。与 CANCELLED 同取高位区，与 core EventOpt
      * 0x01~0x80 错开；恢复方据此把挂起等待映射为 EBADF，禁止在
-     * close 后已复用的同号新对象上重试 syscall。 */
+     * close 后已复用的同号新对象上重试 syscall。
+     */
     POLL_EVENT_CLOSED = 1 << 9,
 };
 
@@ -287,10 +416,26 @@ enum PollEventType {
  * 无并发写者；跨线程统一快照由 WorkerStallInfo 承载。
  */
 struct CoroutineWaitInfo {
-    int m_wait_event{0};     // 等待的事件位（PollEventType 口径）
-    int m_fd{-1};            // fd 等待的对象；非 fd 等待为 -1
-    int64_t m_timeout_ms{0}; // 事件定时器总时长；0=无
-    uint64_t m_waited_us{0}; // 已等待微秒
+
+    /**
+     * 等待的事件位（PollEventType 口径）
+     */
+    int m_wait_event{0};
+
+    /**
+     * fd 等待的对象；非 fd 等待为 -1
+     */
+    int m_fd{-1};
+
+    /**
+     * 事件定时器总时长；0=无
+     */
+    int64_t m_timeout_ms{0};
+
+    /**
+     * 已等待微秒
+     */
+    uint64_t m_waited_us{0};
 };
 
 /**
@@ -303,9 +448,21 @@ struct CoroutineWaitInfo {
 struct WorkerStallInfo {
     uint64_t m_worker_id{0};
     uint64_t m_co_id{0};
-    std::string m_desc;       // 协程注册时 bbtco_desc 携带的描述（可为空）
-    uint64_t m_running_us{0}; // 本次执行已占用 worker 的时长
-    uint64_t m_backlog{0};    // 该 worker 本地队列积压（调度饥饿度）
+
+    /**
+     * 协程注册时 bbtco_desc 携带的描述（可为空）
+     */
+    std::string m_desc;
+
+    /**
+     * 本次执行已占用 worker 的时长
+     */
+    uint64_t m_running_us{0};
+
+    /**
+     * 该 worker 本地队列积压（调度饥饿度）
+     */
+    uint64_t m_backlog{0};
 };
 
 /**
@@ -314,30 +471,91 @@ struct WorkerStallInfo {
  */
 typedef std::function<void(const WorkerStallInfo& info)> WorkerStallCallback;
 
-/* CoPollEvent的自定义事件key，用来表示触发时是那个自定义事件 */
+/**
+ * CoPollEvent的自定义事件key，用来表示触发时是那个自定义事件
+ */
 enum CoPollEventCustom {
-    POLL_EVENT_CUSTOM_COND = 1,    // co cond
-    POLL_EVENT_CUSTOM_CHAN = 2,    // chan
-    POLL_EVENT_CUSTOM_COMUTEX = 3, // co mutex
+    /**
+     * co cond
+     */
+    POLL_EVENT_CUSTOM_COND = 1,
+    /**
+     * chan
+     */
+    POLL_EVENT_CUSTOM_CHAN = 2,
+    /**
+     * co mutex
+     */
+    POLL_EVENT_CUSTOM_COMUTEX = 3,
 };
 
 enum CoroutinePriority : int32_t {
-    CO_PRIORITY_LOW = 0,      // 低优先级
-    CO_PRIORITY_NORMAL = 1,   // 普通优先级
-    CO_PRIORITY_HIGH = 2,     // 高优先级
-    CO_PRIORITY_CRITICAL = 3, // 关键优先级
-    CO_PRIORITY_COUNT = 4,    // 优先级数量
+    /**
+     * 低优先级
+     */
+    CO_PRIORITY_LOW = 0,
+    /**
+     * 普通优先级
+     */
+    CO_PRIORITY_NORMAL = 1,
+    /**
+     * 高优先级
+     */
+    CO_PRIORITY_HIGH = 2,
+    /**
+     * 关键优先级
+     */
+    CO_PRIORITY_CRITICAL = 3,
+    /**
+     * 优先级数量
+     */
+    CO_PRIORITY_COUNT = 4,
 };
 
-class Coroutine;    // 协程
-class Scheduler;    // 调度器
-class Processer;    // 执行器
-class CoPollEvent;  // 协程事件
-class CoPoller;     // 事件轮询器
-class GlobalConfig; // 全局配置
-class LocalThread;  // 线程局部数据辅助类
-class DebugMgr;     // dbg管理器
-class Defer;        // Defer helper
+/**
+ * 协程
+ */
+class Coroutine;
+
+/**
+ * 调度器
+ */
+class Scheduler;
+
+/**
+ * 执行器
+ */
+class Processer;
+
+/**
+ * 协程事件
+ */
+class CoPollEvent;
+
+/**
+ * 事件轮询器
+ */
+class CoPoller;
+
+/**
+ * 全局配置
+ */
+class GlobalConfig;
+
+/**
+ * 线程局部数据辅助类
+ */
+class LocalThread;
+
+/**
+ * dbg管理器
+ */
+class DebugMgr;
+
+/**
+ * Defer helper
+ */
+class Defer;
 
 typedef uint64_t CoroutineId;
 #define BBT_COROUTINE_INVALID_COROUTINE_ID 0
@@ -348,21 +566,49 @@ typedef uint64_t ProcesserId;
 typedef uint64_t CoPollEventId;
 #define BBT_COROUTINE_INVALID_COPOLLEVENT_ID 0
 
-typedef moodycamel::BlockingConcurrentQueue<Coroutine*> CoroutineQueue;                   // 协程队列
-typedef std::array<CoroutineQueue, CoroutinePriority::CO_PRIORITY_COUNT> CoPriorityQueue; // 协程优先级队列
+/**
+ * 协程队列
+ */
+typedef moodycamel::BlockingConcurrentQueue<Coroutine*> CoroutineQueue;
 
-typedef std::function<void()> CoroutineCallback;        // 协程处理主函数
-typedef std::function<void()> CoroutineFinalCallback;   // 协程主函数执行完毕回调
-typedef std::function<bool()> CoroutineOnYieldCallback; // 协程挂起后执行回调
-typedef std::function<void()> DeferCallback;            // defer 执行函数
+/**
+ * 协程优先级队列
+ */
+typedef std::array<CoroutineQueue, CoroutinePriority::CO_PRIORITY_COUNT> CoPriorityQueue;
 
-/* poller 事件完成回调，参数依次为：本次完成的 CoPollEvent；触发掩码（EventOpt 口径，由 Trigger 锁存）；
- * 仅当掩码含 POLL_EVENT_CUSTOM 时有效，取值为 CoPollEventCustom。 */
-typedef std::function<void(std::shared_ptr<CoPollEvent>, int /*events*/, int)>
-    CoPollEventCallback; // Poller监听事件完成回调
+/**
+ * 协程处理主函数
+ */
+typedef std::function<void()> CoroutineCallback;
+
+/**
+ * 协程主函数执行完毕回调
+ */
+typedef std::function<void()> CoroutineFinalCallback;
+
+/**
+ * 协程挂起后执行回调
+ */
+typedef std::function<bool()> CoroutineOnYieldCallback;
+
+/**
+ * defer 执行函数
+ */
+typedef std::function<void()> DeferCallback;
+
+/**
+ * poller 事件完成回调，参数依次为：本次完成的 CoPollEvent；触发掩码（EventOpt 口径，由 Trigger 锁存）；
+ * 仅当掩码含 POLL_EVENT_CUSTOM 时有效，取值为 CoPollEventCustom。
+ */
+typedef std::function<void(std::shared_ptr<CoPollEvent>, int events, int)>
+
+    /**
+     * Poller监听事件完成回调
+     */
+    CoPollEventCallback;
 
 #undef MOODYCAMEL_CPP11_THREAD_LOCAL_SUPPORTED
 
-} // namespace bbt::coroutine::detail
+}
 
-} // namespace bbt::coroutine
+}

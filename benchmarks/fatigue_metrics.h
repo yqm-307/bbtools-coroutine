@@ -1,27 +1,29 @@
-// fatigue_metrics.h — 疲劳测试业务埋点（原子计数器 + JSON 周期输出）
-//
-// 用法：
-//   #include "fatigue_metrics.h"
-//   static fatigue::Metrics g_metrics("comutex");
-//
-//   void worker() {
-//       uint64_t t0 = fatigue::now_us();
-//       mutex->Lock();
-//       uint64_t lat = fatigue::now_us() - t0;
-//       g_metrics.lock_ops++;
-//       g_metrics.record_lock_latency_us(lat);
-//       // ... work ...
-//       mutex->UnLock();
-//   }
-//
-//   int main() {
-//       g_metrics.start_reporter(60);  // 推荐每分钟 1 个采样点（~800B/次 → ~48KB/h）
-//       // ... run fatigue test ...
-//       g_metrics.stop_reporter();
-//   }
-//
-// 输出格式（stdout）：
-//   FATIGUE_METRIC:{"ts":10.0,"name":"comutex","elapsed_s":10.0,"ops_total":500000,...}
+/**
+ * fatigue_metrics.h — 疲劳测试业务埋点（原子计数器 + JSON 周期输出）
+ *
+ * 用法：
+ *   #include "fatigue_metrics.h"
+ *   static fatigue::Metrics g_metrics("comutex");
+ *
+ *   void worker() {
+ *       uint64_t t0 = fatigue::now_us();
+ *       mutex->Lock();
+ *       uint64_t lat = fatigue::now_us() - t0;
+ *       g_metrics.lock_ops++;
+ *       g_metrics.record_lock_latency_us(lat);
+ *       // ... work ...
+ *       mutex->UnLock();
+ *   }
+ *
+ *   int main() {
+ *       g_metrics.start_reporter(60);  // 推荐每分钟 1 个采样点（~800B/次 → ~48KB/h）
+ *       // ... run fatigue test ...
+ *       g_metrics.stop_reporter();
+ *   }
+ *
+ * 输出格式（stdout）：
+ *   FATIGUE_METRIC:{"ts":10.0,"name":"comutex","elapsed_s":10.0,"ops_total":500000,...}
+ */
 
 #pragma once
 
@@ -43,60 +45,71 @@ struct Metrics {
     std::string name;
     uint64_t start_us;
 
-    // ── 通用 ──
+    /**
+     * ── 通用 ──
+     */
     std::atomic<uint64_t> ops_total{0};
     std::atomic<uint64_t> errors{0};
 
-    // ── CoMutex / std::mutex ──
+    /**
+     * ── CoMutex / std::mutex ──
+     */
     std::atomic<uint64_t> lock_ops{0};
     std::atomic<uint64_t> trylock_success{0};
     std::atomic<uint64_t> trylock_timeout{0};
     std::atomic<uint64_t> lock_latency_sum_us{0};
     std::atomic<uint64_t> lock_latency_count{0};
 
-    // ── CoRWMutex ──
+    /**
+     * ── CoRWMutex ──
+     */
     std::atomic<uint64_t> rlock_ops{0};
     std::atomic<uint64_t> wlock_ops{0};
     std::atomic<uint64_t> try_rlock_timeout{0};
     std::atomic<uint64_t> try_wlock_timeout{0};
 
-    // ── CoCond ──
+    /**
+     * ── CoCond ──
+     */
     std::atomic<uint64_t> cond_waits{0};
     std::atomic<uint64_t> cond_signals{0};
     std::atomic<uint64_t> cond_timeouts{0};
     std::atomic<uint64_t> cond_latency_sum_us{0};
     std::atomic<uint64_t> cond_latency_count{0};
 
-    // ── Chan ──
+    /**
+     * ── Chan ──
+     */
     std::atomic<uint64_t> chan_reads{0};
     std::atomic<uint64_t> chan_writes{0};
     std::atomic<uint64_t> chan_read_blocks{0};
     std::atomic<uint64_t> chan_write_blocks{0};
 
-    // ── CoPool ──
+    /**
+     * ── CoPool ──
+     */
     std::atomic<uint64_t> pool_tasks{0};
     std::atomic<uint64_t> pool_completed{0};
     std::atomic<uint64_t> pool_dropped{0};
 
-    // ── Coroutine ──
+    /**
+     * ── Coroutine ──
+     */
     std::atomic<uint64_t> co_spawns{0};
     std::atomic<uint64_t> co_switches{0};
 
-    // ── 控制 ──
+    /**
+     * ── 控制 ──
+     */
     std::atomic<bool> reporter_running{false};
     std::thread reporter_thread;
 
-    explicit Metrics(const std::string& n) : name(n), start_us(now_us())
-    {
-    }
+    explicit Metrics(const std::string& n) : name(n), start_us(now_us()) {}
 
     Metrics(const Metrics&) = delete;
     Metrics& operator=(const Metrics&) = delete;
 
-    double elapsed_s() const
-    {
-        return (now_us() - start_us) / 1e6;
-    }
+    double elapsed_s() const { return (now_us() - start_us) / 1e6; }
 
     void record_lock_latency_us(uint64_t lat_us)
     {
@@ -109,7 +122,9 @@ struct Metrics {
         cond_latency_count++;
     }
 
-    // ── JSON 输出 ──
+    /**
+     * ── JSON 输出 ──
+     */
     void dump_json()
     {
         double elapsed = elapsed_s();
@@ -141,7 +156,9 @@ struct Metrics {
         uint64_t cs_sp = co_spawns.load();
         uint64_t cs_sw = co_switches.load();
 
-        // fprintf 逐字段输出，避免 snprintf 转义地狱
+        /**
+         * fprintf 逐字段输出，避免 snprintf 转义地狱
+         */
         fprintf(stdout,
                 "FATIGUE_METRIC:{"
                 "\"ts\":%.1f,"
@@ -185,7 +202,9 @@ struct Metrics {
     void reporter_loop(int interval_s)
     {
         while (reporter_running.load(std::memory_order_relaxed)) {
-            // 用小步长睡眠，快速响应 stop 信号
+            /**
+             * 用小步长睡眠，快速响应 stop 信号
+             */
             auto step = std::chrono::milliseconds(100);
             auto total = std::chrono::seconds(interval_s);
             auto elapsed = std::chrono::milliseconds(0);
@@ -215,4 +234,4 @@ struct Metrics {
     }
 };
 
-} // namespace fatigue
+}

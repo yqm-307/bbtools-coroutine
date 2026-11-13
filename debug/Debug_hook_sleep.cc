@@ -10,7 +10,9 @@ int main()
     g_scheduler->Start();
     const int ncount = 1000;
 
-    /* 两个协程注册时间相同。都执行休眠操作，唤醒事件相同，证明函数在sleep处无阻塞 */
+    /**
+     * 两个协程注册时间相同。都执行休眠操作，唤醒事件相同，证明函数在sleep处无阻塞
+     */
     printf("begin time: %ld\n", bbt::core::clock::now<>().time_since_epoch().count());
 
     for (int i = 0; i < ncount; ++i) {

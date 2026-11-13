@@ -8,8 +8,10 @@
 
 using namespace bbt::coroutine::detail;
 
-/* 显式栈大小现在是真值（原先被忽略、实际借全局默认 12 KiB）。恢复/Yield 用例
- * 在协程栈上执行 Boost.Test 断言，须给失败格式化路径留足空间，统一用 64 KiB。 */
+/**
+ * 显式栈大小现在是真值（原先被忽略、实际借全局默认 12 KiB）。恢复/Yield 用例
+ * 在协程栈上执行 Boost.Test 断言，须给失败格式化路径留足空间，统一用 64 KiB。
+ */
 static constexpr size_t kHeavyCoStackSize = 64 * 1024;
 
 BOOST_AUTO_TEST_SUITE(CoroutineApiTest)

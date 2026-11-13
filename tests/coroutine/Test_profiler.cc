@@ -7,8 +7,10 @@
 #include <bbt/coroutine/detail/Profiler.hpp>
 #include <bbt/coroutine/detail/Processer.hpp>
 
-/* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
- * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。 */
+/**
+ * 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
+ * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。
+ */
 namespace {
 void EnsureRuntime()
 {
@@ -19,7 +21,9 @@ void EnsureRuntime()
 
 BOOST_AUTO_TEST_SUITE(ProfilerTest)
 
-// 事件计数：各 OnEvent 接口的计数语义
+/**
+ * 事件计数：各 OnEvent 接口的计数语义
+ */
 BOOST_AUTO_TEST_CASE(t_event_counters)
 {
     auto& profiler = bbt::coroutine::detail::Profiler::GetInstance();
@@ -42,7 +46,9 @@ BOOST_AUTO_TEST_CASE(t_event_counters)
     for (int i = 0; i < kN / 2; ++i)
         profiler->OnEvent_DestoryCoroutine();
 
-    // ProfileInfo 字符串应包含各统计字段且不崩溃
+    /**
+     * ProfileInfo 字符串应包含各统计字段且不崩溃
+     */
     std::string info;
     profiler->ProfileInfo(info);
     BOOST_TEST(!info.empty());
@@ -54,37 +60,56 @@ BOOST_AUTO_TEST_CASE(t_event_counters)
     BOOST_TEST(info.find("CoMutex竞争导致挂起次数") != std::string::npos);
     BOOST_TEST(info.find("StackPool 指标") != std::string::npos);
     BOOST_TEST(info.find("未释放协程数") != std::string::npos);
-    // 未释放 = create - destory = 50 - 25 = 25
+
+    /**
+     * 未释放 = create - destory = 50 - 25 = 25
+     */
     BOOST_TEST(info.find(std::to_string(kN - kN / 2)) != std::string::npos);
 }
 
-// 边界：StartScheudler 后立即 ProfileInfo（elapsed=0 除零回归）
+/**
+ * 边界：StartScheudler 后立即 ProfileInfo（elapsed=0 除零回归）
+ */
 BOOST_AUTO_TEST_CASE(t_profileinfo_zero_elapsed)
 {
     auto& profiler = bbt::coroutine::detail::Profiler::GetInstance();
     BOOST_REQUIRE(profiler != nullptr);
 
-    // 连续调用两次 StartScheudler 使 begin 与 now 同刻
+    /**
+     * 连续调用两次 StartScheudler 使 begin 与 now 同刻
+     */
     profiler->OnEvent_StartScheudler();
 
     std::string info;
-    profiler->ProfileInfo(info); // 修复前此处 elapsed=0 → 除零 UB
+
+    /**
+     * 修复前此处 elapsed=0 → 除零 UB
+     */
+    profiler->ProfileInfo(info);
     BOOST_TEST(!info.empty());
     BOOST_TEST(info.find("已运行时间(ms)：") != std::string::npos);
 }
 
-// 边界：0 协程时的 DumpStderr（不崩溃、无 processer 时循环体跳过）
+/**
+ * 边界：0 协程时的 DumpStderr（不崩溃、无 processer 时循环体跳过）
+ */
 BOOST_AUTO_TEST_CASE(t_dumpstderr_empty)
 {
     auto& profiler = bbt::coroutine::detail::Profiler::GetInstance();
     BOOST_REQUIRE(profiler != nullptr);
 
     profiler->OnEvent_StartScheudler();
-    profiler->DumpStderr(); // 无 processer 注册时循环体为空
+
+    /**
+     * 无 processer 注册时循环体为空
+     */
+    profiler->DumpStderr();
     BOOST_TEST(true);
 }
 
-// Processer 生命周期事件：Start/Stop 统计
+/**
+ * Processer 生命周期事件：Start/Stop 统计
+ */
 BOOST_AUTO_TEST_CASE(t_processer_lifecycle)
 {
     auto& profiler = bbt::coroutine::detail::Profiler::GetInstance();
@@ -98,19 +123,27 @@ BOOST_AUTO_TEST_CASE(t_processer_lifecycle)
 
     std::string info;
     profiler->ProfileInfo(info);
-    // processer 段应包含该 processer 的 PID
+
+    /**
+     * processer 段应包含该 processer 的 PID
+     */
     BOOST_TEST(info.find("PID：") != std::string::npos);
 
     profiler->OnEvent_StopPorcesser(proc);
 
     info.clear();
     profiler->ProfileInfo(info);
-    // 停止后 processer 段不再有 PID 条目
+
+    /**
+     * 停止后 processer 段不再有 PID 条目
+     */
     BOOST_TEST(info.find("PID：") == std::string::npos);
 }
 
-// 集成：PROFILE 构建下 scheduler 运行协程后 ProfileInfo 可反映活动
-// （非 PROFILE 构建时事件不回传，仅验证不崩溃）
+/**
+ * 集成：PROFILE 构建下 scheduler 运行协程后 ProfileInfo 可反映活动
+ * （非 PROFILE 构建时事件不回传，仅验证不崩溃）
+ */
 BOOST_AUTO_TEST_CASE(t_scheduler_run_then_profile)
 {
     EnsureRuntime();

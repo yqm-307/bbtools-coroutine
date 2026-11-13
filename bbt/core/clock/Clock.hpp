@@ -10,14 +10,44 @@
 
 namespace bbt::core::clock {
 
-/* 时间换算常量。复数命名（HoursPerDay/DaysPerWeek）是为了不和同名函数 HourOfDay/DayOfWeek 撞名。 */
-BBT_TIME_CONVERT_TYPE MinOfHour = 60;                                ///< 一小时的分钟数
-BBT_TIME_CONVERT_TYPE HoursPerDay = 24;                              ///< 一天的小时数
-BBT_TIME_CONVERT_TYPE DaysPerWeek = 7;                               ///< 一周的天数
-BBT_TIME_CONVERT_TYPE SecOfMin = 60;                                 ///< 一分钟的秒数
-BBT_TIME_CONVERT_TYPE SecOfHour = SecOfMin * MinOfHour;              ///< 一小时的秒数
-BBT_TIME_CONVERT_TYPE SecOfDay = SecOfMin * MinOfHour * HoursPerDay; ///< 一天的秒数
-BBT_TIME_CONVERT_TYPE SecOfWeek = SecOfDay * DaysPerWeek;            ///< 一周的秒数
+/**
+ * 时间换算常量。复数命名（HoursPerDay/DaysPerWeek）是为了不和同名函数 HourOfDay/DayOfWeek 撞名。
+ */
+
+/**
+ * 一小时的分钟数
+ */
+BBT_TIME_CONVERT_TYPE MinOfHour = 60;
+
+/**
+ * 一天的小时数
+ */
+BBT_TIME_CONVERT_TYPE HoursPerDay = 24;
+
+/**
+ * 一周的天数
+ */
+BBT_TIME_CONVERT_TYPE DaysPerWeek = 7;
+
+/**
+ * 一分钟的秒数
+ */
+BBT_TIME_CONVERT_TYPE SecOfMin = 60;
+
+/**
+ * 一小时的秒数
+ */
+BBT_TIME_CONVERT_TYPE SecOfHour = SecOfMin * MinOfHour;
+
+/**
+ * 一天的秒数
+ */
+BBT_TIME_CONVERT_TYPE SecOfDay = SecOfMin * MinOfHour * HoursPerDay;
+
+/**
+ * 一周的秒数
+ */
+BBT_TIME_CONVERT_TYPE SecOfWeek = SecOfDay * DaysPerWeek;
 
 using namespace std::chrono;
 using namespace std::chrono_literals;
@@ -28,13 +58,19 @@ typedef std::chrono::seconds s;
 typedef std::chrono::minutes min;
 typedef std::chrono::hours hours;
 
-/** @brief 墙上时间点（`system_clock`），精度由模板参数决定，默认毫秒 */
+/**
+ * @brief 墙上时间点（`system_clock`），精度由模板参数决定，默认毫秒
+ */
 template <typename T = ms> using Timestamp = std::chrono::time_point<std::chrono::system_clock, T>;
 
-/** @brief 单调时间点（`steady_clock`），用于量间隔；不受改系统时间影响，但不对应日历 */
+/**
+ * @brief 单调时间点（`steady_clock`），用于量间隔；不受改系统时间影响，但不对应日历
+ */
 template <typename T = ms> using TimestampMono = std::chrono::time_point<std::chrono::steady_clock, T>;
 
-/** @brief 时长别名；当前固定为毫秒，模板参数不参与定义 */
+/**
+ * @brief 时长别名；当前固定为毫秒，模板参数不参与定义
+ */
 template <typename T = ms> using Duration = std::chrono::duration<ms>;
 
 /**
@@ -46,19 +82,25 @@ template <class timeaccuracy = ms> inline Timestamp<timeaccuracy> utcnow()
     return std::chrono::time_point_cast<timeaccuracy>(std::chrono::system_clock::now());
 }
 
-/** @brief 当前单调时间点（`steady_clock`），按 `timeaccuracy` 截断；只用于量间隔，epoch 无日历含义 */
+/**
+ * @brief 当前单调时间点（`steady_clock`），按 `timeaccuracy` 截断；只用于量间隔，epoch 无日历含义
+ */
 template <class timeaccuracy = ms> inline TimestampMono<timeaccuracy> utcnow_mono()
 {
     return std::chrono::time_point_cast<timeaccuracy>(std::chrono::steady_clock::now());
 }
 
-/** @brief 与 `utcnow` 同义，取当前墙上时间点 */
+/**
+ * @brief 与 `utcnow` 同义，取当前墙上时间点
+ */
 template <class timeaccuracy = ms> inline Timestamp<timeaccuracy> now()
 {
     return std::chrono::time_point_cast<timeaccuracy>(std::chrono::system_clock::now());
 }
 
-/** @brief 与 `utcnow_mono` 同义，取当前单调时间点 */
+/**
+ * @brief 与 `utcnow_mono` 同义，取当前单调时间点
+ */
 template <class timeaccuracy = ms> inline TimestampMono<timeaccuracy> now_mono()
 {
     return std::chrono::time_point_cast<timeaccuracy>(std::chrono::steady_clock::now());
@@ -82,13 +124,17 @@ template <class timeaccuracy = ms, class Tsp = Timestamp<timeaccuracy>> inline T
     return now<timeaccuracy>() - interval;
 }
 
-/** @brief 取当前墙上时间的计数值（默认毫秒）；两次相减跨校时会失真，量间隔用 `gettime_mono` */
+/**
+ * @brief 取当前墙上时间的计数值（默认毫秒）；两次相减跨校时会失真，量间隔用 `gettime_mono`
+ */
 template <class timeaccuracy = ms> inline uint64_t gettime()
 {
     return now<timeaccuracy>().time_since_epoch().count();
 }
 
-/** @brief 取当前单调时间的计数值（默认毫秒）；适合算耗时、判超时，不要当时间戳格式化 */
+/**
+ * @brief 取当前单调时间的计数值（默认毫秒）；适合算耗时、判超时，不要当时间戳格式化
+ */
 template <class timeaccuracy = ms> inline uint64_t gettime_mono()
 {
     return now_mono<timeaccuracy>().time_since_epoch().count();
@@ -120,7 +166,10 @@ inline time_t day(Timestamp<ns>&& ts = now<ns>())
  */
 inline time_t month(Timestamp<ns>&& ts = now<ns>())
 {
-    time_t s = utcms(std::move(ts)) / 1000; //ms
+    /**
+     * 换算到秒：utcms 返回毫秒，除以 1000 后按秒参与日历取模
+     */
+    time_t s = utcms(std::move(ts)) / 1000;
     return (s % (31556952) / (2629746));
 }
 
@@ -130,7 +179,10 @@ inline time_t month(Timestamp<ns>&& ts = now<ns>())
  */
 inline time_t hour(Timestamp<ns>&& ts = now<ns>())
 {
-    time_t s = utcms(std::move(ts)) / 1000; //ms
+    /**
+     * 换算到秒：utcms 返回毫秒，除以 1000 后按秒参与当天取模
+     */
+    time_t s = utcms(std::move(ts)) / 1000;
     return (s % (86400)) / (3600);
 }
 
@@ -185,7 +237,9 @@ inline std::string getnow_str()
     std::string str{""};
     str.resize(256);
     auto now = clock::now();
-    //通过不同精度获取相差的毫秒数
+    /**
+     * 通过不同精度获取相差的毫秒数
+     */
     uint64_t dis_millseconds = ms(now.time_since_epoch()).count() % 1000;
     time_t tt = std::chrono::system_clock::to_time_t(now);
     tm* tm_time = localtime(&tt);
@@ -207,7 +261,9 @@ inline std::string tostr(Timestamp<> ts)
 {
     std::string str{""};
     str.resize(256);
-    //通过不同精度获取相差的毫秒数
+    /**
+     * 通过不同精度获取相差的毫秒数
+     */
     uint64_t dis_millseconds = ms(ts.time_since_epoch()).count() % 1000;
     time_t tt = std::chrono::system_clock::to_time_t(ts);
     tm* tm_time = localtime(&tt);
@@ -233,9 +289,9 @@ template <class type, class Tsp = Timestamp<type>> inline bool is_expired(Tsp ts
         return false;
 }
 
-/*****************************************************
- *  秒级与日历换算函数，入参都是 time_t 秒数而不是毫秒
- *****************************************************/
+/**
+ * 秒级与日历换算函数，入参都是 time_t 秒数而不是毫秒
+ */
 
 /**
  * @brief 获取自 1970-01-01 UTC 到现在的秒数
@@ -279,7 +335,9 @@ static inline int HourOfDay(time_t secs)
     return nhours + 1;
 }
 
-/** @brief ts 是否已经到期，与 `is_expired` 同义 */
+/**
+ * @brief ts 是否已经到期，与 `is_expired` 同义
+ */
 template <class type, class Tsp = Timestamp<type>> inline bool expired(Tsp ts)
 {
     if (now<type>() >= ts)
@@ -288,4 +346,4 @@ template <class type, class Tsp = Timestamp<type>> inline bool expired(Tsp ts)
         return false;
 }
 
-} // namespace bbt::core::clock
+}

@@ -38,18 +38,33 @@ void DeadLockAssert()
     bbtco[&]()
     {
         mutex->Lock();
-        // mutex->Lock(); // assert fail
-        // mutex->TryLock(); // assert fail
-        // mutex->TryLock(1); // assert fail
+
+        /**
+         * mutex->Lock(); // assert fail
+         * mutex->TryLock(); // assert fail
+         * mutex->TryLock(1); // assert fail
+         */
 
         mutex->UnLock();
-        mutex->Lock(); // success
+
+        /**
+         * success
+         */
+        mutex->Lock();
 
         mutex->UnLock();
-        mutex->TryLock(); // success
+
+        /**
+         * success
+         */
+        mutex->TryLock();
 
         mutex->UnLock();
-        mutex->TryLock(1); // success
+
+        /**
+         * success
+         */
+        mutex->TryLock(1);
     };
 
     sleep(1);
@@ -59,8 +74,10 @@ int main()
 {
     g_scheduler->Start();
 
-    // for (int i = 0; i < 100; ++i)
-    //     RunOnce();
+    /**
+     * for (int i = 0; i < 100; ++i)
+     *     RunOnce();
+     */
 
     DeadLockAssert();
 }

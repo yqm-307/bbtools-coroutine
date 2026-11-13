@@ -1,4 +1,6 @@
-// 单次分配失败：每个 CTest 模式独立进程；失败退出不冒充恢复。
+/**
+ * 单次分配失败：每个 CTest 模式独立进程；失败退出不冒充恢复。
+ */
 #include <bbt/coroutine/coroutine.hpp>
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
 #include <bbt/coroutine/detail/CoPoller.hpp>
@@ -97,7 +99,11 @@ int main(int argc, char** argv)
     } else {
         int fd[2];
         CHECK(pipe2(fd, O_NONBLOCK) == 0);
-        CHECK(d::Hook_Close(fd[1]) == 0); // 初始化全局表；目标 fd 尚无槽位
+
+        /**
+         * 初始化全局表；目标 fd 尚无槽位
+         */
+        CHECK(d::Hook_Close(fd[1]) == 0);
         if (!std::strcmp(mode, "fresh")) {
             fail_next = true;
             int rc = -99;

@@ -29,7 +29,10 @@ DriverWakeDeferral::~DriverWakeDeferral() noexcept
     if (--_TlsDepth() > 0)
         return;
 
-    _TlsDepth() = 0; // 防下溢（异常配对破坏时归位）
+    /**
+     * 防下溢（异常配对破坏时归位）
+     */
+    _TlsDepth() = 0;
     if (!_TlsPending())
         return;
 

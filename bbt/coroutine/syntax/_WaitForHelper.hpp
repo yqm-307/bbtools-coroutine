@@ -1,4 +1,7 @@
-/** @file _WaitForHelper.hpp @brief bbtco_wait_for 宏的等待帮手：挂起动作放在构造函数里。 */
+/**
+ * @file _WaitForHelper.hpp
+ * @brief bbtco_wait_for 宏的等待帮手：挂起动作放在构造函数里。
+ */
 #pragma once
 #include <bbt/coroutine/detail/Coroutine.hpp>
 
@@ -10,9 +13,14 @@ namespace bbt::coroutine {
  */
 class _WaitForHelper final : public std::enable_shared_from_this<_WaitForHelper> {
 public:
-    /// @brief 挂起当前协程直到 fd 就绪或超时；不在协程内断言失败，等待失败抛 std::runtime_error
+    /**
+     * @brief 挂起当前协程直到 fd 就绪或超时；不在协程内断言失败，等待失败抛 std::runtime_error
+     */
     explicit _WaitForHelper(int fd, short event, int ms);
-    /// @brief 无副作用：挂起与唤醒都已在构造里完成
+
+    /**
+     * @brief 无副作用：挂起与唤醒都已在构造里完成
+     */
     virtual ~_WaitForHelper() = default;
 };
 

@@ -12,7 +12,9 @@
 #include <bbt/coroutine/detail/GlobalConfig.hpp>
 #include <bbt/coroutine/detail/Scheduler.hpp>
 
-/* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。 */
+/**
+ * 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
+ */
 namespace {
 void EnsureRuntime()
 {
@@ -114,8 +116,11 @@ BOOST_AUTO_TEST_CASE(t_cancel_running_does_not_kill)
     {
         target.store(g_bbt_tls_coroutine_co);
         started.Down();
-        /* do-while：先执行一轮再检查取消——消除"cancel 在首次检查前到达、
-         * steps 恒 0"的时序竞态（CI 实测），且仍验证协作式不强杀 */
+
+        /**
+         * do-while：先执行一轮再检查取消——消除"cancel 在首次检查前到达、
+         * steps 恒 0"的时序竞态（CI 实测），且仍验证协作式不强杀
+         */
         do {
             steps.fetch_add(1);
             bbtco_yield;
@@ -139,16 +144,15 @@ BOOST_AUTO_TEST_CASE(t_cancel_runs_raii_dtors)
 
     struct Guard {
         std::atomic_int* n;
-        ~Guard()
-        {
-            n->fetch_add(1);
-        }
+        ~Guard() { n->fetch_add(1); }
     };
 
     bbtco[&]()
     {
-        /* RAII 析断必须在 done.Down() 之前完成——否则主线程被唤醒后
-         * 可能在析构前读 dtors（CI 实测竞态） */
+        /**
+         * RAII 析断必须在 done.Down() 之前完成——否则主线程被唤醒后
+         * 可能在析构前读 dtors（CI 实测竞态）
+         */
         {
             Guard g{&dtors};
             target.store(g_bbt_tls_coroutine_co);

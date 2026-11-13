@@ -13,7 +13,9 @@ int main()
     std::atomic_uint64_t write_failed{0};
     g_scheduler->Start();
 
-    // 无缓冲channel
+    /**
+     * 无缓冲channel
+     */
     bbt::co::sync::Chan<uint64_t, 0> chan;
 
     bbtco_desc("写者")[&]()
@@ -36,7 +38,9 @@ int main()
         }
     };
 
-    // 有缓冲 channel
+    /**
+     * 有缓冲 channel
+     */
     bbt::co::sync::Chan<uint64_t, 10000> chan2;
     auto cond = bbtco_make_cocond();
 
@@ -81,5 +85,7 @@ int main()
 
     sleep(100000);
 
-    /* process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出 */
+    /**
+     * process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出
+     */
 }

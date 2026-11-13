@@ -105,7 +105,7 @@
   - `bool& succ` 重载不抛：上述任一失败置 `succ = false`，成功置 `true`
 - 尺寸在创建后固定：不支持扩栈/换栈，也不按当前默认配置重新计算。
 - 兼容边界：过去 `detail::Coroutine::Create(4096, ...)` 的大小被忽略，现在会实际分配 4 KiB（按页对齐）；栈上运行日志、断言或第三方代码时必须给足栈。detail 尺寸/计数类型改为 `size_t`，调用方升级时须重新编译，不混用旧二进制。
-- `CoPool` 的固定栈属于其 worker 协程，不能按队列中的任务换栈；需要单独大小的任务使用显式注册入口创建独立协程。
+- `CoPool` 的固定栈属于其 worker 协程：兼容池不能按队列中的任务换栈；需要按任务声明尺寸时用尺寸路由池 `CoPool::Create(CoPoolOptions)` + `Submit(StackRequest, …)`，每个类一组固定 worker 栈。
 
 ### Processer driver adapter（B1，契约 §11）
 
@@ -381,7 +381,7 @@ int idx = sync::CoSelect()
 ## 8. CoPool
 
 - 头文件：`bbt/coroutine/pool/CoPool.hpp`
-- 创建：`bbtco_make_copool(pool_max_co)`，协程数固定。
+- 创建：`bbtco_make_copool(pool_max_co)`，协程数固定，全部 worker 用默认栈，队列无界。
 
 | 方法 | 行为 |
 |------|------|
@@ -389,9 +389,19 @@ int idx = sync::CoSelect()
 | `std::future<void> SubmitWithFuture(...)` | 空 future = 提交失败；任务异常在 `get()` 抛出 |
 | `void SetExceptionCallback(function<void(exception_ptr)>)` | `nullptr` 恢复仅计数 |
 | `uint64_t GetUnhandledExceptionCount() const noexcept` | 未被回调/future 接住的异常数 |
-| `void Release()` | 停止 `Submit`；等运行中协程退出；丢弃未执行任务；带 future 的以 `broken_promise` 兑现。可重复调用 |
+| `void Release()` | 停止 `Submit`；等运行中协程退出；丢弃未执行任务；带 future 的以 `broken_promise` 兑现。可重复调用。在池自身 worker 内调用抛 `std::logic_error`（自等待） |
 
-池内任务挂起占用那条池协程。任务异常被隔离，不打爆调度器。
+尺寸路由池（`Create(CoPoolOptions)`）在同一头文件：每个类给出不可变 `StackRequest`、固定 `worker_num`
+与 `queue_capacity`，只路由精确 `(U, protect)`：
+
+| 方法 | 行为 |
+|------|------|
+| `Create(const CoPoolOptions&)` | 非法类、重复规范化键、超出现有 `StackPool` 预算时抛异常，且不留下半成品池 |
+| `CoPoolSubmitStatus Submit(StackRequest, ...)` | `Accepted` / `NoExactClass`（含未携带尺寸）/ `QueueFull` / `Released` / `AllocationFailed` |
+| `Submit(callback)` / `SubmitWithFuture(...)` | 尺寸路由池没有默认类，直接拒绝（`-1` / 空 future） |
+
+池内任务挂起占用那条池协程；每类 worker 数固定，挂起任务只占本类一个 worker。任务异常被隔离，不打爆调度器。
+禁止同一池内的等待依赖（任务 A 等待提交到同一池的任务 B），池不做死锁检测；有等待依赖的模块用独立类或独立池。
 
 ---
 
@@ -587,7 +597,7 @@ CoObjectStats GetCoObjectStats(std::string_view kind) noexcept;
 | `CoRWMutex` | `bbtco_make_corwmutex()` | `RLock()`, `WLock()`, `RUnLock()`, `WUnLock()`, `TryRLock()`, `TryWLock()` | 协程读写锁；RAII 用 `CoReadLock` / `CoWriteLock` |
 | `CoLockGuard<Mutex>` | `sync::CoLockGuard<CoMutex> g(lock)` | 构造加锁，析构解锁 | 通用 RAII 守卫（另有 `CoUniqueLock`） |
 | `CoCond` | `bbtco_make_cocond()` | `Wait()`, `NotifyOne()`, `NotifyAll()` | 协程条件变量 |
-| `CoPool` | `bbtco_make_copool(size)` | `Submit()`, `SubmitWithFuture()`, `Release()` | 协程池（`Release` 取消式停机：等运行中退出、排空未执行） |
+| `CoPool` | `bbtco_make_copool(size)`；尺寸路由用 `CoPool::Create(CoPoolOptions)` | `Submit()`, `SubmitWithFuture()`, `Submit(StackRequest, …)`, `Release()` | 协程池（`Release` 取消式停机：等运行中退出、排空未执行；池 worker 内调用抛 `std::logic_error`） |
 
 ### 事件等待
 
@@ -598,10 +608,13 @@ CoObjectStats GetCoObjectStats(std::string_view kind) noexcept;
 | `bbtco_emev_writeable` | 可写事件 | 等待 fd 可写 |
 | `bbtco_emev_timeout` | 超时事件 | 纯超时等待 |
 
-### 调度器控制
+### 入口与调度器控制
 
 | 方法 | 描述 | 示例 |
 |------|------|------|
-| `g_scheduler->Start(opt)` | 启动调度器（默认后台线程模式）；成功后重复调用抛 `std::logic_error` | 程序开始时调用一次 |
+| `int bbtco_main()` + `BBTCO_MAIN()` | 应用入口：runtime 生成 native `main`，负责配置冻结、Start、hook、提交主任务与只等主任务 | 每个可执行定义一次 `bbtco_main` |
+| `setup_runtime()` + `BBTCO_MAIN_WITH_SETUP*` | Start 前设置既有 GlobalConfig 的全部启动字段；完成后配置门冻结 | 需要兼容完整 scheduler 配置 |
+| `BBTCO_MAIN_WITH_OPTIONS(expr)` | 同上，并用 `RuntimeOptions` 值在 Start 前配置 worker 数、默认栈与栈预算 | 多尺寸栈或非默认 worker 数 |
+| `g_scheduler->Start(opt)` | runtime 内部使用的启动入口；成功后再调用抛 `std::logic_error`。应用不直接调用，由 `BBTCO_MAIN*` 代劳 | 仅测试/内部 |
 | `g_scheduler->LoopOnce()` | 单次调度循环（仅 `NO_LOOP` 模式，用于手动驱动/测试） | 手动模式循环调用 |
 | `g_scheduler->IsInitialized()` | 运行时是否已完成初始化（进程寿命内恒为 true） | 注册任务前检查 |

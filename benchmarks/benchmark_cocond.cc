@@ -4,10 +4,7 @@ using CoId = bbt::coroutine::detail::CoroutineId;
 
 class WatchDog {
 public:
-    void Feed()
-    {
-        m_last_feed_time = bbt::core::clock::gettime();
-    }
+    void Feed() { m_last_feed_time = bbt::core::clock::gettime(); }
 
     bool IsDead()
     {
@@ -67,8 +64,10 @@ int main()
             std::unique_lock<std::mutex> lock(co_sleep_count_map_mutex);
 
             for (const auto& [co_id, count] : co_sleep_count_map) {
-                // if (count < notify_times)
-                //     printf("a bad co! co_id: %d, count: %d, notify_times: %d\n", co_id, count, notify_times);
+                /**
+                 * if (count < notify_times)
+                 *     printf("a bad co! co_id: %d, count: %d, notify_times: %d\n", co_id, count, notify_times);
+                 */
             }
 
             printf("notify all once! times: %d\n", notify_times);
@@ -82,13 +81,17 @@ int main()
             std::cout << "monitor" << std::endl;
             for (int i = 0; i < ncount; ++i) {
                 if (dogs[i].IsDead()) {
-                    // std::cout << "dog " << i << " is dead" << std::endl;
+                    /**
+                     * std::cout << "dog " << i << " is dead" << std::endl;
+                     */
                 }
             }
         }
     };
 
-    // 结束时唤醒所有协程，保证可以正常退出
+    /**
+     * 结束时唤醒所有协程，保证可以正常退出
+     */
     bbtco_desc("notified")[&]()
     {
         bbtco_sleep(time_s * 1000);
@@ -99,8 +102,12 @@ int main()
         }
     };
 
-    // 5s 回收所有资源
+    /**
+     * 5s 回收所有资源
+     */
     sleep(time_s + 5);
 
-    /* process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出 */
+    /**
+     * process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出
+     */
 }

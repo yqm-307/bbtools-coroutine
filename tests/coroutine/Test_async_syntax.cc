@@ -1,4 +1,6 @@
-// 首先单独包含语法头，保证它不依赖伞头的 include 顺序。
+/**
+ * 首先单独包含语法头，保证它不依赖伞头的 include 顺序。
+ */
 #include <bbt/coroutine/syntax/Async.hpp>
 
 #define BOOST_TEST_DYN_LINK
@@ -27,7 +29,9 @@ bbt_co_async(std::pair<int, int>) MakePair(int value)
     return std::make_pair(value, value + 1);
 }
 
-// 函数式宏展开后，模板参数中的逗号仍属于返回类型。
+/**
+ * 函数式宏展开后，模板参数中的逗号仍属于返回类型。
+ */
 #define TEST_ASYNC_PAIR(T) bbt_co_async(std::pair<T, T>)
 template <class T> TEST_ASYNC_PAIR(T) TemplatePair(T value)
 {
@@ -36,10 +40,7 @@ template <class T> TEST_ASYNC_PAIR(T) TemplatePair(T value)
 #undef TEST_ASYNC_PAIR
 
 struct Reader {
-    template <class T> bbt_co_async(T) Read(T value) const
-    {
-        return std::move(value);
-    }
+    template <class T> bbt_co_async(T) Read(T value) const { return std::move(value); }
 };
 
 template <class T> bbt_co_async(T&) Borrow(T& value)
@@ -94,7 +95,7 @@ static_assert(!std::is_copy_constructible_v<MoveResult>);
 static_assert(sizeof(IntResult) == sizeof(int));
 static_assert(sizeof(MoveResult) == sizeof(std::unique_ptr<int>));
 
-} // namespace
+}
 
 BOOST_AUTO_TEST_CASE(reject_before_arguments_and_body)
 {
@@ -113,7 +114,10 @@ BOOST_AUTO_TEST_CASE(values_templates_and_suspend_in_real_coroutine)
     g_scheduler->Start();
     auto done = std::make_shared<std::promise<bool>>();
     auto future = done->get_future();
-    // 失败/超时也不把主线程栈借给仍在运行的协程。
+
+    /**
+     * 失败/超时也不把主线程栈借给仍在运行的协程。
+     */
     g_scheduler->RegistCoroutineTask(128 * 1024, [done]() {
         try {
             const auto id = bbt::coroutine::GetLocalCoroutineId();

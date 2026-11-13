@@ -22,7 +22,9 @@ void on_signal(int)
 
 void fatigue_1()
 {
-    // ── 100 个协程做 Lock/UnLock (互斥写入) ──
+    /**
+     * ── 100 个协程做 Lock/UnLock (互斥写入) ──
+     */
     for (int i = 0; i < nco_num; ++i) {
         bbtco[i]()
         {
@@ -43,7 +45,9 @@ void fatigue_1()
         };
     }
 
-    // ── 5 个协程做 TryLock(10ms) ──
+    /**
+     * ── 5 个协程做 TryLock(10ms) ──
+     */
     for (int i = 0; i < 5; ++i) {
         bbtco[i]()
         {
@@ -67,18 +71,27 @@ void fatigue_1()
         };
     }
 
-    g_metrics.start_reporter(60); // 每分钟输出一次指标
+    /**
+     * 每分钟输出一次指标
+     */
+    g_metrics.start_reporter(60);
 
-    // 信号处理：SIGTERM/SIGINT 时优雅退出
+    /**
+     * 信号处理：SIGTERM/SIGINT 时优雅退出
+     */
     signal(SIGTERM, on_signal);
     signal(SIGINT, on_signal);
 
-    // 主线程阻塞，让 reporter 和协程持续运行
+    /**
+     * 主线程阻塞，让 reporter 和协程持续运行
+     */
     while (g_running) {
         sleep(1);
     }
 
-    // unreachable, but clean shutdown for completeness
+    /**
+     * unreachable, but clean shutdown for completeness
+     */
     g_metrics.stop_reporter();
 }
 
@@ -86,5 +99,8 @@ int main()
 {
     g_scheduler->Start();
     fatigue_1();
-    /* process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出 */
+
+    /**
+     * process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出
+     */
 }

@@ -16,7 +16,8 @@
 #include <bbt/coroutine/detail/LocalThread.hpp>
 #include <bbt/coroutine/detail/Coroutine.hpp>
 
-/* Hook 实现总览；各 Hook_* 只写自己多出来的约束。
+/**
+ * Hook 实现总览；各 Hook_* 只写自己多出来的约束。
  *
  * 分流：每个 libc 同名入口先看 g_bbt_tls_helper->EnableUseCo()——非 worker 线程直通 dlsym
  * 原函数，worker 线程进 Hook_*；Hook_* 再用 AssertWithInfo 确认此刻确实跑着协程（线程级
@@ -48,7 +49,9 @@ int ApplyAccept4Flags(int fd, int flags)
     return 0;
 }
 
-/* 与 CoPollEvent.cc 同义：绕过 userspace hook 的毫秒睡眠。 */
+/**
+ * 与 CoPollEvent.cc 同义：绕过 userspace hook 的毫秒睡眠。
+ */
 void RawSleepMs(long ms) noexcept
 {
     struct timespec req{ms / 1000, (ms % 1000) * 1000000L};
@@ -64,9 +67,7 @@ void RawSleepMs(long ms) noexcept
  */
 class EpGuard {
 public:
-    explicit EpGuard(int fd) : m_fd(fd)
-    {
-    }
+    explicit EpGuard(int fd) : m_fd(fd) {}
     ~EpGuard()
     {
         if (m_fd >= 0)
@@ -99,18 +100,13 @@ void ResetConnectState(int fd) noexcept
  */
 class ErrnoGuard {
 public:
-    explicit ErrnoGuard(int sys_errno) : m_sys_errno(sys_errno)
-    {
-    }
-    ~ErrnoGuard()
-    {
-        errno = m_sys_errno;
-    }
-    /* fd 代际失配等特殊退出路径用别的 errno 覆盖原始 syscall errno */
-    void Override(int e) noexcept
-    {
-        m_sys_errno = e;
-    }
+    explicit ErrnoGuard(int sys_errno) : m_sys_errno(sys_errno) {}
+    ~ErrnoGuard() { errno = m_sys_errno; }
+
+    /**
+     * fd 代际失配等特殊退出路径用别的 errno 覆盖原始 syscall errno
+     */
+    void Override(int e) noexcept { m_sys_errno = e; }
 
 private:
     int m_sys_errno;
@@ -148,16 +144,13 @@ public:
     }
     CoIoNonblockGuard(const CoIoNonblockGuard&) = delete;
     CoIoNonblockGuard& operator=(const CoIoNonblockGuard&) = delete;
-    bool ok() const
-    {
-        return m_ok;
-    }
-    /* fd 已在挂起期间换代（可能复用为新对象）时调用，禁止把旧 fd 的
-     * flags 回写到同号新对象上。 */
-    void Dismiss() noexcept
-    {
-        m_restore = false;
-    }
+    bool ok() const { return m_ok; }
+
+    /**
+     * fd 已在挂起期间换代（可能复用为新对象）时调用，禁止把旧 fd 的
+     * flags 回写到同号新对象上。
+     */
+    void Dismiss() noexcept { m_restore = false; }
 
 private:
     int m_fd{-1};
@@ -225,9 +218,12 @@ static int CoWaitFdReady(Coroutine* co, int fd, bool writable, const IoTimeout& 
     }
     if (yret != 0)
         return yret;
-    /* 恢复后、重试 syscall 前的代际校验。正常 READABLE/WRITEABLE 唤醒
+
+    /**
+     * 恢复后、重试 syscall 前的代际校验。正常 READABLE/WRITEABLE 唤醒
      * 已把 waiter 摘出注册表，close 不再能找到它——只有 epoch 比对能覆盖
-     * 「事件就绪 → 协程恢复」调度间隙内的 close+reuse。 */
+     * 「事件就绪 → 协程恢复」调度间隙内的 close+reuse。
+     */
     return co->FdWaitEpochValid(fd) ? 0 : 2;
 }
 
@@ -259,11 +255,10 @@ public:
             lseek(m_fd, m_offset, SEEK_SET);
     }
 
-    /* 正常完成时解除，保留系统调用自身推进的偏移 */
-    void Dismiss() noexcept
-    {
-        m_active = false;
-    }
+    /**
+     * 正常完成时解除，保留系统调用自身推进的偏移
+     */
+    void Dismiss() noexcept { m_active = false; }
 
 private:
     int m_fd{-1};
@@ -271,11 +266,13 @@ private:
     bool m_active{false};
 };
 
-} // namespace
+}
 
-/* 新 socket 一律 O_NONBLOCK：阻塞 socket 上 Hook 没有挂起的机会，后续调用要靠内核立即返回
+/**
+ * 新 socket 一律 O_NONBLOCK：阻塞 socket 上 Hook 没有挂起的机会，后续调用要靠内核立即返回
  * EAGAIN 才能转成一次等待。设不上就关掉 fd 返回 -1，不留会卡住 worker 的阻塞 socket；
- * 这个标志对拿到该 fd 的其它线程和库同样可见。 */
+ * 这个标志对拿到该 fd 的其它线程和库同样可见。
+ */
 int Hook_Socket(int domain, int type, int protocol)
 {
     int fd = -1;
@@ -292,10 +289,12 @@ int Hook_Socket(int domain, int type, int protocol)
     return fd;
 }
 
-/* 非阻塞 connect：EINPROGRESS/EALREADY/EINTR 表示「还没有结果」，挂起等 fd writeable 后
+/**
+ * 非阻塞 connect：EINPROGRESS/EALREADY/EINTR 表示「还没有结果」，挂起等 fd writeable 后
  * 重试；EISCONN 是重入时已连上，按成功返回。不采样 SO_SNDTIMEO，等待上界完全由内核的
  * connect 结果决定。挂起失败或异常时尝试读取 SO_ERROR；fd 在挂起期间换代时只回 EBADF 并
- * Dismiss flags 守卫，不再碰这个已不属于本对象的 socket。 */
+ * Dismiss flags 守卫，不再碰这个已不属于本对象的 socket。
+ */
 int Hook_Connect(int socket, const struct sockaddr* address, socklen_t address_len)
 {
     CoIoNonblockGuard io{socket};
@@ -303,11 +302,16 @@ int Hook_Connect(int socket, const struct sockaddr* address, socklen_t address_l
         return -1;
 
     while (g_bbt_sys_hook_connect_func(socket, address, address_len) != 0) {
-        // EISCONN：连接已建立（非阻塞 connect 完成后重入），视为成功
+
+        /**
+         * EISCONN：连接已建立（非阻塞 connect 完成后重入），视为成功
+         */
         if (errno == EISCONN)
             return 0;
 
-        // 是否因为非阻塞导致没法立即完成
+        /**
+         * 是否因为非阻塞导致没法立即完成
+         */
         if (errno != EINTR && errno != EINPROGRESS && errno != EALREADY)
             return -1;
 
@@ -317,19 +321,28 @@ int Hook_Connect(int socket, const struct sockaddr* address, socklen_t address_l
         try {
             const int wret = g_bbt_tls_coroutine_co->YieldUntilFdWriteable(socket);
             if (wret != 0) {
-                // 协程层失败：重置 socket 状态，使其回到未连接、可重试
+
+                /**
+                 * 协程层失败：重置 socket 状态，使其回到未连接、可重试
+                 */
                 ResetConnectState(socket);
                 return -1;
             }
-            /* writeable 唤醒后 socket 可能已 close+reuse；代际校验失败时
-             * 不重试 connect（旧 connect 可能把 SYN 发给新对象），也不回写 flags。 */
+
+            /**
+             * writeable 唤醒后 socket 可能已 close+reuse；代际校验失败时
+             * 不重试 connect（旧 connect 可能把 SYN 发给新对象），也不回写 flags。
+             */
             if (!g_bbt_tls_coroutine_co->FdWaitEpochValid(socket)) {
                 guard.Override(EBADF);
                 io.Dismiss();
                 return -1;
             }
         } catch (...) {
-            // 异常路径：同样重置，保证调用方（如协程取消后）可重用 socket
+
+            /**
+             * 异常路径：同样重置，保证调用方（如协程取消后）可重用 socket
+             */
             ResetConnectState(socket);
             throw;
         }
@@ -340,18 +353,24 @@ int Hook_Connect(int socket, const struct sockaddr* address, socklen_t address_l
 
 int Hook_Close(int fd)
 {
-    /* 线性化：先在锁内推进 fd 代际、置 closing 并摘走全部旧 waiter，
+
+    /**
+     * 线性化：先在锁内推进 fd 代际、置 closing 并摘走全部旧 waiter，
      * 再执行底层 close——保证代际更新先于 fd 数字可被复用。期间到达的同号
      * waiter 观察到 closing/新 epoch，不会被本批误摘。close 失败时
-     * BeginFdClose 已推进代际（保守视为换代），EndFdClose 解除 closing。 */
+     * BeginFdClose 已推进代际（保守视为换代），EndFdClose 解除 closing。
+     */
     bool claimed = false;
     try {
         try {
             claimed = CoPollEvent::BeginFdClose(fd);
         } catch (const std::bad_alloc&) {
-            /* ponytail: 仅覆盖准备阶段的一次分配失败；尚未 claim/换代/摘 waiter，
+
+            /**
+             * ponytail: 仅覆盖准备阶段的一次分配失败；尚未 claim/换代/摘 waiter，
              * 因而可再准备一次，绝不重试已执行的底层 close。持续 OOM 返回 ENOMEM；
-             * 若需持续 OOM 保证，须另行设计预分配协议。 */
+             * 若需持续 OOM 保证，须另行设计预分配协议。
+             */
             claimed = CoPollEvent::BeginFdClose(fd);
         }
     } catch (const std::bad_alloc&) {
@@ -362,19 +381,25 @@ int Hook_Close(int fd)
         return -1;
     }
     if (!claimed) {
-        /* BeginFdClose=false 表示同号 fd 正被其它线程 claim
+
+        /**
+         * BeginFdClose=false 表示同号 fd 正被其它线程 claim
          * closing。此时严禁再对 fd 数字发起底层 close——claim 方的 close
          * 返回后该数字随时可被复用，第二次 close 会误关新对象。协议定义：
          * 非 claim 方有界等待其 EndFdClose（close 已返回、所有权终结），
          * 以 EBADF 收敛（等价于 glibc 对「曾被关闭的 fd」的原生语义）；
-         * 3000ms 仅为理论兜底，claim 方临界区仅一个 syscall。 */
+         * 3000ms 仅为理论兜底，claim 方临界区仅一个 syscall。
+         */
         CoPollEvent::WaitFdCloseReady(fd, 3000);
         errno = EBADF;
         return -1;
     }
-    /* 测试 seam：构造并发 double-close 的确定性窗口时置位（ms>0），
+
+    /**
+     * 测试 seam：构造并发 double-close 的确定性窗口时置位（ms>0），
      * claim 方在锁外、底层 close 前睡眠，保证另一线程能观察到 closing
-     * 并发起 BeginFdClose=false 的并发 close。测试外恒为 0。 */
+     * 并发起 BeginFdClose=false 的并发 close。测试外恒为 0。
+     */
     if (const int stall = g_bbt_fd_close_stall_for_test_ms.load(std::memory_order_acquire); stall > 0)
         RawSleepMs(stall);
     const int ret = g_bbt_sys_hook_close_func(fd);
@@ -382,8 +407,10 @@ int Hook_Close(int fd)
     return ret;
 }
 
-/* sleep() 的协程实现：入参是毫秒（C 入口换算秒后传入）。ms<=0 返回 -1，与 usleep(0)/
- * nanosleep(0) 的空操作语义不一致，不要用 0 时长探活。 */
+/**
+ * sleep() 的协程实现：入参是毫秒（C 入口换算秒后传入）。ms<=0 返回 -1，与 usleep(0)/
+ * nanosleep(0) 的空操作语义不一致，不要用 0 时长探活。
+ */
 int Hook_Sleep(int ms)
 {
     AssertWithInfo(g_bbt_tls_coroutine_co != nullptr, "must be in coroutine context");
@@ -398,14 +425,20 @@ ssize_t Hook_Read(int fd, void* buf, size_t nbytes)
     CoIoNonblockGuard io{fd};
     if (!io.ok())
         return -1;
-    /* Linux socket(7)：read() 走 sock_recvmsg 同样受 SO_RCVTIMEO 约束 */
+
+    /**
+     * Linux socket(7)：read() 走 sock_recvmsg 同样受 SO_RCVTIMEO 约束
+     */
     const IoTimeout iot{fd, SO_RCVTIMEO};
 
     ssize_t read_len = -1;
     FileOffsetGuard offset_guard{fd};
 
     while ((read_len = g_bbt_sys_hook_read_func(fd, buf, nbytes)) < 0) {
-        /* 如果read没有立即成功，判断失败原因是否为正在执行读操作 */
+
+        /**
+         * 如果read没有立即成功，判断失败原因是否为正在执行读操作
+         */
         if (errno != EAGAIN && errno != EINPROGRESS && errno != EINTR && errno != EWOULDBLOCK)
             return -1;
 
@@ -415,7 +448,10 @@ ssize_t Hook_Read(int fd, void* buf, size_t nbytes)
         try {
             const int wret = CoWaitFdReady(g_bbt_tls_coroutine_co, fd, false, iot);
             if (wret != 0) {
-                /* fd 换代（close+reuse）则禁止重试 syscall；守卫不恢复 flags/偏移 */
+
+                /**
+                 * fd 换代（close+reuse）则禁止重试 syscall；守卫不恢复 flags/偏移
+                 */
                 if (wret == 2) {
                     guard.Override(EBADF);
                     io.Dismiss();
@@ -437,14 +473,20 @@ ssize_t Hook_Write(int fd, const void* buf, size_t n)
     CoIoNonblockGuard io{fd};
     if (!io.ok())
         return -1;
-    /* Linux socket(7)：write() 走 sock_sendmsg 同样受 SO_SNDTIMEO 约束 */
+
+    /**
+     * Linux socket(7)：write() 走 sock_sendmsg 同样受 SO_SNDTIMEO 约束
+     */
     const IoTimeout iot{fd, SO_SNDTIMEO};
 
     ssize_t write_len = -1;
     FileOffsetGuard offset_guard{fd};
 
     while ((write_len = g_bbt_sys_hook_write_func(fd, buf, n)) < 0) {
-        /* 如果write没有立即成功，判断失败原因是否为正在执行写操作 */
+
+        /**
+         * 如果write没有立即成功，判断失败原因是否为正在执行写操作
+         */
         if (errno != EAGAIN && errno != EINTR && errno != EWOULDBLOCK)
             return -1;
 
@@ -452,7 +494,10 @@ ssize_t Hook_Write(int fd, const void* buf, size_t n)
         ErrnoGuard guard{sys_errno};
 
         try {
-            /* 对当前协程注册fd可写事件，挂起当前协程直到fd可写或超时到期 */
+
+            /**
+             * 对当前协程注册fd可写事件，挂起当前协程直到fd可写或超时到期
+             */
             const int wret = CoWaitFdReady(g_bbt_tls_coroutine_co, fd, true, iot);
             if (wret != 0) {
                 if (wret == 2) {
@@ -476,13 +521,19 @@ int Hook_Accept(int fd, struct sockaddr* addr, socklen_t* len)
     CoIoNonblockGuard io{fd};
     if (!io.ok())
         return -1;
-    /* accept() 受 SO_RCVTIMEO 约束（Linux socket(7)） */
+
+    /**
+     * accept() 受 SO_RCVTIMEO 约束（Linux socket(7)）
+     */
     const IoTimeout iot{fd, SO_RCVTIMEO};
 
     int new_cli_fd = -1;
 
     while ((new_cli_fd = g_bbt_sys_hook_accept_func(fd, addr, len)) < 0) {
-        /* 如果accept没有立即成功，判断失败原因是否为设置非阻塞 */
+
+        /**
+         * 如果accept没有立即成功，判断失败原因是否为设置非阻塞
+         */
         if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)
             return -1;
 
@@ -490,7 +541,10 @@ int Hook_Accept(int fd, struct sockaddr* addr, socklen_t* len)
         ErrnoGuard guard{sys_errno};
 
         try {
-            /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读或超时到期 */
+
+            /**
+             * 对当前协程注册fd可读事件，挂起当前协程直到fd可读或超时到期
+             */
             const int wret = CoWaitFdReady(g_bbt_tls_coroutine_co, fd, false, iot);
             if (wret != 0) {
                 if (wret == 2) {
@@ -514,7 +568,10 @@ int Hook_Accept(int fd, struct sockaddr* addr, socklen_t* len)
 
 ssize_t Hook_Send(int fd, const void* buf, size_t n, int flags)
 {
-    /* MSG_DONTWAIT：调用方明确要求不等待，直通原函数（内核按次非阻塞） */
+
+    /**
+     * MSG_DONTWAIT：调用方明确要求不等待，直通原函数（内核按次非阻塞）
+     */
     if (flags & MSG_DONTWAIT)
         return g_bbt_sys_hook_send_func(fd, buf, n, flags);
 
@@ -525,7 +582,10 @@ ssize_t Hook_Send(int fd, const void* buf, size_t n, int flags)
 
     ssize_t send_len = -1;
     while ((send_len = g_bbt_sys_hook_send_func(fd, buf, n, flags)) < 0) {
-        /* 如果write没有立即成功，判断失败原因是否为正在执行写操作 */
+
+        /**
+         * 如果write没有立即成功，判断失败原因是否为正在执行写操作
+         */
         if (errno != EAGAIN && errno != EINTR && errno != EWOULDBLOCK)
             return -1;
 
@@ -533,7 +593,10 @@ ssize_t Hook_Send(int fd, const void* buf, size_t n, int flags)
         ErrnoGuard guard{sys_errno};
 
         try {
-            /* 对当前协程注册fd可写事件，挂起当前协程直到fd可写或 SO_SNDTIMEO 到期 */
+
+            /**
+             * 对当前协程注册fd可写事件，挂起当前协程直到fd可写或 SO_SNDTIMEO 到期
+             */
             const int wret = CoWaitFdReady(g_bbt_tls_coroutine_co, fd, true, iot);
             if (wret != 0) {
                 if (wret == 2) {
@@ -552,7 +615,10 @@ ssize_t Hook_Send(int fd, const void* buf, size_t n, int flags)
 
 ssize_t Hook_Recv(int fd, void* buf, size_t n, int flags)
 {
-    /* MSG_DONTWAIT：直通，立即 -1/EAGAIN */
+
+    /**
+     * MSG_DONTWAIT：直通，立即 -1/EAGAIN
+     */
     if (flags & MSG_DONTWAIT)
         return g_bbt_sys_hook_recv_func(fd, buf, n, flags);
 
@@ -563,7 +629,10 @@ ssize_t Hook_Recv(int fd, void* buf, size_t n, int flags)
 
     ssize_t recv_len = -1;
     while ((recv_len = g_bbt_sys_hook_recv_func(fd, buf, n, flags)) < 0) {
-        /* 如果read没有立即成功，判断失败原因是否为正在执行读操作 */
+
+        /**
+         * 如果read没有立即成功，判断失败原因是否为正在执行读操作
+         */
         if (errno != EAGAIN && errno != EINPROGRESS && errno != EINTR && errno != EWOULDBLOCK)
             return -1;
 
@@ -571,7 +640,10 @@ ssize_t Hook_Recv(int fd, void* buf, size_t n, int flags)
         ErrnoGuard guard{sys_errno};
 
         try {
-            /* 对当前协程注册fd可读事件，挂起当前协程直到fd可读或 SO_RCVTIMEO 到期 */
+
+            /**
+             * 对当前协程注册fd可读事件，挂起当前协程直到fd可读或 SO_RCVTIMEO 到期
+             */
             const int wret = CoWaitFdReady(g_bbt_tls_coroutine_co, fd, false, iot);
             if (wret != 0) {
                 if (wret == 2) {
@@ -590,7 +662,10 @@ ssize_t Hook_Recv(int fd, void* buf, size_t n, int flags)
 
 ssize_t Hook_SendTo(int fd, const void* buf, size_t len, int flags, const struct sockaddr* dest_addr, socklen_t addrlen)
 {
-    /* MSG_DONTWAIT：直通，立即 -1/EAGAIN */
+
+    /**
+     * MSG_DONTWAIT：直通，立即 -1/EAGAIN
+     */
     if (flags & MSG_DONTWAIT)
         return g_bbt_sys_hook_sendto_func(fd, buf, len, flags, dest_addr, addrlen);
 
@@ -608,7 +683,10 @@ ssize_t Hook_SendTo(int fd, const void* buf, size_t len, int flags, const struct
         ErrnoGuard guard{sys_errno};
 
         try {
-            /* 挂起直到fd可写或 SO_SNDTIMEO 到期 */
+
+            /**
+             * 挂起直到fd可写或 SO_SNDTIMEO 到期
+             */
             const int wret = CoWaitFdReady(g_bbt_tls_coroutine_co, fd, true, iot);
             if (wret != 0) {
                 if (wret == 2) {
@@ -627,7 +705,10 @@ ssize_t Hook_SendTo(int fd, const void* buf, size_t len, int flags, const struct
 
 ssize_t Hook_RecvFrom(int fd, void* buf, size_t len, int flags, struct sockaddr* src_addr, socklen_t* addrlen)
 {
-    /* MSG_DONTWAIT：直通，立即 -1/EAGAIN */
+
+    /**
+     * MSG_DONTWAIT：直通，立即 -1/EAGAIN
+     */
     if (flags & MSG_DONTWAIT)
         return g_bbt_sys_hook_recvfrom_func(fd, buf, len, flags, src_addr, addrlen);
 
@@ -645,7 +726,10 @@ ssize_t Hook_RecvFrom(int fd, void* buf, size_t len, int flags, struct sockaddr*
         ErrnoGuard guard{sys_errno};
 
         try {
-            /* 挂起直到fd可读或 SO_RCVTIMEO 到期 */
+
+            /**
+             * 挂起直到fd可读或 SO_RCVTIMEO 到期
+             */
             const int wret = CoWaitFdReady(g_bbt_tls_coroutine_co, fd, false, iot);
             if (wret != 0) {
                 if (wret == 2) {
@@ -664,7 +748,10 @@ ssize_t Hook_RecvFrom(int fd, void* buf, size_t len, int flags, struct sockaddr*
 
 ssize_t Hook_RecvMsg(int fd, struct msghdr* msg, int flags)
 {
-    /* MSG_DONTWAIT：调用方明确要求不等待，协程内也直通原函数 */
+
+    /**
+     * MSG_DONTWAIT：调用方明确要求不等待，协程内也直通原函数
+     */
     if (flags & MSG_DONTWAIT)
         return g_bbt_sys_hook_recvmsg_func(fd, msg, flags);
 
@@ -682,7 +769,10 @@ ssize_t Hook_RecvMsg(int fd, struct msghdr* msg, int flags)
         ErrnoGuard guard{sys_errno};
 
         try {
-            /* 挂起直到fd可读或 SO_RCVTIMEO 到期 */
+
+            /**
+             * 挂起直到fd可读或 SO_RCVTIMEO 到期
+             */
             const int wret = CoWaitFdReady(g_bbt_tls_coroutine_co, fd, false, iot);
             if (wret != 0) {
                 if (wret == 2) {
@@ -701,7 +791,10 @@ ssize_t Hook_RecvMsg(int fd, struct msghdr* msg, int flags)
 
 ssize_t Hook_SendMsg(int fd, const struct msghdr* msg, int flags)
 {
-    /* 同 Hook_RecvMsg：MSG_DONTWAIT 直通 */
+
+    /**
+     * 同 Hook_RecvMsg：MSG_DONTWAIT 直通
+     */
     if (flags & MSG_DONTWAIT)
         return g_bbt_sys_hook_sendmsg_func(fd, msg, flags);
 
@@ -719,7 +812,10 @@ ssize_t Hook_SendMsg(int fd, const struct msghdr* msg, int flags)
         ErrnoGuard guard{sys_errno};
 
         try {
-            /* 挂起直到fd可写或 SO_SNDTIMEO 到期 */
+
+            /**
+             * 挂起直到fd可写或 SO_SNDTIMEO 到期
+             */
             const int wret = CoWaitFdReady(g_bbt_tls_coroutine_co, fd, true, iot);
             if (wret != 0) {
                 if (wret == 2) {
@@ -744,7 +840,10 @@ ssize_t Hook_Readv(int fd, const struct iovec* iov, int iovcnt)
     const IoTimeout iot{fd, SO_RCVTIMEO};
 
     ssize_t read_len = -1;
-    /* 与 Hook_Read 相同：常规文件偏移回退守卫；iovec 整体注册事件，不拆段提交 */
+
+    /**
+     * 与 Hook_Read 相同：常规文件偏移回退守卫；iovec 整体注册事件，不拆段提交
+     */
     FileOffsetGuard offset_guard{fd};
 
     while ((read_len = g_bbt_sys_hook_readv_func(fd, iov, iovcnt)) < 0) {
@@ -755,7 +854,10 @@ ssize_t Hook_Readv(int fd, const struct iovec* iov, int iovcnt)
         ErrnoGuard guard{sys_errno};
 
         try {
-            /* 挂起直到fd可读或超时到期 */
+
+            /**
+             * 挂起直到fd可读或超时到期
+             */
             const int wret = CoWaitFdReady(g_bbt_tls_coroutine_co, fd, false, iot);
             if (wret != 0) {
                 if (wret == 2) {
@@ -792,7 +894,10 @@ ssize_t Hook_Writev(int fd, const struct iovec* iov, int iovcnt)
         ErrnoGuard guard{sys_errno};
 
         try {
-            /* 挂起直到fd可写或超时到期 */
+
+            /**
+             * 挂起直到fd可写或超时到期
+             */
             const int wret = CoWaitFdReady(g_bbt_tls_coroutine_co, fd, true, iot);
             if (wret != 0) {
                 if (wret == 2) {
@@ -835,7 +940,10 @@ int Hook_Accept4(int fd, struct sockaddr* addr, socklen_t* len, int flags)
             ErrnoGuard guard{sys_errno};
 
             try {
-                /* 挂起直到fd可读或超时到期 */
+
+                /**
+                 * 挂起直到fd可读或超时到期
+                 */
                 const int wret = CoWaitFdReady(g_bbt_tls_coroutine_co, fd, false, iot);
                 if (wret != 0) {
                     if (wret == 2) {
@@ -849,7 +957,10 @@ int Hook_Accept4(int fd, struct sockaddr* addr, socklen_t* len, int flags)
             }
         }
     } else {
-        /* 降级：accept + 手工补 flags（平台无 accept4 或 dlsym 取不到） */
+
+        /**
+         * 降级：accept + 手工补 flags（平台无 accept4 或 dlsym 取不到）
+         */
         new_cli_fd = Hook_Accept(fd, addr, len);
         if (new_cli_fd < 0)
             return -1;
@@ -936,7 +1047,9 @@ int Hook_ClockNanosleep(clockid_t clock_id, int flags, const struct timespec* re
             return 0;
     }
 
-    // POSIX: clock_nanosleep 成功返回 0，失败返回正 errno，不用 -1。
+    /**
+     * POSIX: clock_nanosleep 成功返回 0，失败返回正 errno，不用 -1。
+     */
     if (g_bbt_tls_coroutine_co->YieldUntilTimeout((int)ms) != 0)
         return EINVAL;
     return 0;
@@ -955,7 +1068,10 @@ int Hook_ClockNanosleep(clockid_t clock_id, int flags, const struct timespec* re
  */
 static int PollCore(struct pollfd* fds, nfds_t nfds, int timeout_ms)
 {
-    /* 快照：poll(2) 按 POSIX 重写全部 revents；出错（EBADF 等）时 errno 即原生 poll 的 */
+
+    /**
+     * 快照：poll(2) 按 POSIX 重写全部 revents；出错（EBADF 等）时 errno 即原生 poll 的
+     */
     int ret = g_bbt_sys_hook_poll_func(fds, nfds, 0);
     if (ret < 0)
         return ret;
@@ -966,7 +1082,9 @@ static int PollCore(struct pollfd* fds, nfds_t nfds, int timeout_ms)
     if (ready > 0 || timeout_ms == 0)
         return ready;
 
-    /* 纯定时：无任何 fd 可监听，睡满 timeout 后返回 0 */
+    /**
+     * 纯定时：无任何 fd 可监听，睡满 timeout 后返回 0
+     */
     if (nfds == 0) {
         if (timeout_ms > 0 && g_bbt_tls_coroutine_co->YieldUntilTimeout(timeout_ms) != 0)
             return -1;
@@ -980,7 +1098,11 @@ static int PollCore(struct pollfd* fds, nfds_t nfds, int timeout_ms)
     int epfd = ::epoll_create1(EPOLL_CLOEXEC);
     if (epfd < 0)
         return -1;
-    EpGuard ep_guard{epfd}; // RAII 关 epoll
+
+    /**
+     * RAII 关 epoll
+     */
+    EpGuard ep_guard{epfd};
 
     int ep_count = 0;
     for (nfds_t i = 0; i < nfds; ++i) {
@@ -1000,7 +1122,10 @@ static int PollCore(struct pollfd* fds, nfds_t nfds, int timeout_ms)
     }
 
     if (ep_count > 0) {
-        /* timeout<0 无限等；timeout>0 带协程定时器。醒来（或定时器到期）后统一走快照收尾 */
+
+        /**
+         * timeout<0 无限等；timeout>0 带协程定时器。醒来（或定时器到期）后统一走快照收尾
+         */
         int yret = timeout_ms < 0 ? g_bbt_tls_coroutine_co->YieldUntilFdReadable(epfd)
                                   : g_bbt_tls_coroutine_co->YieldUntilFdReadable(epfd, timeout_ms);
         if (yret != 0)
@@ -1014,7 +1139,10 @@ static int PollCore(struct pollfd* fds, nfds_t nfds, int timeout_ms)
     for (nfds_t i = 0; i < nfds; ++i)
         if (fds[i].revents != 0)
             ++ready;
-    /* ep_count==0：全是 epoll 不支持的 fd，按快照直接返回，不挂起 */
+
+    /**
+     * ep_count==0：全是 epoll 不支持的 fd，按快照直接返回，不挂起
+     */
     return ready;
 }
 
@@ -1127,7 +1255,11 @@ struct TlsHostentStorage {
     std::string name;
     std::vector<std::string> aliases;
     std::vector<char*> alias_ptrs;
-    std::vector<std::string> addrs; // 每个元素是一条原始地址字节
+
+    /**
+     * 每个元素是一条原始地址字节
+     */
+    std::vector<std::string> addrs;
     std::vector<char*> addr_ptrs;
 
     void Clear()
@@ -1166,7 +1298,10 @@ static struct hostent* FillHostentFromAddrInfo(struct addrinfo* ai)
     if (ai->ai_canonname != nullptr && ai->ai_canonname[0] != '\0') {
         tls.name = ai->ai_canonname;
     } else {
-        // 数字地址无 canonname：与 glibc 一致，回退为点分地址串
+
+        /**
+         * 数字地址无 canonname：与 glibc 一致，回退为点分地址串
+         */
         char buf[INET_ADDRSTRLEN] = {0};
         if (inet_ntop(AF_INET, tls.addrs[0].data(), buf, sizeof(buf)) == nullptr)
             return nullptr;
@@ -1322,7 +1457,10 @@ struct hostent* Hook_GetHostByAddr(const void* addr, socklen_t len, int type)
     tls.name = std::move(copy.name);
     tls.aliases = std::move(copy.aliases);
     tls.addrs = std::move(copy.addrs);
-    // string 数据在 tls 内不再变动，取指针后入 vector 是安全的
+
+    /**
+     * string 数据在 tls 内不再变动，取指针后入 vector 是安全的
+     */
     for (auto& a : tls.aliases)
         tls.alias_ptrs.push_back(a.data());
     tls.alias_ptrs.push_back(nullptr);
@@ -1356,8 +1494,10 @@ int connect(int socket, const struct sockaddr* address, socklen_t address_len)
     return bbt::coroutine::detail::Hook_Connect(socket, address, address_len);
 }
 
-/* close 不分流：fd 代际与 waiter 摘除必须对任何线程的 close 生效，否则协程侧会等一个永远
- * 不会到达的就绪事件。 */
+/**
+ * close 不分流：fd 代际与 waiter 摘除必须对任何线程的 close 生效，否则协程侧会等一个永远
+ * 不会到达的就绪事件。
+ */
 int close(int fd)
 {
     return bbt::coroutine::detail::Hook_Close(fd);
@@ -1468,7 +1608,10 @@ int accept4(int fd, __SOCKADDR_ARG addr, socklen_t* __restrict addr_len, int fla
     if (!g_bbt_tls_helper->EnableUseCo()) {
         if (g_bbt_sys_hook_accept4_func)
             return g_bbt_sys_hook_accept4_func(fd, addr, addr_len, flags);
-        /* 降级直通：accept + 手工补 flags，不引入协程挂起逻辑 */
+
+        /**
+         * 降级直通：accept + 手工补 flags，不引入协程挂起逻辑
+         */
         int new_fd = g_bbt_sys_hook_accept_func(fd, addr, addr_len);
         if (new_fd >= 0 && bbt::coroutine::detail::ApplyAccept4Flags(new_fd, flags) != 0) {
             ::close(new_fd);
@@ -1523,7 +1666,10 @@ int select(int nfds, fd_set* read_fds, fd_set* write_fds, fd_set* except_fds, st
 int pselect(int nfds, fd_set* read_fds, fd_set* write_fds, fd_set* except_fds, const struct timespec* timeout,
             const sigset_t* sigmask)
 {
-    /* 非协程直通原函数（含 sigmask 语义） */
+
+    /**
+     * 非协程直通原函数（含 sigmask 语义）
+     */
     if (!g_bbt_tls_helper->EnableUseCo())
         return g_bbt_sys_hook_pselect_func(nfds, read_fds, write_fds, except_fds, timeout, sigmask);
 

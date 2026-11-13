@@ -1,4 +1,5 @@
-/** @file coroutine.hpp
+/**
+ * @file coroutine.hpp
  * @brief 协程库公共入口、当前协程查询与常用同步组件。
  *
  * 使用本库只需要 `#include <bbt/coroutine/coroutine.hpp>`，它已经带入调度器、Hook、
@@ -13,6 +14,8 @@
  */
 #pragma once
 
+#include <bbt/coroutine/runtime/RuntimeMain.hpp>
+#include <bbt/coroutine/syntax/RuntimeMacros.hpp>
 #include <bbt/coroutine/detail/GlobalConfig.hpp>
 #include <bbt/coroutine/detail/Scheduler.hpp>
 #include <bbt/coroutine/detail/Hook.hpp>
@@ -39,14 +42,20 @@ namespace coroutine {
  * @brief 只读查询当前执行协程 id；非协程上下文返回 0，不创建 Processer 或启动 runtime。
  */
 detail::CoroutineId GetLocalCoroutineId();
+
 /**
  * @brief 返回当前协程可用栈字节数；非协程上下文返回 0，同样不创建 Processer 或启动 runtime。
  */
 size_t GetLocalCoroutineStackSize();
 
-/// @brief 无副作用查询当前执行流是否在协程上下文。
+/**
+ * @brief 无副作用查询当前执行流是否在协程上下文。
+ */
 bool IsInCoroutineContext();
-/// @brief 要求协程上下文；不在协程内时抛 `std::logic_error`。
+
+/**
+ * @brief 要求协程上下文；不在协程内时抛 `std::logic_error`。
+ */
 void RequireCoroutineContext();
 
 /**
@@ -60,7 +69,7 @@ template <class TItem, int ItemMax> inline typename sync::Chan<TItem, ItemMax>::
     return std::make_shared<bbt::coroutine::sync::Chan<TItem, ItemMax>>();
 }
 
-} // namespace coroutine
+}
 
 namespace co = coroutine;
 }

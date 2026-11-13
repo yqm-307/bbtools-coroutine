@@ -1,4 +1,5 @@
-/** @file ICoObject.hpp
+/**
+ * @file ICoObject.hpp
  * @brief 受管对象身份快照的最小接口。
  */
 #pragma once
@@ -16,9 +17,20 @@ using CoObjectId = std::uint64_t;
  * 「运行时已初始化」。
  */
 struct CoObjectInfo {
-    CoObjectId id{0}; ///< 进程内唯一、严格递增、不复用
-    std::string kind; ///< 观测归类用的 kind
-    std::string name; ///< 调用方给的可读名
+    /**
+     * 进程内唯一、严格递增、不复用
+     */
+    CoObjectId id{0};
+
+    /**
+     * 观测归类用的 kind
+     */
+    std::string kind;
+
+    /**
+     * 调用方给的可读名
+     */
+    std::string name;
 };
 
 /**
@@ -29,11 +41,15 @@ struct CoObjectInfo {
  */
 class ICoObject {
 public:
-    /// @brief 虚析构，允许经接口指针销毁实现对象。
+    /**
+     * @brief 虚析构，允许经接口指针销毁实现对象。
+     */
     virtual ~ICoObject() = default;
 
-    /// @brief 当前身份快照；实现须在对象寿命内保持 id 不变。
+    /**
+     * @brief 当前身份快照；实现须在对象寿命内保持 id 不变。
+     */
     virtual CoObjectInfo GetObjectInfo() const = 0;
 };
 
-} // namespace bbt::coroutine
+}

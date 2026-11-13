@@ -1,4 +1,5 @@
-/** @file CoMutex.hpp
+/**
+ * @file CoMutex.hpp
  * @brief 协程互斥锁：抢不到锁的协程挂起，不占住 worker 线程。
  */
 #pragma once
@@ -18,18 +19,31 @@ class CoMutex : public ICoLock {
 
 public:
     typedef std::shared_ptr<CoMutex> SPtr;
-    /// @brief 创建一把未锁定的 CoMutex。
+
+    /**
+     * @brief 创建一把未锁定的 CoMutex。
+     */
     static SPtr Create();
 
-    /// @brief 仅经 Create() 构造，初始状态为未锁定。
+    /**
+     * @brief 仅经 Create() 构造，初始状态为未锁定。
+     */
     BBTATTR_FUNC_CTOR_HIDDEN
     CoMutex(PrivateTag);
-    /// @brief 销毁。析构不唤醒等待者：销毁时仍在 Lock 上等待的协程不会再被恢复。
+
+    /**
+     * @brief 销毁。析构不唤醒等待者：销毁时仍在 Lock 上等待的协程不会再被恢复。
+     */
     ~CoMutex();
 
-    /// @brief 获取锁；已被占用时挂起当前协程，直到有协程 UnLock 后重新抢到锁。
+    /**
+     * @brief 获取锁；已被占用时挂起当前协程，直到有协程 UnLock 后重新抢到锁。
+     */
     void Lock();
-    /// @brief 释放锁并唤醒一个等待者；唤醒不转移所有权，被唤醒者仍要重新竞争。
+
+    /**
+     * @brief 释放锁并唤醒一个等待者；唤醒不转移所有权，被唤醒者仍要重新竞争。
+     */
     void UnLock();
 
     /**
@@ -45,8 +59,10 @@ public:
     int TryLock();
 
 protected:
-    // 以下等待辅助函数都在调用方已持有 m_mutex 时进入；挂起回调负责在协程真正挂起后
-    // 释放它，返回后由调用方重新 _SysLock（见 CoMutex.cc 的 cb_ran 协议）。
+    /**
+     * 以下等待辅助函数都在调用方已持有 m_mutex 时进入；挂起回调负责在协程真正挂起后
+     * 释放它，返回后由调用方重新 _SysLock（见 CoMutex.cc 的 cb_ran 协议）。
+     */
     int _WaitUnLockUnitlTimeout(int timeout, const detail::CoroutineOnYieldCallback& cb);
     int _WaitUnLock(const detail::CoroutineOnYieldCallback& cb);
 
@@ -59,12 +75,17 @@ protected:
     void _OnUnLocked();
 
 private:
-    // 等待者按入队顺序排队；被置空的槽位是等待装配失败回滚的 tombstone，_NotifyOne 跳过。
+    /**
+     * 等待者按入队顺序排队；被置空的槽位是等待装配失败回滚的 tombstone，_NotifyOne 跳过。
+     */
     std::queue<std::shared_ptr<detail::CoPollEvent>> m_wait_event_queue;
-    // 当前持锁协程，只用于同协程重复加锁的死锁断言，不参与所有权判定。
+
+    /**
+     * 当前持锁协程，只用于同协程重复加锁的死锁断言，不参与所有权判定。
+     */
     detail::Coroutine::Ptr m_locked_co{nullptr};
     std::mutex m_mutex;
     volatile CoMutexStatus m_status{CoMutexStatus::COMUTEX_FREE};
 };
 
-} // bbt::coroutine::sync
+}

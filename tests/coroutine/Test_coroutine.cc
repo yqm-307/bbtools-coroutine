@@ -12,11 +12,13 @@
 using namespace bbt::coroutine;
 detail::Coroutine::Ptr current_coroutine = nullptr;
 
-/* 显式栈大小现在是真值（原先被忽略、实际借全局默认 12 KiB）。本文件的协程在
+/**
+ * 显式栈大小现在是真值（原先被忽略、实际借全局默认 12 KiB）。本文件的协程在
  * 自身栈上执行 Boost.Test 断言与 std::runtime_error 抛出：断言失败路径的
  * vformat/日志缓冲需要远超 4 KiB 的栈（见 Context.cc 对 DebugPrint 栈占用的
  * 既有注释），4 KiB 会在真实尺寸生效后压爆协程栈。故重型 fixture 显式给 64 KiB；
- * 这属于“按真实需求给足栈”，不是把显式大小重新变成摆设。 */
+ * 这属于“按真实需求给足栈”，不是把显式大小重新变成摆设。
+ */
 static constexpr size_t kHeavyCoStackSize = 64 * 1024;
 
 BOOST_AUTO_TEST_SUITE(CoroutineTest)

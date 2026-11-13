@@ -63,34 +63,46 @@ BOOST_AUTO_TEST_CASE(t_poller_timerout_event_multi)
     std::atomic_int count = 0;
     std::vector<CoPollEvent::SPtr> events;
 
-    /* 创建并注册1000个定时事件 */
+    /**
+     * 创建并注册1000个定时事件
+     */
     for (int i = 0; i < 1000; ++i) {
         auto co_sptr = Coroutine::Create(4096, []() {});
         auto event = CoPollEvent::Create(co_sptr->GetId(), [&count, co_sptr](auto, int, int) { count++; });
 
-        /* 初始化并注册事件 */
+        /**
+         * 初始化并注册事件
+         */
         BOOST_ASSERT(event->InitFdEvent(-1, bbt::pollevent::EventOpt::TIMEOUT, 500) == 0);
         BOOST_ASSERT(event->Regist() == 0);
         BOOST_REQUIRE(!event->CommitPark());
         events.push_back(event);
     }
 
-    // 非阻塞情况下程序最多活10s
+    /**
+     * 非阻塞情况下程序最多活10s
+     */
     auto max_end_ts = bbt::core::clock::nowAfter(bbt::core::clock::seconds(2));
 
-    /* 开始轮询，探测完成的事件并回调通知到协程事件完成 */
+    /**
+     * 开始轮询，探测完成的事件并回调通知到协程事件完成
+     */
     while (!bbt::core::clock::is_expired<bbt::core::clock::milliseconds>(max_end_ts)) {
         CoPoller::GetInstance()->PollOnce();
         std::this_thread::sleep_for(bbt::core::clock::milliseconds(2));
     }
 
-    /* 所有超时时间完成，开始判断是否达成预期 */
+    /**
+     * 所有超时时间完成，开始判断是否达成预期
+     */
     BOOST_CHECK_EQUAL(count.load(), 1000);
 }
 
 BOOST_AUTO_TEST_CASE(t_poller_timerout_event_multi_thread)
 {
-    /* 多线程注册事件，单线程处理（reactor模型） */
+    /**
+     * 多线程注册事件，单线程处理（reactor模型）
+     */
 
     std::atomic_int count = 0;
     std::vector<std::thread*> threads;
@@ -98,7 +110,10 @@ BOOST_AUTO_TEST_CASE(t_poller_timerout_event_multi_thread)
 
     std::vector<CoPollEvent::SPtr> events;
     std::mutex events_mutex;
-    /* 工作线程只累计失败次数，由主线程统一断言（不在工作线程构造测试报告）。 */
+
+    /**
+     * 工作线程只累计失败次数，由主线程统一断言（不在工作线程构造测试报告）。
+     */
     std::atomic_int init_fail{0}, regist_fail{0}, park_true{0};
 
     for (int i = 0; i < 2; ++i) {
@@ -131,10 +146,14 @@ BOOST_AUTO_TEST_CASE(t_poller_timerout_event_multi_thread)
             item->join();
     }
 
-    // 非阻塞情况下程序最多活10s
+    /**
+     * 非阻塞情况下程序最多活10s
+     */
     auto max_end_ts = bbt::core::clock::nowAfter(bbt::core::clock::seconds(2));
 
-    /* 所有注册线程完成后，单线程轮询并回调通知到协程事件完成 */
+    /**
+     * 所有注册线程完成后，单线程轮询并回调通知到协程事件完成
+     */
     while (!bbt::core::clock::is_expired<bbt::core::clock::milliseconds>(max_end_ts)) {
         CoPoller::GetInstance()->PollOnce();
         std::this_thread::sleep_for(bbt::core::clock::microseconds(2));
@@ -148,7 +167,8 @@ BOOST_AUTO_TEST_CASE(t_poller_timerout_event_multi_thread)
 
 BOOST_AUTO_TEST_SUITE_END()
 
-/* ── PollOnceUntil：停拍有界事件等待的回归 ──────────────────────────
+/**
+ * ── PollOnceUntil：停拍有界事件等待的回归 ──────────────────────────
  *
  * 每个用例用本文件内独立构造的 CoPoller 实例：driver-tid、in_poll、延迟析构
  * 队列和已注册事件数都不与上面的全局单例用例共享，避免用例顺序耦合。
@@ -165,10 +185,14 @@ BOOST_AUTO_TEST_SUITE_END()
 BOOST_AUTO_TEST_SUITE(CoPollerBoundedWaitTest)
 
 namespace {
-/* 只用于判「没有挂死」的宽松上界，不是性能论断。 */
+/**
+ * 只用于判「没有挂死」的宽松上界，不是性能论断。
+ */
 const auto kBoundedWaitCeiling = std::chrono::seconds(5);
 
-/* 已就绪 fd 的一次性读事件；返回事件对象，调用方负责其寿命。 */
+/**
+ * 已就绪 fd 的一次性读事件；返回事件对象，调用方负责其寿命。
+ */
 std::shared_ptr<bbt::pollevent::Event> MakeReadableEvent(CoPoller& poller, int fd, std::atomic<int>& fired)
 {
     auto event = poller.CreateEvent(fd, bbt::pollevent::EventOpt::READABLE,
@@ -192,7 +216,9 @@ std::shared_ptr<bbt::pollevent::Event> MakeTimerEvent(CoPoller& poller, std::ato
 }
 }
 
-/* 进入等待前就已就绪的 fd：必须当场派发，不能等满 deadline。 */
+/**
+ * 进入等待前就已就绪的 fd：必须当场派发，不能等满 deadline。
+ */
 BOOST_AUTO_TEST_CASE(t_wait_dispatches_ready_fd_before_deadline)
 {
     CoPoller poller;
@@ -212,14 +238,19 @@ BOOST_AUTO_TEST_CASE(t_wait_dispatches_ready_fd_before_deadline)
 
     BOOST_CHECK(dispatched);
     BOOST_CHECK_EQUAL(fired.load(), 1);
-    /* 错误形态 a：会耗满 2s。 */
+
+    /**
+     * 错误形态 a：会耗满 2s。
+     */
     BOOST_CHECK(elapsed < std::chrono::seconds(1));
 
     ::close(fds[0]);
     ::close(fds[1]);
 }
 
-/* 等待期间 fd 变就绪（注册在前、灌数据在后）：等待必须被打断而不是睡到 deadline。 */
+/**
+ * 等待期间 fd 变就绪（注册在前、灌数据在后）：等待必须被打断而不是睡到 deadline。
+ */
 BOOST_AUTO_TEST_CASE(t_wait_wakes_on_fd_ready)
 {
     CoPoller poller;
@@ -255,13 +286,17 @@ BOOST_AUTO_TEST_CASE(t_wait_wakes_on_fd_ready)
     ::close(fds[1]);
 }
 
-/* 等待期间 timer 到期：定时事件必须打断等待并派发。 */
+/**
+ * 等待期间 timer 到期：定时事件必须打断等待并派发。
+ */
 BOOST_AUTO_TEST_CASE(t_wait_wakes_on_timer)
 {
     CoPoller poller;
     std::atomic<int> fired{0};
 
-    /* 允许注册完成后被宿主调度暂停；派发计数确认 timer 到期，上界排除等满 deadline。 */
+    /**
+     * 允许注册完成后被宿主调度暂停；派发计数确认 timer 到期，上界排除等满 deadline。
+     */
     auto timer = MakeTimerEvent(poller, fired, 30);
     BOOST_REQUIRE(timer != nullptr);
 
@@ -271,23 +306,30 @@ BOOST_AUTO_TEST_CASE(t_wait_wakes_on_timer)
 
     BOOST_CHECK(dispatched);
     BOOST_CHECK_EQUAL(fired.load(), 1);
-    /* 注册后若已过 30ms，允许立即派发；不能用相对等待下界代替到期事实。 */
+
+    /**
+     * 注册后若已过 30ms，允许立即派发；不能用相对等待下界代替到期事实。
+     */
     BOOST_CHECK(elapsed < std::chrono::seconds(1));
 }
 
-/* 等待期间的跨线程 post：必须打断等待，且 handler 仍在驱动线程执行。
+/**
+ * 等待期间的跨线程 post：必须打断等待，且 handler 仍在驱动线程执行。
  *
  * post 只保证「不丢、且排在已派发队列里」，它不像 fd/timer 那样计入
  * GetEventNum()。所以这里先挂一个远期 timer 让本实例走事件等待路径——这也正是
  * 生产形态：custom 唤醒（NotifyCustomEvent/NotifyCancelEvent）总伴随已注册的
- * CoPollEvent。没有已注册事件的纯 post 只会在本次定时休眠后由下一次 poll 兑现。 */
+ * CoPollEvent。没有已注册事件的纯 post 只会在本次定时休眠后由下一次 poll 兑现。
+ */
 BOOST_AUTO_TEST_CASE(t_wait_wakes_on_cross_thread_post)
 {
     CoPoller poller;
     const auto driver_tid = std::this_thread::get_id();
     const int rounds = 8;
 
-    /* 远期锚点：只为让「已注册事件数 > 0」，本身不应在本用例内到期。 */
+    /**
+     * 远期锚点：只为让「已注册事件数 > 0」，本身不应在本用例内到期。
+     */
     std::atomic<int> anchor_fired{0};
     auto anchor = MakeTimerEvent(poller, anchor_fired, 5000);
     BOOST_REQUIRE(anchor != nullptr);
@@ -296,14 +338,18 @@ BOOST_AUTO_TEST_CASE(t_wait_wakes_on_cross_thread_post)
     std::atomic<int> handled{0};
     std::atomic<int> handled_on_driver{0};
 
-    /* 各轮共用同一 deadline：等待在提前唤醒后保留同一条截止等待，不重新 arm，
-       于是每轮返回都只可能来自 post 派发。 */
+    /**
+     * 各轮共用同一 deadline：等待在提前唤醒后保留同一条截止等待，不重新 arm，
+     * 于是每轮返回都只可能来自 post 派发。
+     */
     const auto wait_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
 
     std::thread poster([&] {
         for (int r = 1; r <= rounds; ++r) {
-            /* 与驱动线程对齐轮次：投递落在等待之前或之内都算，两者都必须被
-               同一轮等待消化。 */
+            /**
+             * 与驱动线程对齐轮次：投递落在等待之前或之内都算，两者都必须被
+             * 同一轮等待消化。
+             */
             while (gate.load(std::memory_order_acquire) < r)
                 std::this_thread::yield();
 
@@ -322,7 +368,9 @@ BOOST_AUTO_TEST_CASE(t_wait_wakes_on_cross_thread_post)
         const bool dispatched = poller.PollOnceUntil(wait_deadline);
         const auto elapsed = std::chrono::steady_clock::now() - begin;
 
-        /* 丢唤醒的形态：本轮等满到 deadline、返回 false、handled 停在上轮。 */
+        /**
+         * 丢唤醒的形态：本轮等满到 deadline、返回 false、handled 停在上轮。
+         */
         BOOST_CHECK(dispatched);
         BOOST_CHECK_EQUAL(handled.load(std::memory_order_acquire), r);
         BOOST_CHECK(elapsed < std::chrono::seconds(1));
@@ -330,11 +378,16 @@ BOOST_AUTO_TEST_CASE(t_wait_wakes_on_cross_thread_post)
 
     poster.join();
     BOOST_CHECK_EQUAL(handled_on_driver.load(), rounds);
-    /* 锚点 timer 未到期：上面的返回都来自 post/fd 唤醒，不是 deadline 到期。 */
+
+    /**
+     * 锚点 timer 未到期：上面的返回都来自 post/fd 唤醒，不是 deadline 到期。
+     */
     BOOST_CHECK_EQUAL(anchor_fired.load(), 0);
 }
 
-/* 空 context：等到 deadline 才返回，不提前（不忙轮询）、不挂死；之后仍可复用。 */
+/**
+ * 空 context：等到 deadline 才返回，不提前（不忙轮询）、不挂死；之后仍可复用。
+ */
 BOOST_AUTO_TEST_CASE(t_wait_empty_context_sleeps_then_reusable)
 {
     CoPoller poller;
@@ -344,12 +397,17 @@ BOOST_AUTO_TEST_CASE(t_wait_empty_context_sleeps_then_reusable)
     const auto elapsed = std::chrono::steady_clock::now() - begin;
 
     BOOST_CHECK(!dispatched);
-    /* 下界＝没有已注册事件时必须真的等（错误形态 b：立即返回成忙轮询）。
-       留 20ms 余量，只排除「近似瞬时返回」。 */
+
+    /**
+     * 下界＝没有已注册事件时必须真的等（错误形态 b：立即返回成忙轮询）。
+     * 留 20ms 余量，只排除「近似瞬时返回」。
+     */
     BOOST_CHECK(elapsed >= std::chrono::milliseconds(60));
     BOOST_CHECK(elapsed < kBoundedWaitCeiling);
 
-    /* 复用：空等之后的下一轮必须能注册并派发真实事件。 */
+    /**
+     * 复用：空等之后的下一轮必须能注册并派发真实事件。
+     */
     std::atomic<int> fired{0};
     auto timer = MakeTimerEvent(poller, fired, 1);
     BOOST_REQUIRE(timer != nullptr);
@@ -362,7 +420,9 @@ BOOST_AUTO_TEST_CASE(t_wait_empty_context_sleeps_then_reusable)
     BOOST_CHECK(std::chrono::steady_clock::now() - reuse_begin < std::chrono::seconds(1));
 }
 
-/* 过期 deadline：不阻塞、不丢失事件；随后的非阻塞 poll 必须照常兑现。 */
+/**
+ * 过期 deadline：不阻塞、不丢失事件；随后的非阻塞 poll 必须照常兑现。
+ */
 BOOST_AUTO_TEST_CASE(t_wait_expired_deadline_is_nonblocking)
 {
     CoPoller poller;
@@ -380,10 +440,14 @@ BOOST_AUTO_TEST_CASE(t_wait_expired_deadline_is_nonblocking)
     poller.PollOnceUntil(begin - std::chrono::milliseconds(1));
     const auto elapsed = std::chrono::steady_clock::now() - begin;
 
-    /* 只断言「非阻塞」，不锁定过期 deadline 是否顺手派发（两者都合法）。 */
+    /**
+     * 只断言「非阻塞」，不锁定过期 deadline 是否顺手派发（两者都合法）。
+     */
     BOOST_CHECK(elapsed < std::chrono::milliseconds(50));
 
-    /* 事件不能因为过期 deadline 的那次调用而丢失。 */
+    /**
+     * 事件不能因为过期 deadline 的那次调用而丢失。
+     */
     poller.PollOnce();
     BOOST_CHECK_EQUAL(fired.load(), 1);
 
@@ -391,7 +455,9 @@ BOOST_AUTO_TEST_CASE(t_wait_expired_deadline_is_nonblocking)
     ::close(fds[1]);
 }
 
-/* 持续 ready：每轮等待都必须在 deadline+余量内返回，维护节拍不被事件堆推迟。 */
+/**
+ * 持续 ready：每轮等待都必须在 deadline+余量内返回，维护节拍不被事件堆推迟。
+ */
 BOOST_AUTO_TEST_CASE(t_wait_sustained_ready_keeps_deadline)
 {
     CoPoller poller;
@@ -404,13 +470,18 @@ BOOST_AUTO_TEST_CASE(t_wait_sustained_ready_keeps_deadline)
     BOOST_REQUIRE(event != nullptr);
 
     const int rounds = 8;
-    /* 每轮共用同一 deadline：提前唤醒后截止等待仍挂在原 deadline 上，故每轮
-       返回都必须来自 fd 派发，而不是重新 arm 的边界效应。 */
+
+    /**
+     * 每轮共用同一 deadline：提前唤醒后截止等待仍挂在原 deadline 上，故每轮
+     * 返回都必须来自 fd 派发，而不是重新 arm 的边界效应。
+     */
     const auto wait_deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(300);
     const auto all_begin = std::chrono::steady_clock::now();
 
     for (int r = 1; r <= rounds; ++r) {
-        /* 每轮重新登记一次性读事件并灌一个新字节：形成持续 ready 流。 */
+        /**
+         * 每轮重新登记一次性读事件并灌一个新字节：形成持续 ready 流。
+         */
         const char byte = 'x';
         BOOST_REQUIRE_EQUAL(::write(fds[1], &byte, 1), 1);
         if (r > 1)
@@ -422,18 +493,25 @@ BOOST_AUTO_TEST_CASE(t_wait_sustained_ready_keeps_deadline)
 
         BOOST_CHECK(dispatched);
         BOOST_CHECK_EQUAL(fired.load(), r);
-        /* 单轮上界：只判「不会因为持续 ready 而无界推迟」，不是性能断言。 */
+
+        /**
+         * 单轮上界：只判「不会因为持续 ready 而无界推迟」，不是性能断言。
+         */
         BOOST_CHECK(elapsed < std::chrono::seconds(1));
     }
 
-    /* 整体上界：持续 ready 不该把停拍维护一直推后（这里是 fail-safe，不是延迟测量）。 */
+    /**
+     * 整体上界：持续 ready 不该把停拍维护一直推后（这里是 fail-safe，不是延迟测量）。
+     */
     BOOST_CHECK(std::chrono::steady_clock::now() - all_begin < std::chrono::seconds(2));
 
     ::close(fds[0]);
     ::close(fds[1]);
 }
 
-/* 驱动所有权、in_poll 保护与延期销毁在等待路径上必须与 PollOnce 一致。 */
+/**
+ * 驱动所有权、in_poll 保护与延期销毁在等待路径上必须与 PollOnce 一致。
+ */
 BOOST_AUTO_TEST_CASE(t_wait_keeps_driver_and_in_poll_guard)
 {
     CoPoller poller;
@@ -448,8 +526,11 @@ BOOST_AUTO_TEST_CASE(t_wait_keeps_driver_and_in_poll_guard)
     auto timer = poller.CreateEvent(-1, bbt::pollevent::EventOpt::TIMEOUT, [&](int, short, bbt::pollevent::EventId) {
         handler_on_driver.store(std::this_thread::get_id() == driver_tid);
         in_poll_before.store(poller.GetDrainInPollCount());
-        /* handler 内嵌套 flush：等待期间必须与 poll 期间同样 no-op + 计数，
-               不能提前兑现延迟析构。 */
+
+        /**
+         * handler 内嵌套 flush：等待期间必须与 poll 期间同样 no-op + 计数，
+         * 不能提前兑现延迟析构。
+         */
         poller.FlushDeferredEvents();
         in_poll_after.store(poller.GetDrainInPollCount());
         fired.fetch_add(1);
@@ -457,14 +538,18 @@ BOOST_AUTO_TEST_CASE(t_wait_keeps_driver_and_in_poll_guard)
     BOOST_REQUIRE(timer != nullptr);
     BOOST_REQUIRE_EQUAL(timer->StartListen(20), 0);
 
-    /* 进入等待前必须兑现积压：非驱动线程 flush 是 no-op，等待起点即释放。 */
+    /**
+     * 进入等待前必须兑现积压：非驱动线程 flush 是 no-op，等待起点即释放。
+     */
     auto deferred =
         poller.CreateEvent(-1, bbt::pollevent::EventOpt::TIMEOUT, [](int, short, bbt::pollevent::EventId) {});
     BOOST_REQUIRE(deferred != nullptr);
     std::weak_ptr<bbt::pollevent::Event> deferred_weak = deferred;
     poller.DeferDestroyEvent(std::move(deferred));
 
-    /* 等待窗口内的非驱动线程 flush：仍 no-op，只计数，不析构 Event。 */
+    /**
+     * 等待窗口内的非驱动线程 flush：仍 no-op，只计数，不析构 Event。
+     */
     std::atomic<bool> flush_go{false};
     std::thread off_driver_flush([&] {
         while (!flush_go.load(std::memory_order_acquire))
@@ -484,7 +569,9 @@ BOOST_AUTO_TEST_CASE(t_wait_keeps_driver_and_in_poll_guard)
     BOOST_CHECK(poller.GetDrainOffDriverCount() > off_driver_before);
 }
 
-/* handler 抛异常：异常照旧外泄，in_poll 必须复位，后续等待仍可用。 */
+/**
+ * handler 抛异常：异常照旧外泄，in_poll 必须复位，后续等待仍可用。
+ */
 BOOST_AUTO_TEST_CASE(t_wait_handler_exception_resets_in_poll)
 {
     CoPoller poller;
@@ -496,8 +583,10 @@ BOOST_AUTO_TEST_CASE(t_wait_handler_exception_resets_in_poll)
     BOOST_REQUIRE(throwing != nullptr);
     BOOST_REQUIRE_EQUAL(throwing->StartListen(1), 0);
 
-    /* 两次等待共用同一 deadline：异常路径不注销未到期的截止等待，下一轮复用
-       同一条，可避免「重新 arm」本身带来的额外派发干扰断言。 */
+    /**
+     * 两次等待共用同一 deadline：异常路径不注销未到期的截止等待，下一轮复用
+     * 同一条，可避免「重新 arm」本身带来的额外派发干扰断言。
+     */
     const auto wait_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
 
     bool caught = false;
@@ -508,12 +597,16 @@ BOOST_AUTO_TEST_CASE(t_wait_handler_exception_resets_in_poll)
     }
     BOOST_CHECK(caught);
 
-    /* in_poll 未复位时这里会被计成「poll 内调用」而不兑现。 */
+    /**
+     * in_poll 未复位时这里会被计成「poll 内调用」而不兑现。
+     */
     const uint64_t in_poll_before = poller.GetDrainInPollCount();
     poller.FlushDeferredEvents();
     BOOST_CHECK_EQUAL(poller.GetDrainInPollCount(), in_poll_before);
 
-    /* 驱动 thread id 未被异常路径污染，同线程下一轮仍可等待并派发。 */
+    /**
+     * 驱动 thread id 未被异常路径污染，同线程下一轮仍可等待并派发。
+     */
     std::atomic<int> fired{0};
     auto timer = MakeTimerEvent(poller, fired, 1);
     BOOST_REQUIRE(timer != nullptr);
@@ -523,10 +616,12 @@ BOOST_AUTO_TEST_CASE(t_wait_handler_exception_resets_in_poll)
     BOOST_CHECK(std::this_thread::get_id() == driver_tid);
 }
 
-/* 取消不再在 CancelListen 内排空 io_context：被取消的等待会在 context 中留下
+/**
+ * 取消不再在 CancelListen 内排空 io_context：被取消的等待会在 context 中留下
  * 一个 aborted 完成，由下一次 poll 兑现一次，但它不交付事件（fired 保持 0），
  * 之后的等待仍按 deadline 返回且 FD 可继续使用。
- * 不模拟异线程 restart，也不声称复现已删除的截止 handler 被消费的精确交错。 */
+ * 不模拟异线程 restart，也不声称复现已删除的截止 handler 被消费的精确交错。
+ */
 BOOST_AUTO_TEST_CASE(t_wait_deadline_after_fd_destruction_flush)
 {
     CoPoller poller;
@@ -546,7 +641,10 @@ BOOST_AUTO_TEST_CASE(t_wait_deadline_after_fd_destruction_flush)
     BOOST_CHECK_EQUAL(poller.GetEventLoop()->GetEventNum(), 1);
 
     const auto begin = std::chrono::steady_clock::now();
-    /* 第一次兑现取消残留（至多一次），第二次必须真的等到 deadline。 */
+
+    /**
+     * 第一次兑现取消残留（至多一次），第二次必须真的等到 deadline。
+     */
     poller.PollOnceUntil(begin + std::chrono::milliseconds(80));
     BOOST_CHECK(!poller.PollOnceUntil(std::chrono::steady_clock::now() + std::chrono::milliseconds(80)));
     BOOST_CHECK(std::chrono::steady_clock::now() - begin < kBoundedWaitCeiling);
@@ -558,7 +656,9 @@ BOOST_AUTO_TEST_CASE(t_wait_deadline_after_fd_destruction_flush)
     BOOST_CHECK_EQUAL(fired.load(), 1);
 }
 
-/* 对象数非零但没有 pending wait：截止点前不忙轮询，context stopped 后仍可复用。 */
+/**
+ * 对象数非零但没有 pending wait：截止点前不忙轮询，context stopped 后仍可复用。
+ */
 BOOST_AUTO_TEST_CASE(t_wait_unarmed_event_sleeps_and_context_is_reusable)
 {
     CoPoller poller;

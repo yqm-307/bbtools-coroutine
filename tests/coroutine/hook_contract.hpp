@@ -1,7 +1,9 @@
 #pragma once
-// hook 行为契约测试基座：只提供契约用例实际用到的最小原语。
-// WHY: 新 hook 的契约用例应当是复制一个 BOOST_AUTO_TEST_CASE 就能写的程度，
-// 所以这里刻意不做函数指针模板/宏框架，避免为不存在的复用抽象买单。
+/**
+ * hook 行为契约测试基座：只提供契约用例实际用到的最小原语。
+ * WHY: 新 hook 的契约用例应当是复制一个 BOOST_AUTO_TEST_CASE 就能写的程度，
+ * 所以这里刻意不做函数指针模板/宏框架，避免为不存在的复用抽象买单。
+ */
 
 #include <bbt/coroutine/coroutine.hpp>
 #include <bbt/core/thread/Lock.hpp>
@@ -27,9 +29,7 @@ namespace hook_contract {
  */
 class FdGuard {
 public:
-    explicit FdGuard(int fd = -1) : m_fd(fd)
-    {
-    }
+    explicit FdGuard(int fd = -1) : m_fd(fd) {}
     ~FdGuard()
     {
         if (m_fd >= 0)
@@ -37,10 +37,7 @@ public:
     }
     FdGuard(const FdGuard&) = delete;
     FdGuard& operator=(const FdGuard&) = delete;
-    int Get() const
-    {
-        return m_fd;
-    }
+    int Get() const { return m_fd; }
 
 private:
     int m_fd;
@@ -54,10 +51,7 @@ private:
  */
 class SocketPair {
 public:
-    SocketPair()
-    {
-        ::socketpair(AF_UNIX, SOCK_STREAM, 0, m_fds);
-    }
+    SocketPair() { ::socketpair(AF_UNIX, SOCK_STREAM, 0, m_fds); }
     ~SocketPair()
     {
         for (int& fd : m_fds)
@@ -66,14 +60,8 @@ public:
     }
     SocketPair(const SocketPair&) = delete;
     SocketPair& operator=(const SocketPair&) = delete;
-    int operator[](int i) const
-    {
-        return m_fds[i];
-    }
-    bool Ok() const
-    {
-        return m_fds[0] >= 0 && m_fds[1] >= 0;
-    }
+    int operator[](int i) const { return m_fds[i]; }
+    bool Ok() const { return m_fds[0] >= 0 && m_fds[1] >= 0; }
 
 private:
     int m_fds[2]{-1, -1};
@@ -148,7 +136,11 @@ public:
     {
         struct sigaction sa;
         std::memset(&sa, 0, sizeof(sa));
-        sa.sa_handler = &NopHandler; // 空处理、无 SA_RESTART
+
+        /**
+         * 空处理、无 SA_RESTART
+         */
+        sa.sa_handler = &NopHandler;
         ::sigaction(SIGALRM, &sa, &m_old);
         ::ualarm(usec, 0);
     }
@@ -161,10 +153,8 @@ public:
     EintrArm& operator=(const EintrArm&) = delete;
 
 private:
-    static void NopHandler(int)
-    {
-    }
+    static void NopHandler(int) {}
     struct sigaction m_old;
 };
 
-} // namespace hook_contract
+}

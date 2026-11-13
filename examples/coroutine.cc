@@ -1,6 +1,4 @@
 #include <atomic>
-#include <future>
-#include <memory>
 #include <bbt/coroutine/coroutine.hpp>
 #include <bbt/core/clock/Clock.hpp>
 #include <bbt/coroutine/sync/Chan.hpp>
@@ -19,9 +17,9 @@ void Normal()
 
     /**
      * bbtco_desc可以增加可读性，后续考虑保存在Coroutine中去
-     * 
+     *
      * 完全等同于
-     * 
+     *
      * bbtco [](){};
      */
     bbtco_desc("desc")[](){};
@@ -30,12 +28,12 @@ void Normal()
 
     /**
      * 我们还可以通过协程来达到在函数执行过程中让出cpu的效果。
-     * 
+     *
      * 使得两个协程交替执行。
      * 这种方式可以用来模拟协程的协作式调度。但是执行顺序是不保证的
-     * 
+     *
      * ps：重要的事情说三遍
-     * 
+     *
      *  注册后的协程不保证执行顺序！！！
      *  注册后的协程不保证执行顺序！！！
      *  注册后的协程不保证执行顺序！！！
@@ -60,25 +58,13 @@ void Normal()
 void Defer()
 {
     struct Obj {
-        Obj()
-        {
-            printf("Obj created\n");
-        }
-        ~Obj()
-        {
-            printf("Obj destroyed\n");
-        }
+        Obj() { printf("Obj created\n"); }
+        ~Obj() { printf("Obj destroyed\n"); }
     };
 
     struct Obj2 {
-        Obj2()
-        {
-            printf("Obj2 created\n");
-        }
-        ~Obj2()
-        {
-            printf("Obj2 destroyed\n");
-        }
+        Obj2() { printf("Obj2 created\n"); }
+        ~Obj2() { printf("Obj2 destroyed\n"); }
     };
 
     /**
@@ -96,9 +82,9 @@ void Defer()
 
     /**
      * bbtco_defer 释放顺序和defer声明顺序相反
-     * 
+     *
      * 并且在return后才会执行defer。
-     * 
+     *
      * defer实际上就是构造了一个临时对象，这个
      * 临时对象释放时构造函数中执行defer操作。
      */
@@ -121,7 +107,7 @@ void Defer()
      * 因为析构是根据函数调用栈的逆序执行的，
      * 所以在协程中使用defer时，defer的执行顺序
      * 是和它们被声明的顺序相反的。
-     * 
+     *
      * 同时最佳的使用方式，就是在资源创建后，紧跟
      * 需要执行释放的defer。
      */
@@ -131,7 +117,11 @@ void Defer()
         bbtco_defer
         {
             close(fd);
-        }; // 在协程结束时自动关闭文件描述符
+
+            /**
+             * 在协程结束时自动关闭文件描述符
+             */
+        };
     };
 }
 
@@ -142,7 +132,7 @@ void SleepHook()
     /**
      * bbtco_sleep可以用来在协程中挂起当前协程，
      * 使得其他协程可以继续执行。
-     * 
+     *
      * 注意：在Processer线程中，sleep会挂起当前协程，
      * 而不是整个线程。
      */
@@ -169,25 +159,13 @@ void SleepHook()
     printf("SleepHook end\n");
 }
 
-// bbtco_main 只是应用自定的函数名，由现有 bbtco 注册其调用。
-void bbtco_main()
+int bbtco_main()
 {
     RequireCoroutineContext();
     Normal();
     Defer();
     SleepHook();
-}
-
-int main()
-{
-    g_scheduler->Start();
-    auto main_task = std::make_shared<std::packaged_task<void()>>(bbtco_main);
-    auto completed = main_task->get_future();
-    bbtco[main_task]()
-    {
-        (*main_task)();
-    };
-    // 只等待应用入口返回；没有隐藏 main、runtime 启动器或 detached 任务排空。
-    completed.get();
     return 0;
 }
+
+BBTCO_MAIN()

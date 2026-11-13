@@ -1,11 +1,13 @@
-// cocond_queue_stress.cc — 测 CoCond 队列纯吞吐（无 sleep 限流）
-// 用法: CO_PROC_THREADS=8 ./cocond_queue_stress [dur_s] [nwaiter]
-//
-// 与 unified_stress 中 stress_cocond 的区别：
-//   unified_stress: notifier 每 500ms NotifyAll → 天花板 400 ops/s
-//   本测试: notifier 用 bbtco_yield 极限频率 → 队列 push/pop 成为瓶颈
-//
-// lockfree → std::queue+mutex 性能对照压测
+/**
+ * cocond_queue_stress.cc — 测 CoCond 队列纯吞吐（无 sleep 限流）
+ * 用法: CO_PROC_THREADS=8 ./cocond_queue_stress [dur_s] [nwaiter]
+ *
+ * 与 unified_stress 中 stress_cocond 的区别：
+ *   unified_stress: notifier 每 500ms NotifyAll → 天花板 400 ops/s
+ *   本测试: notifier 用 bbtco_yield 极限频率 → 队列 push/pop 成为瓶颈
+ *
+ * lockfree → std::queue+mutex 性能对照压测
+ */
 
 #include <bbt/coroutine/coroutine.hpp>
 #include <bbt/coroutine/sync/CoCond.hpp>
@@ -37,7 +39,9 @@ int main(int argc, char** argv)
     g_scheduler->Start();
     g_cond = bbtco_make_cocond();
 
-    // Waiters: Wait → ops++ → 立即重入（无 yield，无 sleep）
+    /**
+     * Waiters: Wait → ops++ → 立即重入（无 yield，无 sleep）
+     */
     for (int i = 0; i < nwaiter; ++i)
         bbtco_ref
         {
@@ -47,7 +51,9 @@ int main(int argc, char** argv)
             };
         };
 
-    // Notifier: 极限频率 NotifyAll（bbtco_yield 让权给调度器）
+    /**
+     * Notifier: 极限频率 NotifyAll（bbtco_yield 让权给调度器）
+     */
     bbtco_ref
     {
         while (g_running) {
@@ -65,7 +71,9 @@ int main(int argc, char** argv)
     double elapsed = std::chrono::duration<double>(t1 - t0).count();
     uint64_t ops = g_ops.load();
 
-    /* process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出 */
+    /**
+     * process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出
+     */
     printf("ops=%lu elapsed=%.2fs ops/s=%.0f\n", ops, elapsed, ops / elapsed);
     return 0;
 }

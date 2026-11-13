@@ -2,10 +2,7 @@
 
 class WatchDog {
 public:
-    void Feed()
-    {
-        m_last_feed_time = bbt::core::clock::gettime();
-    }
+    void Feed() { m_last_feed_time = bbt::core::clock::gettime(); }
 
     bool IsDead()
     {
@@ -72,5 +69,7 @@ int main()
     sleep(2);
     monitor_stop = true;
 
-    /* process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出 */
+    /**
+     * process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出
+     */
 }

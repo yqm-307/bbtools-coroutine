@@ -49,7 +49,10 @@ BOOST_AUTO_TEST_CASE(algorithm_migration_global_debt)
     Run(source, debtor, 80);
     Put(source, debtor);
     BOOST_REQUIRE(source.Take() == &anchor);
-    // 与 global 一样：只传递节点，不携带源队列/P 引用，不重置账目。
+
+    /**
+     * 与 global 一样：只传递节点，不携带源队列/P 引用，不重置账目。
+     */
     moodycamel::ConcurrentQueue<CfsEntity*> transit;
     BOOST_REQUIRE(transit.enqueue(source.Take()));
     CfsEntity* moved = nullptr;
@@ -61,7 +64,10 @@ BOOST_AUTO_TEST_CASE(algorithm_migration_global_debt)
     Put(target, fresh);
     Run(target, fresh, 40);
     Put(target, fresh);
-    // 债务必须是80：清零/直接比较旧绝对值都会让 debtor 提前当选。
+
+    /**
+     * 债务必须是80：清零/直接比较旧绝对值都会让 debtor 提前当选。
+     */
     Run(target, debtor, 1);
     BOOST_CHECK_EQUAL(debtor.ServiceUs(), 81u);
     BOOST_CHECK(target.Take() == &fresh);
@@ -75,16 +81,27 @@ BOOST_AUTO_TEST_CASE(algorithm_stable_wake_account_and_weight)
     Run(queue, sleeper, 10, true);
     Put(queue, running);
     BOOST_REQUIRE(queue.Pick() == &running);
-    // New/Wake 可在 Resume 期间进入，但不能覆盖当前运行者的 Account。
+
+    /**
+     * New/Wake 可在 Resume 期间进入，但不能覆盖当前运行者的 Account。
+     */
     Put(queue, incoming);
     Put(queue, sleeper);
     queue.Account(running, 100, false);
     Put(queue, running);
-    Run(queue, incoming, 10); // 相同键稳定
+
+    /**
+     * 相同键稳定
+     */
+    Run(queue, incoming, 10);
     Run(queue, sleeper, 10, true);
     Put(queue, later);
     Put(queue, sleeper);
-    Run(queue, later, 1); // wake 未保留长期历史信用抢在先入队的新任务前
+
+    /**
+     * wake 未保留长期历史信用抢在先入队的新任务前
+     */
+    Run(queue, later, 1);
     Run(queue, sleeper, 1);
     BOOST_CHECK_EQUAL(sleeper.ServiceUs(), 21u);
     BOOST_CHECK(queue.Take() == &running);
@@ -97,7 +114,11 @@ BOOST_AUTO_TEST_CASE(algorithm_stable_wake_account_and_weight)
     Put(weighted, heavy, 4);
     Run(weighted, light, 8);
     Put(weighted, light, 1);
-    Run(weighted, heavy, 0); // 零经过时间也正记账
+
+    /**
+     * 零经过时间也正记账
+     */
+    Run(weighted, heavy, 0);
     BOOST_CHECK_EQUAL(heavy.ServiceUs(), 9u);
     BOOST_CHECK(weighted.Take() == &light);
 }
@@ -109,7 +130,11 @@ BOOST_AUTO_TEST_CASE(algorithm_wait_preserves_debt_without_old_credit)
     Put(queue, sleeper);
     Put(queue, anchor);
     Run(queue, sleeper, 100, true);
-    Run(queue, anchor, 1000); // 等待期间本地 floor 已显著推进
+
+    /**
+     * 等待期间本地 floor 已显著推进
+     */
+    Run(queue, anchor, 1000);
     Put(queue, sleeper);
     Put(queue, fresh);
     Run(queue, fresh, 50);
@@ -152,7 +177,10 @@ BOOST_AUTO_TEST_CASE(single_p_external_progress_before_hot_release)
         });
     BOOST_REQUIRE(Until([&] { return turns.load() >= 100; }));
     const auto before = turns.load();
-    // 主线程是外部生产者；热点结束门保持关闭直到两条来源都获得执行。
+
+    /**
+     * 主线程是外部生产者；热点结束门保持关闭直到两条来源都获得执行。
+     */
     g_scheduler->RegistCoroutineTask([&] { submitted.set_value(); });
     BOOST_CHECK_EQUAL(waiter.Notify(CoEventValue::From(true)), 0);
     const bool submit_progress = Ready(submit_done);
@@ -211,11 +239,18 @@ BOOST_AUTO_TEST_CASE(multi_p_steal_preserves_running_progress)
         block_done.set_value();
     });
     BOOST_REQUIRE(Ready(blocked));
-    // source 正执行不 yield 的任务，且持有已运行过的 READY 热点积压。
+
+    /**
+     * source 正执行不 yield 的任务，且持有已运行过的 READY 热点积压。
+     */
     hold_other.set_value();
     const bool migrated = Until([&] { return migrated_turns.load() >= 100; });
     BOOST_CHECK(block_now.load());
-    BOOST_CHECK(migrated); // 在释放 source 结束门前，另一 P 已偷到并持续执行
+
+    /**
+     * 在释放 source 结束门前，另一 P 已偷到并持续执行
+     */
+    BOOST_CHECK(migrated);
     hot_release = true;
     block_release.set_value();
     BOOST_REQUIRE(Ready(hot_finished));

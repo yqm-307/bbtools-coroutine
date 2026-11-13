@@ -25,6 +25,7 @@
 | [docs/guides/stack-budget.md](docs/guides/stack-budget.md) | 协程入口栈预算工具与可选运行诊断 |
 | [docs/guides/real-client-acceptance.md](docs/guides/real-client-acceptance.md) | 真实客户端验收场景说明（发布 Gate） |
 | [docs/guides/ci.md](docs/guides/ci.md) | CI 流水线使用指南（唯一 CI 落点） |
+| [bbtools-pub README](https://github.com/yqm-307/bbtools-pub/blob/main/README.md) | 跨仓设计、编码、Review 与用例设计规范入口（固定 submodule） |
 | [.github/skills/bbtools-coroutine/SKILL.md](.github/skills/bbtools-coroutine/SKILL.md) | Agent 写调用代码的入口 |
 
 ## 安装
@@ -39,6 +40,7 @@
 ```shell
 git clone https://github.com/yqm-307/bbtools-coroutine.git
 cd bbtools-coroutine
+git submodule update --init --recursive
 ./scripts/install/install.sh    # 构建到 build-install 并安装到 ~/.local，无需 root
 ```
 

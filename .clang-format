@@ -1,4 +1,4 @@
-# bbt 三仓统一代码风格：函数定义大括号独占下一行，其余结构大括号同行；120 列；4 空格缩进。
+# bbt 代码风格：短小类内函数允许单行，其余函数定义大括号独占下一行；120 列；4 空格缩进。
 # 工具：clang-format 23.1.3（CI 与本地固定同一版本，见 docs/conventions.md §9）。
 # 第三方代码（bbt/coroutine/utils/lockfree）由 .clang-format-ignore 排除。
 BasedOnStyle: LLVM
@@ -7,7 +7,7 @@ IndentWidth: 4
 ContinuationIndentWidth: 4
 UseTab: Never
 ColumnLimit: 120
-# 函数（含构造/析构/类内成员定义）左大括号独占下一行；if/for/while/switch/类/struct/enum/namespace/try/catch/lambda 的大括号保持同行。
+# 除短小类内函数外，函数左大括号独占下一行；if/for/while/switch/类/struct/enum/namespace/try/catch/lambda 的大括号保持同行。
 # 使用 BreakBeforeBraces: Custom 时其余 BraceWrapping 项默认为 false（不换行），只按需显式打开。
 BreakBeforeBraces: Custom
 BraceWrapping:
@@ -21,8 +21,8 @@ ReferenceAlignment: Left
 BinPackArguments: true
 BinPackParameters: true
 BreakBeforeBinaryOperators: NonAssignment
-# 关掉短函数折行，否则空函数体/单语句函数体会被并回函数签名行，抵消上面的函数大括号换行。
-AllowShortFunctionsOnASingleLine: None
+# 空函数、简单访问器和短小类内函数保留单行；非平凡实现仍按正常规则换行。
+AllowShortFunctionsOnASingleLine: Inline
 AllowShortIfStatementsOnASingleLine: Never
 AllowShortLoopsOnASingleLine: false
 AllowShortLambdasOnASingleLine: Inline

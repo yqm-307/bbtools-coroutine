@@ -4,6 +4,12 @@
 **适用范围：** 所有 Agent 开发、PR、里程碑收口和版本发布
 **硬闸门：** GitHub Actions required checks、main branch ruleset、`v*` tag ruleset；未核对远端配置前不得视为已生效
 
+## 0. 规范与提示词入口
+
+跨仓共用的设计、编码、Review 与用例设计规范固定从 `third-party/bbtools-pub/README.md` 进入，按任务只展开对应职责路径。`AGENTS.md`、本文、`docs/architecture/` 与实际头文件补充 coroutine 的本地契约；发生冲突时以本仓明确约束和实际实现为准，并记录差异。写调用代码还需读取 `.github/skills/bbtools-coroutine/SKILL.md`。
+
+干净 clone 后先执行 `git submodule update --init --recursive`，再读取上述入口；submodule 之外的本地 pub 工作树改动不属于本仓规范证据。
+
 ## 1. 目标与职责
 
 Agent 负责在明确范围内自主完成：读取需求和契约、分析调用关系、实现、测试、创建 PR、修复业务代码导致的 CI 失败、回写证据。修改 CI/CD 配置、GitHub Actions、部署脚本或构建入口仍需用户确认；用户负责里程碑目标、计划设计、重大架构取舍、破坏性变更、进入受控使用期、RC 发布授权和 Stable 发布决策。

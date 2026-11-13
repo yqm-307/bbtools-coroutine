@@ -1,6 +1,8 @@
 #include "coeventvalue_dso_types.hpp"
 
-/* 属性 B：在另一个产物内读取 A 构造的载荷。 */
+/**
+ * 属性 B：在另一个产物内读取 A 构造的载荷。
+ */
 extern "C" bool dso_b_read(const bbt::coroutine::CoEventValue& value, std::int64_t* seq, std::uint32_t* code)
 {
     CoroutineWakePayload payload{};
@@ -13,7 +15,9 @@ extern "C" bool dso_b_read(const bbt::coroutine::CoEventValue& value, std::int64
     return true;
 }
 
-/* 同尺寸但不同登记 ID：必须拒绝且不改写 out。 */
+/**
+ * 同尺寸但不同登记 ID：必须拒绝且不改写 out。
+ */
 extern "C" bool dso_b_read_wrong_type(const bbt::coroutine::CoEventValue& value)
 {
     OtherWakePayload other{777, 777};
@@ -27,8 +31,10 @@ extern "C" std::uint32_t dso_b_payload_type_id()
     return bbt::coroutine::CoEventValueTraits<CoroutineWakePayload>::id;
 }
 
-/* 同尺寸不同身份（const void* 的不透明句柄 vs void* const* 的指针槽）：
- * 必须拒绝，且不得改写调用方 out。 */
+/**
+ * 同尺寸不同身份（const void* 的不透明句柄 vs void* const* 的指针槽）：
+ * 必须拒绝，且不得改写调用方 out。
+ */
 extern "C" bool dso_b_read_as_pointer_slot(const bbt::coroutine::CoEventValue& value)
 {
     void* const* slot = nullptr;

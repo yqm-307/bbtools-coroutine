@@ -23,50 +23,61 @@
 #include <errno.h>
 #include <atomic>
 
-/* 原函数指针表：dlsym(RTLD_NEXT) 取 libc 实现，static 变量每个 TU 各一份、各自在动态初始化期
+/**
+ * 原函数指针表：dlsym(RTLD_NEXT) 取 libc 实现，static 变量每个 TU 各一份、各自在动态初始化期
  * 解析。同名 C 符号是链接期入口，按「本线程能否跑协程」分流（不能跑的直通原函数）；协程 IO 由守卫
  * 临时设 O_NONBLOCK、结束恢复原 flags，不要求调用方预设，close 不分流。取不到时为 nullptr——只有
- * accept4 有降级路径，其余调用点不判空。TODO: 覆盖更多阻塞接口并支持非 Linux 平台。 */
-using g_bbt_sys_hook_socket_fn_t = int (*)(int /*domain*/, int /*type*/, int /*protocol*/);
-using g_bbt_sys_hook_connect_fn_t = int (*)(int /*socket*/, const struct sockaddr* /*address*/,
-                                            socklen_t /*address_len*/);
-using g_bbt_sys_hook_close_fn_t = int (*)(int /*fd*/);
-using g_bbt_sys_hook_sleep_fn_t = unsigned int (*)(unsigned int /*sec*/);
-using g_bbt_sys_hook_read_fn_t = ssize_t (*)(int /*fd*/, void* /*buf*/, size_t /*nbytes*/);
-using g_bbt_sys_hook_write_fn_t = ssize_t (*)(int /*fd*/, const void* /*buf*/, size_t /*n*/);
-using g_bbt_sys_hook_accept_fn_t = int (*)(int /*fd*/, __SOCKADDR_ARG /*addr*/, socklen_t* __restrict /*addr_len*/);
-using g_bbt_sys_hook_send_fn_t = ssize_t (*)(int /*fd*/, const void* /*buf*/, size_t /*len*/, int /*flags*/);
-using g_bbt_sys_hook_recv_fn_t = ssize_t (*)(int /*fd*/, void* /*buf*/, size_t /*len*/, int /*flags*/);
-using g_bbt_sys_hook_sendto_fn_t = ssize_t (*)(int /*fd*/, const void* /*buf*/, size_t /*len*/, int /*flags*/,
-                                               const struct sockaddr* /*dest_addr*/, socklen_t /*addrlen*/);
-using g_bbt_sys_hook_recvfrom_fn_t = ssize_t (*)(int /*fd*/, void* /*buf*/, size_t /*len*/, int /*flags*/,
-                                                 struct sockaddr* /*src_addr*/, socklen_t* /*addrlen*/);
-using g_bbt_sys_hook_recvmsg_fn_t = ssize_t (*)(int /*fd*/, struct msghdr* /*msg*/, int /*flags*/);
-using g_bbt_sys_hook_sendmsg_fn_t = ssize_t (*)(int /*fd*/, const struct msghdr* /*msg*/, int /*flags*/);
-using g_bbt_sys_hook_readv_fn_t = ssize_t (*)(int /*fd*/, const struct iovec* /*iov*/, int /*iovcnt*/);
-using g_bbt_sys_hook_writev_fn_t = ssize_t (*)(int /*fd*/, const struct iovec* /*iov*/, int /*iovcnt*/);
-// glibc 的 accept4 原型带 __nonnull；dlsym 指针按普通签名即可
-using g_bbt_sys_hook_accept4_fn_t = int (*)(int /*fd*/, __SOCKADDR_ARG /*addr*/, socklen_t* __restrict /*addr_len*/,
-                                            int /*flags*/);
-// 时间系 hook：签名与 <time.h>/<unistd.h> 原型一致
-using g_bbt_sys_hook_usleep_fn_t = int (*)(useconds_t /*usec*/);
-using g_bbt_sys_hook_nanosleep_fn_t = int (*)(const struct timespec* /*req*/, struct timespec* /*rem*/);
-using g_bbt_sys_hook_clock_nanosleep_fn_t = int (*)(clockid_t /*clock_id*/, int /*flags*/,
-                                                    const struct timespec* /*req*/, struct timespec* /*rem*/);
-// 多路复用系 hook：签名与 <poll.h>/<sys/select.h> 原型一致
-using g_bbt_sys_hook_poll_fn_t = int (*)(struct pollfd* /*fds*/, nfds_t /*nfds*/, int /*timeout_ms*/);
-using g_bbt_sys_hook_select_fn_t = int (*)(int /*nfds*/, fd_set* /*read*/, fd_set* /*write*/, fd_set* /*except*/,
-                                           struct timeval* /*timeout*/);
-using g_bbt_sys_hook_pselect_fn_t = int (*)(int /*nfds*/, fd_set* /*read*/, fd_set* /*write*/, fd_set* /*except*/,
-                                            const struct timespec* /*timeout*/, const sigset_t* /*sigmask*/);
-// DNS 系 hook：签名与 <netdb.h> 原型一致（dlsym 指针去掉 __restrict）
-using g_bbt_sys_hook_getaddrinfo_fn_t = int (*)(const char* /*node*/, const char* /*service*/,
-                                                const struct addrinfo* /*req*/, struct addrinfo** /*res*/);
-using g_bbt_sys_hook_getnameinfo_fn_t = int (*)(const struct sockaddr* /*sa*/, socklen_t /*salen*/, char* /*host*/,
-                                                socklen_t /*hostlen*/, char* /*serv*/, socklen_t /*servlen*/,
-                                                int /*flags*/);
-using g_bbt_sys_hook_gethostbyname_fn_t = struct hostent* (*)(const char* /*name*/);
-using g_bbt_sys_hook_gethostbyaddr_fn_t = struct hostent* (*)(const void* /*addr*/, socklen_t /*len*/, int /*type*/);
+ * accept4 有降级路径，其余调用点不判空。TODO: 覆盖更多阻塞接口并支持非 Linux 平台。
+ */
+using g_bbt_sys_hook_socket_fn_t = int (*)(int domain, int type, int protocol);
+using g_bbt_sys_hook_connect_fn_t = int (*)(int socket, const struct sockaddr* address, socklen_t address_len);
+using g_bbt_sys_hook_close_fn_t = int (*)(int fd);
+using g_bbt_sys_hook_sleep_fn_t = unsigned int (*)(unsigned int sec);
+using g_bbt_sys_hook_read_fn_t = ssize_t (*)(int fd, void* buf, size_t nbytes);
+using g_bbt_sys_hook_write_fn_t = ssize_t (*)(int fd, const void* buf, size_t n);
+using g_bbt_sys_hook_accept_fn_t = int (*)(int fd, __SOCKADDR_ARG addr, socklen_t* __restrict addr_len);
+using g_bbt_sys_hook_send_fn_t = ssize_t (*)(int fd, const void* buf, size_t len, int flags);
+using g_bbt_sys_hook_recv_fn_t = ssize_t (*)(int fd, void* buf, size_t len, int flags);
+using g_bbt_sys_hook_sendto_fn_t = ssize_t (*)(int fd, const void* buf, size_t len, int flags,
+                                               const struct sockaddr* dest_addr, socklen_t addrlen);
+using g_bbt_sys_hook_recvfrom_fn_t = ssize_t (*)(int fd, void* buf, size_t len, int flags, struct sockaddr* src_addr,
+                                                 socklen_t* addrlen);
+using g_bbt_sys_hook_recvmsg_fn_t = ssize_t (*)(int fd, struct msghdr* msg, int flags);
+using g_bbt_sys_hook_sendmsg_fn_t = ssize_t (*)(int fd, const struct msghdr* msg, int flags);
+using g_bbt_sys_hook_readv_fn_t = ssize_t (*)(int fd, const struct iovec* iov, int iovcnt);
+using g_bbt_sys_hook_writev_fn_t = ssize_t (*)(int fd, const struct iovec* iov, int iovcnt);
+
+/**
+ * glibc 的 accept4 原型带 __nonnull；dlsym 指针按普通签名即可
+ */
+using g_bbt_sys_hook_accept4_fn_t = int (*)(int fd, __SOCKADDR_ARG addr, socklen_t* __restrict addr_len, int flags);
+
+/**
+ * 时间系 hook：签名与 <time.h>/<unistd.h> 原型一致
+ */
+using g_bbt_sys_hook_usleep_fn_t = int (*)(useconds_t usec);
+using g_bbt_sys_hook_nanosleep_fn_t = int (*)(const struct timespec* req, struct timespec* rem);
+using g_bbt_sys_hook_clock_nanosleep_fn_t = int (*)(clockid_t clock_id, int flags, const struct timespec* req,
+                                                    struct timespec* rem);
+
+/**
+ * 多路复用系 hook：签名与 <poll.h>/<sys/select.h> 原型一致
+ */
+using g_bbt_sys_hook_poll_fn_t = int (*)(struct pollfd* fds, nfds_t nfds, int timeout_ms);
+using g_bbt_sys_hook_select_fn_t = int (*)(int nfds, fd_set* read, fd_set* write, fd_set* except,
+                                           struct timeval* timeout);
+using g_bbt_sys_hook_pselect_fn_t = int (*)(int nfds, fd_set* read, fd_set* write, fd_set* except,
+                                            const struct timespec* timeout, const sigset_t* sigmask);
+
+/**
+ * DNS 系 hook：签名与 <netdb.h> 原型一致（dlsym 指针去掉 __restrict）
+ */
+using g_bbt_sys_hook_getaddrinfo_fn_t = int (*)(const char* node, const char* service, const struct addrinfo* req,
+                                                struct addrinfo** res);
+using g_bbt_sys_hook_getnameinfo_fn_t = int (*)(const struct sockaddr* sa, socklen_t salen, char* host,
+                                                socklen_t hostlen, char* serv, socklen_t servlen, int flags);
+using g_bbt_sys_hook_gethostbyname_fn_t = struct hostent* (*)(const char* name);
+using g_bbt_sys_hook_gethostbyaddr_fn_t = struct hostent* (*)(const void* addr, socklen_t len, int type);
 
 static auto g_bbt_sys_hook_socket_func = (g_bbt_sys_hook_socket_fn_t)dlsym(RTLD_NEXT, "socket");
 static auto g_bbt_sys_hook_connect_func = (g_bbt_sys_hook_connect_fn_t)dlsym(RTLD_NEXT, "connect");
@@ -83,12 +94,17 @@ static auto g_bbt_sys_hook_recvmsg_func = (g_bbt_sys_hook_recvmsg_fn_t)dlsym(RTL
 static auto g_bbt_sys_hook_sendmsg_func = (g_bbt_sys_hook_sendmsg_fn_t)dlsym(RTLD_NEXT, "sendmsg");
 static auto g_bbt_sys_hook_readv_func = (g_bbt_sys_hook_readv_fn_t)dlsym(RTLD_NEXT, "readv");
 static auto g_bbt_sys_hook_writev_func = (g_bbt_sys_hook_writev_fn_t)dlsym(RTLD_NEXT, "writev");
-// 部分平台/静态链接场景 dlsym 可能取不到 accept4，Hook_Accept4 里做降级处理
+
+/**
+ * 部分平台/静态链接场景 dlsym 可能取不到 accept4，Hook_Accept4 里做降级处理
+ */
 static auto g_bbt_sys_hook_accept4_func = (g_bbt_sys_hook_accept4_fn_t)dlsym(RTLD_NEXT, "accept4");
 
-/* 测试 seam——claim 方在 BeginFdClose 之后、底层 close 之前
+/**
+ * 测试 seam——claim 方在 BeginFdClose 之后、底层 close 之前
  * 睡眠的毫秒数；置 >0 使另一线程能确定性观察到 closing 并发起并发
- * close（BeginFdClose=false 路径）。生产恒为 0，仅测试写。 */
+ * close（BeginFdClose=false 路径）。生产恒为 0，仅测试写。
+ */
 inline std::atomic<int> g_bbt_fd_close_stall_for_test_ms{0};
 static auto g_bbt_sys_hook_usleep_func = (g_bbt_sys_hook_usleep_fn_t)dlsym(RTLD_NEXT, "usleep");
 static auto g_bbt_sys_hook_nanosleep_func = (g_bbt_sys_hook_nanosleep_fn_t)dlsym(RTLD_NEXT, "nanosleep");
@@ -138,9 +154,14 @@ extern struct hostent* Hook_GetHostByAddr(const void* addr, socklen_t len, int t
 
 }
 
-// c api 接口导出声明
+/**
+ * c api 接口导出声明
+ */
 extern "C" {
-// 重新定义系统函数，这样所有动态库都会调用到我们的 hook 实现
+
+/**
+ * 重新定义系统函数，这样所有动态库都会调用到我们的 hook 实现
+ */
 int socket(int domain, int type, int protocol);
 int connect(int socket, const struct sockaddr* address, socklen_t address_len);
 int close(int fd);

@@ -1,4 +1,7 @@
-/** @file _EventHelper.hpp @brief bbtco_ev_* 宏的事件帮手：一次性 fd/定时器事件的注册器。 */
+/**
+ * @file _EventHelper.hpp
+ * @brief bbtco_ev_* 宏的事件帮手：一次性 fd/定时器事件的注册器。
+ */
 #pragma once
 #include <bbt/coroutine/detail/CoPoller.hpp>
 
@@ -15,11 +18,15 @@ public:
      * @param event 事件位（READABLE/WRITEABLE/TIMEOUT/FINALIZE），必须非空且不含 PERSIST。
      */
     explicit _EventHelper(int fd, short event, int ms);
+
     /**
      * @brief 同上，但触发后的回调交给指定 CoPool 执行；池只以 weak_ptr 持有，池已销毁则回退到直接注册协程。
      */
     explicit _EventHelper(int fd, short event, int ms, std::shared_ptr<pool::CoPool> pool);
-    /// @brief 释放自身对 Event 的持有（析构体为空）；外部释放 owner 不是取消入口，等待中的事件不会因此取消。
+
+    /**
+     * @brief 释放自身对 Event 的持有（析构体为空）；外部释放 owner 不是取消入口，等待中的事件不会因此取消。
+     */
     ~_EventHelper();
 
     /**
@@ -29,17 +36,25 @@ public:
     int operator-(const ExtCoEventCallback& event_handle);
 
 private:
-    /* 持有到触发为止；回调里置空是为了断开 helper → Event → 回调 → helper 的环 */
+    /**
+     * 持有到触发为止；回调里置空是为了断开 helper → Event → 回调 → helper 的环
+     */
     std::shared_ptr<bbt::pollevent::Event> m_pollevent{nullptr};
-    /* 只弱引用：池的寿命由创建者决定，事件登记不延长它 */
+
+    /**
+     * 只弱引用：池的寿命由创建者决定，事件登记不延长它
+     */
     std::weak_ptr<pool::CoPool> m_copool;
 
     int m_fd{-1};
     int m_timeout{-1};
 
     short m_event{-1};
-    /* 构造时的事件位校验结果；为 false 时 operator- 直接返回 -1，不去碰 Event */
+
+    /**
+     * 构造时的事件位校验结果；为 false 时 operator- 直接返回 -1，不去碰 Event
+     */
     bool m_arg_check_rlt{false};
 };
 
-} // bbt::coroutine
+}

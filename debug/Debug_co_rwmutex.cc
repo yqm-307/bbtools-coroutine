@@ -22,7 +22,10 @@ void rwlock_test()
                     Assert(n == m);
                     vec[i]++;
                     rwlock->RUnLock();
-                    // bbtco_sleep(1);
+
+                    /**
+                     * bbtco_sleep(1);
+                     */
                     bbtco_yield;
                 }
             };

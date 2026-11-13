@@ -1,4 +1,5 @@
 #include <bbt/coroutine/coroutine.hpp>
+#include <atomic>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -8,47 +9,56 @@
 
 #include "user_table.hpp"
 
+using namespace bbt::coroutine;
+
 void example1()
 {
-    bbt::core::thread::CountDownLatch latch{1};
+    std::atomic_bool done{false};
 
     bbtco[&]()
     {
         try {
-            // 创建数据库连接
+            /**
+             * 创建数据库连接
+             */
             MySQLConnection conn{"127.0.0.1", "root", "123456", "test_db", 3306};
 
             ResultSet resultSet = conn.ExecuteQuery("SELECT * FROM log_data LIMIT 10");
 
             MySQLResultParser::PrintResultSet(resultSet);
 
-            latch.Down();
+            done.store(true, std::memory_order_release);
         } catch (const std::exception& e) {
             std::cerr << "Database exception: " << e.what() << std::endl;
-            latch.Down();
+            done.store(true, std::memory_order_release);
         }
     };
 
-    latch.Wait();
+    while (!done.load(std::memory_order_acquire))
+        bbtco_sleep(1);
 }
 
 void example2(std::shared_ptr<UserService> userService)
 {
     std::cout << "开始高级MySQL连接池示例..." << std::endl;
 
-    bbt::core::thread::CountDownLatch mainLatch{1};
+    std::atomic_bool done{false};
 
-    bbtco[userService, &mainLatch]()
+    bbtco[userService, &done]()
     {
         try {
-            // 1. 创建用户表
+            /**
+             * 1. 创建用户表
+             */
             if (!userService->CreateUserTable()) {
                 std::cerr << "创建用户表失败" << std::endl;
-                mainLatch.Down();
+                done.store(true, std::memory_order_release);
                 return;
             }
 
-            // 2. 插入一些测试用户
+            /**
+             * 2. 插入一些测试用户
+             */
             std::cout << "\n插入测试用户..." << std::endl;
             std::vector<User> testUsers = {{0, "Alice", "alice@example.com", 25},
                                            {0, "Bob", "bob@example.com", 30},
@@ -56,11 +66,16 @@ void example2(std::shared_ptr<UserService> userService)
 
             for (const auto& user : testUsers) {
                 userService->InsertUser(user);
-                // bbtco_sleep(10); // 稍微延迟
+
+                /**
+                 * bbtco_sleep(10); // 稍微延迟
+                 */
                 bbtco_yield;
             }
 
-            // 3. 查询所有用户
+            /**
+             * 3. 查询所有用户
+             */
             std::cout << "\n查询所有用户..." << std::endl;
             auto users = userService->GetAllUsers();
             for (const auto& user : users) {
@@ -68,7 +83,9 @@ void example2(std::shared_ptr<UserService> userService)
                           << ", Age: " << user.age << std::endl;
             }
 
-            // 4. 更新用户
+            /**
+             * 4. 更新用户
+             */
             if (!users.empty()) {
                 std::cout << "\n更新第一个用户..." << std::endl;
                 User updateUser = users[0];
@@ -77,7 +94,9 @@ void example2(std::shared_ptr<UserService> userService)
                 userService->UpdateUser(updateUser);
             }
 
-            // 5. 再次查询验证更新
+            /**
+             * 5. 再次查询验证更新
+             */
             std::cout << "\n验证更新结果..." << std::endl;
             users = userService->GetAllUsers();
             for (const auto& user : users) {
@@ -89,10 +108,11 @@ void example2(std::shared_ptr<UserService> userService)
             std::cerr << "主流程错误: " << e.what() << std::endl;
         }
 
-        mainLatch.Down();
+        done.store(true, std::memory_order_release);
     };
 
-    mainLatch.Wait();
+    while (!done.load(std::memory_order_acquire))
+        bbtco_sleep(1);
 }
 
 void example3(std::shared_ptr<UserService> userService)
@@ -140,7 +160,9 @@ void example3(std::shared_ptr<UserService> userService)
 
     auto start = std::chrono::steady_clock::now();
 
-    // 开启10个协程不停的update用户
+    /**
+     * 开启10个协程不停的update用户
+     */
     for (int i = 0; i < update_co; ++i) {
         bbtco_desc("update user")[userService, &process_done_count, &update_success_count, &update_error_count, i]()
         {
@@ -150,7 +172,11 @@ void example3(std::shared_ptr<UserService> userService)
 
             for (int i = 0; i < update_users; ++i) {
                 User user;
-                user.id = (i % 3) + 1; // 更新ID 1-3的用户
+
+                /**
+                 * 更新ID 1-3的用户
+                 */
+                user.id = (i % 3) + 1;
                 user.name = "UpdatedUser" + std::to_string(i);
                 user.email = "updated" + std::to_string(i) + "@example.com";
                 user.age = dis(gen);
@@ -173,7 +199,10 @@ void example3(std::shared_ptr<UserService> userService)
     while (process_done_count < update_co)
         bbtco_sleep(100);
 
-    bbtco_sleep(1000); // 等待所有协程完成
+    /**
+     * 等待所有协程完成
+     */
+    bbtco_sleep(1000);
     std::cout << "\n高并发操作结果:" << std::endl;
     std::cout << "成功操作: " << update_success_count.load() << std::endl;
     std::cout << "失败操作: " << update_error_count.load() << std::endl;
@@ -182,17 +211,27 @@ void example3(std::shared_ptr<UserService> userService)
     std::cout << "总耗时: " << duration.count() << "ms" << std::endl;
 }
 
-int main()
+/**
+ * 默认栈与对象预算在 Start 前一次性生效；示例不再运行时改 GlobalConfig。
+ */
+RuntimeOptions MysqlOptions()
 {
-    g_bbt_coroutine_config->m_cfg_stack_size = 32 * 1024;
-    g_bbt_coroutine_config->m_cfg_max_coroutine = 1000;
-    g_bbt_coroutine_config->m_cfg_static_thread_num = 6;
-    g_scheduler->Start();
-    bbt::core::thread::CountDownLatch latch{1};
+    RuntimeOptions options;
+    options.initial_workers = 6;
+    options.default_stack = StackRequest{32 * 1024, true};
+    options.stacks = StackConfig{StackPolicy::Auto, {}, 1000, 256 * 1024 * 1024};
+    return options;
+}
+
+int bbtco_main()
+{
+    std::atomic_bool done{false};
 
     bbtco[&]()
     {
-        // 配置连接池
+        /**
+         * 配置连接池
+         */
         MySQLPoolConfig config;
         config.host = "127.0.0.1";
         config.user = "root";
@@ -201,7 +240,9 @@ int main()
         config.min_connections = 3;
         config.max_connections = 10;
 
-        // 创建连接池和用户服务
+        /**
+         * 创建连接池和用户服务
+         */
         auto pool = std::make_shared<MySQLConnectionPool>(config);
         auto userService = std::make_shared<UserService>(pool);
 
@@ -209,11 +250,19 @@ int main()
         example2(userService);
         example3(userService);
 
-        latch.Down();
+        done.store(true);
     };
 
-    latch.Wait();
-    /* process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出 */
+    /**
+     * 主协程让出等待示例结束：协程里不能用原生 latch 占住 Processer。
+     */
+    while (!done.load())
+        bbtco_sleep(100);
 
+    /**
+     * process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出
+     */
     return 0;
 }
+
+BBTCO_MAIN_WITH_OPTIONS(MysqlOptions())

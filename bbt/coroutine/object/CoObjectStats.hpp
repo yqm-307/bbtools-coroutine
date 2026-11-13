@@ -1,4 +1,5 @@
-/** @file CoObjectStats.hpp
+/**
+ * @file CoObjectStats.hpp
  * @brief 对象实际创建/析构的非 owning 统计；关闭不改变存活数。
  */
 #pragma once
@@ -18,10 +19,25 @@ namespace bbt::coroutine {
  * `destroyed_total`。
  */
 struct CoObjectStats {
-    std::uint64_t created_total{0};   ///< 成功创建累计数（含已析构对象）
-    std::uint64_t destroyed_total{0}; ///< 实际析构累计数
-    std::uint64_t alive{0};           ///< 当前存活数：created_total - destroyed_total
-    std::uint64_t peak_alive{0};      ///< 历史峰值存活数
+    /**
+     * 成功创建累计数（含已析构对象）
+     */
+    std::uint64_t created_total{0};
+
+    /**
+     * 实际析构累计数
+     */
+    std::uint64_t destroyed_total{0};
+
+    /**
+     * 当前存活数：created_total - destroyed_total
+     */
+    std::uint64_t alive{0};
+
+    /**
+     * 历史峰值存活数
+     */
+    std::uint64_t peak_alive{0};
 };
 
 /**
@@ -48,31 +64,20 @@ namespace detail {
  */
 class CoObjectCounters {
 public:
-    /// @brief 在同一临界区提交创建计数，并更新当前存活数与历史峰值。
-    void OnCreate() noexcept
-    {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        ++m_created;
-        ++m_alive;
-        if (m_alive > m_peak) {
-            m_peak = m_alive;
-        }
-    }
+    /**
+     * @brief 在同一临界区提交创建计数，并更新当前存活数与历史峰值。
+     */
+    void OnCreate() noexcept;
 
-    /// @brief 结算一次实际析构并更新当前存活数。
-    void OnDestroy() noexcept
-    {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        ++m_destroyed;
-        --m_alive;
-    }
+    /**
+     * @brief 结算一次实际析构并更新当前存活数。
+     */
+    void OnDestroy() noexcept;
 
-    /// @brief 在同一临界区内复制四个计数。
-    CoObjectStats GetStats() const noexcept
-    {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        return {m_created, m_destroyed, m_alive, m_peak};
-    }
+    /**
+     * @brief 在同一临界区内复制四个计数。
+     */
+    CoObjectStats GetStats() const noexcept;
 
 private:
     mutable std::mutex m_mutex;
@@ -82,8 +87,10 @@ private:
     std::uint64_t m_peak{0};
 };
 
-/// @brief 取该 kind 的计数累加器；首次创建时分配，发布后保持进程寿命。
+/**
+ * @brief 取该 kind 的计数累加器；首次创建时分配，发布后保持进程寿命。
+ */
 CoObjectCounters& GetOrCreateCoObjectCounters(std::string_view kind);
 
-} // namespace detail
-} // namespace bbt::coroutine
+}
+}

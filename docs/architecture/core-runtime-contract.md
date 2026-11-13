@@ -205,7 +205,7 @@ Hook 属于核心适配层，目标是参考 libco 的方式，尽可能将其�
 - native socket I/O、事件注册/撤销、fd close 与 backend 生命周期维持稳定 owner 串行域。**原始短回调与业务协程分层**：infra 原始 OnAccept/OnConnect/OnRead/OnWrite/OnClose 在 owner 的非业务协程边界执行，必须短、非阻塞、不可挂起，同连接不重入且不递归调用户回调；业务处理及可挂起同步外观由上层使用既有 CoWaiter/Chan/任务注册薄封装，业务协程仍可迁移 P。不强制为每连接/就绪自动创建业务协程，不再要求所有网络通知先进入受管业务事件快照。
 - 接收 ring 的存储、字节顺序及未消费数据归 infra；允许通过 infra 自有的最小同步访问面安全共享，**不要求 mutable 接收缓冲只能被 owner 消费**。OnRead 只通知，ring 是数据真源；try 访问竞争明确 Busy、零消费，组合 Peek/Consume 在短保护内，裸 view 不越保护、不挂起持 OS mutex。owner 遇竞争退让，保护释放/容量恢复的持久通知与登记后复查由 infra 兑现。所有用户回调和 Notify 在外层锁之外；关闭后已有接收数据仍可读，ring/状态寿命不依赖已销毁 socket/context。runtime 不托管该缓冲，不建设第二接收队列或等待仲裁。
 - bridge 仅负责有界命令、数据所有权/操作状态交接与既有通知，不直接 Resume、不要求协程回原 P。AsyncWrite 的提交接纳、本地发送完成和业务回包分开；已接纳操作的部分进度、唯一终态及超时仍在途责任由 infra 诚实提供。普通 fd errno、EOF、协程等待超时/取消不升级为 driver Failed，不自动关闭/重发；业务重试、分帧、请求匹配与连接使用策略归上层。精确网络 API/背压规则只在 infra 文档定义，不变成 runtime 公共 API。
-- Engine::Run 在非受管协程、非 owner 的宿主 native 线程运行控制域，不新建库内控制线程。宿主须明确保证 runtime 内部 EventLoop 独立持续推进；NO_LOOP 不能因 Run 占用唯一 LoopOnce 执行流而停止 Timer/等待维护。现有 IsInitialized 不是持续进展证明；runtime 不新增启动模式探活或 Stop/restart。网络启动拒绝及 RequestClose/Run 返回语义由 infra 定义。
+- Engine::Run 在非受管协程、非 owner 的 native 线程运行控制域；Run 本身不建线程。Engine 的窄 lifecycle 接缝由 infra 拥有其单 Engine native runner 与非阻塞物理回收，不新增常驻 control thread，也不让 framework 持有 runner/thread/future/join。宿主须明确保证 runtime 内部 EventLoop 独立持续推进；NO_LOOP 不能因 Run 占用唯一 LoopOnce 执行流而停止 Timer/等待维护。现有 IsInitialized 不是持续进展证明；runtime 不新增启动模式探活或 Stop/restart。网络启动拒绝及 RequestClose/Run 返回语义由 infra 定义。
 - 正常网络关闭仍由原 owner 推进；控制域同代同步解绑成功后才可独占旧 context 进行必要的最后清理。RequestClose 封口不等于资源已释放，Run 返回的收口语义由 infra 兑现，不等待上层业务任务返回或外部句柄归零。同步解绑没有 deadline，不捏造可取消解绑或硬时限。
 - 一次可恢复 Tick/Wait 失败时，infra 控制循环通过现有 QueryProcesserDriver 按持有 token 有限间隔复查，不依赖 runtime 新增失败 callback；每代明确报告错误、封口并保留已接纳责任，再同代同步解绑。全部 callback lease 退出后，控制线程才通过 infra 内部入口独占清理旧 context，不重绑、不向复用槽提交旧资源、不新增 runtime teardown/owner-transfer/restart。driver Failed 后不在控制域冒充 owner 补调用户原始回调；infra 用控制域错误、可查询冻结状态及内部完成订阅作为明确替代出口。
 - 物理关闭、取消完成 callback 的有界 drain 和旧 context 单执行者检查属于 infra。未收口时保持封口、资源可达与可重试，不发布 Stopped、不 DetachOwner、不释放 context；物理及 callback 均收口后才在 context 活着时拆 backend/DetachOwner 并释放。不得用 stop 丢 callback 伪造完成，也不等待业务 handler 自身返回。持续资源耗尽、永久阻塞或不获调度不承诺有界完成，不据此建设自愈/迁移平台。
@@ -228,9 +228,9 @@ Hook 属于核心适配层，目标是参考 libco 的方式，尽可能将其�
 
 ## 12. Co-only 入口、对象观测与三仓桥接边界
 
-本节记录当前的 Co-only 入口、对象观测与跨仓责任边界。运行时保持 §6 所述的 process-lifetime、单次初始化、无 `Scheduler::Stop`/restart；主入口维持普通 `main` + `bbtco` 注册。`IsInCoroutineContext()`、`RequireCoroutineContext()`、对象管理与统计入口已实现，并注册对应 CTest。framework/infra 消费这些入口时，不把网络 owner、业务 registry 或物理 fd 责任下沉到 runtime。
+本节记录当前的 Co-only 入口、对象观测与跨仓责任边界。运行时保持 §6 所述的 process-lifetime、单次初始化、无 `Scheduler::Stop`/restart；主入口由 runtime 的 `RuntimeMain` 拥有（§12.2）。`IsInCoroutineContext()`、`RequireCoroutineContext()`、对象管理与统计入口已实现，并注册对应 CTest。framework/infra 消费这些入口时，不把网络 owner、业务 registry 或物理 fd 责任下沉到 runtime。
 
-当前实现包括 `IsInCoroutineContext()`/`RequireCoroutineContext()`、`CoRuntimeOnly`、`CoObject`/`ManagerBase`/`MemberBase`/`MakeCoObject`/`GetCoObjectStats`，对应测试目标为 `coroutine.runtime_context_no_create`、`coroutine.runtime_context_runtime`、`coroutine.runtime_objects`。主入口保持普通 `main` + `bbtco` 注册（§12.2），不提供 `RunMainTask`/`MainNativeControl`。
+当前实现包括 `IsInCoroutineContext()`/`RequireCoroutineContext()`、`CoRuntimeOnly`、`CoObject`/`ManagerBase`/`MemberBase`/`MakeCoObject`/`GetCoObjectStats`，对应测试目标为 `coroutine.runtime_context_no_create`、`coroutine.runtime_context_runtime`、`coroutine.runtime_objects`。主入口目标语义见 §12.2：runtime 生成 native `main` 并负责启动、hook、主任务完成与退出码；不提供 `RunMainTask`/`MainNativeControl`/第二套启动桥。
 
 ### 12.1 上下文真源与 `CoRuntimeOnly`
 
@@ -249,33 +249,148 @@ public:
 
 `CoRuntimeOnly` 是无状态、无虚函数的能力标记与检查转发层；它不删除复制/移动，不自动检查构造/析构，不保存 TLS、线程 id、对象 owner 或计数。静态成员只转调 namespace 函数，真源仍为 `GetLocalCoroutineId()`。重要入口在副作用、入队、加锁或提交等待责任前检查；普通 getter、值对象、native callback 的短路径不机械注入检查。Release 构建同样执行 gate；使用 `result` 的重要接口直接调用 bool 查询并返回既有 `InvalidContext`/`operation_not_permitted`，不走 Require→throw→catch，也不让异常穿过非抛出公共接口。
 
-### 12.2 `bbtco_main` 与启动约定
+### 12.2 `bbtco_main` 主入口与 `RuntimeMain`
 
-已确认的实现约定是普通 `main` + 既有 `bbtco` 注册：`bbtco_main` 只是应用自己定义的普通函数名，由既有 `bbtco` 宏把它的调用登记为一个主协程任务；库不提供 `RunMainTask`、`MainNativeControl`、Engine Begin/Advance 或第二套启动桥接。
+主入口属于 `bbt/coroutine/runtime`：应用定义 `int bbtco_main()`，可选定义 `void setup_runtime()`、提交前 `int bbtco_main_thread_hook()` 与提交后 `int bbtco_main_host_hook(bbt::coroutine::HostHookContext&)`；生成的 native `main` 只调用 runtime 入口。`setup_runtime()` 在 Start 前执行，是设置既有 GlobalConfig 全部启动字段的唯一生命周期阶段；随后 RuntimeOptions 只覆盖 worker 数、默认栈和栈预算三类便捷输入，配置快照冻结后再执行 Start。需要非默认启动参数时，不提供第二个配置 hook 或依赖全局静态初始化。Strict/Auto 在 Start 前校验并应用到既有 StackPool，非法预算以 `StartFailed` 拒绝。
 
 ```cpp
-void bbtco_main() {
-    RequireCoroutineContext();
-    // 业务装配 / Install / Bind / Start / Stop / Join 全在本协程域
-}
+namespace bbt::coroutine {
 
-int main() {
-    g_scheduler->Start();
-    auto main_task = std::make_shared<std::packaged_task<void()>>(bbtco_main);
-    auto completed = main_task->get_future();
-    bbtco [main_task]() { (*main_task)(); };
-    completed.get();   // 只等主任务返回；不排空 detached，不隐式 Stop
-}
+struct StackRequest { std::size_t usable_bytes; bool protect; };
+enum class StackPolicy { Strict, Auto };
+struct StackClassLimit { StackRequest request; std::size_t max_objects; };
+struct StackConfig {
+    StackPolicy policy;
+    std::vector<StackClassLimit> strict_classes;
+    std::size_t auto_max_objects;
+    std::size_t auto_max_usable_bytes;
+};
+struct RuntimeOptions {
+    std::optional<std::size_t> initial_workers; // 无值沿用既有默认；有值必须 >= 1
+    std::optional<StackRequest> default_stack;  // 主任务及未显式指定栈的内部任务
+    std::optional<StackConfig> stacks;          // 无值使用 runtime 的有限默认预算
+};
+
+// 提交后 host hook 的运行时控制面：runtime 持有，hook 只登记与观察。
+class HostHookContext {
+public:
+    // 主任务（含未捕获异常）完成时恰好调用一次；hook 运行期任意时刻可登记，
+    // 已完成时立即在登记线程回调。回调在 runtime 内部锁之外执行，不得抛异常、不得阻塞。
+    // 登记为单槽。寿命只到 host hook 返回或抛异常：此后 runtime 丢弃未取出的登记、
+    // 不再发起新回调；与完成路径竞争而已被取出的回调无法撤销，仍可能在 hook 返回后执行，
+    // 所以闭包必须以值或自有共享状态捕获，runtime 不保护任意 hook 栈引用。
+    void OnMainTaskDone(std::function<void()> callback) noexcept;
+    bool MainTaskDone() const noexcept;
+};
+
+// 提交后 host hook：在原生 main 线程调用一次；允许宿主 native 阻塞入口，
+// 但不得调用 Co 原语、不得提交主任务。
+using HostHook = int (*)(HostHookContext&);
+
+class RuntimeMain {
+public:
+    enum class Terminal {
+        MainReturned,   // 主任务正常返回
+        HookRejected,   // 提交前 hook 返回非零，主任务未提交
+        HookThrew,      // 提交前 hook 抛出异常，主任务未提交
+        SetupThrew,     // setup_runtime 抛出异常，Start 未调用
+        StartFailed,    // runtime 启动/初始化失败
+        SubmitFailed,   // 主任务提交失败
+        MainThrew,      // 主任务未捕获异常
+        HostHookFailed, // 提交后 host hook 返回非零
+        HostHookThrew,  // 提交后 host hook 抛出异常
+    };
+    struct Completion { Terminal terminal; int exit_code; };
+
+    // 不抛异常；所有失败转换为非零 exit_code。
+    static Completion Run(int (*main_task)(), int (*native_hook)() = nullptr,
+                          const RuntimeOptions& options = {}) noexcept;
+    static Completion RunWithSetup(void (*setup_runtime)(), int (*main_task)(),
+                                   int (*native_hook)() = nullptr,
+                                   const RuntimeOptions& options = {}) noexcept;
+    // 提交后 host hook：主任务提交成功后才在原生 main 线程执行一次。
+    static Completion RunWithSetupAndHostHook(void (*setup_runtime)(),
+                                              int (*main_task)(), HostHook host_hook,
+                                              const RuntimeOptions& options = {}) noexcept;
+    // 包住配置表达式的求值/值构造；失败也兑现同一个 StartFailed 完成记录。
+    template<class OptionsFactory>
+    static Completion RunWithOptions(int (*main_task)(), int (*native_hook)(),
+                                     OptionsFactory make_options) noexcept;
+    template<class OptionsFactory>
+    static Completion RunWithSetupHostHookAndOptions(void (*setup_runtime)(),
+                                                     int (*main_task)(), HostHook host_hook,
+                                                     OptionsFactory make_options) noexcept;
+};
+
+} // namespace bbt::coroutine
+
+#define BBTCO_MAIN() \
+    int main() { return ::bbt::coroutine::RuntimeMain::Run(&bbtco_main).exit_code; }
+#define BBTCO_MAIN_WITH_HOOK() \
+    int main() { return ::bbt::coroutine::RuntimeMain::Run( \
+        &bbtco_main, &bbtco_main_thread_hook).exit_code; }
+#define BBTCO_MAIN_WITH_OPTIONS(options_expr) \
+    int main() { return ::bbt::coroutine::RuntimeMain::RunWithOptions( \
+        &bbtco_main, nullptr, [] { return (options_expr); }).exit_code; }
+#define BBTCO_MAIN_WITH_HOOK_AND_OPTIONS(options_expr) \
+    int main() { return ::bbt::coroutine::RuntimeMain::RunWithOptions( \
+        &bbtco_main, &bbtco_main_thread_hook, [] { return (options_expr); }).exit_code; }
+#define BBTCO_MAIN_WITH_SETUP() \
+    int main() { return ::bbt::coroutine::RuntimeMain::RunWithSetup( \
+        &setup_runtime, &bbtco_main).exit_code; }
+#define BBTCO_MAIN_WITH_SETUP_AND_HOOK() \
+    int main() { return ::bbt::coroutine::RuntimeMain::RunWithSetup( \
+        &setup_runtime, &bbtco_main, &bbtco_main_thread_hook).exit_code; }
+#define BBTCO_MAIN_WITH_SETUP_AND_OPTIONS(options_expr) \
+    int main() { return ::bbt::coroutine::RuntimeMain::RunWithSetupAndOptions( \
+        &setup_runtime, &bbtco_main, nullptr, [] { return (options_expr); }).exit_code; }
+#define BBTCO_MAIN_WITH_SETUP_HOOK_AND_OPTIONS(options_expr) \
+    int main() { return ::bbt::coroutine::RuntimeMain::RunWithSetupAndOptions( \
+        &setup_runtime, &bbtco_main, &bbtco_main_thread_hook, \
+        [] { return (options_expr); }).exit_code; }
+// 提交后 host hook：定义 int bbtco_main_host_hook(bbt::coroutine::HostHookContext&)。
+#define BBTCO_MAIN_WITH_SETUP_AND_HOST_HOOK() \
+    int main() { return ::bbt::coroutine::RuntimeMain::RunWithSetupAndHostHook( \
+        &setup_runtime, &bbtco_main, &bbtco_main_host_hook).exit_code; }
+#define BBTCO_MAIN_WITH_SETUP_HOST_HOOK_AND_OPTIONS(options_expr) \
+    int main() { return ::bbt::coroutine::RuntimeMain::RunWithSetupHostHookAndOptions( \
+        &setup_runtime, &bbtco_main, &bbtco_main_host_hook, \
+        [] { return (options_expr); }).exit_code; }
 ```
 
-- `g_scheduler->Start()` 在 native 主线程调用一次；`bbtco` 走既有 `RegistCoroutineTask` 投递，不新增注册语义、常驻线程或第二 runtime。
-- 主协程正常返回即进程成功路径；其未捕获异常经 `packaged_task`/future 传回 native 等待者，不产生 runtime 级「投递/启动」终态框架。业务需要收口时显式执行 Co 生命周期操作；`main` 返回不隐式排空 detached 任务、不新增 `Scheduler::Stop`。
-- native 域等待的只是主任务完成通知（示例用 `future.get()`，换成 latch/CV 等价），等待谓词持久、可复查，不存在「先通知后等待」的丢唤醒窗口。
-- 没有活动的 runtime 托管主入口，因此也不存在「仅活动 RunMainTask 的 Co 域可登记控制槽」的需求；infra/framework 的 Engine 桥接若需要，属于 R3 各自仓的 API 与 pin 议题，不在 coroutine 公共面新增类型。
+`setup_runtime()` 先在 native main 同步设置既有 GlobalConfig；随后 RuntimeOptions 工厂在同一 runtime 异常边界内最多求值一次，显式字段覆盖三类便捷输入。Start 前将全部 scheduler/stack pool 配置固化为 `RuntimeConfigSnapshot`，运行期组件只读取该快照；兼容保留的公开字段即使被后续代码改写，也不改变已启动 runtime 的配置。配置门冻结后固定执行 Start（单次）→ 提交前 native hook → 提交主任务 → 提交后 host hook → 等主任务与 host hook 都结束 → 返回。配置阶段构造、校验或应用失败均为非零失败，不调用 Start/hook、不提交主任务；先完整校验再应用，不留下半份可重试配置。没有 setup_runtime 的旧 `Run`/`BBTCO_MAIN*` 仍兼容，直接 Start 时由 Scheduler 完成冻结。
 
-### 12.2.1 启动接口边界
+`stacks` 有值时：Strict 要求非空、规范化键唯一、各 `max_objects > 0`，Auto 的两个字段必须为 0；Auto 要求 `strict_classes` 为空且两个上限均 > 0。校验尺寸/乘加溢出、默认栈是否为 Strict 已声明类，以及启动所需 worker/monitor 的精确规格与容量是否可接纳；不以扩大预算或跨桶分配修复非法输入。无值时的有限默认预算由实现记录，仍须通过同一校验。`initial_workers` 只覆盖既有 initial worker 数，既有 min/max/自动扩缩容校验不被绕过。
 
-coroutine 使用普通 `main` + `bbtco` 注册主协程任务，不提供 `RunMainTask`、`MainNativeControl`、`Advance` 或 native 推进槽。需要 native 域与协程域桥接的 Engine 能力由 infra/framework 负责。
+非默认消费示例（仅构造值，无启动副作用）：
+
+```cpp
+bbt::coroutine::RuntimeOptions MainOptions() {
+    using namespace bbt::coroutine;
+    RuntimeOptions o;
+    o.initial_workers = 1;
+    o.default_stack = StackRequest{128 * 1024, true};
+    return o;
+}
+// 定义 int bbtco_main() 后，替代无参数宏：
+BBTCO_MAIN_WITH_OPTIONS(MainOptions())
+// Strict 可增加：
+// o.stacks = StackConfig{StackPolicy::Strict, {{{128 * 1024, true}, 1024}}, 0, 0};
+// Auto 输入为 StackConfig{StackPolicy::Auto, {}, 1024, 128 * 1024 * 1024}。
+```
+
+约束如下：
+
+- hook 在 runtime Start 之后、native 主线程、任何主协程提交之前运行；不得挂起、不得调用 `bbtco_*`/Co 等待原语，也不能等待 Engine ready/closed/physical-released、执行 Engine::Run/native join 或阻塞等待 Co worker。runtime 配置已在 Start 前冻结；Engine/资源的装配与启动参数在主 Co 任务内、首次 Engine Run 前冻结，不混淆两次 Start。hook 非零则不提交主任务，进程退出码取该返回值；hook 抛异常即 `HookThrew`，按失败退出，不逃出 native main。
+- 提交后 host hook 在提交成功之后、同一 native 主线程、主任务并发运行期间执行一次。它只做宿主 native 工作的阻塞入口（framework 用它调用一次 `Engine::Run`），不能调用 Co 原语、不能提交主任务、不能假设主任务已发布任何状态；需要主任务的装配结果时用 `HostHookContext::OnMainTaskDone`/`MainTaskDone` 协调，并自行给有限等待。
+- host hook 完成与主任务完成都必须到达后 runtime 才返回。主任务（含未捕获异常）完成时 runtime 恰好一次调用已登记的 `OnMainTaskDone`；登记可在 hook 内任意时刻发生，若主任务已完成则立即在登记线程回调，回调一律在 runtime 内部锁之外执行（不持锁调用 hook 代码）。回调寿命只到 host hook 返回或抛异常为止：hook 先结束时 runtime 在同一线程丢弃未取出的登记，此后不再发起新回调，主任务之后完成既不丢失完成记录（仍兑现唯一 `MainCompletion`）也不会再调用该登记；但清除登记无法撤销已与完成路径竞争而取出的回调，它可能在 hook 返回后仍在执行，因此闭包必须以值或自有共享状态捕获，runtime 不保护任意 hook 栈引用。已发起的回调返回后 runtime 才发布主任务完成记录，`RuntimeMain` 返回时不存在本登记的在途回调；hook 抛异常同样按 `HostHookThrew` 收口并丢弃未取出的登记。该寿命规则只扩展既有单槽登记，不新增通用回调注册表，也不改提交前初始化 hook 与既有 `Run`/`BBTCO_MAIN*` 的兼容面。hook 先返回时 runtime 继续等主任务；主任务先完成时 runtime 继续等 hook 返回。完成记录仍只有一个，优先级：host hook 返回非零 → `HostHookFailed`（取该值）；host hook 抛出异常 → `HostHookThrew`（1）；主任务未捕获异常 → `MainThrew`（1）；否则 `MainReturned`（取主任务返回值）。提交前 hook 非零/抛异常仍为 `HookRejected`/`HookThrew`（主任务不提交）。
+- 两向退出是宿主责任，不是 runtime 的取消能力：主任务结束如何让 host hook 的阻塞调用返回（例如对共享 Engine 发 `RequestClose`），以及 host hook 失败如何让主任务结束（例如让主任务的有限等待观察到失败），都由 hook 与主任务之间的应用层约定保证；runtime 只保证通知恰好一次、返回前两边都结束，不提供第二个取消通道，也不用 `result.get()` 前后换位掩盖死等。
+- 主任务是一个普通受管协程，使用启动配置的默认栈请求（默认尺寸与保护属性），可正常 `bbt_co_await`。主任务正常返回即 `MainReturned`，进程退出码取其 `int` 返回值；未捕获异常在 runtime 边界转换为非零退出码。
+- 启动失败、hook 拒绝、提交失败、主任务返回/异常、host hook 返回/异常各自恰好兑现一次 `MainCompletion`（内部完成记录，仅一个 native 等待者）；重复 `RuntimeMain::Run`、在受管协程内调用或在 hook 中重入返回明确失败，不启动第二次 runtime、不进入永久等待、不重复通知。
+- 只等主任务与 host hook，不排空 detached 任务、不新增 `Scheduler::Stop`/restart、不隐式销毁进程寿命对象。业务收口必须在 `bbtco_main` 内显式完成；`main` 返回后未收口责任不转为已关闭。hook 未登记/未调用（旧入口）时行为与旧契约相同：只等主任务。
+- runtime 不消费或推进 Engine，不提供 native 网络回收槽。Engine 的创建、共享与关闭语义归应用/framework（Engine 主线程宿主契约 infra `docs/architecture/native-lifecycle-seam-contract.md`）；host hook 是应用自己的函数，runtime 只负责在主任务提交之后、原生 main 线程调用它一次，不 include infra、不认识 Engine、不执行 join，也不替 hook 决定等待期限。
+- 失败退出码：`StartFailed`、`SubmitFailed`、`HookThrew`、`HostHookThrew`、`MainThrew` 为 `1`；`HookRejected`/`HostHookFailed` 取 hook 返回值；正常主任务取主任务返回值。`0` 仅表示主任务正常返回且其返回值为 0；OS 对 0–255 之外取值的处理不在 runtime 承诺内。
+- `coroutine.runtime_main_*` 通过独立子进程断言真实退出码、配置/Start/hook/submit 顺序、一次执行及主任务完成；覆盖四种生成式宏、非标准异常、启动线程失败、提交分配失败、重入和不排空 detached 任务。新增 host hook 用例覆盖：hook 等主任务发布后才运行、主任务完成触发 host 关闭、完成先于登记（立即在登记线程回调）、登记与完成竞争（恰好一次）、hook 先返回/抛异常、在途回调与 hook 栈退出、host 失败唤醒主任务与退出码优先级、host 与主任务两边都结束才返回。`stack_policy` 覆盖 Strict/Auto 成功启动；具体预算与异步所有权由 `coroutine.stack_ownership_*` 验证。
 
 ### 12.3 `ICoObject`、`CoObject` 与统计契约
 
@@ -326,3 +441,31 @@ Manager 的共享对象索引只保存 `weak_ptr`；查询用一次 `if (auto ow
 | 下游消费 | coroutine 不新增网络或业务类型；framework/infra 使用其公开入口 | 通过公开头和依赖 pin 消费，不把网络 owner、业务 registry 或物理 fd 责任下沉到 runtime | 下游构建与消费验证按对应发布检查执行 |
 
 上述文件界定上下文与对象观测相关范围；不改 `AGENTS.md`、CI、配置、依赖 pin、共享安装目录或 Scheduler 停机模型。
+
+### 12.5 多尺寸栈与 CoPool 路由契约
+
+本节冻结 StackPool 与 CoPool 的语义。StackPool 的精确分桶、预算与异步交付已实现；CoPool 的尺寸路由、有界队列与自等待拒绝也已实现（`CoPoolOptions` + `Submit(StackRequest, …)`）。栈对象创建后地址与可用容量固定，运行中不扩栈、不换栈、不搬迁。
+
+- `StackRequest` 的值类型与 Start 前消费入口见 §12.2；`usable_bytes` 是可用容量承诺而非提示，按 `NormalizeSize` 页对齐后与 `protect` 组成唯一桶键 `(U, protect)`；0 非法。任何策略都只用请求对应的精确桶，不允许以小栈顶替大请求，也不允许跨桶兜底。
+- 策略是进程级 `StackPolicy`（`Strict` / `Auto`），由 §12.2 的 `RuntimeOptions.stacks` 在 `Start` 前一次性消费：`Strict` 只接受已配置尺寸类与各类硬容量；`Auto` 按真实 `StackRequest` 建立精确尺寸桶。`Auto` 不降低任务声明尺寸。
+- 预算：`Strict` 每类有硬 `max_objects`，全池上限为各类之和；`Auto` 同时受全池对象上限与全池可用字节预算约束。`live / borrowed / idle / pending` 与已提交字节数分别可观察；`pending` 在预留时即计入对象与字节预算，worker/monitor 栈也计入。超预算返回明确拒绝，不排队等待无界内存。
+- 异步交付唯一顺序：锁内预留 `pending` → 维护 lane（runtime 既有 native 维护执行流，非业务 Co worker）锁外分配 `Stack` → 提交为 `live+borrowed` 并生成 move-only `StackLease` → `Context` 接收 lease 并构造 fcontext → Coroutine 入队成功。任一步失败或取消都回滚 pending；已提交但未入队的 lease 归还池，不发布半初始化 Coroutine。业务 Co worker 上不得同步分配栈；Co 路径没有同步分配兜底，等待分配用既有 CoWaiter/awaitable 按调用方 deadline 收口。
+- `Update`/缩容只回收 idle，不触碰 borrowed/pending；`Release` 按 `Stack` 自身的 `(U, protect)` 回桶，不读当前全局默认值。
+
+实现边界与算法：
+
+- 默认 Auto 的对象上限取启动前 `m_cfg_stackpool_max_alloc_size`，可用字节预算为 **256 MiB**，计入 `live + pending`，保护页不计入可用字节。显式 Strict 的全池对象上限就是各类之和，不再叠加旧默认上限；显式 Auto 使用两个显式上限。直接构造池的旧入口保留动态 `borrowed + pending` 兼容限制，并同时执行有限 Auto 内存预算。
+- Auto 是按需补充，不预测尺寸、不做二次幂类或反馈控制：精确桶有 idle 就复用；没有则先检查对象/字节预算，压力下逐个回收 idle 直到可预留，否则立即拒绝。借出与预留对象不参与回收。已有平均用量采样仅影响定期 idle 缓存保留，不改变准入预算。
+- 维护 lane 复用 Scheduler 原有 `_OnUpdate` 的 native 执行流，每拍最多处理一个 FIFO 分配请求。队列只含已预留请求，长度受同一对象预算限制；不建线程、executor 或独立分配平台。THREAD/LOOP 自动推进；NO_LOOP 必须由 native 驱动 `LoopOnce`，不驱动时只能等待、取消或到期，绝不在 Co 上同步分配兜底。
+- `StackLease` 是带池归还器的 `unique_ptr`，请求记录共享延寿但栈不共享。Context 值接收 lease，成员构造、callable、fcontext 或描述失败均由唯一 owner 回收；Scheduler 只在完全构造后锁内入队，队列拒绝或抛出由局部 `unique_ptr<Coroutine>` 锁外销毁。任何可挂起的 Acquire 均在 global/map/admission 锁外。
+- `Acquire(request, WaitOptions)` 使用既有 CoWaiter，取消/超时/事件登记失败以 `StackWaitError::Status()` 区分，实际分配故障保留原异常。未开始的取消移除队列并撤回 pending；已进入系统分配不能强制中断，保留 pending 字节到分配返回，随后销毁或归还晚到栈。维护流交付前检查绝对 deadline，不交付已经过期的分配。完成与协程取消仍遵循 Waiter 首胜仲裁。
+- `Observe()` 在同一把池锁下读取 live/borrowed/idle/pending 和 committed/pending 可用字节；归还成功从 borrowed 转 idle，字节预算只有 idle 真正回收时才释放，不把缓存伪报为已释放内存。局部池必须活过全部 lease 和在途请求；全局池保持进程寿命。
+- Scheduler 的 P worker 使用 pthread 原生栈，Start 不消耗 StackPool 栈；默认类必须至少容纳主任务一个栈。这里的 worker/monitor 计数指 CoPool 的真实 Co 栈，它们与主任务、普通 Co 使用同一 Acquire，不享有预算豁免；其尺寸和固定数量的创建前校验归 CoPool。
+- 比此更简单的现成路径不足以闭合责任：原 StackPool 已有精确桶与锁外分配，却是同步裸指针交付；std/Boost 的栈分配器不处理本库 pending 预算、CoWaiter 取消和 Scheduler 入队。实现只补请求记录与 move-only lease，继续复用 Stack、池锁、CoWaiter 与 native 维护流。
+
+`coroutine.stack_ownership_*` 覆盖 12 KiB/128 KiB × 两种保护属性、对象/字节预算、idle 压力回收与 borrowed 地址稳定、native/Co 分配故障、队列/Context/提交失败、pending/committed 取消、deadline 和单 worker 推进。测试先用维护流屏障证明阶段，再触发故障/取消，并核对调用次数及资源计数。CoPool 路由的要求与实现口径：
+
+- `CoPool` 是固定 worker 的尺寸路由器：创建时每个 worker 类给定不可变 `StackRequest` 与固定 worker 数；`Submit` 携带 `StackRequest`，只路由到精确匹配的类。空类、满队列、停止后提交返回明确拒绝；不跨尺寸兜底、不无界排队、不为单个任务临时建栈。
+- 活性：每类 worker 只执行本类任务，挂起任务只占用本类一个 worker，不承诺跨类借用。禁止同一 CoPool 内的等待依赖（任务 A 等待提交到同一池的任务 B）；这是使用前提，CoPool 不做死锁检测。HTTP 等模块的 writer/sequencer 必须使用独立类或独立池，不得占用 handler 类 worker。
+- `Release`：封口拒绝新提交，唤醒排队者，已排队未执行的 future 以 broken_promise 兑现，等待 worker/monitor 协程退出；只允许在本池 worker 之外的域调用，池内 worker 调用是自等待编程错误，抛 `std::logic_error`，不得等待自身。Co 域调用不得占用本池 worker。
+- 实现口径：`CoPoolClassConfig{request, worker_num, queue_capacity}` 在 `Create(CoPoolOptions)` 构造期校验（规范化键唯一、worker 数与队列容量非零），并用 `StackPool::CanAdmit` 在创建任何 worker 前核对各类 worker 栈与 monitor 默认栈的准入；不通过以 `std::runtime_error` 拒绝，创建中途失败回收已登记 worker 后才抛出，不留半成品池。`Submit(StackRequest, …)` 返回 `CoPoolSubmitStatus`，`NoExactClass` 覆盖未声明规格与未携带尺寸的提交（尺寸路由池没有默认类，旧 `Submit(callback)`/`SubmitWithFuture` 在这类池上直接拒绝）。每类队列容量固定，worker 数固定；任务异常沿用 future/回调/计数三条隔离路径。`Release` 的退出等待用 `m_created_workers`/`m_exited_workers` 账目：Co 域让出，native 域短睡，因此单 Processer 也能收口；自等待检查在封口之前。`coroutine.copool_router_*` 与 `coroutine.copool` 覆盖上述路径。

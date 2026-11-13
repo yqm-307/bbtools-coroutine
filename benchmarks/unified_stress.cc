@@ -1,5 +1,7 @@
-// unified_stress.cc — 统一压测：单进程 6 模块并发
-// 用法: ./unified_stress [duration_s] [busy_us] [sleep_us] [--module=X] [--threads=N]
+/**
+ * unified_stress.cc — 统一压测：单进程 6 模块并发
+ * 用法: ./unified_stress [duration_s] [busy_us] [sleep_us] [--module=X] [--threads=N]
+ */
 
 #include <bbt/coroutine/coroutine.hpp>
 #include <bbt/coroutine/sync/CoMutex.hpp>
@@ -18,16 +20,22 @@
 #include <thread>
 #include <chrono>
 
-// CPU control helpers
+/**
+ * CPU control helpers
+ */
 static int g_busy_us = 0;
 static int g_sleep_us = 0;
 
-// busy-spin for us microseconds (only in coroutine context)
+/**
+ * busy-spin for us microseconds (only in coroutine context)
+ */
 #define cpu_spin(us) do { \
     if((us)>0){volatile uint64_t _s=fatigue::now_us();while(fatigue::now_us()-_s<(uint64_t)(us));} \
 } while(0)
 
-// yield to scheduler (replaces bbtco_yield with CPU-aware version)
+/**
+ * yield to scheduler (replaces bbtco_yield with CPU-aware version)
+ */
 #define cpu_yield() do { cpu_spin(g_busy_us); bbtco_sleep(1); } while(0)
 
 using namespace bbt::coroutine::sync;
@@ -41,7 +49,9 @@ static fatigue::Metrics g_mt_chan("chan");
 static fatigue::Metrics g_mt_copool("copool");
 static fatigue::Metrics g_mt_coroutine("coroutine");
 
-// 全局状态(bbtco_ref [&] 可安全捕获)
+/**
+ * 全局状态(bbtco_ref [&] 可安全捕获)
+ */
 static std::shared_ptr<CoMutex> g_cs_m;
 static volatile int g_cs_a, g_cs_b;
 static std::shared_ptr<CoRWMutex> g_rs_rw;
@@ -50,7 +60,10 @@ static std::shared_ptr<CoCond> g_ds_cond;
 static std::unique_ptr<std::atomic_int[]> g_ds_alive;
 static std::atomic_int g_ds_frame{0};
 static const int g_ds_nco = 200;
-// timeout 压力协程的单独计数（不参与 CoCond waiter ops / FATIGUE_METRIC）
+
+/**
+ * timeout 压力协程的单独计数（不参与 CoCond waiter ops / FATIGUE_METRIC）
+ */
 static std::atomic_int g_ds_pressure_ticks{0};
 static const int g_ds_npressure = 128;
 static Chan<uint64_t, 1000> g_ch_buf;
@@ -177,7 +190,10 @@ static void stress_cocond()
                 g_mt_cocond.ops_total++;
             };
         };
-    // timeout 压力协程：bbtco_sleep(1) 高频 tick，与 CoCond waiter 同场争抢调度，验证公平性疲劳场景
+
+    /**
+     * timeout 压力协程：bbtco_sleep(1) 高频 tick，与 CoCond waiter 同场争抢调度，验证公平性疲劳场景
+     */
     for (int i = 0; i < g_ds_npressure; ++i)
         bbtco_ref
         {
@@ -255,12 +271,16 @@ static void stress_chan()
 
 static void stress_chan_close()
 {
-    // 测试 Close 后读缓冲语义：Close 不应丢弃数据，读空后才返回 -1
+    /**
+     * 测试 Close 后读缓冲语义：Close 不应丢弃数据，读空后才返回 -1
+     */
     static Chan<uint64_t, 500> g_close_buf;
     static std::atomic_bool g_phase1_done{false};
     static const int n_fill = 400;
 
-    // Phase 1: 填充缓冲 → Close → 读者应能读完
+    /**
+     * Phase 1: 填充缓冲 → Close → 读者应能读完
+     */
     bbtco_ref
     {
         for (int i = 0; i < n_fill; ++i)
@@ -279,7 +299,10 @@ static void stress_chan_close()
             n++;
             g_mt_chan.ops_total++;
         }
-        // ret == -1: 关闭+空 ✅
+
+        /**
+         * ret == -1: 关闭+空 ✅
+         */
         if (ret == -1)
             g_mt_chan.chan_reads++;
         else
@@ -326,7 +349,11 @@ int main(int argc, char** argv)
     int dur = 3600;
     const char* module = nullptr;
     int proc_threads = 0;
-    int pos = 0; // positional arg index
+
+    /**
+     * positional arg index
+     */
+    int pos = 0;
 
     for (int i = 1; i < argc; ++i) {
         if (strncmp(argv[i], "--module=", 9) == 0)
@@ -396,12 +423,19 @@ int main(int argc, char** argv)
     }
     g_running = 0;
     std::this_thread::sleep_for(std::chrono::seconds(1));
-    // 显式释放协程池，避免静态析构顺序 UB：
-    // g_ps_pool（文件级 static）析构晚于 g_scheduler（函数级 static 单例），
-    // 若依赖隐式析构，CoPool::Release() 会访问已析构的 g_scheduler（use-after-free），
-    // 在无优化构建下表现为 5ms 死循环（CI 复现）。
+
+    /**
+     * 显式释放协程池，避免静态析构顺序 UB：
+     * g_ps_pool（文件级 static）析构晚于 g_scheduler（函数级 static 单例），
+     * 若依赖隐式析构，CoPool::Release() 会访问已析构的 g_scheduler（use-after-free），
+     * 在无优化构建下表现为 5ms 死循环（CI 复现）。
+     */
     g_ps_pool.reset();
-    stop_all(); /* process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出 */
+
+    /**
+     * process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出
+     */
+    stop_all();
     printf("[unified_stress] done\n");
     return 0;
 }

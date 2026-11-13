@@ -33,7 +33,9 @@ using namespace bbt::coroutine;
 using namespace bbt::coroutine::sync;
 using bbt::coroutine::detail::Coroutine;
 
-/* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。 */
+/**
+ * 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
+ */
 namespace {
 void EnsureRuntime()
 {
@@ -58,18 +60,22 @@ bool CoroutineSuspended(std::atomic<Coroutine*>& co)
     return p != nullptr && p->GetStatus() == bbt::coroutine::detail::CoroutineStatus::CO_SUSPEND;
 }
 
-/* 与 int64 同尺寸、不同登记 ID：端到端错类型读取必须失败 */
+/**
+ * 与 int64 同尺寸、不同登记 ID：端到端错类型读取必须失败
+ */
 struct SameSizeOtherPayload {
     std::int64_t seq{0};
     std::uint32_t code{0};
 };
-} // namespace
+}
 
 BBT_COEVENT_VALUE_REGISTER_TYPE(SameSizeOtherPayload, 0x301);
 
 BOOST_AUTO_TEST_SUITE(CoWaiterPayloadTest)
 
-/* ① 登记成功后回调内同步投递：Completed 且取回同类型载荷，回调只执行一次 */
+/**
+ * ① 登记成功后回调内同步投递：Completed 且取回同类型载荷，回调只执行一次
+ */
 BOOST_AUTO_TEST_CASE(t_sync_notify_in_callback_delivers_payload)
 {
     EnsureRuntime();
@@ -104,7 +110,9 @@ BOOST_AUTO_TEST_CASE(t_sync_notify_in_callback_delivers_payload)
     BOOST_CHECK(has_value.load());
 }
 
-/* ② 首胜载荷锁定：等待者恢复前连续两次 Notify，第二次失败且不覆盖赢家 */
+/**
+ * ② 首胜载荷锁定：等待者恢复前连续两次 Notify，第二次失败且不覆盖赢家
+ */
 BOOST_AUTO_TEST_CASE(t_first_win_payload_locked)
 {
     EnsureRuntime();
@@ -137,7 +145,9 @@ BOOST_AUTO_TEST_CASE(t_first_win_payload_locked)
     BOOST_CHECK_EQUAL(got.load(), 7);
 }
 
-/* ③ 定时器首胜：超时不得返回败方载荷，也不得残留上一次结果 */
+/**
+ * ③ 定时器首胜：超时不得返回败方载荷，也不得残留上一次结果
+ */
 BOOST_AUTO_TEST_CASE(t_timeout_first_win_has_no_payload)
 {
     EnsureRuntime();
@@ -151,7 +161,11 @@ BOOST_AUTO_TEST_CASE(t_timeout_first_win_has_no_payload)
     {
         WaitOptions options;
         options.deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds{50};
-        CoEventValue out = CoEventValue::From(std::int64_t{5}); // 预置旧值
+
+        /**
+         * 预置旧值
+         */
+        CoEventValue out = CoEventValue::From(std::int64_t{5});
         st.store(waiter->WaitWithCallback(options, {}, &out));
         std::int64_t v = 0;
         got.store(out.Get(v) ? v : -1);
@@ -165,7 +179,9 @@ BOOST_AUTO_TEST_CASE(t_timeout_first_win_has_no_payload)
     BOOST_CHECK_EQUAL(got.load(), -1);
 }
 
-/* ④ 无参 Notify 唤醒带参等待：Completed，但本次通知没带载荷 */
+/**
+ * ④ 无参 Notify 唤醒带参等待：Completed，但本次通知没带载荷
+ */
 BOOST_AUTO_TEST_CASE(t_plain_notify_gives_empty_payload)
 {
     EnsureRuntime();
@@ -191,7 +207,9 @@ BOOST_AUTO_TEST_CASE(t_plain_notify_gives_empty_payload)
     BOOST_CHECK(!has_value.load());
 }
 
-/* ⑤ 非粘滞：fresh waiter 无等待者时带参 Notify 失败，且不留下隐藏完成位 */
+/**
+ * ⑤ 非粘滞：fresh waiter 无等待者时带参 Notify 失败，且不留下隐藏完成位
+ */
 BOOST_AUTO_TEST_CASE(t_fresh_notify_fails_and_not_sticky)
 {
     EnsureRuntime();
@@ -212,10 +230,16 @@ BOOST_AUTO_TEST_CASE(t_fresh_notify_fails_and_not_sticky)
     };
 
     BOOST_REQUIRE_EQUAL(done.WaitTimeout(5000), 0);
-    BOOST_CHECK(st.load() == WaitStatus::TimedOut); // 旧通知没有被错误复用
+
+    /**
+     * 旧通知没有被错误复用
+     */
+    BOOST_CHECK(st.load() == WaitStatus::TimedOut);
 }
 
-/* ⑥ 登记失败不投递回调：RuntimeUnavailable、回调计数 0、输出为空 */
+/**
+ * ⑥ 登记失败不投递回调：RuntimeUnavailable、回调计数 0、输出为空
+ */
 BOOST_AUTO_TEST_CASE(t_regist_fail_does_not_deliver)
 {
     EnsureRuntime();
@@ -246,7 +270,9 @@ BOOST_AUTO_TEST_CASE(t_regist_fail_does_not_deliver)
     BOOST_CHECK(!has_value.load());
 }
 
-/* ⑦ 晚到通知不污染后续等待：超时解绑后旧 Notify 失败，新等待用自己的载荷完成 */
+/**
+ * ⑦ 晚到通知不污染后续等待：超时解绑后旧 Notify 失败，新等待用自己的载荷完成
+ */
 BOOST_AUTO_TEST_CASE(t_late_notify_does_not_pollute_next_wait)
 {
     EnsureRuntime();
@@ -285,7 +311,9 @@ BOOST_AUTO_TEST_CASE(t_late_notify_does_not_pollute_next_wait)
     BOOST_CHECK_EQUAL(got.load(), 11);
 }
 
-/* ⑧ 协程级取消首胜：Cancelled 且不携带任何载荷 */
+/**
+ * ⑧ 协程级取消首胜：Cancelled 且不携带任何载荷
+ */
 BOOST_AUTO_TEST_CASE(t_cancel_first_win_has_no_payload)
 {
     EnsureRuntime();
@@ -311,7 +339,9 @@ BOOST_AUTO_TEST_CASE(t_cancel_first_win_has_no_payload)
     BOOST_CHECK(!has_value.load());
 }
 
-/* ⑨ 组合等待带载荷：fd/deadline/custom 首胜中 custom 携带载荷 */
+/**
+ * ⑨ 组合等待带载荷：fd/deadline/custom 首胜中 custom 携带载荷
+ */
 BOOST_AUTO_TEST_CASE(t_combined_wait_delivers_payload)
 {
     EnsureRuntime();
@@ -336,7 +366,9 @@ BOOST_AUTO_TEST_CASE(t_combined_wait_delivers_payload)
     BOOST_CHECK_EQUAL(got.load(), 42);
 }
 
-/* ⑩ 端到端错类型：同尺寸不同登记 ID 的类型读不回，输出不被改写 */
+/**
+ * ⑩ 端到端错类型：同尺寸不同登记 ID 的类型读不回，输出不被改写
+ */
 BOOST_AUTO_TEST_CASE(t_wrong_type_read_rejected_after_delivery)
 {
     EnsureRuntime();
@@ -362,9 +394,11 @@ BOOST_AUTO_TEST_CASE(t_wrong_type_read_rejected_after_delivery)
     BOOST_CHECK(out_untouched.load());
 }
 
-/* ⑪ 并发 Notify 首胜（多线程同时投递不同载荷，真实握手屏障）：
+/**
+ * ⑪ 并发 Notify 首胜（多线程同时投递不同载荷，真实握手屏障）：
  *    恰一次成功、交付载荷与赢家一致、败方不覆盖；r1 指出原「首胜」用例只是
- *    同线程顺序两发，不能证明多线程竞争下的首胜与载荷归属。 */
+ *    同线程顺序两发，不能证明多线程竞争下的首胜与载荷归属。
+ */
 BOOST_AUTO_TEST_CASE(t_concurrent_notify_single_winner_payload)
 {
     EnsureRuntime();
@@ -385,7 +419,9 @@ BOOST_AUTO_TEST_CASE(t_concurrent_notify_single_winner_payload)
         done.Down();
     };
 
-    /* 等待者真正进入挂起状态（登记完成）后再并发投递，不用 sleep 猜时序 */
+    /**
+     * 等待者真正进入挂起状态（登记完成）后再并发投递，不用 sleep 猜时序
+     */
     BOOST_REQUIRE(WaitUntil([&]() { return CoroutineSuspended(co_p); }));
 
     constexpr int kThreads = 8;
@@ -400,8 +436,12 @@ BOOST_AUTO_TEST_CASE(t_concurrent_notify_single_winner_payload)
             ts.emplace_back([&, i]() {
                 const std::int64_t payload = 100 + i;
                 ready.fetch_add(1, std::memory_order_release);
+
+                /**
+                 * 屏障：同时投递
+                 */
                 while (!go.load(std::memory_order_acquire))
-                    std::this_thread::yield(); // 屏障：同时投递
+                    std::this_thread::yield();
                 if (waiter->Notify(CoEventValue::From(payload)) == 0) {
                     ok.fetch_add(1);
                     winner.store(payload);
@@ -419,9 +459,17 @@ BOOST_AUTO_TEST_CASE(t_concurrent_notify_single_winner_payload)
 
     BOOST_REQUIRE_EQUAL(done.WaitTimeout(5000), 0);
     BOOST_CHECK(st.load() == WaitStatus::Completed);
-    BOOST_CHECK_EQUAL(ok.load(), 1); // 恰一次首胜
+
+    /**
+     * 恰一次首胜
+     */
+    BOOST_CHECK_EQUAL(ok.load(), 1);
     BOOST_CHECK_EQUAL(failed.load(), kThreads - 1);
-    BOOST_CHECK_EQUAL(winner.load(), got.load()); // 载荷与赢家一致，败方不覆盖
+
+    /**
+     * 载荷与赢家一致，败方不覆盖
+     */
+    BOOST_CHECK_EQUAL(winner.load(), got.load());
     BOOST_CHECK_NE(got.load(), 0);
 }
 

@@ -1,4 +1,5 @@
-/** @file Chan.hpp
+/**
+ * @file Chan.hpp
  * @brief 协程 Channel：有缓冲与无缓冲两种，读写不满/空时挂起而不是阻塞线程。
  */
 #pragma once
@@ -24,9 +25,14 @@ public:
     typedef TItem ItemType;
     typedef std::shared_ptr<Chan> SPtr;
 
-    /// @brief 构造空缓冲 Chan，初始为打开状态。
+    /**
+     * @brief 构造空缓冲 Chan，初始为打开状态。
+     */
     Chan();
-    /// @brief 析构：未关闭时先 Close() 并唤醒等待者。
+
+    /**
+     * @brief 析构：未关闭时先 Close() 并唤醒等待者。
+     */
     ~Chan();
 
     /**
@@ -70,9 +76,15 @@ public:
      * @return 0 成功；1 超时；-1 已关闭；-2 等待失败
      */
     virtual int TryWrite(const ItemType& item, int timeout) override;
-    /// @brief 关闭 Chan：置关闭标志、唤醒所有等待者，缓冲里的数据留给读者读完。
+
+    /**
+     * @brief 关闭 Chan：置关闭标志、唤醒所有等待者，缓冲里的数据留给读者读完。
+     */
     virtual void Close() override;
-    /// @brief 是否已关闭；任意线程可读（原子标志）。
+
+    /**
+     * @brief 是否已关闭；任意线程可读（原子标志）。
+     */
     virtual bool IsClosed() override;
 
     /**
@@ -83,11 +95,20 @@ public:
      *  补上"Try 失败与注册之间"的丢唤醒窗口（CoSelect 回调里已处理）。
      */
     void AddReadWatcher(const CoWaiter::SPtr& waiter);
-    /// @brief 注销读观察者；未注册过则无操作。
+
+    /**
+     * @brief 注销读观察者；未注册过则无操作。
+     */
     void RemoveReadWatcher(const CoWaiter::SPtr& waiter);
-    /// @brief 注册写观察者：可写/关闭时额外 Notify 它，语义同 AddReadWatcher。
+
+    /**
+     * @brief 注册写观察者：可写/关闭时额外 Notify 它，语义同 AddReadWatcher。
+     */
     void AddWriteWatcher(const CoWaiter::SPtr& waiter);
-    /// @brief 注销写观察者；未注册过则无操作。
+
+    /**
+     * @brief 注销写观察者；未注册过则无操作。
+     */
     void RemoveWriteWatcher(const CoWaiter::SPtr& waiter);
 
     /**
@@ -102,15 +123,12 @@ public:
     /**
      * @brief 缓冲队列最大容量
      */
-    size_t capacity() const
-    {
-        return (size_t)m_max_size;
-    }
+    size_t capacity() const { return (size_t)m_max_size; }
 
 protected:
     /**
      * @brief 挂起协程直到可读或者eof
-     * @return 0表示可读，-1表示失败 
+     * @return 0表示可读，-1表示失败
      */
     int _WaitUntilEnableRead(const detail::CoroutineOnYieldCallback& cb = nullptr);
 
@@ -139,7 +157,9 @@ protected:
     int _WaitUntilEnableWriteOrTimeout(CoWaiter::SPtr cond, int timeout_ms,
                                        const detail::CoroutineOnYieldCallback& cb = nullptr);
 
-    // 唤醒读等待者并通知读观察者；返回 Notify 的结果（0 命中，-1 无等待者）。
+    /**
+     * 唤醒读等待者并通知读观察者；返回 Notify 的结果（0 命中，-1 无等待者）。
+     */
     int _OnEnableRead();
 
     /**
@@ -148,7 +168,9 @@ protected:
      */
     int _OnEnableWrite();
 
-    /* 创建一个可写等待者（未入队）；入队时机由 _RegisterEnableWriteCond 决定 */
+    /**
+     * 创建一个可写等待者（未入队）；入队时机由 _RegisterEnableWriteCond 决定
+     */
     CoWaiter::SPtr _CreateEnableWriteCond();
 
     /**
@@ -175,34 +197,42 @@ protected:
 protected:
     const int m_max_size{-1};
     std::queue<ItemType> m_item_queue;
-    mutable std::mutex m_item_queue_mutex; // mutable：size() const 需持锁读
+
+    /**
+     * mutable：size() const 需持锁读
+     */
+    mutable std::mutex m_item_queue_mutex;
     std::atomic<ChanStatus> m_run_status{ChanStatus::CHAN_DEFAUTL};
     std::atomic_bool m_is_reading{false};
 
-    /* 用来实现读写时挂起和可读写时唤醒协程 */
+    /**
+     * 用来实现读写时挂起和可读写时唤醒协程
+     */
     CoWaiter::SPtr m_enable_read_cond{nullptr};
     std::queue<CoWaiter::SPtr> m_enable_write_conds;
 
-    /* CoSelect 观察者，锁语义同 m_item_queue_mutex 保护的其余成员 */
+    /**
+     * CoSelect 观察者，锁语义同 m_item_queue_mutex 保护的其余成员
+     */
     std::vector<CoWaiter::SPtr> m_read_watchers;
     std::vector<CoWaiter::SPtr> m_write_watchers;
 };
 
 /**
  * @brief 无缓冲 Chan：Write 入队并唤醒读端；读端未就绪时挂起，关闭也会解除等待。
- * 复用 Chan<TItem, 1> 的锁与等待队列。
+ *
+ * 复用 Chan<TItem, 1> 的锁、状态和等待队列：另写一个全新特化要复制全部同步协议，
+ * 而带缓冲版本的元素队列在这里用不上。
  */
-template <class TItem>
-class Chan<TItem, 0> :
-    /* 复用 Chan<TItem, 1> 的锁、状态和等待队列：另写一个全新特化要复制全部同步协议，
-     * 而带缓冲版本的元素队列在这里用不上。 */
-    private Chan<TItem, 1> {
+template <class TItem> class Chan<TItem, 0> : private Chan<TItem, 1> {
 public:
     typedef Chan<TItem, 1> BaseType;
     typedef typename BaseType::ItemType ItemType;
     typedef std::shared_ptr<Chan<TItem, 0>> SPtr;
 
-    // 这三个接口直接沿用带缓冲版本的实现（操作的是基类队列，不是 m_item_cache_ref）。
+    /**
+     * 这三个接口直接沿用带缓冲版本的实现（操作的是基类队列，不是 m_item_cache_ref）。
+     */
     using BaseType::TryRead;
     using BaseType::TryWrite;
     using BaseType::ReadAll;
@@ -219,9 +249,14 @@ public:
      */
     virtual int Read(ItemType& item) override;
 
-    /// @brief 关闭 Chan：置关闭标志并唤醒读写两侧的等待者。
+    /**
+     * @brief 关闭 Chan：置关闭标志并唤醒读写两侧的等待者。
+     */
     virtual void Close() override;
-    /// @brief 是否已关闭；任意线程可读（原子标志）。
+
+    /**
+     * @brief 是否已关闭；任意线程可读（原子标志）。
+     */
     virtual bool IsClosed() override;
 
 private:
@@ -238,41 +273,40 @@ template <class TItem, int Max> class WriteChan : boost::noncopyable {
 public:
     typedef typename Chan<TItem, Max>::ItemType ItemType;
 
-    /// @brief 用已有 Chan 构造写端，与调用方共享所有权。
-    explicit WriteChan(std::shared_ptr<Chan<TItem, Max>> chan) : m_chan(chan)
-    {
-    }
+    /**
+     * @brief 用已有 Chan 构造写端，与调用方共享所有权。
+     */
+    explicit WriteChan(std::shared_ptr<Chan<TItem, Max>> chan) : m_chan(chan) {}
 
-    /// @brief 转发 Chan::Write。
-    int Write(const ItemType& item)
-    {
-        return m_chan->Write(item);
-    }
-    /// @brief 转发 Chan::TryWrite。
-    int TryWrite(const ItemType& item)
-    {
-        return m_chan->TryWrite(item);
-    }
-    /// @brief 转发 Chan::TryWrite(ms)。
-    int TryWrite(const ItemType& item, int ms)
-    {
-        return m_chan->TryWrite(item, ms);
-    }
-    /// @brief 关闭底层 Chan。
-    void Close()
-    {
-        m_chan->Close();
-    }
-    /// @brief 底层 Chan 是否已关闭。
-    bool IsClosed()
-    {
-        return m_chan->IsClosed();
-    }
-    /// @brief 写入并折算成 bool：成功为 true。
-    bool operator<<(const ItemType& item)
-    {
-        return *m_chan << item;
-    }
+    /**
+     * @brief 转发 Chan::Write。
+     */
+    int Write(const ItemType& item) { return m_chan->Write(item); }
+
+    /**
+     * @brief 转发 Chan::TryWrite。
+     */
+    int TryWrite(const ItemType& item) { return m_chan->TryWrite(item); }
+
+    /**
+     * @brief 转发 Chan::TryWrite(ms)。
+     */
+    int TryWrite(const ItemType& item, int ms) { return m_chan->TryWrite(item, ms); }
+
+    /**
+     * @brief 关闭底层 Chan。
+     */
+    void Close() { m_chan->Close(); }
+
+    /**
+     * @brief 底层 Chan 是否已关闭。
+     */
+    bool IsClosed() { return m_chan->IsClosed(); }
+
+    /**
+     * @brief 写入并折算成 bool：成功为 true。
+     */
+    bool operator<<(const ItemType& item) { return *m_chan << item; }
 
 private:
     std::shared_ptr<Chan<TItem, Max>> m_chan;
@@ -286,46 +320,45 @@ template <class TItem, int Max> class ReadChan : boost::noncopyable {
 public:
     typedef typename Chan<TItem, Max>::ItemType ItemType;
 
-    /// @brief 用已有 Chan 构造读端，与调用方共享所有权。
-    explicit ReadChan(std::shared_ptr<Chan<TItem, Max>> chan) : m_chan(chan)
-    {
-    }
+    /**
+     * @brief 用已有 Chan 构造读端，与调用方共享所有权。
+     */
+    explicit ReadChan(std::shared_ptr<Chan<TItem, Max>> chan) : m_chan(chan) {}
 
-    /// @brief 转发 Chan::Read。
-    int Read(ItemType& item)
-    {
-        return m_chan->Read(item);
-    }
-    /// @brief 转发 Chan::TryRead。
-    int TryRead(ItemType& item)
-    {
-        return m_chan->TryRead(item);
-    }
-    /// @brief 转发 Chan::TryRead(ms)。
-    int TryRead(ItemType& item, int ms)
-    {
-        return m_chan->TryRead(item, ms);
-    }
-    /// @brief 转发 Chan::ReadAll。
-    int ReadAll(std::vector<ItemType>& items)
-    {
-        return m_chan->ReadAll(items);
-    }
-    /// @brief 底层 Chan 是否已关闭。
-    bool IsClosed()
-    {
-        return m_chan->IsClosed();
-    }
-    /// @brief 读出并折算成 bool：成功为 true。
-    bool operator>>(ItemType& item)
-    {
-        return *m_chan >> item;
-    }
+    /**
+     * @brief 转发 Chan::Read。
+     */
+    int Read(ItemType& item) { return m_chan->Read(item); }
+
+    /**
+     * @brief 转发 Chan::TryRead。
+     */
+    int TryRead(ItemType& item) { return m_chan->TryRead(item); }
+
+    /**
+     * @brief 转发 Chan::TryRead(ms)。
+     */
+    int TryRead(ItemType& item, int ms) { return m_chan->TryRead(item, ms); }
+
+    /**
+     * @brief 转发 Chan::ReadAll。
+     */
+    int ReadAll(std::vector<ItemType>& items) { return m_chan->ReadAll(items); }
+
+    /**
+     * @brief 底层 Chan 是否已关闭。
+     */
+    bool IsClosed() { return m_chan->IsClosed(); }
+
+    /**
+     * @brief 读出并折算成 bool：成功为 true。
+     */
+    bool operator>>(ItemType& item) { return *m_chan >> item; }
 
 private:
     std::shared_ptr<Chan<TItem, Max>> m_chan;
 };
 
-} // namespace bbt::coroutine::sync
+}
 
 #include <bbt/coroutine/sync/__TChan.hpp>

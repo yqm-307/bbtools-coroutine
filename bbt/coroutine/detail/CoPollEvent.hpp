@@ -18,7 +18,8 @@ namespace bbt::coroutine::detail {
  * CoroutineEvent：一次等待的生命周期（CAS 无互斥锁）。
  *
  * 注册 → 就绪/超时/自定义唤醒/对端关闭 → 单次完成；或 UnRegist 取消。
- * 重复 Trigger 只有第一次有效。析构走 DeferDestroyEvent，须在 PollOnce 线程回收底层 Event。
+ * 重复 Trigger 只有第一次有效。析构把底层 Event 交 DeferDestroyEvent，由 PollOnce 线程回收；
+ * CoPollEvent 自身可在任意线程析构。
  *
  * 内部阶段见 CoPollEventPhase；GetStatus() 是对外粗映射
  * （PENDING→POLLEVENT_TRIGGER，CANCELLED→POLLEVENT_CANNEL，拼写沿用现有公开枚举）。
@@ -31,13 +32,17 @@ public:
     friend class CoPoller;
     typedef std::shared_ptr<CoPollEvent> SPtr;
 
-    /** @brief 建立一次等待的事件对象；cb 不能为空（构造期断言），仅在事件完成时调用（含 Trigger(POLL_EVENT_CANCELLED)），UnRegist 不回调。 */
+    /**
+     * @brief 建立一次等待的事件对象；cb 不能为空（构造期断言），仅在事件完成时调用（含 Trigger(POLL_EVENT_CANCELLED)），UnRegist 不回调。
+     */
     static SPtr Create(CoroutineId id, const CoPollEventCallback& cb);
 
     BBTATTR_FUNC_CTOR_HIDDEN CoPollEvent(CoroutineId id, const CoPollEventCallback& cb);
     ~CoPollEvent();
 
-    /* 监听事件位（EventOpt 口径）→ PollEventType 位；绑过自定义 key 时额外置 POLL_EVENT_CUSTOM。 */
+    /**
+     * 监听事件位（EventOpt 口径）→ PollEventType 位；绑过自定义 key 时额外置 POLL_EVENT_CUSTOM。
+     */
     int GetEvent() const;
     bool IsListening() const;
     bool IsFinal() const;
@@ -45,42 +50,45 @@ public:
     CoPollEventId GetId() const;
     int GetFd() const;
     int64_t GetTimeout() const;
-    /* 登记时采样的 fd 代际；非 fd 事件时为 0。
-     * 该值在 InitFdEvent 建立等待时采样（establish-epoch），_TrackWaiter
-     * 与恢复路径都以它作为「本次等待所针对的 fd 代际」基线。 */
-    uint64_t GetWaitEpoch() const noexcept
-    {
-        return m_wait_epoch;
-    }
 
-    /* 首胜 Notify 携带的内联载荷（带参等待）。载荷归属本事件，也就归属
+    /**
+     * 登记时采样的 fd 代际；非 fd 事件时为 0。
+     * 该值在 InitFdEvent 建立等待时采样（establish-epoch），_TrackWaiter
+     * 与恢复路径都以它作为「本次等待所针对的 fd 代际」基线。
+     */
+    uint64_t GetWaitEpoch() const noexcept { return m_wait_epoch; }
+
+    /**
+     * 首胜 Notify 携带的内联载荷（带参等待）。载荷归属本事件，也就归属
      * 这一轮等待，因此下一轮等待不会覆写上一轮尚未取走的结果。
      * 并发约定：所有读写都在拥有本事件的 CoWaiter::m_notify_mutex 临界区
-     * 内完成，故本类型不再自带锁。 */
-    void SetNotifyValue(const bbt::coroutine::CoEventValue& value)
-    {
-        m_notify_value = value;
-    }
-    bbt::coroutine::CoEventValue GetNotifyValue() const
-    {
-        return m_notify_value;
-    }
+     * 内完成，故本类型不再自带锁。
+     */
+    void SetNotifyValue(const bbt::coroutine::CoEventValue& value) { m_notify_value = value; }
+    bbt::coroutine::CoEventValue GetNotifyValue() const { return m_notify_value; }
 
-    /* 绑 fd、事件位与超时；锁内采样 fd 代际作为本次等待基线（m_wait_epoch）。若此刻 fd 已
+    /**
+     * 绑 fd、事件位与超时；锁内采样 fd 代际作为本次等待基线（m_wait_epoch）。若此刻 fd 已
      * 处于 closing，则把 POLL_EVENT_CLOSED 锁存为首胜结果并返回 0——建立成功但结果已定。
-     * 非 INITED、timeout<0 或重复调用返回 -1。 */
+     * 非 INITED、timeout<0 或重复调用返回 -1。
+     */
     int InitFdEvent(int fd, short events, int timeout);
-    /* 绑自定义 key，唤醒由 NotifyCustomEvent/NotifyCancelEvent 触发；重复绑定或非 INITED 返回 -1。 */
+
+    /**
+     * 绑自定义 key，唤醒由 NotifyCustomEvent/NotifyCancelEvent 触发；重复绑定或非 INITED 返回 -1。
+     */
     int InitCustomEvent(int key, void* args);
 
-    /* 注册、触发、反注册都是线程安全的，可在任意线程执行。
+    /**
+     * 注册、触发、反注册都是线程安全的，可在任意线程执行。
      * Trigger：INITED/ARMING/ARMED 把触发掩码写进 PENDING（首胜，返回 0）；PARKED 由调用线程
      * 就地推进到 TRIGGERING 并执行 _Complete；终态或竞争失败返回 -1。
      * Regist：INITED→ARMING→ARMED，失败时把 ARMING 收敛为 CANCELLED 并返回 -1；已 PENDING
      * 返回 0；发现 fd 已换代则拒绝登记，以 POLL_EVENT_CLOSED 自触后仍返回 0。
      * UnRegist：INITED/ARMING/ARMED/PARKED → CANCELLED 返回 0，已是终态返回 -1。
      * CommitPark：Context 已切回 Processer 的提交边界；ARMED→PARKED 返回 false（等触发方
-     * 完成），PENDING（触发已先胜）→TRIGGERING 就地完成并返回 true。 */
+     * 完成），PENDING（触发已先胜）→TRIGGERING 就地完成并返回 true。
+     */
     int Trigger(short trigger_events);
     int Regist();
     int UnRegist();
@@ -94,8 +102,11 @@ public:
      * fd 无记录时返回 0（等价于初始代际）。
      */
     static uint64_t FdEpoch(int fd);
-    /* 测试探针：fd 上当前登记的活跃 waiter 数（锁内统计未过期项）；
-     * 无槽位返回 0。仅用于测试同步，不参与协议判定。 */
+
+    /**
+     * 测试探针：fd 上当前登记的活跃 waiter 数（锁内统计未过期项）；
+     * 无槽位返回 0。仅用于测试同步，不参与协议判定。
+     */
     static size_t FdWaiterCount(int fd);
 
     /**
@@ -120,11 +131,13 @@ public:
      * 期间到达的同号 fd waiter 会观察到 closing/新 epoch，不被本批误摘。
      */
     static bool BeginFdClose(int fd);
+
     /**
      * @brief BeginFdClose 的收尾：底层 close 已返回后调用，解除 closing 标记。
      * 必须在同一线程、紧接底层 close 之后调用，无论成功或失败。
      */
     static void EndFdClose(int fd);
+
     /**
      * @brief 非 claim 方的有界等待（close 所有权协议）
      *
@@ -137,8 +150,11 @@ public:
      * 不值得为登记表引入 cv 依赖与唤醒开销。
      */
     static bool WaitFdCloseReady(int fd, int timeout_ms);
-    /* 测试探针：fd 槽位当前是否处于 closing（claim 方底层 close 未返回）。
-     * 仅用于测试同步，不参与协议判定。 */
+
+    /**
+     * 测试探针：fd 槽位当前是否处于 closing（claim 方底层 close 未返回）。
+     * 仅用于测试同步，不参与协议判定。
+     */
     static bool FdIsClosing(int fd);
 
 protected:
@@ -160,41 +176,55 @@ private:
     CoPollEventCallback m_onevent_callback{nullptr};
     std::atomic<uint64_t> m_state{PackCoPollEventState(CoPollEventPhase::INITED)};
 
-    /* fd → 活跃等待事件注册表 + fd 代际
+    /**
+     * fd → 活跃等待事件注册表 + fd 代际
      * FdSlot::closing：BeginFdClose 已摘表、底层 close 尚未返回期间的标记；
      * 此窗口内到达的同号 waiter 不登记，由 Regist 尾部以 POLL_EVENT_CLOSED 自触。
      * FdSlot::epoch：建立等待（InitFdEvent）时锁内采样为 m_wait_epoch 基线；
      * 只要 BeginFdClose 推进过（无论 close 是否已返回），登记即拒绝。
      * 槽位持久性：epoch>0 的槽位永不擦除——FdEpoch 对缺席槽位返回 0，
      * 会把它与「从未 close 过」的首代 fd 别名，丢失 epoch 校验能力。
-     * 仅 epoch==0 且无 waiter 才摘除。 */
+     * 仅 epoch==0 且无 waiter 才摘除。
+     */
     struct FdSlot {
         uint64_t epoch{0};
         bool closing{false};
         std::vector<std::weak_ptr<CoPollEvent>> waiters;
     };
     using FdSlots = std::unordered_map<int, FdSlot>;
-    /* fd→epoch/waiter 注册表与它的互斥量：worker / poller 在进程寿命内持续
+
+    /**
+     * fd→epoch/waiter 注册表与它的互斥量：worker / poller 在进程寿命内持续
      * 可达，故与 Scheduler 等五个单例同一策略——进程寿命持有、不在静态
      * 退出期析构（只泄漏，退出由 OS 回收）。函数局部静态定义见 .cc，
-     * 避免动态初始化顺序问题。 */
+     * 避免动态初始化顺序问题。
+     */
     static std::mutex& _WaitersMtx();
     static FdSlots& _Slots();
-    /* _TrackWaiter 返回 false 表示登记时 fd 已 closing，或建立等待
+
+    /**
+     * _TrackWaiter 返回 false 表示登记时 fd 已 closing，或建立等待
      * （InitFdEvent）至今 epoch 已推进——说明底层 asio wait 绑定的 fd 对象
      * 已死亡/换代，不可等待（由 Regist 以 POLL_EVENT_CLOSED 自触）。
      * 补充：InitFdEvent 在 establish 采样时若已观察到 closing，会直接
      * 把事件锁存为 PENDING(CLOSED)，根本走不到本登记判定——本函数只管
-     * 「establish 之后才发生 close」的残留窗口。 */
+     * 「establish 之后才发生 close」的残留窗口。
+     */
     bool _TrackWaiter();
     void _UntrackWaiter();
-    /* 本轮首胜 Notify 的载荷（见 SetNotifyValue/GetNotifyValue 的并发约定） */
+
+    /**
+     * 本轮首胜 Notify 的载荷（见 SetNotifyValue/GetNotifyValue 的并发约定）
+     */
     bbt::coroutine::CoEventValue m_notify_value{};
-    /* 建立等待时（InitFdEvent）锁内采样的 fd 代际基线（establish-epoch）；
+
+    /**
+     * 建立等待时（InitFdEvent）锁内采样的 fd 代际基线（establish-epoch）；
      * _TrackWaiter 据此判定建立窗口内是否发生过 close，恢复路径据此与
      * FdEpoch 比对识别挂起期间的 close+reuse。注意「establish 时已在
      * closing」不依赖本字段——InitFdEvent 已把该情形锁存为
-     * PENDING(CLOSED)，见 .cc establish_closing 注释。 */
+     * PENDING(CLOSED)，见 .cc establish_closing 注释。
+     */
     uint64_t m_wait_epoch{0};
 };
 

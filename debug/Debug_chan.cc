@@ -1,7 +1,9 @@
 #include <atomic>
 #include <bbt/coroutine/coroutine.hpp>
 #include <bbt/core/clock/Clock.hpp>
-// #include <bbt/coroutine/sync/CoCond.hpp>
+/**
+ * #include <bbt/coroutine/sync/CoCond.hpp>
+ */
 #include <bbt/coroutine/sync/Chan.hpp>
 using namespace bbt::coroutine;
 
@@ -30,25 +32,34 @@ void ReadMulti()
     std::mutex mutex;
     std::atomic_int count = 0;
 
-    // 注册一个协程
+    /**
+     * 注册一个协程
+     */
     bbtco[&count, &cond, &mutex]()
     {
         sync::Chan<int, 65535> c;
 
-        // 注册1000个写chan写成
+        /**
+         * 注册1000个写chan写成
+         */
         for (int i = 0; i < 1000; ++i) {
             bbtco[&c, i]()
             {
                 for (int i = 0; i < 1000; ++i) {
                     while (c.Write(i))
                         ;
-                    // int ret = ;
-                    // Assert(ret == 0);
+
+                    /**
+                     * int ret = ;
+                     * Assert(ret == 0);
+                     */
                 }
             };
         }
 
-        // 等待
+        /**
+         * 等待
+         */
         for (; count.load() < 1000 * 1000;) {
             std::vector<int> val;
             Assert(c.ReadAll(val) == 0);

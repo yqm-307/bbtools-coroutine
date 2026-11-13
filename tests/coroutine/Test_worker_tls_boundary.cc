@@ -42,7 +42,9 @@
  *    用户 thread_local 的代码需要在三平台分别复核。
  */
 
-/* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。 */
+/**
+ * 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
+ */
 namespace {
 void EnsureRuntime()
 {
@@ -57,21 +59,33 @@ using namespace bbt::coroutine::detail;
 namespace {
 
 constexpr int kWorkerCount = 2;
-/* 4 个协程在两个 worker 上轮转注册，保证同一 worker 上必然先后运行多个协程，
- * 用户 TLS 共享因此可被稳定观察到。 */
+
+/**
+ * 4 个协程在两个 worker 上轮转注册，保证同一 worker 上必然先后运行多个协程，
+ * 用户 TLS 共享因此可被稳定观察到。
+ */
 constexpr int kYieldCoroutines = 4;
 constexpr int kYieldIterations = 32;
 constexpr int kYieldTimeoutMs = 10000;
-/* 40 轮：迁移是竞争结果（探针阶段 24 轮观测 14~20 次，本文件修复后 12 次复跑观测
- * 25~35 次），把"整段一次迁移都没有"的概率压到可忽略。 */
+
+/**
+ * 40 轮：迁移是竞争结果（探针阶段 24 轮观测 14~20 次，本文件修复后 12 次复跑观测
+ * 25~35 次），把"整段一次迁移都没有"的概率压到可忽略。
+ */
 constexpr int kEventRounds = 40;
 constexpr int kEventWaitTimeoutMs = 2000;
-/* park 后先让该 worker 有机会空闲：经验上这样唤醒后的协程更常被另一个 worker 取走
+
+/**
+ * park 后先让该 worker 有机会空闲：经验上这样唤醒后的协程更常被另一个 worker 取走
  * （本地 40 轮观测 25~35 次跨 worker 恢复）。该参数只影响迁移出现频率，
- * 不影响任何硬不变量断言。 */
+ * 不影响任何硬不变量断言。
+ */
 constexpr int kParkIdleMs = 5;
-/* Notify 在 COND_WAIT 未发布时返回 -1，被抢占的 worker 可能超过 kParkIdleMs；
- * 有界重试，避免把调度延迟误报成运行时等待缺陷。 */
+
+/**
+ * Notify 在 COND_WAIT 未发布时返回 -1，被抢占的 worker 可能超过 kParkIdleMs；
+ * 有界重试，避免把调度延迟误报成运行时等待缺陷。
+ */
 constexpr int kNotifyRetryLimit = 500;
 
 struct ConfigSnapshot {
@@ -84,7 +98,9 @@ struct ConfigSnapshot {
 ConfigSnapshot g_cfg;
 std::atomic_bool g_started{false};
 
-/* 用户 thread_local：故意只按线程存"最后写入者"，用来观察作用域。 */
+/**
+ * 用户 thread_local：故意只按线程存"最后写入者"，用来观察作用域。
+ */
 thread_local uint64_t tl_last_writer_co = 0;
 thread_local uint64_t tl_last_writer_worker = 0;
 
@@ -114,7 +130,9 @@ struct EventStats {
     std::atomic<uint64_t> coroutine_not_started{0};
 };
 
-/* 每轮状态用堆对象持有：协程按值捕获 shared_ptr，等待超时后恢复也不会访问悬垂对象。 */
+/**
+ * 每轮状态用堆对象持有：协程按值捕获 shared_ptr，等待超时后恢复也不会访问悬垂对象。
+ */
 struct EventRoundState {
     bbt::core::thread::CountDownLatch parked{1};
     bbt::core::thread::CountDownLatch resumed{1};
@@ -157,18 +175,23 @@ bool RunYieldPhase(YieldStats& stats)
 
                 const ProcesserId worker = LocalWorkerId();
                 auto* cur = g_bbt_tls_coroutine_co;
-                /* cur->GetId() 与 GetLocalCoroutineId() 读的是同一份 worker TLS
+
+                /**
+                 * cur->GetId() 与 GetLocalCoroutineId() 读的是同一份 worker TLS
                  * （Define.hpp 的 g_bbt_tls_coroutine_co），不是两条独立判据；
-                 * 同时保留是为了覆盖"直接读 TLS"与"公共 API"两个入口都不残留旧值。 */
+                 * 同时保留是为了覆盖"直接读 TLS"与"公共 API"两个入口都不残留旧值。
+                 */
                 if (cur == nullptr || cur->GetId() != self || GetLocalCoroutineId() != self
                     || cur->GetStatus() != CoroutineStatus::CO_RUNNING || worker == 0) {
                     stats.tls_bad.fetch_add(1, std::memory_order_relaxed);
                 }
 
-                /* 用户 TLS 判据：thread_local 属于线程，所以本处读到的
+                /**
+                 * 用户 TLS 判据：thread_local 属于线程，所以本处读到的
                  * tl_last_writer_worker 必然等于当前 worker（prev_worker == worker 恒真，
                  * 保留该条件只是显式表达"共享的是同一线程实例"）。真正的判据是
-                 * 上一次写入者是同一 worker 上的另一个协程。 */
+                 * 上一次写入者是同一 worker 上的另一个协程。
+                 */
                 const uint64_t prev_co = tl_last_writer_co;
                 const uint64_t prev_worker = tl_last_writer_worker;
                 tl_last_writer_co = self;
@@ -186,9 +209,11 @@ bool RunYieldPhase(YieldStats& stats)
                     stats.workers.insert(worker);
                 }
 
-                /* 同一协程并发运行的探测点：上一次 Resume 未退出就再次进入。
+                /**
+                 * 同一协程并发运行的探测点：上一次 Resume 未退出就再次进入。
                  * 这是采样型探测——只能发现"被观察到的并发窗口"，不能证明不存在并发；
-                 * 断言措辞据此写为"未观测到同协程并发"。 */
+                 * 断言措辞据此写为"未观测到同协程并发"。
+                 */
                 if (inside_max.load(std::memory_order_relaxed) > 1)
                     stats.self_concurrent.fetch_add(1, std::memory_order_relaxed);
 
@@ -205,7 +230,7 @@ bool RunYieldPhase(YieldStats& stats)
     return done.WaitTimeout(kYieldTimeoutMs) == 0;
 }
 
-} // namespace
+}
 
 BOOST_AUTO_TEST_SUITE(WorkerTlsBoundaryTest)
 
@@ -221,7 +246,10 @@ BOOST_AUTO_TEST_CASE(t_begin)
 
     cfg->m_cfg_static_thread_num = kWorkerCount;
     cfg->m_cfg_stack_protect = false;
-    /* 64 KiB 保护栈：本文件验证跨 worker/TLS 语义，不叠加小栈（默认 12 KiB）配置问题。 */
+
+    /**
+     * 64 KiB 保护栈：本文件验证跨 worker/TLS 语义，不叠加小栈（默认 12 KiB）配置问题。
+     */
     cfg->m_cfg_stack_size = 64 * 1024;
 
     EnsureRuntime();
@@ -242,21 +270,33 @@ BOOST_AUTO_TEST_CASE(t_runtime_tls_stable_across_yields)
 
     const uint64_t resumes = stats.resumes.load();
     BOOST_CHECK_EQUAL(resumes, static_cast<uint64_t>(kYieldCoroutines * kYieldIterations));
-    /* 硬不变量：运行时 TLS 与状态在每次 Resume 上都必须正确。 */
+
+    /**
+     * 硬不变量：运行时 TLS 与状态在每次 Resume 上都必须正确。
+     */
     BOOST_CHECK_EQUAL(stats.tls_bad.load(), 0u);
-    /* 硬不变量：未观测到同一协程并发运行（采样型探测，见 RunYieldPhase 注释）。 */
+
+    /**
+     * 硬不变量：未观测到同一协程并发运行（采样型探测，见 RunYieldPhase 注释）。
+     */
     BOOST_CHECK_EQUAL(stats.self_concurrent.load(), 0u);
-    /* 参与调度的 worker 数：这里只作健壮性下界（>=1）。
+
+    /**
+     * 参与调度的 worker 数：这里只作健壮性下界（>=1）。
      * 真正的跨 worker 覆盖由事件阶段的 migrated > 0 提供——yield 阶段是否发生迁移
-     * 由调度竞争决定（修复后 12 次复跑观测 0~8/128），不适合写成硬断言。 */
+     * 由调度竞争决定（修复后 12 次复跑观测 0~8/128），不适合写成硬断言。
+     */
     size_t participating_workers = 0;
     {
         std::lock_guard<std::mutex> lk(stats.workers_mu);
         participating_workers = stats.workers.size();
     }
     BOOST_CHECK_GE(participating_workers, 1u);
-    /* 用户 TLS 边界：同 worker 上的其他协程能看到本协程写入的值，
-     * 即 thread_local 不按协程隔离。 */
+
+    /**
+     * 用户 TLS 边界：同 worker 上的其他协程能看到本协程写入的值，
+     * 即 thread_local 不按协程隔离。
+     */
     BOOST_CHECK_MESSAGE(stats.user_tls_cross_coroutine_share.load() > 0,
                         "未观察到用户 thread_local 在同一 worker 的不同协程之间共享；"
                         "若 thread_local 变成按协程隔离，用户 TLS 边界结论需要重新评估");
@@ -300,7 +340,10 @@ BOOST_AUTO_TEST_CASE(t_runtime_tls_stable_after_event_wake)
 
             auto* cur = g_bbt_tls_coroutine_co;
             const ProcesserId worker = LocalWorkerId();
-            /* 同 yield 阶段：两个 id 判据同源（worker TLS），保留用于覆盖公共 API 入口。 */
+
+            /**
+             * 同 yield 阶段：两个 id 判据同源（worker TLS），保留用于覆盖公共 API 入口。
+             */
             if (cur == nullptr || cur->GetId() != self || GetLocalCoroutineId() != self
                 || cur->GetStatus() != CoroutineStatus::CO_RUNNING || worker == 0) {
                 state->tls_bad.fetch_add(1);
@@ -320,9 +363,11 @@ BOOST_AUTO_TEST_CASE(t_runtime_tls_stable_after_event_wake)
         for (int i = 0; i < kNotifyRetryLimit && (notify_ret = waiter->Notify()) != 0; ++i)
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         if (notify_ret != 0) {
-            /* Notify 全程返回 -1：意味协程在被重试窗口内没有进入等待（被饿死），
+            /**
+             * Notify 全程返回 -1：意味协程在被重试窗口内没有进入等待（被饿死），
              * 或等待已进入终态。两种情况都不应发生，失败信息按读数区分：
-             * coroutine_not_started == 0 说明协程已开始运行，即落在这里。 */
+             * coroutine_not_started == 0 说明协程已开始运行，即落在这里。
+             */
             stats.notify_failed.fetch_add(1);
             break;
         }
@@ -349,10 +394,13 @@ BOOST_AUTO_TEST_CASE(t_runtime_tls_stable_after_event_wake)
     BOOST_CHECK_EQUAL(stats.wait_failed.load(), 0u);
     BOOST_CHECK_EQUAL(stats.tls_bad.load(), 0u);
     BOOST_CHECK_EQUAL(stats.rounds.load(), static_cast<uint64_t>(kEventRounds));
-    /* 观测型断言（上限已注明）：当前实现把唤醒后的协程放回全局队列，由任意 worker
+
+    /**
+     * 观测型断言（上限已注明）：当前实现把唤醒后的协程放回全局队列，由任意 worker
      * 取走，因此事件完成后跨 worker 恢复是常态行为。本条要求"至少观测到一次"，
      * 用于保证迁移路径被真正执行；契约只要求"允许恢复其他 worker"，
-     * 若将来改为固定 worker 亲和，应调整本条而不是改契约。 */
+     * 若将来改为固定 worker 亲和，应调整本条而不是改契约。
+     */
     BOOST_CHECK_MESSAGE(stats.migrated.load() > 0, "未观测到事件完成后跨 worker 恢复；跨 worker 迁移路径未被覆盖");
 
     BOOST_TEST_MESSAGE("事件唤醒阶段：rounds=" << stats.rounds.load() << " migrated=" << stats.migrated.load()

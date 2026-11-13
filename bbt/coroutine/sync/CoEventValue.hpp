@@ -1,4 +1,5 @@
-/** @file CoEventValue.hpp
+/**
+ * @file CoEventValue.hpp
  * @brief 协程唤醒载荷的类型安全内联存储。
  */
 #pragma once
@@ -22,9 +23,12 @@ using CoEventValueTypeId = std::uint32_t;
 
 inline constexpr CoEventValueTypeId kCoEventValueNone = 0;
 inline constexpr CoEventValueTypeId kCoEventValueBool = 1;
-/* char / signed char / unsigned char 是三种不同基础类型，各有独立 ID：
+
+/**
+ * char / signed char / unsigned char 是三种不同基础类型，各有独立 ID：
  * 不能因 sizeof 相同或 char 的符号性而互相识别（LP64 上 char 有符号，
- * 但 signed char 仍是不同类型）。 */
+ * 但 signed char 仍是不同类型）。
+ */
 inline constexpr CoEventValueTypeId kCoEventValueChar = 2;
 inline constexpr CoEventValueTypeId kCoEventValueSChar = 13;
 inline constexpr CoEventValueTypeId kCoEventValueUChar = 3;
@@ -32,22 +36,33 @@ inline constexpr CoEventValueTypeId kCoEventValueShort = 4;
 inline constexpr CoEventValueTypeId kCoEventValueUShort = 5;
 inline constexpr CoEventValueTypeId kCoEventValueInt = 6;
 inline constexpr CoEventValueTypeId kCoEventValueUInt = 7;
-/* long / long long 是不同基础类型（LP64 上 long 恰为 64 位，但不等于
+
+/**
+ * long / long long 是不同基础类型（LP64 上 long 恰为 64 位，但不等于
  * long long）：各自独立 ID，不得共享同一「64 位」登记位。int64_t/uint64_t
- * 是别名，其 ID 在 traits 之后按真实 64 位基础类型派生（见下方常量）。 */
+ * 是别名，其 ID 在 traits 之后按真实 64 位基础类型派生（见下方常量）。
+ */
 inline constexpr CoEventValueTypeId kCoEventValueLong = 8;
 inline constexpr CoEventValueTypeId kCoEventValueULong = 9;
 inline constexpr CoEventValueTypeId kCoEventValueLongLong = 14;
 inline constexpr CoEventValueTypeId kCoEventValueULongLong = 15;
 inline constexpr CoEventValueTypeId kCoEventValueFloat = 10;
 inline constexpr CoEventValueTypeId kCoEventValueDouble = 11;
-/* void 作为**被指类型**的登记 ID。指针本身的 ID 一律由下方 T* 通用公式派生
- * （含 void* 与 cv void*），本常量只标识 void 这个被指类型。 */
+
+/**
+ * void 作为**被指类型**的登记 ID。指针本身的 ID 一律由下方 T* 通用公式派生
+ * （含 void* 与 cv void*），本常量只标识 void 这个被指类型。
+ */
 inline constexpr CoEventValueTypeId kCoEventValueVoid = 12;
 
-/** 自定义 POD 类型登记起点 */
+/**
+ * 自定义 POD 类型登记起点
+ */
 inline constexpr CoEventValueTypeId kCoEventValueCustomBegin = 0x100;
-/** 指针类型登记起点；非指针登记 ID 必须严格小于此值 */
+
+/**
+ * 指针类型登记起点；非指针登记 ID 必须严格小于此值
+ */
 inline constexpr CoEventValueTypeId kCoEventValuePointerBegin = 0x10000;
 
 /**
@@ -98,15 +113,20 @@ template <> struct CoEventValueTraits<long long> {
 template <> struct CoEventValueTraits<unsigned long long> {
     static constexpr CoEventValueTypeId id = kCoEventValueULongLong;
 };
-/* int64_t / uint64_t 不单独特化：它们是 long 或 long long 的别名，别名重复
- * 特化是编译错误；其 ID 由下方常量按真实基础类型派生，保证跨平台自洽。 */
+
+/**
+ * int64_t / uint64_t 不单独特化：它们是 long 或 long long 的别名，别名重复
+ * 特化是编译错误；其 ID 由下方常量按真实基础类型派生，保证跨平台自洽。
+ */
 template <> struct CoEventValueTraits<float> {
     static constexpr CoEventValueTypeId id = kCoEventValueFloat;
 };
 template <> struct CoEventValueTraits<double> {
     static constexpr CoEventValueTypeId id = kCoEventValueDouble;
 };
-/* void 只登记为「被指类型」，void* / cv void* 全部走下方 T* 通用公式。
+
+/**
+ * void 只登记为「被指类型」，void* / cv void* 全部走下方 T* 通用公式。
  *
  * 不给 void* 另写独立全特化：那会和通用公式「被指 cv + 一层指针」派生出的
  * 编号共用同一段空间，错型 Get 便能按 sizeof 读回并改写 out。void 与 void*
@@ -122,12 +142,16 @@ template <> struct CoEventValueTraits<void> {
  * 仅用于下方 T* 派生时的容量检查，不参与编号本身。
  */
 template <class T> struct CoEventValuePointerDepth {
-    /// @brief 非指针类型的层级，恒为 0。
+    /**
+     * @brief 非指针类型的层级，恒为 0。
+     */
     static constexpr unsigned value = 0u;
 };
 
 template <class T> struct CoEventValuePointerDepth<T*> {
-    /// @brief T* 的层级等于被指类型层级 + 1。
+    /**
+     * @brief T* 的层级等于被指类型层级 + 1。
+     */
     static constexpr unsigned value = 1u + CoEventValuePointerDepth<T>::value;
 };
 
@@ -196,17 +220,20 @@ inline constexpr CoEventValueTypeId kCoEventValueUInt64 = CoEventValueTraits<std
  */
 class CoEventValue {
 public:
-    /// @brief 固定内联缓冲容量，单位为字节。
+    /**
+     * @brief 固定内联缓冲容量，单位为字节。
+     */
     static constexpr std::size_t kInlineSize = 24;
 
-    /// @brief 创建空载荷。
+    /**
+     * @brief 创建空载荷。
+     */
     CoEventValue() noexcept = default;
 
-    /// @brief 判断载荷槽是否保存了值。
-    bool HasValue() const noexcept
-    {
-        return m_type != kCoEventValueNone;
-    }
+    /**
+     * @brief 判断载荷槽是否保存了值。
+     */
+    bool HasValue() const noexcept;
 
     /**
      * @brief 将可平凡拷贝值编码到内联载荷。
@@ -214,19 +241,7 @@ public:
      * @param value 要复制的值
      * @return 编码后的载荷
      */
-    template <class T> static CoEventValue From(const T& value) noexcept
-    {
-        using Type = std::remove_cv_t<T>;
-        static_assert(std::is_trivially_copyable<Type>::value,
-                      "CoEventValue: only trivially copyable types are supported");
-        static_assert(sizeof(Type) <= kInlineSize, "CoEventValue: payload exceeds the 24-byte inline capacity");
-
-        CoEventValue out;
-        out.m_type = CoEventValueTraits<Type>::id;
-        out.m_size = static_cast<std::uint8_t>(sizeof(Type));
-        std::memcpy(out.m_buf, &value, sizeof(Type));
-        return out;
-    }
+    template <class T> static CoEventValue From(const T& value) noexcept;
 
     /**
      * @brief 若类型标识和尺寸匹配，将载荷复制到 out。
@@ -234,19 +249,7 @@ public:
      * @param out 匹配时接收载荷；不匹配时保持不变
      * @return 成功解码返回 true；空值或类型/尺寸不匹配返回 false
      */
-    template <class T> bool Get(T& out) const noexcept
-    {
-        using Type = std::remove_cv_t<T>;
-        static_assert(std::is_trivially_copyable<Type>::value,
-                      "CoEventValue: only trivially copyable types are supported");
-        static_assert(sizeof(Type) <= kInlineSize, "CoEventValue: payload exceeds the 24-byte inline capacity");
-
-        if (m_type == kCoEventValueNone || m_type != CoEventValueTraits<Type>::id || m_size != sizeof(Type))
-            return false;
-
-        std::memcpy(&out, m_buf, sizeof(Type));
-        return true;
-    }
+    template <class T> bool Get(T& out) const noexcept;
 
 private:
     alignas(std::max_align_t) unsigned char m_buf[kInlineSize]{};
@@ -254,4 +257,6 @@ private:
     CoEventValueTypeId m_type{kCoEventValueNone};
 };
 
-} // namespace bbt::coroutine
+}
+
+#include <bbt/coroutine/sync/__TCoEventValue.hpp>

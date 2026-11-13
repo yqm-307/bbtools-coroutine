@@ -51,26 +51,42 @@ namespace {
 using bbt::core::thread::CountDownLatch;
 using LatchSPtr = std::shared_ptr<CountDownLatch>;
 
-/* 固定 worker 数，保证调度行为与 runner 核数无关 */
+/**
+ * 固定 worker 数，保证调度行为与 runner 核数无关
+ */
 constexpr size_t kWorkerNum = 2;
 
-/* 阶段一：嵌套协程，覆盖创建/切换/每协程独立栈使用（规模同基线 7bcda3b） */
+/**
+ * 阶段一：嵌套协程，覆盖创建/切换/每协程独立栈使用（规模同基线 7bcda3b）
+ */
 constexpr int kOuterCoroutines = 1;
 constexpr int kInnerPerOuter = 10000;
 constexpr int kInnerTotal = kOuterCoroutines * kInnerPerOuter;
 
-/* 阶段二：CoMutex 竞争，覆盖挂起/唤醒 */
+/**
+ * 阶段二：CoMutex 竞争，覆盖挂起/唤醒
+ */
 constexpr int kMutexCoroutines = 8;
 constexpr int kLockPerCoroutine = 500;
 constexpr long long kLockTotal = static_cast<long long>(kMutexCoroutines) * kLockPerCoroutine;
 
-/* 阶段三：多 channel 并行 + 阻塞/挂起/唤醒（不得低于旧版负载量级） */
+/**
+ * 阶段三：多 channel 并行 + 阻塞/挂起/唤醒（不得低于旧版负载量级）
+ */
 constexpr int kChanNum = 10;
 constexpr int kWriterPerChan = 5;
 constexpr int kWritePerWriter = 10000;
-constexpr int kWritePerChan = kWriterPerChan * kWritePerWriter; // 每 channel 50000
+
+/**
+ * 每 channel 50000
+ */
+constexpr int kWritePerChan = kWriterPerChan * kWritePerWriter;
 constexpr int kChanCapacity = 100;
-constexpr int kTotalMessages = kChanNum * kWritePerChan; // 500000
+
+/**
+ * 500000
+ */
+constexpr int kTotalMessages = kChanNum * kWritePerChan;
 
 static_assert(kChanCapacity > 0, "buffered channel 容量必须为正");
 static_assert(kChanCapacity < kWritePerChan, "容量必须小于单 channel 消息总量，writer 才会真实阻塞并被 reader 唤醒");
@@ -78,9 +94,15 @@ static_assert(kChanCapacity < kWritePerChan, "容量必须小于单 channel 消�
 std::atomic_int g_inner_done{0};
 std::atomic_llong g_chan_read{0};
 std::atomic_int g_chan_writer_done{0};
-std::atomic_int g_failures{0}; // Write/Read 非 0、越界、lost-wakeup 等显式失败
 
-/* 协程内的确定性计算量：只读写本协程栈上的缓冲，不触碰共享可变状态 */
+/**
+ * Write/Read 非 0、越界、lost-wakeup 等显式失败
+ */
+std::atomic_int g_failures{0};
+
+/**
+ * 协程内的确定性计算量：只读写本协程栈上的缓冲，不触碰共享可变状态
+ */
 int StackWork(uint64_t seed)
 {
     volatile uint8_t buf[512];
@@ -92,7 +114,9 @@ int StackWork(uint64_t seed)
     return static_cast<int>(acc & 0x7fffffffu);
 }
 
-/* 运行时层完成信号：栈池无借出（全部已归还） */
+/**
+ * 运行时层完成信号：栈池无借出（全部已归还）
+ */
 bool IsRuntimeDrained(size_t& alloc_out, size_t& cur_out)
 {
     alloc_out = g_bbt_stackpoll->AllocSize();
@@ -100,7 +124,9 @@ bool IsRuntimeDrained(size_t& alloc_out, size_t& cur_out)
     return cur_out == 0;
 }
 
-/* 有界等待运行时收口；超时是“未完成”，返回 false 让主流程 FAIL（fail-closed） */
+/**
+ * 有界等待运行时收口；超时是“未完成”，返回 false 让主流程 FAIL（fail-closed）
+ */
 bool WaitForRuntimeDrain(int timeout_ms, size_t& alloc_out, size_t& cur_out)
 {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
@@ -119,7 +145,9 @@ bool WaitForRuntimeDrain(int timeout_ms, size_t& alloc_out, size_t& cur_out)
 
 void RunNestedCoroutines()
 {
-    /* 主线程等待（合法位置）；协程只 Down */
+    /**
+     * 主线程等待（合法位置）；协程只 Down
+     */
     LatchSPtr outer_latch = std::make_shared<CountDownLatch>(kOuterCoroutines);
     LatchSPtr inner_latch = std::make_shared<CountDownLatch>(kInnerTotal);
 
@@ -132,7 +160,11 @@ void RunNestedCoroutines()
                     const int r = StackWork(static_cast<uint64_t>(o) * kInnerPerOuter + i);
                     (void)r;
                     g_inner_done.fetch_add(1, std::memory_order_relaxed);
-                    inner_latch->Down(); // 用户函数体最后一条语句
+
+                    /**
+                     * 用户函数体最后一条语句
+                     */
+                    inner_latch->Down();
                 };
             }
             outer_latch->Down();
@@ -166,8 +198,10 @@ long long RunCoMutex()
     return counter->load();
 }
 
-/* 单 channel：5 writer（缓冲满时真实阻塞挂起）+ 1 合法 reader。
- * reader 阻塞于空队列时由 writer 唤醒；这是本负载要覆盖的协作路径。 */
+/**
+ * 单 channel：5 writer（缓冲满时真实阻塞挂起）+ 1 合法 reader。
+ * reader 阻塞于空队列时由 writer 唤醒；这是本负载要覆盖的协作路径。
+ */
 void RunOneChan(int chan_index, const std::shared_ptr<bbt::coroutine::sync::Chan<int, kChanCapacity>>& chan,
                 const LatchSPtr& writer_latch, const LatchSPtr& done_latch)
 {
@@ -193,8 +227,10 @@ void RunOneChan(int chan_index, const std::shared_ptr<bbt::coroutine::sync::Chan
             int val = 0;
             const int r = chan->Read(val);
             if (r != 0) {
-                /* Close 由主线程在收齐 writer 后执行；reader 收边前见到非 0
-                 * 只可能是丢消息/关闭，记失败退出，不静默吞掉。 */
+                /**
+                 * Close 由主线程在收齐 writer 后执行；reader 收边前见到非 0
+                 * 只可能是丢消息/关闭，记失败退出，不静默吞掉。
+                 */
                 std::fprintf(stderr, "[bbt-mc] chan[%d] reader failed(%d) at %d/%d\n", chan_index, r, local_read,
                              kWritePerChan);
                 g_failures.fetch_add(1, std::memory_order_relaxed);
@@ -214,7 +250,9 @@ void RunOneChan(int chan_index, const std::shared_ptr<bbt::coroutine::sync::Chan
 
 void RunChanFanOut()
 {
-    /* writer_latch 总数 = 10ch × 5w = 50，done_latch 总数 = 10 reader，均由主线程收齐 */
+    /**
+     * writer_latch 总数 = 10ch × 5w = 50，done_latch 总数 = 10 reader，均由主线程收齐
+     */
     LatchSPtr writer_latch = std::make_shared<CountDownLatch>(kChanNum * kWriterPerChan);
     LatchSPtr done_latch = std::make_shared<CountDownLatch>(kChanNum);
 
@@ -229,18 +267,23 @@ void RunChanFanOut()
     std::fprintf(stderr, "[bbt-mc] stage3 writers done=%d readers=%lld\n", g_chan_writer_done.load(),
                  g_chan_read.load());
 
+    /**
+     * 主线程收边：缓冲不丢弃，reader 继续读满后正常退出
+     */
     for (auto& ch : chans)
-        ch->Close(); // 主线程收边：缓冲不丢弃，reader 继续读满后正常退出
+        ch->Close();
 
     done_latch->Wait();
     std::fprintf(stderr, "[bbt-mc] stage3 chan done read=%lld\n", g_chan_read.load());
 }
 
-} // namespace
+}
 
 int main()
 {
-    /* worker 数必须在 Start 之前设置（Start 一次性，成功后不可重置配置） */
+    /**
+     * worker 数必须在 Start 之前设置（Start 一次性，成功后不可重置配置）
+     */
     g_bbt_coroutine_config->m_cfg_static_thread_num = kWorkerNum;
 
     g_scheduler->Start();
@@ -249,7 +292,9 @@ int main()
     const long long lock_total = RunCoMutex();
     RunChanFanOut();
 
-    /* ===== 完成协议：业务层证据 + 运行时收口信号（fail-closed）===== */
+    /**
+     * ===== 完成协议：业务层证据 + 运行时收口信号（fail-closed）=====
+     */
     const int inner_done = g_inner_done.load();
     const long long chan_read = g_chan_read.load();
     const int writer_done = g_chan_writer_done.load();
@@ -257,7 +302,10 @@ int main()
 
     size_t alloc = 0;
     size_t cur = 0;
-    const bool runtime_drained = WaitForRuntimeDrain(/*timeout_ms=*/30000, alloc, cur);
+    /**
+     * timeout_ms = 30000：等待运行时排空的观察窗口
+     */
+    const bool runtime_drained = WaitForRuntimeDrain(30000, alloc, cur);
     const size_t released_stacks = runtime_drained ? g_bbt_stackpoll->ReleaseUnused() : 0;
     alloc = g_bbt_stackpoll->AllocSize();
     cur = g_bbt_stackpoll->GetCurCoNum();
@@ -269,9 +317,11 @@ int main()
 
     const bool ok = business_done && runtime_drained && stack_pool_drained;
 
-    /* 可核完成标记：run_memcheck.py 据此判定程序真的跑完。缺必需键、键重复、
+    /**
+     * 可核完成标记：run_memcheck.py 据此判定程序真的跑完。缺必需键、键重复、
      * 出现多条互相冲突的标记、或任一取值与固定期望不符，全部 FAIL。
-     * 期望值与 scripts/ci/run_memcheck.py 的 EXPECTED_COUNTERS 必须一致。 */
+     * 期望值与 scripts/ci/run_memcheck.py 的 EXPECTED_COUNTERS 必须一致。
+     */
     std::printf("BBT_MEMCHECK_DONE inner=%d/%d lock=%lld/%lld chan_read=%lld/%d "
                 "writer_done=%d/%d failures=%d/%d runtime_drained=%d/%d "
                 "stack_pool_drained=%d/%d (released=%zu alloc=%zu cur=%zu)\n",
@@ -286,7 +336,9 @@ int main()
         return 1;
     }
 
-    /* process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出。
-     * 单例按契约由刻意泄漏的持有者维持，不走静态析构顺序。 */
+    /**
+     * process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出。
+     * 单例按契约由刻意泄漏的持有者维持，不走静态析构顺序。
+     */
     return 0;
 }

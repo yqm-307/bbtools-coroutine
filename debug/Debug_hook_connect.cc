@@ -11,8 +11,10 @@ using namespace bbt::coroutine;
 
 const char* msg = "hello world";
 
-/* 最小本地 socket helper：替代 bbt::core::net::{CreateListen,SetFdNoBlock}。
- * net 模块归 bbtools-infra，coroutine 不依赖。失败返回 -1。 */
+/**
+ * 最小本地 socket helper：替代 bbt::core::net::{CreateListen,SetFdNoBlock}。
+ * net 模块归 bbtools-infra，coroutine 不依赖。失败返回 -1。
+ */
 static int SetFdNoBlock_(int fd)
 {
     int flags = ::fcntl(fd, F_GETFL, 0);
@@ -157,10 +159,16 @@ void test()
         print("[client] connect start! fd=" << fd);
         int ret = ::connect(fd, (sockaddr*)(&addr), sizeof(addr));
         Assert(ret == 0);
-        // BOOST_CHECK_MESSAGE(ret == 0, "[connect] errno=" << errno << "\tret=" << ret << "\tfd=" << fd);
+
+        /**
+         * BOOST_CHECK_MESSAGE(ret == 0, "[connect] errno=" << errno << "\tret=" << ret << "\tfd=" << fd);
+         */
         print("[client] send msg to server! fd=" << fd);
         ret = ::write(fd, msg, strlen(msg));
-        // BOOST_CHECK_MESSAGE(ret != -1, "[write] errno=" << errno << "\tret=" << ret << "\tfd=" << fd);
+
+        /**
+         * BOOST_CHECK_MESSAGE(ret != -1, "[write] errno=" << errno << "\tret=" << ret << "\tfd=" << fd);
+         */
         Assert(ret != -1);
         ::sleep(1);
 
@@ -197,5 +205,7 @@ int main()
         test();
     }
 
-    // recurrent();
+    /**
+     * recurrent();
+     */
 }

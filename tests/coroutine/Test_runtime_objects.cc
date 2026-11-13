@@ -43,12 +43,8 @@ struct Probe {
 
 class Object : public CoObject {
 public:
-    explicit Object(std::shared_ptr<Probe> probe = {}) : m_probe(std::move(probe))
-    {
-    }
-    Object(std::string kind, std::string name) : CoObject(std::move(kind), std::move(name))
-    {
-    }
+    explicit Object(std::shared_ptr<Probe> probe = {}) : m_probe(std::move(probe)) {}
+    Object(std::string kind, std::string name) : CoObject(std::move(kind), std::move(name)) {}
     ~Object() noexcept override
     {
         if (m_probe) {
@@ -56,14 +52,8 @@ public:
             m_probe->destroyed.fetch_add(1);
         }
     }
-    void Close() noexcept
-    {
-        m_closed = true;
-    }
-    bool IsClosed() const noexcept
-    {
-        return m_closed;
-    }
+    void Close() noexcept { m_closed = true; }
+    bool IsClosed() const noexcept { return m_closed; }
 
 private:
     std::shared_ptr<Probe> m_probe;
@@ -84,16 +74,10 @@ struct ThrowingObject : CoObject {
 class RestrictedObject final : public CoObject {
 public:
     struct Deleter {
-        void operator()(RestrictedObject* object) const noexcept
-        {
-            delete object;
-        }
+        void operator()(RestrictedObject* object) const noexcept { delete object; }
     };
     using UPtr = std::unique_ptr<RestrictedObject, Deleter>;
-    static UPtr Create()
-    {
-        return UPtr(new RestrictedObject);
-    }
+    static UPtr Create() { return UPtr(new RestrictedObject); }
 
 private:
     RestrictedObject() = default;
@@ -109,29 +93,19 @@ static_assert(std::is_nothrow_destructible_v<Object>);
 struct NativeMember : MemberBase<int, NativeMember> {};
 
 struct ThrowKey {
-    explicit ThrowKey(std::shared_ptr<int> budget) : copies_left(std::move(budget))
-    {
-    }
+    explicit ThrowKey(std::shared_ptr<int> budget) : copies_left(std::move(budget)) {}
     ThrowKey(const ThrowKey& other) : copies_left(other.copies_left)
     {
         if ((*copies_left)-- == 0)
             throw std::bad_alloc();
     }
-    bool operator<(const ThrowKey&) const noexcept
-    {
-        return false;
-    }
+    bool operator<(const ThrowKey&) const noexcept { return false; }
     std::shared_ptr<int> copies_left;
 };
 
 struct ThrowMember : MemberBase<ThrowKey, ThrowMember> {
-    explicit ThrowMember(std::shared_ptr<Probe> probe) : m_probe(std::move(probe))
-    {
-    }
-    ~ThrowMember() noexcept
-    {
-        m_probe->destroyed.fetch_add(1);
-    }
+    explicit ThrowMember(std::shared_ptr<Probe> probe) : m_probe(std::move(probe)) {}
+    ~ThrowMember() noexcept { m_probe->destroyed.fetch_add(1); }
     std::shared_ptr<Probe> m_probe;
 };
 
@@ -144,7 +118,7 @@ void CheckStats(CoObjectStats stats, std::uint64_t created, std::uint64_t destro
     BOOST_CHECK_EQUAL(stats.peak_alive, peak);
 }
 
-} // namespace
+}
 
 BOOST_FIXTURE_TEST_SUITE(RuntimeObjects, RuntimeFixture)
 
@@ -320,7 +294,10 @@ BOOST_AUTO_TEST_CASE(index_insertion_exception_does_not_arm_member_or_commit)
 {
     auto manager = std::make_shared<ManagerBase<ThrowKey, ThrowMember>>();
     auto probe = std::make_shared<Probe>();
-    // 首次复制初始化 member key，第二次复制由 map 插入触发异常。
+
+    /**
+     * 首次复制初始化 member key，第二次复制由 map 插入触发异常。
+     */
     ThrowKey key(std::make_shared<int>(1));
     BOOST_CHECK_THROW(manager->Create(key, "objects.index-failure", "failed",
                                       [probe]() { return std::make_unique<ThrowMember>(probe); }),
@@ -378,9 +355,12 @@ BOOST_AUTO_TEST_CASE(concurrent_create_snapshot_and_destroy_preserve_totals_and_
         int ready{0};
         bool release{false};
         std::exception_ptr error;
-        // 每次快照都必须自洽：created-destroyed==alive 且 peak>=alive。
-        // 拆成四个独立 atomic 时读者会看到「alive 已加、created 未加」的
-        // 中间态，本计数就是它的反例证据。
+
+        /**
+         * 每次快照都必须自洽：created-destroyed==alive 且 peak>=alive。
+         * 拆成四个独立 atomic 时读者会看到「alive 已加、created 未加」的
+         * 中间态，本计数就是它的反例证据。
+         */
         std::atomic<int> inconsistent{0};
     };
     auto barrier = std::make_shared<Barrier>();
@@ -429,9 +409,11 @@ BOOST_AUTO_TEST_CASE(concurrent_create_snapshot_and_destroy_preserve_totals_and_
     CheckStats(GetCoObjectStats(kind), threads * batch, threads * batch, 0, threads * batch);
 }
 
-// Reader first acknowledges a nonzero snapshot from both query paths while the
-// initial object is held alive. Writers then churn until the reader has sampled
-// enough times during their active phase to check for torn independent atomics.
+/**
+ * Reader first acknowledges a nonzero snapshot from both query paths while the
+ * initial object is held alive. Writers then churn until the reader has sampled
+ * enough times during their active phase to check for torn independent atomics.
+ */
 BOOST_AUTO_TEST_CASE(concurrent_writers_and_readers_always_see_consistent_snapshot)
 {
     constexpr int writers = 3;

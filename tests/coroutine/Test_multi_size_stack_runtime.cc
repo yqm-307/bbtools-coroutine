@@ -35,15 +35,17 @@
 
 namespace {
 
-/* 只链接进本测试可执行文件，不给库增加 seam。只在未 Start 的主线程按精确大小
+/**
+ * 只链接进本测试可执行文件，不给库增加 seam。只在未 Start 的主线程按精确大小
  * 一次性拒绝 scalar new；其余分配照常。跳过次数用于先建一个真实栈再模拟 OOM。
- * 描述分配失败时采样已借栈计数，区分确实到达赋值与更早的构造失败。 */
+ * 描述分配失败时采样已借栈计数，区分确实到达赋值与更早的构造失败。
+ */
 thread_local size_t g_fail_new_size = 0;
 thread_local size_t g_skip_matching_new = 0;
 thread_local size_t g_borrowed_at_new_failure = 0;
 thread_local bbt::coroutine::detail::StackPool* g_observed_pool = nullptr;
 
-} // namespace
+}
 
 void* operator new(std::size_t size)
 {
@@ -97,7 +99,11 @@ int RunRuntime(bool stack_protect)
     using bbt::coroutine::GetLocalCoroutineStackSize;
 
     auto* cfg = g_bbt_coroutine_config.get();
-    const size_t kDefaultStack = 32 * 1024; // 非出厂默认（12 KiB），用于证明默认值来源
+
+    /**
+     * 非出厂默认（12 KiB），用于证明默认值来源
+     */
+    const size_t kDefaultStack = 32 * 1024;
     const size_t kExplicitRequest = 64 * 1024 + 1;
     const size_t kExplicitU = AlignUp(kExplicitRequest);
     const size_t kDescRequest = 16 * 1024;
@@ -119,7 +125,9 @@ int RunRuntime(bool stack_protect)
     std::atomic<int> local_intact{0};
     CountDownLatch done{5};
 
-    /* 默认入口：省略大小必须取自启动前的全局默认，而不是出厂值或被显式调用改写 */
+    /**
+     * 默认入口：省略大小必须取自启动前的全局默认，而不是出厂值或被显式调用改写
+     */
     g_scheduler->RegistCoroutineTask([&]() {
         volatile unsigned char local[1024];
         for (size_t i = 0; i < sizeof(local); ++i)
@@ -135,7 +143,9 @@ int RunRuntime(bool stack_protect)
         done.Down();
     });
 
-    /* 显式大小 + 描述：真实挂起/唤醒，前后查询值稳定、局部数据未污染 */
+    /**
+     * 显式大小 + 描述：真实挂起/唤醒，前后查询值稳定、局部数据未污染
+     */
     g_scheduler->RegistCoroutineTask(
         kExplicitRequest,
         [&]() {
@@ -144,7 +154,11 @@ int RunRuntime(bool stack_protect)
                 local[i] = static_cast<unsigned char>(i * 7 + 3);
 
             explicit_seen_before_suspend.store(GetLocalCoroutineStackSize());
-            bbt::coroutine::detail::Hook_Sleep(30); // 真实挂起并唤醒
+
+            /**
+             * 真实挂起并唤醒
+             */
+            bbt::coroutine::detail::Hook_Sleep(30);
 
             bool intact = true;
             for (size_t i = 0; i < sizeof(local); ++i) {
@@ -157,19 +171,25 @@ int RunRuntime(bool stack_protect)
         },
         "explicit-64k");
 
-    /* 描述宏：保持原语法，默认大小 */
+    /**
+     * 描述宏：保持原语法，默认大小
+     */
     bbtco_desc("macro-desc")[&]()
     {
         desc_seen.store(GetLocalCoroutineStackSize());
         done.Down();
     };
 
-    /* 成功输出重载（显式大小）：不抛并置 true */
+    /**
+     * 成功输出重载（显式大小）：不抛并置 true
+     */
     bool succ = false;
     g_scheduler->RegistCoroutineTask(kDescRequest, [&]() { done.Down(); }, succ);
     Check(succ, "explicit RegistCoroutineTask(succ) reports success on live runtime");
 
-    /* 显式调用之后默认入口仍走全局默认 */
+    /**
+     * 显式调用之后默认入口仍走全局默认
+     */
     g_scheduler->RegistCoroutineTask([&]() {
         default_after_explicit_seen.store(GetLocalCoroutineStackSize());
         done.Down();
@@ -177,8 +197,12 @@ int RunRuntime(bool stack_protect)
 
     const bool completed = done.WaitTimeout(15000) == 0;
     Check(completed, "all mixed-size tasks finished within timeout");
+
+    /**
+     * runtime 无 Stop；超时立即结束进程，不能销毁仍被协程引用的局部状态
+     */
     if (!completed)
-        std::_Exit(1); // runtime 无 Stop；超时立即结束进程，不能销毁仍被协程引用的局部状态
+        std::_Exit(1);
 
     Check(default_seen.load() == kDefaultStack, "default registration honors configured default U");
     Check(default_after_resume.load() == kDefaultStack, "default stack size stable across suspend/resume");
@@ -219,7 +243,11 @@ void RunDescriptionAssignFailure()
     using bbt::coroutine::detail::CoroutineCallback;
     auto* pool = g_bbt_stackpoll.get();
     const size_t borrowed = pool->GetCurCoNum();
-    const size_t allocated = pool->AllocSize(); // 64 KiB 默认保护桶已由无 worker 例预热
+
+    /**
+     * 64 KiB 默认保护桶已由无 worker 例预热
+     */
+    const size_t allocated = pool->AllocSize();
     auto capture = std::make_shared<int>(0);
     bool callback_ran = false;
     CoroutineCallback callback = [&, capture]() {
@@ -230,8 +258,10 @@ void RunDescriptionAssignFailure()
     std::memset(desc, 'd', sizeof(desc) - 1);
     desc[sizeof(desc) - 1] = '\0';
 
-    /* 当前 libstdc++ 的长字符串按 length+1 分配。正对照保持相同 callable/栈/
-     * 注入大小，唯独不传 desc：gate 必须未被消费，排除普通构造路径同尺寸分配。 */
+    /**
+     * 当前 libstdc++ 的长字符串按 length+1 分配。正对照保持相同 callable/栈/
+     * 注入大小，唯独不传 desc：gate 必须未被消费，排除普通构造路径同尺寸分配。
+     */
     g_skip_matching_new = 0;
     g_fail_new_size = sizeof(desc);
     bool without_desc_succeeded = false;
@@ -250,7 +280,11 @@ void RunDescriptionAssignFailure()
     g_observed_pool = pool;
     g_borrowed_at_new_failure = borrowed;
     g_skip_matching_new = 0;
-    g_fail_new_size = sizeof(desc); // 真实 std::string 赋值申请 length+1，不是手工在赋值前抛
+
+    /**
+     * 真实 std::string 赋值申请 length+1，不是手工在赋值前抛
+     */
+    g_fail_new_size = sizeof(desc);
     try {
         std::unique_ptr<Coroutine> co(Coroutine::Create(64 * 1024, callback, true, desc));
     } catch (const std::bad_alloc&) {
@@ -287,9 +321,16 @@ void RunPreloadFailures()
     cfg->m_cfg_static_coroutine = 3;
     cfg->m_cfg_max_coroutine = 3;
 
-    g_bbt_profiler->Reset(); // 本模式从未启动 runtime，没有并发生产者
+    /**
+     * 本模式从未启动 runtime，没有并发生产者
+     */
+    g_bbt_profiler->Reset();
     g_skip_matching_new = 1;
-    g_fail_new_size = sizeof(Stack); // 第一个真实 Stack 已创建；第二个对象 new 失败
+
+    /**
+     * 第一个真实 Stack 已创建；第二个对象 new 失败
+     */
+    g_fail_new_size = sizeof(Stack);
     bool rejected = false;
     try {
         StackPool pool;
@@ -315,7 +356,11 @@ void RunPreloadFailures()
         StackPool pool;
         Check(pool.AllocSize() == 3, "preload recovers after both injected failures");
     }
-    CheckProfileStackEvents(3, 3); // 正常局部池析构也须为真实销毁记事件
+
+    /**
+     * 正常局部池析构也须为真实销毁记事件
+     */
+    CheckProfileStackEvents(3, 3);
     cfg->m_cfg_static_coroutine = old_preload;
     cfg->m_cfg_max_coroutine = old_limit;
 }
@@ -329,7 +374,9 @@ int RunRejectBeforeStart()
 
     const size_t alloc0 = g_bbt_stackpoll->AllocSize();
 
-    /* 显式 0 非法：invalid_argument，且在分配前拒绝 */
+    /**
+     * 显式 0 非法：invalid_argument，且在分配前拒绝
+     */
     bool zero_rejected = false;
     try {
         g_scheduler->RegistCoroutineTask(size_t(0), []() {});
@@ -339,7 +386,9 @@ int RunRejectBeforeStart()
     Check(zero_rejected, "explicit 0 rejected with invalid_argument");
     Check(g_bbt_stackpoll->AllocSize() == alloc0, "no allocation on zero rejection");
 
-    /* 取整/范围越界：length_error */
+    /**
+     * 取整/范围越界：length_error
+     */
     bool range_rejected = false;
     try {
         g_scheduler->RegistCoroutineTask(static_cast<size_t>(-1), []() {});
@@ -357,7 +406,9 @@ int RunRejectBeforeStart()
     Check(huge_rejected, "PTRDIFF_MAX overflow rejected with length_error");
     Check(g_bbt_stackpoll->AllocSize() == alloc0, "no allocation on range rejections");
 
-    /* 无 worker：注册拒绝（runtime_error），回调不执行，不留借出对象 */
+    /**
+     * 无 worker：注册拒绝（runtime_error），回调不执行，不留借出对象
+     */
     bool callback_ran = false;
     bool threw = false;
     try {
@@ -369,7 +420,9 @@ int RunRejectBeforeStart()
     Check(!callback_ran, "rejected task callback never executes");
     Check(g_bbt_stackpoll->GetCurCoNum() == 0, "no borrowed stack left after rejection");
 
-    /* 失败不留对象：第二次同样失败，并复用第一次归还进缓存的栈（分配数不增） */
+    /**
+     * 失败不留对象：第二次同样失败，并复用第一次归还进缓存的栈（分配数不增）
+     */
     const size_t alloc_after_first = g_bbt_stackpoll->AllocSize();
     Check(alloc_after_first >= alloc0, "pool accounting stays consistent after rejection");
 
@@ -388,7 +441,7 @@ int RunRejectBeforeStart()
     return 0;
 }
 
-} // namespace
+}
 
 int main(int argc, char** argv)
 {

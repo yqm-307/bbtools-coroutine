@@ -8,12 +8,8 @@ using namespace bbt::coroutine;
 
 class Client {
 public:
-    Client(int client_count, std::string ip, short port) : m_ip(ip), m_port(port), m_cdl(client_count)
-    {
-    }
-    ~Client()
-    {
-    }
+    Client(int client_count, std::string ip, short port) : m_ip(ip), m_port(port), m_pending(client_count) {}
+    ~Client() {}
 
     void Start()
     {
@@ -21,13 +17,17 @@ public:
         {
             _Run();
             printf("success\n");
-            m_cdl.Down();
+            m_pending.fetch_sub(1);
         };
     }
 
     void Wait()
     {
-        m_cdl.Wait();
+        /**
+         * 主协程让出等待全部 client 结束；协程里用原生 latch 会占住 Processer。
+         */
+        while (m_pending.load() != 0)
+            bbtco_sleep(10);
     }
 
 protected:
@@ -63,15 +63,16 @@ protected:
     }
 
 private:
-    bbt::core::thread::CountDownLatch m_cdl{1};
+    std::atomic_int m_pending{0};
     std::string m_ip;
     short m_port;
 };
 
-int main()
+int bbtco_main()
 {
-    g_scheduler->Start();
-    // 开100个client connection
+    /**
+     * 开100个client connection
+     */
     Client c{100, "127.0.0.1", 10010};
 
     for (int i = 0; i < 100; ++i) {
@@ -80,5 +81,10 @@ int main()
 
     c.Wait();
 
-    /* process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出 */
+    /**
+     * process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出
+     */
+    return 0;
 }
+
+BBTCO_MAIN()

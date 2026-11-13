@@ -1,4 +1,5 @@
-/** @file CoWaiter.hpp
+/**
+ * @file CoWaiter.hpp
  * @brief 协程等待、唤醒与组合事件等待接口。
  */
 #pragma once
@@ -15,12 +16,20 @@ namespace bbt::coroutine::sync {
 class CoWaiter {
 public:
     typedef std::shared_ptr<CoWaiter> SPtr;
-    /// @brief 创建一个空闲 Waiter（无等待者、未决议）。
+
+    /**
+     * @brief 创建一个空闲 Waiter（无等待者、未决议）。
+     */
     static SPtr Create();
 
-    /// @brief 创建空闲 Waiter：无等待者、未决议。
+    /**
+     * @brief 创建空闲 Waiter：无等待者、未决议。
+     */
     CoWaiter();
-    /// @brief 销毁 Waiter。
+
+    /**
+     * @brief 销毁 Waiter。
+     */
     ~CoWaiter();
 
     /**
@@ -99,6 +108,7 @@ public:
      * @return 命中的组合等待状态
      */
     CombinedWaitStatus Wait(const CombinedWaitOptions& options);
+
     /**
      * @brief 挂起成功后、恢复前调用回调的组合等待重载。
      * @param options fd interest 与 deadline 设置
@@ -145,17 +155,17 @@ public:
      * 这不表达业务取消；业务取消由 adapter 经带载荷 Notify 表达，再由上层
      * 把 Completed 解释成 Cancelled/Closed。
      */
-    void Cancel()
-    {
-        m_run_status = COND_FREE;
-    }
+    void Cancel() { m_run_status = COND_FREE; }
 
 protected:
     std::mutex m_notify_mutex;
     std::shared_ptr<detail::CoPollEvent> m_co_event{nullptr};
     volatile CoCondStatus m_run_status{COND_DEFAULT};
-    /* 载荷不放在本共享槽：首胜 Notify 的载荷落在本轮 CoPollEvent 上
-     *（CoPollEvent::SetNotifyValue / GetNotifyValue），各轮等待互不覆写。 */
+
+    /**
+     * 载荷不放在本共享槽：首胜 Notify 的载荷落在本轮 CoPollEvent 上
+     * （CoPollEvent::SetNotifyValue / GetNotifyValue），各轮等待互不覆写。
+     */
 };
 
 }

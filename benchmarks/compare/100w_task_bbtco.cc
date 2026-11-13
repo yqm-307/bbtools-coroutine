@@ -5,8 +5,15 @@ const int producer_count = 2;
 
 void Init()
 {
-    g_bbt_coroutine_config->m_cfg_stack_size = 1024 * 8; // 设置栈大小为8KB
-    g_bbt_coroutine_config->m_cfg_stack_protect = false; // 启用栈保护
+    /**
+     * 设置栈大小为8KB
+     */
+    g_bbt_coroutine_config->m_cfg_stack_size = 1024 * 8;
+
+    /**
+     * 启用栈保护
+     */
+    g_bbt_coroutine_config->m_cfg_stack_protect = false;
     g_bbt_coroutine_config->m_cfg_static_coroutine = 10000;
 }
 
@@ -31,7 +38,9 @@ int main()
                     };
 
                     if (!succ) {
-                        // 如果注册失败，说明协程池满了，等待一段时间后重试
+                        /**
+                         * 如果注册失败，说明协程池满了，等待一段时间后重试
+                         */
                         bbtco_sleep(1);
                     }
                 }
@@ -40,7 +49,10 @@ int main()
     }
 
     latch.Wait();
-    /* process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出 */
+
+    /**
+     * process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出
+     */
 
     printf("cost time: %ld\n", (bbt::core::clock::now() - start).count());
 }

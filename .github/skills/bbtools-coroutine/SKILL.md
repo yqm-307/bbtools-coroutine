@@ -10,6 +10,8 @@ description: >
 
 写**调用本库**的代码时用本 skill。改运行时实现改读 `AGENTS.md` 和 `docs/architecture/core-runtime-contract.md`。
 
+跨仓公共规范和提示词入口：`third-party/bbtools-pub/README.md`。按当前任务只读其设计、编码、Review 或用例设计路径；本 skill 只补 coroutine 的 API、调用方式和常见坑，不复制公共规范正文。公共规范与本仓契约冲突时，以本仓 `AGENTS.md`、核心契约和实际头文件为准。
+
 签名冲突：头文件 + 测试 > `docs/guides/api-reference.md` > README 速查表。不要凭速查表补重载。
 
 ## 1. 架构简介

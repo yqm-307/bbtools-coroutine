@@ -7,8 +7,10 @@
 #include <bbt/core/clock/Clock.hpp>
 #include <bbt/coroutine/sync/CoWaiter.hpp>
 #include <bbt/coroutine/sync/CoCond.hpp>
-/* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
- * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。 */
+/**
+ * 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
+ * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。
+ */
 namespace {
 void EnsureRuntime()
 {
@@ -117,9 +119,13 @@ BOOST_AUTO_TEST_CASE(t_cond_wait)
     BOOST_CHECK(ncount == nmax_co);
 }
 
-// =================== P1: WaitFor(ms) ===================
+/**
+ * =================== P1: WaitFor(ms) ===================
+ */
 
-// WaitFor(ms) 超时后正常返回
+/**
+ * WaitFor(ms) 超时后正常返回
+ */
 BOOST_AUTO_TEST_CASE(t_waitfor_timeout)
 {
     bbt::core::thread::CountDownLatch l{1};
@@ -132,9 +138,20 @@ BOOST_AUTO_TEST_CASE(t_waitfor_timeout)
         result = cond->WaitFor(100);
         auto elapsed = bbt::core::clock::gettime_mono() - begin;
 
-        BOOST_TEST(result != 0);    // 超时不应返回 0
-        BOOST_TEST(elapsed >= 90);  // 至少等了 ~100ms
-        BOOST_TEST(elapsed < 1000); // 不应等太久
+        /**
+         * 超时不应返回 0
+         */
+        BOOST_TEST(result != 0);
+
+        /**
+         * 至少等了 ~100ms
+         */
+        BOOST_TEST(elapsed >= 90);
+
+        /**
+         * 不应等太久
+         */
+        BOOST_TEST(elapsed < 1000);
         l.Down();
     };
 
@@ -142,7 +159,9 @@ BOOST_AUTO_TEST_CASE(t_waitfor_timeout)
     BOOST_TEST(result != 0);
 }
 
-// WaitFor(ms) 在 NotifyOne 之前被唤醒
+/**
+ * WaitFor(ms) 在 NotifyOne 之前被唤醒
+ */
 BOOST_AUTO_TEST_CASE(t_waitfor_notifyone)
 {
     bbt::core::thread::CountDownLatch l{1};
@@ -157,7 +176,11 @@ BOOST_AUTO_TEST_CASE(t_waitfor_notifyone)
             auto begin = bbt::core::clock::gettime_mono();
             result = cond->WaitFor(500);
             auto elapsed = bbt::core::clock::gettime_mono() - begin;
-            BOOST_TEST(elapsed < 400); // 应该在 500ms 前被唤醒
+
+            /**
+             * 应该在 500ms 前被唤醒
+             */
+            BOOST_TEST(elapsed < 400);
             l.Down();
         };
 
@@ -166,10 +189,16 @@ BOOST_AUTO_TEST_CASE(t_waitfor_notifyone)
     };
 
     l.Wait();
-    BOOST_TEST(result == 0); // NotifyOne 唤醒，返回 0
+
+    /**
+     * NotifyOne 唤醒，返回 0
+     */
+    BOOST_TEST(result == 0);
 }
 
-// WaitFor(ms) 在 NotifyAll 之前被唤醒
+/**
+ * WaitFor(ms) 在 NotifyAll 之前被唤醒
+ */
 BOOST_AUTO_TEST_CASE(t_waitfor_notifyall)
 {
     const int n = 50;
@@ -198,9 +227,13 @@ BOOST_AUTO_TEST_CASE(t_waitfor_notifyall)
     BOOST_TEST(woken == n);
 }
 
-// =================== P1: NotifyOne 空队列 ===================
+/**
+ * =================== P1: NotifyOne 空队列 ===================
+ */
 
-// NotifyOne 空队列返回 -1
+/**
+ * NotifyOne 空队列返回 -1
+ */
 BOOST_AUTO_TEST_CASE(t_notifyone_empty)
 {
     bbt::core::thread::CountDownLatch l{1};
@@ -209,14 +242,20 @@ BOOST_AUTO_TEST_CASE(t_notifyone_empty)
     {
         auto cond = sync::CoCond::Create();
         int ret = cond->NotifyOne();
-        BOOST_TEST(ret == -1); // 空队列返回 -1
+
+        /**
+         * 空队列返回 -1
+         */
+        BOOST_TEST(ret == -1);
         l.Down();
     };
 
     l.Wait();
 }
 
-// NotifyOne 后 WaitFor 仍可正常使用
+/**
+ * NotifyOne 后 WaitFor 仍可正常使用
+ */
 BOOST_AUTO_TEST_CASE(t_notifyone_empty_then_use)
 {
     bbt::core::thread::CountDownLatch l{1};
@@ -225,11 +264,15 @@ BOOST_AUTO_TEST_CASE(t_notifyone_empty_then_use)
     {
         auto cond = sync::CoCond::Create();
 
-        // 空队列 NotifyOne 应该返回 -1
+        /**
+         * 空队列 NotifyOne 应该返回 -1
+         */
         int ret = cond->NotifyOne();
         BOOST_TEST(ret == -1);
 
-        // 之后正常 WaitFor + NotifyOne 仍然工作
+        /**
+         * 之后正常 WaitFor + NotifyOne 仍然工作
+         */
         bbtco[cond]()
         {
             bbtco_sleep(50);
@@ -244,7 +287,9 @@ BOOST_AUTO_TEST_CASE(t_notifyone_empty_then_use)
     l.Wait();
 }
 
-// Wait + NotifyOne 单协程
+/**
+ * Wait + NotifyOne 单协程
+ */
 BOOST_AUTO_TEST_CASE(t_wait_notifyone_single)
 {
     bbt::core::thread::CountDownLatch l{1};
@@ -270,21 +315,27 @@ BOOST_AUTO_TEST_CASE(t_wait_notifyone_single)
     BOOST_TEST(woken == 1);
 }
 
-// 异常安全：已 Cancel 的 Waiter 不会被 Notify 唤醒
+/**
+ * 异常安全：已 Cancel 的 Waiter 不会被 Notify 唤醒
+ */
 BOOST_AUTO_TEST_CASE(t_cancelled_waiter_skipped)
 {
     using namespace bbt::coroutine::sync;
 
     auto waiter = CoWaiter::Create();
-    waiter->Cancel(); // 模拟异常路径取消
 
-    // Notify 应返回 -1（跳过已取消的 waiter）
+    /**
+     * 模拟异常路径取消
+     */
+    waiter->Cancel();
+
+    /**
+     * Notify 应返回 -1（跳过已取消的 waiter）
+     */
     int ret = waiter->Notify();
     BOOST_TEST(ret == -1);
 }
 
-BOOST_AUTO_TEST_CASE(t_end)
-{
-}
+BOOST_AUTO_TEST_CASE(t_end) {}
 
 BOOST_AUTO_TEST_SUITE_END()

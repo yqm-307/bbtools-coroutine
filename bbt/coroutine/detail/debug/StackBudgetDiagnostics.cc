@@ -12,7 +12,6 @@
  * 函数级再加 no_instrument_function 双保险：hook 及其 helper 都不会产生
  * 插桩调用，否则 __cyg_profile_func_enter 会自递归爆栈。
  */
-
 namespace {
 
 /**
@@ -72,8 +71,8 @@ __attribute__((noinline, no_instrument_function)) StackBudgetState* GetActiveSta
  * 区间外的样本直接丢弃：说明 SP 不属于本协程栈（如调度残留），
  * 不修正、不上报。
  */
-extern "C" __attribute__((no_instrument_function)) void __cyg_profile_func_enter(void* /*this_fn*/,
-                                                                                 void* /*call_site*/) noexcept
+extern "C" __attribute__((no_instrument_function)) void __cyg_profile_func_enter(void* this_fn,
+                                                                                 void* call_site) noexcept
 {
     using bbt::coroutine::detail::StackBudgetState;
 
@@ -90,10 +89,15 @@ extern "C" __attribute__((no_instrument_function)) void __cyg_profile_func_enter
     }
 }
 
-extern "C" __attribute__((no_instrument_function)) void __cyg_profile_func_exit(void* /*this_fn*/,
-                                                                                void* /*call_site*/) noexcept
+extern "C" __attribute__((no_instrument_function)) void __cyg_profile_func_exit(void* this_fn, void* call_site) noexcept
 {
-    /* exit 不采样：入口打点已足够形成 min-SP 水位，exit 再加只会放大开销 */
+
+    /**
+     * exit 不采样：入口打点已足够形成 min-SP 水位，exit 再加只会放大开销
+     */
 }
 
-#endif // BBT_COROUTINE_STACK_DIAGNOSTICS
+/**
+ * BBT_COROUTINE_STACK_DIAGNOSTICS
+ */
+#endif

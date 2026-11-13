@@ -17,7 +17,9 @@ struct CoroutineWakePayload {
 };
 BBT_COEVENT_VALUE_REGISTER_TYPE(CoroutineWakePayload, 0x101);
 
-/* 与 CoroutineWakePayload 同尺寸、不同登记 ID：必须互相拒绝 */
+/**
+ * 与 CoroutineWakePayload 同尺寸、不同登记 ID：必须互相拒绝
+ */
 struct OtherWakePayload {
     std::int64_t seq{0};
     std::uint32_t code{0};

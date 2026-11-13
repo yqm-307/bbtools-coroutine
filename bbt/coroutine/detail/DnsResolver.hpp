@@ -11,9 +11,11 @@
 
 namespace bbt::coroutine::detail {
 
-/** @brief DNS 阻塞解析的单 worker 任务池：getaddrinfo 等投到 worker 线程跑，协程经 CoWaiter 挂起。
+/**
+ * @brief DNS 阻塞解析的单 worker 任务池：getaddrinfo 等投到 worker 线程跑，协程经 CoWaiter 挂起。
  * Await 只能在协程内调用，work 跑在 worker 线程（禁止碰协程原语）且 work 与结果变量的寿命须覆盖整个等待；
- * 超时后晚到的结果由调用方丢弃。懒启动、进程寿命对象（无 Stop），队列满即拒绝入队。 */
+ * 超时后晚到的结果由调用方丢弃。懒启动、进程寿命对象（无 Stop），队列满即拒绝入队。
+ */
 class DnsResolver {
 public:
     static DnsResolver* GetInstance();
@@ -29,6 +31,7 @@ public:
      *             -1 表示未能入队（队列已满），work 不会执行
      */
     int Await(const std::function<void()>& work);
+
     /**
      * @brief 同一 DNS worker 执行 work，按单调绝对期限返回首胜原因。
      * @note 超时只终止调用方等待；已开始的 libc 工作无法强杀，work 必须
@@ -40,7 +43,10 @@ public:
     sync::CombinedWaitStatus AwaitBounded(const std::function<void()>& work, const sync::CombinedWaitOptions& options);
 
 private:
-    static constexpr std::size_t kMaxPendingJobs = 256; // 排队上限：满了拒绝入队，不丢已接纳任务
+    /**
+     * 排队上限：满了拒绝入队，不丢已接纳任务
+     */
+    static constexpr std::size_t kMaxPendingJobs = 256;
     struct Job {
         std::function<void()> work;
         sync::CoWaiter::SPtr waiter;
@@ -49,14 +55,31 @@ private:
     DnsResolver() = default;
     ~DnsResolver() = default;
 
-    // 入队并懒创建 worker；队列满或线程创建失败返回 false，任务不执行。
+    /**
+     * 入队并懒创建 worker；队列满或线程创建失败返回 false，任务不执行。
+     */
     bool Enqueue(Job job);
     void _Worker();
 
-    std::mutex m_mutex;                    // 保护 m_queue 与 m_thread 的懒创建
-    std::condition_variable m_cv;          // worker 在此等队列非空
-    std::queue<Job> m_queue;               // 待执行任务，上限见 kMaxPendingJobs
-    std::unique_ptr<std::thread> m_thread; // 首次 Enqueue 创建；进程寿命内不 join、不析构
+    /**
+     * 保护 m_queue 与 m_thread 的懒创建
+     */
+    std::mutex m_mutex;
+
+    /**
+     * worker 在此等队列非空
+     */
+    std::condition_variable m_cv;
+
+    /**
+     * 待执行任务，上限见 kMaxPendingJobs
+     */
+    std::queue<Job> m_queue;
+
+    /**
+     * 首次 Enqueue 创建；进程寿命内不 join、不析构
+     */
+    std::unique_ptr<std::thread> m_thread;
 };
 
-} // namespace bbt/coroutine/detail
+}

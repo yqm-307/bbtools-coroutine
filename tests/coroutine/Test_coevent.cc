@@ -5,8 +5,10 @@
 
 #include <bbt/coroutine/coroutine.hpp>
 
-/* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
- * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。 */
+/**
+ * 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
+ * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。
+ */
 namespace {
 void EnsureRuntime()
 {
@@ -22,7 +24,9 @@ BOOST_AUTO_TEST_CASE(t_begin)
     EnsureRuntime();
 }
 
-/* 外部事件注册 */
+/**
+ * 外部事件注册
+ */
 BOOST_AUTO_TEST_CASE(t_regist_event_timeout)
 {
     bbt::core::thread::CountDownLatch l{1};
@@ -38,7 +42,9 @@ BOOST_AUTO_TEST_CASE(t_regist_event_timeout)
     l.Wait();
 }
 
-/* fd可读事件 */
+/**
+ * fd可读事件
+ */
 BOOST_AUTO_TEST_CASE(t_regist_event_fd_ev_readable)
 {
     bbt::core::thread::CountDownLatch l{1};
@@ -66,7 +72,9 @@ BOOST_AUTO_TEST_CASE(t_regist_event_fd_ev_readable)
     ::close(wfd);
 }
 
-/* fd可写事件 */
+/**
+ * fd可写事件
+ */
 BOOST_AUTO_TEST_CASE(t_regist_event_fd_ev_writeable)
 {
     bbt::core::thread::CountDownLatch l{1};
@@ -110,7 +118,10 @@ BOOST_AUTO_TEST_CASE(t_regist_event_with_copool)
         while (true) {
             int val = 0;
             chan >> val;
-            // printf("read: %d\n", val);
+
+            /**
+             * printf("read: %d\n", val);
+             */
             if (val == 99)
                 break;
         }
@@ -142,8 +153,6 @@ BOOST_AUTO_TEST_CASE(t_regist_event_fd_timeout)
     ::close(wfd);
 }
 
-BOOST_AUTO_TEST_CASE(t_end)
-{
-}
+BOOST_AUTO_TEST_CASE(t_end) {}
 
 BOOST_AUTO_TEST_SUITE_END()

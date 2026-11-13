@@ -9,7 +9,10 @@
 #include <bbt/core/Define.hpp>
 
 namespace bbt::core::log {
-/** @brief 单条打印消息的字节上限（4 KiB），由 `ARRAY_SIZE` 决定 */
+
+/**
+ * @brief 单条打印消息的字节上限（4 KiB），由 `ARRAY_SIZE` 决定
+ */
 #define LOG_BUFFER_MAX_LEN ARRAY_SIZE
 
 /**
@@ -22,4 +25,4 @@ void WarnPrint(const char* fmt, ...);
  */
 void DebugPrint(const char* fmt, ...);
 
-} // namespace bbt::core::log
+}

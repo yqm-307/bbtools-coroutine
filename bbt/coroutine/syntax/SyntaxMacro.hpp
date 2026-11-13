@@ -43,7 +43,10 @@
  *  补语法糖时：宏只做薄封装、保持上表“意图 → 用法”的形式，并同步更新本手册和对应测试。
  */
 
-/* 辅助宏 */
+/**
+ * @name 辅助宏
+ * @{
+ */
 
 /**
  * @brief 启动一个协程：`bbtco [=]() { ... };`
@@ -126,14 +129,21 @@ do \
     g_bbt_tls_coroutine_co->YieldAndPushGCoQueue(); \
 } while(0);
 
-/* sync：创建同步原语，均返回 shared_ptr；协程内使用，等待只挂起协程不阻塞线程 */
+/**
+ * sync：创建同步原语，均返回 shared_ptr；协程内使用，等待只挂起协程不阻塞线程
+ */
 #define bbtco_make_cocond()     bbt::coroutine::sync::CoCond::Create()
 #define bbtco_make_comutex()    bbt::coroutine::sync::CoMutex::Create()
 #define bbtco_make_corwmutex()  bbt::coroutine::sync::CoRWMutex::Create()
-/* copool：创建协程池，pool_max_co 为池内最大协程数；配合 bbtco_ev_*_with_copool 使用 */
+
+/**
+ * copool：创建协程池，pool_max_co 为池内最大协程数；配合 bbtco_ev_*_with_copool 使用
+ */
 #define bbtco_make_copool(pool_max_co) bbt::coroutine::pool::CoPool::Create(pool_max_co)
 
-/* 禁止直接使用 */
+/**
+ * 禁止直接使用
+ */
 #define __bbtco_event_regist_ex(fd, event, time) (*std::make_shared<bbt::coroutine::_EventHelper>(fd, event, time))-
 #define __bbtco_event_regist_with_copool_ex(fd, event, time, copool) (*std::make_shared<bbt::coroutine::_EventHelper>(fd, event, time, copool))-
 
@@ -197,3 +207,7 @@ do \
  */
 #define bbtco_wait_for(fd, event, ms) \
     bbt::coroutine::_WaitForHelper __bbtco_joint_suffix(_WaitForHelper_, __COUNTER__){fd, event, ms}
+
+/**
+ * @}
+ */

@@ -1,4 +1,6 @@
-/* 协程作用域退出执行器 Defer（bbtco_defer 底层）。 */
+/**
+ * 协程作用域退出执行器 Defer（bbtco_defer 底层）。
+ */
 #pragma once
 #include <boost/noncopyable.hpp>
 #include <bbt/coroutine/detail/Define.hpp>
@@ -11,7 +13,9 @@ namespace bbt::coroutine::detail {
  */
 class Defer final : boost::noncopyable {
 public:
-    /** @brief 保存回调；空回调表示退出时什么都不做。 */
+    /**
+     * @brief 保存回调；空回调表示退出时什么都不做。
+     */
     explicit Defer(const DeferCallback& cb);
     ~Defer();
 

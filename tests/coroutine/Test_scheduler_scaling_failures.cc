@@ -1,4 +1,6 @@
-// 每个分配序号 exec 独立进程；仅 arm 当前线程的一次 new，不污染 worker。
+/**
+ * 每个分配序号 exec 独立进程；仅 arm 当前线程的一次 new，不污染 worker。
+ */
 #include <bbt/coroutine/coroutine.hpp>
 #include <bbt/coroutine/detail/Profiler.hpp>
 #include <atomic>
@@ -147,7 +149,11 @@ static int Child(const char* mode, long nth)
         CHECK(g_scheduler->GetProcesserTargetNum() == target);
         CHECK(g_scheduler->GetProcesserScalingMode() == ProcesserScalingMode::Manual);
         std::printf("COMPLETE mode=%s first_uninjected=%ld creates=%d\n", mode, nth, create_calls);
-        return 42; // 只作扫描结束证据，不计为注入覆盖。
+
+        /**
+         * 只作扫描结束证据，不计为注入覆盖。
+         */
+        return 42;
     }
     CHECK(alloc ? allocation_hits == 1 : (!std::strcmp(mode, "pthread") ? create_calls == 2 : worker_hits == 1));
     std::printf(
@@ -171,7 +177,10 @@ static int Child(const char* mode, long nth)
     CHECK(g_scheduler->GetWorkerProcesserIds() == old_ids);
     CHECK(g_scheduler->GetProcesserRetiringNum() == 0);
     CHECK(g_scheduler->GetProcesserExitedUnjoinedNum() == 0);
-    // 批次取消必须物理 join，不能只隐藏新身份。
+
+    /**
+     * 批次取消必须物理 join，不能只隐藏新身份。
+     */
     CHECK(ThreadCount() == old_threads);
     CHECK(g_scheduler->SetProcesserNum(target)
           == (shrink ? ProcesserResizeResult::Pending : ProcesserResizeResult::Ok));
@@ -223,7 +232,11 @@ int main(int argc, char** argv)
         if (!sweep)
             return 0;
     }
-    CHECK(false); // 未见首次完整成功，扫描不得冒充闭环。
+
+    /**
+     * 未见首次完整成功，扫描不得冒充闭环。
+     */
+    CHECK(false);
 #else
     (void)argc;
     (void)argv;

@@ -7,7 +7,10 @@ const int max_task_count = 10000000;
 int main()
 {
     int work_thread = std::thread::hardware_concurrency();
-    // 启动4个线程执行新创建的调度器
+
+    /**
+     * 启动4个线程执行新创建的调度器
+     */
     std::thread t2([work_thread] { g_Scheduler.Start(work_thread); });
     auto start = bbt::core::clock::now();
 

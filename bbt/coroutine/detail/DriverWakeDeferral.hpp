@@ -18,11 +18,10 @@ namespace bbt::coroutine::detail {
  */
 class DriverWakeDeferral {
 public:
-    // 构造 depth++；析构 depth--，退到最外层且 pending 置位时补发 driver Wake。
-    DriverWakeDeferral() noexcept
-    {
-        ++_TlsDepth();
-    }
+    /**
+     * 构造 depth++；析构 depth--，退到最外层且 pending 置位时补发 driver Wake。
+     */
+    DriverWakeDeferral() noexcept { ++_TlsDepth(); }
     ~DriverWakeDeferral() noexcept;
 
     DriverWakeDeferral(const DriverWakeDeferral&) = delete;
@@ -34,12 +33,12 @@ public:
      *  立即执行 Wake。
      */
     static bool Defer() noexcept;
-    /* 当前线程是否仍在某级 runtime 通知临界区内（deferral depth>0）。
-     * 用于 Unregister 在副作用前拒绝穿透 guard 的终止 Wake。 */
-    static bool IsActive() noexcept
-    {
-        return _TlsDepth() > 0;
-    }
+
+    /**
+     * 当前线程是否仍在某级 runtime 通知临界区内（deferral depth>0）。
+     * 用于 Unregister 在副作用前拒绝穿透 guard 的终止 Wake。
+     */
+    static bool IsActive() noexcept { return _TlsDepth() > 0; }
 
 private:
     static int& _TlsDepth() noexcept;

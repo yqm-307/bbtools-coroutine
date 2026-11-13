@@ -1,17 +1,19 @@
-// ============================================================================
-// Test_reliability.cc — bbtools-coroutine 可靠性陷阱验证
-//
-// 覆盖可靠性陷阱清单全部 20 项：
-//
-//   Deadlock (4):    DL-01 ✅ ctest | DL-02 ✅ ctest | DL-03 ✅ ctest | DL-04 ⚠️ fatigue
-//   Use-After-Free(4): UAF-01 ⚠️ ASAN | UAF-02 ✅ ASAN | UAF-03 ✅ ctest | UAF-04 ✅ ctest
-//   Data Race (4):   DR-01 ✅ ctest | DR-02 ✅ ctest | DR-03 📋 compile | DR-04 📋 known
-//   Memory Leak (3): ML-01 ⚠️ fatigue | ML-02 ✅ ctest | ML-03 ⚠️ fatigue
-//   Undefined (3):   UB-01 ✅ ctest | UB-02 📋 fixed | UB-03 ✅ ctest
-//   Exception (3):   EX-01 ✅ ctest | EX-02 ✅ ctest | EX-03 ✅ Test_coroutine_exception
-//
-// 命名: t_<TRAP-ID> (ADR-0001 D5)
-// ============================================================================
+/**
+ * ============================================================================
+ * Test_reliability.cc — bbtools-coroutine 可靠性陷阱验证
+ *
+ * 覆盖可靠性陷阱清单全部 20 项：
+ *
+ *   Deadlock (4):    DL-01 ✅ ctest | DL-02 ✅ ctest | DL-03 ✅ ctest | DL-04 ⚠️ fatigue
+ *   Use-After-Free(4): UAF-01 ⚠️ ASAN | UAF-02 ✅ ASAN | UAF-03 ✅ ctest | UAF-04 ✅ ctest
+ *   Data Race (4):   DR-01 ✅ ctest | DR-02 ✅ ctest | DR-03 📋 compile | DR-04 📋 known
+ *   Memory Leak (3): ML-01 ⚠️ fatigue | ML-02 ✅ ctest | ML-03 ⚠️ fatigue
+ *   Undefined (3):   UB-01 ✅ ctest | UB-02 📋 fixed | UB-03 ✅ ctest
+ *   Exception (3):   EX-01 ✅ ctest | EX-02 ✅ ctest | EX-03 ✅ Test_coroutine_exception
+ *
+ * 命名: t_<TRAP-ID> (ADR-0001 D5)
+ * ============================================================================
+ */
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MAIN
@@ -32,8 +34,10 @@
 #include <bbt/coroutine/sync/Chan.hpp>
 #include <bbt/coroutine/sync/CoLockGuard.hpp>
 
-/* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
- * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。 */
+/**
+ * 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
+ * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。
+ */
 namespace {
 void EnsureRuntime()
 {
@@ -47,13 +51,15 @@ using namespace bbt::coroutine::sync;
 
 namespace {
 
-// 带 deadline 的 latch 轮询等待。
-//
-// 不依赖 CountDownLatch::WaitTimeout：bbtools-core 旧版本实现存在缺陷——
-// end_tm 未把 timeout 加入截止时间，导致 count>0 时立即 ETIMEDOUT 返回 -1
-// （等价于恒立即超时），且测试进程链接的 core 版本不可控（CI runner 系统库）。
-// 这里用 WaitTimeout(1) 作非阻塞探测 + 外层 deadline 轮询，对修复前后的
-// core 版本均正确。
+/**
+ * 带 deadline 的 latch 轮询等待。
+ *
+ * 不依赖 CountDownLatch::WaitTimeout：bbtools-core 旧版本实现存在缺陷——
+ * end_tm 未把 timeout 加入截止时间，导致 count>0 时立即 ETIMEDOUT 返回 -1
+ * （等价于恒立即超时），且测试进程链接的 core 版本不可控（CI runner 系统库）。
+ * 这里用 WaitTimeout(1) 作非阻塞探测 + 外层 deadline 轮询，对修复前后的
+ * core 版本均正确。
+ */
 void WaitLatchWithDeadline(bbt::core::thread::CountDownLatch& latch, int timeout_ms)
 {
     auto deadline = bbt::core::clock::nowAfter(bbt::core::clock::milliseconds(timeout_ms));
@@ -65,26 +71,30 @@ void WaitLatchWithDeadline(bbt::core::thread::CountDownLatch& latch, int timeout
     BOOST_ERROR("latch wait timed out");
 }
 
-} // namespace
+}
 
 BOOST_AUTO_TEST_SUITE(ReliabilityTraps)
 
-// ============================================================================
-// Suite 级别：启动 scheduler
-// ============================================================================
+/**
+ * ============================================================================
+ * Suite 级别：启动 scheduler
+ * ============================================================================
+ */
 
 BOOST_AUTO_TEST_CASE(t_scheduler_start)
 {
     EnsureRuntime();
 }
 
-// ============================================================================
-// DL-01 [P0]: 持锁 await 死锁
-//
-// 陷阱：Lock() 后在持锁期间调用 bbtco_sleep / YieldWithCallback。
-// 验证：20 协程 Lock→bbtco_sleep(1)→UnLock，全部完成 ops。
-// 冻结判定：若 5s 内 ops 不增长 → 死锁。
-// ============================================================================
+/**
+ * ============================================================================
+ * DL-01 [P0]: 持锁 await 死锁
+ *
+ * 陷阱：Lock() 后在持锁期间调用 bbtco_sleep / YieldWithCallback。
+ * 验证：20 协程 Lock→bbtco_sleep(1)→UnLock，全部完成 ops。
+ * 冻结判定：若 5s 内 ops 不增长 → 死锁。
+ * ============================================================================
+ */
 
 BOOST_AUTO_TEST_CASE(t_DL_01_hold_lock_await)
 {
@@ -92,7 +102,11 @@ BOOST_AUTO_TEST_CASE(t_DL_01_hold_lock_await)
 
     auto mutex = bbtco_make_comutex();
     const int nco = 20;
-    const int niter = 20; // 400 total ops — with mutex contention ~3s expected
+
+    /**
+     * 400 total ops — with mutex contention ~3s expected
+     */
+    const int niter = 20;
     std::atomic_int ops{0};
     bbt::core::thread::CountDownLatch latch{nco};
 
@@ -101,18 +115,28 @@ BOOST_AUTO_TEST_CASE(t_DL_01_hold_lock_await)
         {
             for (int j = 0; j < niter; ++j) {
                 mutex->Lock();
-                bbtco_sleep(1); // 持锁 sleep — 不应对调度器造成死锁
+
+                /**
+                 * 持锁 sleep — 不应对调度器造成死锁
+                 */
+                bbtco_sleep(1);
                 ops++;
                 mutex->UnLock();
-                bbtco_sleep(1); // 给其他协程机会
+
+                /**
+                 * 给其他协程机会
+                 */
+                bbtco_sleep(1);
             }
             latch.Down();
         };
     }
 
-    // 等待完成或超时。CI self-hosted runner（4 核低配、多 job 并行）实测
-    // 吞吐约为本地的 1/5，10s 预算曾导致 398/400 假失败；提高到 30s 保留
-    // 死锁检测意义的同时容纳 CI 慢环境。
+    /**
+     * 等待完成或超时。CI self-hosted runner（4 核低配、多 job 并行）实测
+     * 吞吐约为本地的 1/5，10s 预算曾导致 398/400 假失败；提高到 30s 保留
+     * 死锁检测意义的同时容纳 CI 慢环境。
+     */
     auto deadline = bbt::core::clock::nowAfter(bbt::core::clock::milliseconds(30000));
     while (!bbt::core::clock::is_expired<bbt::core::clock::milliseconds>(deadline)) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -125,13 +149,15 @@ BOOST_AUTO_TEST_CASE(t_DL_01_hold_lock_await)
     BOOST_TEST_MESSAGE("[DL-01] ops=" << ops.load() << " / expected=" << nco * niter);
 }
 
-// ============================================================================
-// DL-02 [P0]: 析构竞态死锁 — CoPollEvent::Trigger() 持锁析构 shared_ptr
-//
-// 陷阱（历史，ASIO 迁移已修复）：持 m_onevent_callback_mtx 触发
-//   _CannelAllFdEvent() → shared_ptr 析构 → CancelListen() → 同步等待 event loop
-// 验证（回归）：2 线程 comutex 疲劳压测 10s，无冻结。
-// ============================================================================
+/**
+ * ============================================================================
+ * DL-02 [P0]: 析构竞态死锁 — CoPollEvent::Trigger() 持锁析构 shared_ptr
+ *
+ * 陷阱（历史，ASIO 迁移已修复）：持 m_onevent_callback_mtx 触发
+ *   _CannelAllFdEvent() → shared_ptr 析构 → CancelListen() → 同步等待 event loop
+ * 验证（回归）：2 线程 comutex 疲劳压测 10s，无冻结。
+ * ============================================================================
+ */
 
 BOOST_AUTO_TEST_CASE(t_DL_02_destructor_race_deadlock)
 {
@@ -144,7 +170,9 @@ BOOST_AUTO_TEST_CASE(t_DL_02_destructor_race_deadlock)
     std::atomic_bool running{true};
     bbt::core::thread::CountDownLatch workers_done{nco};
 
-    // 10 协程持续 Lock/UnLock
+    /**
+     * 10 协程持续 Lock/UnLock
+     */
     for (int i = 0; i < nco; ++i) {
         bbtco[mutex, &ops, &running, &workers_done]()
         {
@@ -152,13 +180,19 @@ BOOST_AUTO_TEST_CASE(t_DL_02_destructor_race_deadlock)
                 mutex->Lock();
                 ops++;
                 mutex->UnLock();
-                bbtco_sleep(0); // yield
+
+                /**
+                 * yield
+                 */
+                bbtco_sleep(0);
             }
             workers_done.Down();
         };
     }
 
-    // 运行 5s，监控 ops 增长
+    /**
+     * 运行 5s，监控 ops 增长
+     */
     int prev_ops = 0;
     int stale_count = 0;
     auto deadline = bbt::core::clock::nowAfter(bbt::core::clock::milliseconds(duration_ms));
@@ -168,7 +202,10 @@ BOOST_AUTO_TEST_CASE(t_DL_02_destructor_race_deadlock)
         if (current == prev_ops) {
             stale_count++;
             BOOST_TEST_MESSAGE("[DL-02] WARNING: ops stalled at " << current << " (stale=" << stale_count << ")");
-            // 2 次连续停滞（1s）= 冻结
+
+            /**
+             * 2 次连续停滞（1s）= 冻结
+             */
             if (stale_count >= 2) {
                 BOOST_TEST_MESSAGE("[DL-02] FREEZE DETECTED — destructor race deadlock regression");
                 running = false;
@@ -183,17 +220,23 @@ BOOST_AUTO_TEST_CASE(t_DL_02_destructor_race_deadlock)
     workers_done.Wait();
 
     BOOST_TEST(ops.load() > 0);
-    BOOST_TEST(stale_count < 2); // 不应冻结
+
+    /**
+     * 不应冻结
+     */
+    BOOST_TEST(stale_count < 2);
     BOOST_TEST_MESSAGE("[DL-02] ops=" << ops.load() << " stale_checks=" << stale_count);
 }
 
-// ============================================================================
-// DL-03 [P0]: ASIO LOOP_NONBLOCK 阻塞 — run_one() fallback 永久阻塞 scheduler
-//
-// 陷阱（历史，已修复）：io_context 无 handler 时 run_one()
-//   底层 epoll_wait 永久挂起 scheduler 线程。
-// 验证（回归）：scheduler 启动后无任务，Stop() 能在 3s 内完成（非阻塞）。
-// ============================================================================
+/**
+ * ============================================================================
+ * DL-03 [P0]: ASIO LOOP_NONBLOCK 阻塞 — run_one() fallback 永久阻塞 scheduler
+ *
+ * 陷阱（历史，已修复）：io_context 无 handler 时 run_one()
+ *   底层 epoll_wait 永久挂起 scheduler 线程。
+ * 验证（回归）：scheduler 启动后无任务，Stop() 能在 3s 内完成（非阻塞）。
+ * ============================================================================
+ */
 
 BOOST_AUTO_TEST_CASE(t_DL_03_loop_nonblock_no_hang)
 {
@@ -201,17 +244,25 @@ BOOST_AUTO_TEST_CASE(t_DL_03_loop_nonblock_no_hang)
 
     std::atomic_int counter{0};
 
-    // 使用 bbtco 创建协程 — 确保正确的协程上下文
-    // 使用 static 全局状态 + bbtco_ref 模式避免引用悬空
+    /**
+     * 使用 bbtco 创建协程 — 确保正确的协程上下文
+     * 使用 static 全局状态 + bbtco_ref 模式避免引用悬空
+     */
     bbtco_ref
     {
         for (int i = 0; i < 10; ++i) {
             counter++;
-            bbtco_sleep(0); // yield only, no real sleep
+
+            /**
+             * yield only, no real sleep
+             */
+            bbtco_sleep(0);
         }
     };
 
-    // 等待完成（最多 3s）
+    /**
+     * 等待完成（最多 3s）
+     */
     auto deadline = bbt::core::clock::nowAfter(bbt::core::clock::milliseconds(3000));
     while (!bbt::core::clock::is_expired<bbt::core::clock::milliseconds>(deadline)) {
         if (counter.load() >= 10)
@@ -223,13 +274,15 @@ BOOST_AUTO_TEST_CASE(t_DL_03_loop_nonblock_no_hang)
     BOOST_TEST_MESSAGE("[DL-03] counter=" << counter.load() << " — LOOP_NONBLOCK responsive");
 }
 
-// ============================================================================
-// DL-04 [P1]: CoCond 调度饿死 — 大量 waiter 无 yield 点重入 Wait()
-//
-// ⚠️ 此陷阱需要 ~19min 全模块疲劳测试才能复现。
-//    验证方法：全模块压测，每模块 ops 线性增长 + errors 不持续上升。
-//    当前状态：分进程模块隔离模式规避了饥饿传播。scheduler 层饿死仍待修。
-// ============================================================================
+/**
+ * ============================================================================
+ * DL-04 [P1]: CoCond 调度饿死 — 大量 waiter 无 yield 点重入 Wait()
+ *
+ * ⚠️ 此陷阱需要 ~19min 全模块疲劳测试才能复现。
+ *    验证方法：全模块压测，每模块 ops 线性增长 + errors 不持续上升。
+ *    当前状态：分进程模块隔离模式规避了饥饿传播。scheduler 层饿死仍待修。
+ * ============================================================================
+ */
 
 BOOST_AUTO_TEST_CASE(t_DL_04_cocond_starvation)
 {
@@ -237,16 +290,22 @@ BOOST_AUTO_TEST_CASE(t_DL_04_cocond_starvation)
     BOOST_TEST_MESSAGE("[DL-04] Verification: all 6 modules ops linearly growing, errors not rising continuously");
     BOOST_TEST_MESSAGE("[DL-04] Mitigation: per-process module isolation (run_parallel_stress.sh)");
     BOOST_TEST_MESSAGE("[DL-04] Status: scheduler-level starvation still open");
-    BOOST_TEST(true); // 文档化通过
+
+    /**
+     * 文档化通过
+     */
+    BOOST_TEST(true);
 }
 
-// ============================================================================
-// UAF-01 [P0]: ASIO Event 延迟销毁 — Event 在协程对象析构后才被 dispatch
-//
-// ⚠️ 此陷阱需要 ASAN 编译 + 10min 疲劳测试。
-//    验证命令：cmake -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined" + unified_stress
-//    当前状态：CoPoller::DeferDestroyEvent 延迟销毁机制已防御。
-// ============================================================================
+/**
+ * ============================================================================
+ * UAF-01 [P0]: ASIO Event 延迟销毁 — Event 在协程对象析构后才被 dispatch
+ *
+ * ⚠️ 此陷阱需要 ASAN 编译 + 10min 疲劳测试。
+ *    验证命令：cmake -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined" + unified_stress
+ *    当前状态：CoPoller::DeferDestroyEvent 延迟销毁机制已防御。
+ * ============================================================================
+ */
 
 BOOST_AUTO_TEST_CASE(t_UAF_01_asio_event_delayed_destroy)
 {
@@ -254,15 +313,21 @@ BOOST_AUTO_TEST_CASE(t_UAF_01_asio_event_delayed_destroy)
     BOOST_TEST_MESSAGE(
         "[UAF-01] Command: ASAN_OPTIONS=detect_leaks=0:halt_on_error=0 ./unified_stress --module=comutex 600 0 0");
     BOOST_TEST_MESSAGE("[UAF-01] Defense: CoPoller::DeferDestroyEvent — destroy deferred to Scheduler thread");
-    BOOST_TEST(true); // 文档化通过
+
+    /**
+     * 文档化通过
+     */
+    BOOST_TEST(true);
 }
 
-// ============================================================================
-// UAF-02 [P0]: 跨 await 栈引用悬空
-//
-// 陷阱：协程持有栈对象引用 → yield → 栈帧销毁 → resume 访问悬空引用。
-// 验证：ASAN 编译下应触发 stack-use-after-return。
-// ============================================================================
+/**
+ * ============================================================================
+ * UAF-02 [P0]: 跨 await 栈引用悬空
+ *
+ * 陷阱：协程持有栈对象引用 → yield → 栈帧销毁 → resume 访问悬空引用。
+ * 验证：ASAN 编译下应触发 stack-use-after-return。
+ * ============================================================================
+ */
 
 BOOST_AUTO_TEST_CASE(t_UAF_02_cross_await_stack_ref)
 {
@@ -280,12 +345,21 @@ BOOST_AUTO_TEST_CASE(t_UAF_02_cross_await_stack_ref)
             BOOST_TEST(local_value == 42);
             step1.Down();
             step2.Wait();
-            // ⚠️ local_value 栈帧已销毁
-            volatile int x = local_value; // ASAN 应在此报错
+
+            /**
+             * ⚠️ local_value 栈帧已销毁
+             *
+             * ASAN 应在此报错
+             */
+            volatile int x = local_value;
             (void)x;
             done = true;
         };
-    } // ← local_value 析构
+
+        /**
+         * ← local_value 析构
+         */
+    }
 
     WaitLatchWithDeadline(step1, 5000);
     step2.Down();
@@ -298,32 +372,45 @@ BOOST_AUTO_TEST_CASE(t_UAF_02_cross_await_stack_ref)
 #endif
 }
 
-// ============================================================================
-// UAF-03 [P0]: RAII 守卫裸指针 — 守卫持有 T* 而非 shared_ptr<T>
-//
-// 验证：CoLockGuard/CoUniqueLock/CoReadLock/CoWriteLock 构造只接受 shared_ptr，
-//       禁止裸指针/引用。通过 shared_ptr copy 保证锁生命周期 ≥ 守卫生命周期。
-// ============================================================================
+/**
+ * ============================================================================
+ * UAF-03 [P0]: RAII 守卫裸指针 — 守卫持有 T* 而非 shared_ptr<T>
+ *
+ * 验证：CoLockGuard/CoUniqueLock/CoReadLock/CoWriteLock 构造只接受 shared_ptr，
+ *       禁止裸指针/引用。通过 shared_ptr copy 保证锁生命周期 ≥ 守卫生命周期。
+ * ============================================================================
+ */
 
 BOOST_AUTO_TEST_CASE(t_UAF_03_raii_shared_ptr_guard)
 {
     BOOST_TEST_MESSAGE("[UAF-03] RAII guard shared_ptr safety: verifying shared_ptr lifetime guarantee");
 
-    // 验证 CoLockGuard/CoUniqueLock 构造只接受 shared_ptr
-    // 注意：Lock() 必须在协程内调用，此处只验证编译期类型约束
+    /**
+     * 验证 CoLockGuard/CoUniqueLock 构造只接受 shared_ptr
+     * 注意：Lock() 必须在协程内调用，此处只验证编译期类型约束
+     */
     {
         auto mutex = bbtco_make_comutex();
         {
-            // CoLockGuard 接受 shared_ptr — 编译通过即验证成功
-            // （Lock() 在协程内调用，此处只验证构造签名的类型安全性）
-            CoUniqueLock<CoMutex> lock(mutex, std::defer_lock); // 不实际 lock
+            /**
+             * CoLockGuard 接受 shared_ptr — 编译通过即验证成功
+             * （Lock() 在协程内调用，此处只验证构造签名的类型安全性）
+             *
+             * 不实际 lock
+             */
+            CoUniqueLock<CoMutex> lock(mutex, std::defer_lock);
             BOOST_TEST(!lock.owns_lock());
         }
-        // mutex 仍然存活 — shared_ptr copy 保证了 RAII 安全
+
+        /**
+         * mutex 仍然存活 — shared_ptr copy 保证了 RAII 安全
+         */
         BOOST_TEST(true);
     }
 
-    // 验证 CoReadLock / CoWriteLock 接受 CoRWMutex::SPtr（defer_lock 不实际加锁）
+    /**
+     * 验证 CoReadLock / CoWriteLock 接受 CoRWMutex::SPtr（defer_lock 不实际加锁）
+     */
     {
         auto rwlock = CoRWMutex::Create();
         {
@@ -339,13 +426,15 @@ BOOST_AUTO_TEST_CASE(t_UAF_03_raii_shared_ptr_guard)
     BOOST_TEST_MESSAGE("[UAF-03] All RAII guards accept shared_ptr only — no raw pointer UAF risk");
 }
 
-// ============================================================================
-// UAF-04 [P0]: CoWaiter 栈分配 — 旧版 CoCond 栈对象存入 lockfree queue
-//
-// 陷阱（历史，已修复）：CoWaiter{} 栈对象存入 lockfree queue，离开作用域后悬空。
-// 修正：CoCond 改用 std::queue<std::shared_ptr<CoWaiter>> + std::mutex。
-// 验证（回归）：100 waiter 同时 Wait()，NotifyAll() 后全部唤醒，无 crash。
-// ============================================================================
+/**
+ * ============================================================================
+ * UAF-04 [P0]: CoWaiter 栈分配 — 旧版 CoCond 栈对象存入 lockfree queue
+ *
+ * 陷阱（历史，已修复）：CoWaiter{} 栈对象存入 lockfree queue，离开作用域后悬空。
+ * 修正：CoCond 改用 std::queue<std::shared_ptr<CoWaiter>> + std::mutex。
+ * 验证（回归）：100 waiter 同时 Wait()，NotifyAll() 后全部唤醒，无 crash。
+ * ============================================================================
+ */
 
 BOOST_AUTO_TEST_CASE(t_UAF_04_cowaiter_shared_ptr)
 {
@@ -356,7 +445,9 @@ BOOST_AUTO_TEST_CASE(t_UAF_04_cowaiter_shared_ptr)
     std::atomic_int woken{0};
     bbt::core::thread::CountDownLatch ready{n_waiters};
 
-    // 100 waiter
+    /**
+     * 100 waiter
+     */
     for (int i = 0; i < n_waiters; ++i) {
         bbtco[cond, &woken, &ready]()
         {
@@ -366,18 +457,24 @@ BOOST_AUTO_TEST_CASE(t_UAF_04_cowaiter_shared_ptr)
         };
     }
 
-    // 等待全部就位。带超时：协程注册若在 CI 慢环境下长时间未获调度，
-    // 应报明确失败而不是永久挂起拖满 ctest 全局超时。
+    /**
+     * 等待全部就位。带超时：协程注册若在 CI 慢环境下长时间未获调度，
+     * 应报明确失败而不是永久挂起拖满 ctest 全局超时。
+     */
     WaitLatchWithDeadline(ready, 5000);
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-    // 唤醒全部
+    /**
+     * 唤醒全部
+     */
     bbtco[cond]()
     {
         cond->NotifyAll();
     };
 
-    // 等待结果（最多 3s）
+    /**
+     * 等待结果（最多 3s）
+     */
     auto deadline = bbt::core::clock::nowAfter(bbt::core::clock::milliseconds(3000));
     while (woken.load() < n_waiters && !bbt::core::clock::is_expired<bbt::core::clock::milliseconds>(deadline)) {
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -387,13 +484,15 @@ BOOST_AUTO_TEST_CASE(t_UAF_04_cowaiter_shared_ptr)
     BOOST_TEST_MESSAGE("[UAF-04] woken=" << woken.load() << "/" << n_waiters);
 }
 
-// ============================================================================
-// DR-01 [P0]: Chan size() 无锁数据竞争
-//
-// 陷阱：std::queue::size() 非线程安全。多 processer 并发 push/pop 时调用 UB。
-// 修正：size() 加 std::lock_guard。
-// 验证（回归）：有缓冲 Chan (cap=1000)，20 写者 + 10 读者并发 2s，无 crash。
-// ============================================================================
+/**
+ * ============================================================================
+ * DR-01 [P0]: Chan size() 无锁数据竞争
+ *
+ * 陷阱：std::queue::size() 非线程安全。多 processer 并发 push/pop 时调用 UB。
+ * 修正：size() 加 std::lock_guard。
+ * 验证（回归）：有缓冲 Chan (cap=1000)，20 写者 + 10 读者并发 2s，无 crash。
+ * ============================================================================
+ */
 
 BOOST_AUTO_TEST_CASE(t_DR_01_chan_concurrent_race)
 {
@@ -448,17 +547,23 @@ BOOST_AUTO_TEST_CASE(t_DR_01_chan_concurrent_race)
     }
     running = false;
 
-    // Close Chan 以唤醒阻塞的 reader/writer
+    /**
+     * Close Chan 以唤醒阻塞的 reader/writer
+     */
     ch.Close();
 
-    // 等待协程收尾（最多 2s）
+    /**
+     * 等待协程收尾（最多 2s）
+     */
     auto deadline = bbt::core::clock::nowAfter(bbt::core::clock::milliseconds(2000));
     while (!bbt::core::clock::is_expired<bbt::core::clock::milliseconds>(deadline)) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 
-    // 验证：读写均有进展，无异常崩溃
-    // 注意：Close 后 Read/Write 返回非 0，errors 会计入这些正常退出码
+    /**
+     * 验证：读写均有进展，无异常崩溃
+     * 注意：Close 后 Read/Write 返回非 0，errors 会计入这些正常退出码
+     */
     BOOST_TEST(total_writes.load() > 0);
     BOOST_TEST(total_reads.load() > 0);
 
@@ -466,20 +571,25 @@ BOOST_AUTO_TEST_CASE(t_DR_01_chan_concurrent_race)
                                          << " errors=" << errors.load());
 }
 
-// ============================================================================
-// DR-02 [P0]: CAS 在锁外执行 — Read/Write CAS 窗口内 Notify 丢失
-//
-// 陷阱（历史，已修复）：m_is_reading CAS→wait 之间存在窗口，
-//   writer 的 Notify 可能丢失 → reader 永久阻塞。
-// 修正：Read/ReadAll 使用 500ms timeout 安全网；CAS 由 RAII guard 保护。
-// 验证（回归）：密集并发 Read/Write + random Close，全部在 timeout 内完成。
-// ============================================================================
+/**
+ * ============================================================================
+ * DR-02 [P0]: CAS 在锁外执行 — Read/Write CAS 窗口内 Notify 丢失
+ *
+ * 陷阱（历史，已修复）：m_is_reading CAS→wait 之间存在窗口，
+ *   writer 的 Notify 可能丢失 → reader 永久阻塞。
+ * 修正：Read/ReadAll 使用 500ms timeout 安全网；CAS 由 RAII guard 保护。
+ * 验证（回归）：密集并发 Read/Write + random Close，全部在 timeout 内完成。
+ * ============================================================================
+ */
 
 BOOST_AUTO_TEST_CASE(t_DR_02_chan_cas_in_lock)
 {
     BOOST_TEST_MESSAGE("[DR-02] Chan CAS + lost wakeup: concurrent Read/Write/Close stress");
 
-    sync::Chan<int, 10> ch; // 小缓冲，容易触发阻塞
+    /**
+     * 小缓冲，容易触发阻塞
+     */
+    sync::Chan<int, 10> ch;
     const int n_rounds = 50;
     std::atomic_int writes_done{0};
     std::atomic_int reads_done{0};
@@ -487,7 +597,9 @@ BOOST_AUTO_TEST_CASE(t_DR_02_chan_cas_in_lock)
 
     bbt::core::thread::CountDownLatch all_done{3};
 
-    // Writer
+    /**
+     * Writer
+     */
     bbtco[&]()
     {
         int seq = 0;
@@ -495,14 +607,20 @@ BOOST_AUTO_TEST_CASE(t_DR_02_chan_cas_in_lock)
             int ret = ch.Write(seq++);
             if (ret == 0)
                 writes_done++;
+
+            /**
+             * 关闭
+             */
             else
-                break; // 关闭
+                break;
             bbtco_sleep(0);
         }
         all_done.Down();
     };
 
-    // Reader
+    /**
+     * Reader
+     */
     bbtco[&]()
     {
         int val;
@@ -510,14 +628,20 @@ BOOST_AUTO_TEST_CASE(t_DR_02_chan_cas_in_lock)
             int ret = ch.Read(val);
             if (ret == 0)
                 reads_done++;
+
+            /**
+             * 关闭或空
+             */
             else
-                break; // 关闭或空
+                break;
             bbtco_sleep(0);
         }
         all_done.Down();
     };
 
-    // Closer — 在随机时机关闭，测试 CAS+Notify 竞态
+    /**
+     * Closer — 在随机时机关闭，测试 CAS+Notify 竞态
+     */
     bbtco[&]()
     {
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
@@ -526,7 +650,9 @@ BOOST_AUTO_TEST_CASE(t_DR_02_chan_cas_in_lock)
         all_done.Down();
     };
 
-    // 等待 Close 完成
+    /**
+     * 等待 Close 完成
+     */
     auto deadline = bbt::core::clock::nowAfter(bbt::core::clock::milliseconds(3000));
     while (!bbt::core::clock::is_expired<bbt::core::clock::milliseconds>(deadline)) {
         if (close_done.load())
@@ -534,25 +660,33 @@ BOOST_AUTO_TEST_CASE(t_DR_02_chan_cas_in_lock)
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 
-    // 等待所有协程完成（writer/reader 应在 Close 后快速退出）
+    /**
+     * 等待所有协程完成（writer/reader 应在 Close 后快速退出）
+     */
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
     BOOST_TEST(close_done.load());
     BOOST_TEST(ch.IsClosed());
-    BOOST_TEST(writes_done.load() >= 0); // 至少没崩溃
+
+    /**
+     * 至少没崩溃
+     */
+    BOOST_TEST(writes_done.load() >= 0);
     BOOST_TEST(reads_done.load() >= 0);
 
     BOOST_TEST_MESSAGE("[DR-02] writes=" << writes_done.load() << " reads=" << reads_done.load()
                                          << " closed=" << close_done.load());
 }
 
-// ============================================================================
-// DR-03 [P1]: vector<atomic_int> resize — std::atomic 不可拷贝/移动
-//
-// 📋 编译时约束：std::atomic<T> 无 copy/move 构造，resize() 触发编译错误。
-//    替代方案：std::unique_ptr<std::atomic_int[]>。
-//    验证：Code review checklist 已包含。
-// ============================================================================
+/**
+ * ============================================================================
+ * DR-03 [P1]: vector<atomic_int> resize — std::atomic 不可拷贝/移动
+ *
+ * 📋 编译时约束：std::atomic<T> 无 copy/move 构造，resize() 触发编译错误。
+ *    替代方案：std::unique_ptr<std::atomic_int[]>。
+ *    验证：Code review checklist 已包含。
+ * ============================================================================
+ */
 
 BOOST_AUTO_TEST_CASE(t_DR_03_vector_atomic_resize)
 {
@@ -563,14 +697,16 @@ BOOST_AUTO_TEST_CASE(t_DR_03_vector_atomic_resize)
     BOOST_TEST(true);
 }
 
-// ============================================================================
-// DR-04 [P1]: PROFILE 模式 Profiler::ProfileInfo() 重入锁
-//
-// 📋 历史已知问题（已失效）：旧的 Scheduler::Stop() 持 mutex 调 ProfileInfo() 会自锁；
-//    该入口已删除，本注记仅存档，不再适用于当前运行时。
-//    仅在 Test_smoke + PROFILE=ON 时触发。单元测试使用 PROFILE=OFF 规避。
-//    影响面小，不阻塞发布。
-// ============================================================================
+/**
+ * ============================================================================
+ * DR-04 [P1]: PROFILE 模式 Profiler::ProfileInfo() 重入锁
+ *
+ * 📋 历史已知问题（已失效）：旧的 Scheduler::Stop() 持 mutex 调 ProfileInfo() 会自锁；
+ *    该入口已删除，本注记仅存档，不再适用于当前运行时。
+ *    仅在 Test_smoke + PROFILE=ON 时触发。单元测试使用 PROFILE=OFF 规避。
+ *    影响面小，不阻塞发布。
+ * ============================================================================
+ */
 
 BOOST_AUTO_TEST_CASE(t_DR_04_profile_reentrant_lock)
 {
@@ -580,13 +716,15 @@ BOOST_AUTO_TEST_CASE(t_DR_04_profile_reentrant_lock)
     BOOST_TEST(true);
 }
 
-// ============================================================================
-// ML-01 [P0]: 长运行协程累积 — 协程未正确回收导致的堆泄漏
-//
-// ⚠️ 此陷阱需要 1h 疲劳测试 + RSS 监控。
-//    验证方法：1h unified_stress，RSS 增长 < 100MB/h 且趋势平稳。
-//    当前状态：所有历史 1h 测试 RSS 均平稳，无已知泄漏。
-// ============================================================================
+/**
+ * ============================================================================
+ * ML-01 [P0]: 长运行协程累积 — 协程未正确回收导致的堆泄漏
+ *
+ * ⚠️ 此陷阱需要 1h 疲劳测试 + RSS 监控。
+ *    验证方法：1h unified_stress，RSS 增长 < 100MB/h 且趋势平稳。
+ *    当前状态：所有历史 1h 测试 RSS 均平稳，无已知泄漏。
+ * ============================================================================
+ */
 
 BOOST_AUTO_TEST_CASE(t_ML_01_memory_leak)
 {
@@ -597,11 +735,13 @@ BOOST_AUTO_TEST_CASE(t_ML_01_memory_leak)
     BOOST_TEST(true);
 }
 
-// ============================================================================
-// ML-02 [P1]: CoPool 任务泄漏 — Submit 后任务未执行完毕但已丢失引用
-//
-// 验证：提交 N 个任务，检查 completed / tasks 比率。比率 < 0.95 指示泄漏。
-// ============================================================================
+/**
+ * ============================================================================
+ * ML-02 [P1]: CoPool 任务泄漏 — Submit 后任务未执行完毕但已丢失引用
+ *
+ * 验证：提交 N 个任务，检查 completed / tasks 比率。比率 < 0.95 指示泄漏。
+ * ============================================================================
+ */
 
 BOOST_AUTO_TEST_CASE(t_ML_02_copool_task_leak)
 {
@@ -612,7 +752,9 @@ BOOST_AUTO_TEST_CASE(t_ML_02_copool_task_leak)
     std::atomic_int completed{0};
     bbt::core::thread::CountDownLatch all_submitted{n_tasks};
 
-    // 提交 N 个快速任务
+    /**
+     * 提交 N 个快速任务
+     */
     for (int i = 0; i < n_tasks; ++i) {
         pool->Submit([&completed, &all_submitted]() {
             completed++;
@@ -620,7 +762,9 @@ BOOST_AUTO_TEST_CASE(t_ML_02_copool_task_leak)
         });
     }
 
-    // 等待完成（最多 3s）
+    /**
+     * 等待完成（最多 3s）
+     */
     auto deadline = bbt::core::clock::nowAfter(bbt::core::clock::milliseconds(3000));
     while (!bbt::core::clock::is_expired<bbt::core::clock::milliseconds>(deadline)) {
         if (completed.load() >= n_tasks)
@@ -637,12 +781,14 @@ BOOST_AUTO_TEST_CASE(t_ML_02_copool_task_leak)
     BOOST_TEST_MESSAGE("[ML-02] completed=" << completed.load() << "/" << n_tasks << " ratio=" << ratio);
 }
 
-// ============================================================================
-// ML-03 [P1]: Chan 缓冲泄漏 — 写入后无读者消费，缓冲区累积
-//
-// ⚠️ 此陷阱需要疲劳测试验证。chan_writes - chan_reads 应接近 cap。
-//    当前状态：Chan 缓冲区上限由 cap 限制，不会无限累积。
-// ============================================================================
+/**
+ * ============================================================================
+ * ML-03 [P1]: Chan 缓冲泄漏 — 写入后无读者消费，缓冲区累积
+ *
+ * ⚠️ 此陷阱需要疲劳测试验证。chan_writes - chan_reads 应接近 cap。
+ *    当前状态：Chan 缓冲区上限由 cap 限制，不会无限累积。
+ * ============================================================================
+ */
 
 BOOST_AUTO_TEST_CASE(t_ML_03_chan_buffer_leak)
 {
@@ -652,11 +798,13 @@ BOOST_AUTO_TEST_CASE(t_ML_03_chan_buffer_leak)
     BOOST_TEST(true);
 }
 
-// ============================================================================
-// UB-01 [P1]: Processer dangling pointer — delete m_running_coroutine 后未置 nullptr
-//
-// 防御性修复：delete 后置 nullptr。验证：创建+销毁协程循环，无 crash。
-// ============================================================================
+/**
+ * ============================================================================
+ * UB-01 [P1]: Processer dangling pointer — delete m_running_coroutine 后未置 nullptr
+ *
+ * 防御性修复：delete 后置 nullptr。验证：创建+销毁协程循环，无 crash。
+ * ============================================================================
+ */
 
 BOOST_AUTO_TEST_CASE(t_UB_01_dangling_pointer)
 {
@@ -671,13 +819,18 @@ BOOST_AUTO_TEST_CASE(t_UB_01_dangling_pointer)
         bbtco[&created, &destroyed, &all_done]()
         {
             created++;
-            // 协程立即完成 — 触发 Processer 中的 delete m_running_coroutine
+
+            /**
+             * 协程立即完成 — 触发 Processer 中的 delete m_running_coroutine
+             */
             destroyed++;
             all_done.Down();
         };
     }
 
-    // 等待全部完成（3s）
+    /**
+     * 等待全部完成（3s）
+     */
     auto deadline = bbt::core::clock::nowAfter(bbt::core::clock::milliseconds(3000));
     while (!bbt::core::clock::is_expired<bbt::core::clock::milliseconds>(deadline)) {
         if (destroyed.load() >= n_cycles)
@@ -690,13 +843,15 @@ BOOST_AUTO_TEST_CASE(t_UB_01_dangling_pointer)
     BOOST_TEST_MESSAGE("[UB-01] created=" << created.load() << " destroyed=" << destroyed.load());
 }
 
-// ============================================================================
-// UB-02 [P0]: shared_ptr 在 lockfree queue — boost::lockfree::queue<shared_ptr<T>>
-//               违反 has_trivial_assign 要求
-//
-// 📋 已修复：CoCond 改用 std::queue<std::shared_ptr<CoWaiter>> + std::mutex。
-//    验证：Code review 禁止 lockfree::queue<shared_ptr<T>>。
-// ============================================================================
+/**
+ * ============================================================================
+ * UB-02 [P0]: shared_ptr 在 lockfree queue — boost::lockfree::queue<shared_ptr<T>>
+ *               违反 has_trivial_assign 要求
+ *
+ * 📋 已修复：CoCond 改用 std::queue<std::shared_ptr<CoWaiter>> + std::mutex。
+ *    验证：Code review 禁止 lockfree::queue<shared_ptr<T>>。
+ * ============================================================================
+ */
 
 BOOST_AUTO_TEST_CASE(t_UB_02_lockfree_shared_ptr)
 {
@@ -706,14 +861,16 @@ BOOST_AUTO_TEST_CASE(t_UB_02_lockfree_shared_ptr)
     BOOST_TEST(true);
 }
 
-// ============================================================================
-// UB-03 [P0]: YieldWithCallback callback 操作锁 — callback 在 Resume() 后调用
-//
-// 陷阱：Context::Resume() 先 _Resume()（切回协程），然后才调用 callback。
-//       此时其他协程可能已持有同一锁 → callback 中对锁的操作是 UB。
-// 正确模式：yield 前主动 unlock，callback 只返回 true。
-// 验证：模拟 callback 模式，确认正确 unlock-before-yield 模式不触发死锁。
-// ============================================================================
+/**
+ * ============================================================================
+ * UB-03 [P0]: YieldWithCallback callback 操作锁 — callback 在 Resume() 后调用
+ *
+ * 陷阱：Context::Resume() 先 _Resume()（切回协程），然后才调用 callback。
+ *       此时其他协程可能已持有同一锁 → callback 中对锁的操作是 UB。
+ * 正确模式：yield 前主动 unlock，callback 只返回 true。
+ * 验证：模拟 callback 模式，确认正确 unlock-before-yield 模式不触发死锁。
+ * ============================================================================
+ */
 
 BOOST_AUTO_TEST_CASE(t_UB_03_yieldwithcallback_lock)
 {
@@ -722,33 +879,56 @@ BOOST_AUTO_TEST_CASE(t_UB_03_yieldwithcallback_lock)
     auto mutex = bbtco_make_comutex();
     std::atomic_bool callback_called{false};
     std::atomic_int shared{0};
-    bbt::core::thread::CountDownLatch a_done{1}; // 协程 A 完成
 
-    // 协程 A: Lock → shared=42 → UnLock → 通知完成
+    /**
+     * 协程 A 完成
+     */
+    bbt::core::thread::CountDownLatch a_done{1};
+
+    /**
+     * 协程 A: Lock → shared=42 → UnLock → 通知完成
+     */
     bbtco[mutex, &callback_called, &shared, &a_done]()
     {
         mutex->Lock();
         shared.store(42);
-        mutex->UnLock(); // ✅ yield 前主动 unlock
+
+        /**
+         * ✅ yield 前主动 unlock
+         */
+        mutex->UnLock();
 
         callback_called = true;
-        // 此时锁已释放，其他协程可获取
+
+        /**
+         * 此时锁已释放，其他协程可获取
+         */
         a_done.Down();
     };
 
-    // 等待协程 A 完成 unlock（带超时，避免 CI 慢环境永久挂起）
+    /**
+     * 等待协程 A 完成 unlock（带超时，避免 CI 慢环境永久挂起）
+     */
     WaitLatchWithDeadline(a_done, 5000);
 
-    // 协程 B: 获取同一锁，验证协程 A 已释放
+    /**
+     * 协程 B: 获取同一锁，验证协程 A 已释放
+     */
     bbtco[mutex, &shared]()
     {
         mutex->Lock();
         int val = shared.load();
-        BOOST_TEST(val == 42); // 协程 A 已释放锁并设置值
+
+        /**
+         * 协程 A 已释放锁并设置值
+         */
+        BOOST_TEST(val == 42);
         mutex->UnLock();
     };
 
-    // 等待完成
+    /**
+     * 等待完成
+     */
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
     BOOST_TEST(callback_called.load());
@@ -756,12 +936,14 @@ BOOST_AUTO_TEST_CASE(t_UB_03_yieldwithcallback_lock)
                                                   << " — unlock-before-yield pattern verified");
 }
 
-// ============================================================================
-// EX-01 [P0]: CoCond 异常传播 — Wait() 中异常传播时 CoWaiter 残留队列
-//
-// 已有修复：CoWaiter 改为 shared_ptr + Cancel 机制。
-// 验证：一个 waiter 抛异常后，其他 waiter 仍能正常唤醒。
-// ============================================================================
+/**
+ * ============================================================================
+ * EX-01 [P0]: CoCond 异常传播 — Wait() 中异常传播时 CoWaiter 残留队列
+ *
+ * 已有修复：CoWaiter 改为 shared_ptr + Cancel 机制。
+ * 验证：一个 waiter 抛异常后，其他 waiter 仍能正常唤醒。
+ * ============================================================================
+ */
 
 BOOST_AUTO_TEST_CASE(t_EX_01_cocond_exception_safety)
 {
@@ -774,7 +956,9 @@ BOOST_AUTO_TEST_CASE(t_EX_01_cocond_exception_safety)
     auto cond = sync::CoCond::Create();
     bbt::core::thread::CountDownLatch all_ready{n_normal + 1};
 
-    // 异常 waiter
+    /**
+     * 异常 waiter
+     */
     bbtco[cond, &exception_thrown, &all_ready]()
     {
         all_ready.Down();
@@ -787,7 +971,9 @@ BOOST_AUTO_TEST_CASE(t_EX_01_cocond_exception_safety)
         }
     };
 
-    // 正常 waiter
+    /**
+     * 正常 waiter
+     */
     for (int i = 0; i < n_normal; ++i) {
         bbtco[cond, &normal_woken, &all_ready]()
         {
@@ -797,7 +983,9 @@ BOOST_AUTO_TEST_CASE(t_EX_01_cocond_exception_safety)
         };
     }
 
-    // 等待全部 waiter 就位（带超时，避免 CI 慢环境永久挂起）
+    /**
+     * 等待全部 waiter 就位（带超时，避免 CI 慢环境永久挂起）
+     */
     WaitLatchWithDeadline(all_ready, 5000);
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
@@ -817,12 +1005,14 @@ BOOST_AUTO_TEST_CASE(t_EX_01_cocond_exception_safety)
                                                << " exception=" << exception_thrown.load());
 }
 
-// ============================================================================
-// EX-02 [P1]: Chan Close + 异常 RAII guard 清理
-//
-// 陷阱：Chan 内部 ChanReadGuard 在异常路径下是否正确清理 m_is_reading 标志。
-// 验证：Close 活跃 Chan，确认所有阻塞 reader/writer 被正确唤醒，状态正确。
-// ============================================================================
+/**
+ * ============================================================================
+ * EX-02 [P1]: Chan Close + 异常 RAII guard 清理
+ *
+ * 陷阱：Chan 内部 ChanReadGuard 在异常路径下是否正确清理 m_is_reading 标志。
+ * 验证：Close 活跃 Chan，确认所有阻塞 reader/writer 被正确唤醒，状态正确。
+ * ============================================================================
+ */
 
 BOOST_AUTO_TEST_CASE(t_EX_02_chan_close_raii_guard)
 {
@@ -830,7 +1020,10 @@ BOOST_AUTO_TEST_CASE(t_EX_02_chan_close_raii_guard)
 
     const int n_writers = 5;
     const int n_readers = 5;
-    // 超时断言也会退出测试作用域；未完成的 detached actor 仍须拥有全部状态。
+
+    /**
+     * 超时断言也会退出测试作用域；未完成的 detached actor 仍须拥有全部状态。
+     */
     struct ActorState {
         std::atomic_int write_results{0};
         std::atomic_int read_results{0};
@@ -880,7 +1073,9 @@ BOOST_AUTO_TEST_CASE(t_EX_02_chan_close_raii_guard)
         };
     }
 
-    // 保留活跃读写与 Close 的竞争；ready 不是完成屏障。
+    /**
+     * 保留活跃读写与 Close 的竞争；ready 不是完成屏障。
+     */
     WaitLatchWithDeadline(state->writers_ready, 5000);
     WaitLatchWithDeadline(state->readers_ready, 5000);
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -892,8 +1087,11 @@ BOOST_AUTO_TEST_CASE(t_EX_02_chan_close_raii_guard)
 
     int val = 0;
     BOOST_TEST(state->ch.Write(999) == -1);
-    // 所有 actor 已完成，串行排空不应有 -2；关闭不丢弃已写入的缓冲。
-    // 容量为 10，最多读 10 项并再读一次确认 closed+empty 的 -1。
+
+    /**
+     * 所有 actor 已完成，串行排空不应有 -2；关闭不丢弃已写入的缓冲。
+     * 容量为 10，最多读 10 项并再读一次确认 closed+empty 的 -1。
+     */
     int ret = 0;
     int drained = 0;
     for (; drained <= 10; ++drained) {
@@ -908,14 +1106,16 @@ BOOST_AUTO_TEST_CASE(t_EX_02_chan_close_raii_guard)
                                          << " drained=" << drained << " close_errors=" << state->close_errors.load());
 }
 
-// ============================================================================
-// EX-03 [P1]: 协程异常不传播 — 协程内异常是否被正确捕获
-//
-// ✅ Test_coroutine_exception.cc 已覆盖：
-//    - t_coroutine_throw_without_handler: 异常被 m_ext_coevent_exception_callback 捕获
-//    - 协程状态正确变为 CO_FINAL
-//    覆盖率 >90%。
-// ============================================================================
+/**
+ * ============================================================================
+ * EX-03 [P1]: 协程异常不传播 — 协程内异常是否被正确捕获
+ *
+ * ✅ Test_coroutine_exception.cc 已覆盖：
+ *    - t_coroutine_throw_without_handler: 异常被 m_ext_coevent_exception_callback 捕获
+ *    - 协程状态正确变为 CO_FINAL
+ *    覆盖率 >90%。
+ * ============================================================================
+ */
 
 BOOST_AUTO_TEST_CASE(t_EX_03_coroutine_exception)
 {
@@ -925,12 +1125,12 @@ BOOST_AUTO_TEST_CASE(t_EX_03_coroutine_exception)
     BOOST_TEST(true);
 }
 
-// ============================================================================
-// Suite 级别：停止 scheduler
-// ============================================================================
+/**
+ * ============================================================================
+ * Suite 级别：停止 scheduler
+ * ============================================================================
+ */
 
-BOOST_AUTO_TEST_CASE(t_scheduler_stop)
-{
-}
+BOOST_AUTO_TEST_CASE(t_scheduler_stop) {}
 
 BOOST_AUTO_TEST_SUITE_END()

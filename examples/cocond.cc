@@ -21,10 +21,17 @@ void NotifyOne()
              */
             bbtco_sleep(100);
             printf("[%d] notify one\n", bbt::coroutine::GetLocalCoroutineId());
-            cocond->NotifyOne(); // 唤醒一个挂起的协程
+
+            /**
+             * 唤醒一个挂起的协程
+             */
+            cocond->NotifyOne();
         };
 
-        cocond->Wait(); // 挂起当前协程，等待被唤醒
+        /**
+         * 挂起当前协程，等待被唤醒
+         */
+        cocond->Wait();
         printf("[%d] after wait\n", bbt::coroutine::GetLocalCoroutineId());
     };
 
@@ -45,27 +52,41 @@ void NotifyAll()
         bbtco[&]()
         {
             printf("[%d] before wait\n", bbt::coroutine::GetLocalCoroutineId());
-            cocond->Wait(); // 挂起当前协程，等待被唤醒
+
+            /**
+             * 挂起当前协程，等待被唤醒
+             */
+            cocond->Wait();
             printf("[%d] after wait\n", bbt::coroutine::GetLocalCoroutineId());
         };
     }
 
     bbtco[&]()
     {
-        bbtco_sleep(100);    // 确保所有协程都已经注册并挂起
-        cocond->NotifyAll(); // 唤醒所有挂起的协程
+        /**
+         * 确保所有协程都已经注册并挂起
+         */
+        bbtco_sleep(100);
+
+        /**
+         * 唤醒所有挂起的协程
+         */
+        cocond->NotifyAll();
         printf("[%d] notify all\n", bbt::coroutine::GetLocalCoroutineId());
     };
 
     sleep(1);
 }
 
-int main()
+int bbtco_main()
 {
-    g_scheduler->Start();
-
     NotifyOne();
     NotifyAll();
 
-    /* process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出 */
+    /**
+     * process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出
+     */
+    return 0;
 }
+
+BBTCO_MAIN()

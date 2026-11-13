@@ -116,7 +116,7 @@ FOCUSED_MAP = {
         "coroutine\\.coroutine$", "coroutine\\.coroutine_api$",
         "coroutine\\.coroutine_exception$", "coroutine\\.coroutine_cancel$",
         "coroutine\\.g_co$", "coroutine\\.async_syntax$",
-        "coroutine\\.exception_stop$", "coroutine\\.reliability$",
+        "coroutine\\.exception_stop(_|$)", "coroutine\\.reliability$",
     ),
     "bbt/coroutine/syntax/": (
         "coroutine\\.async_syntax$", "coroutine\\.g_co$",

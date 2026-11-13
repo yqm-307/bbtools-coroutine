@@ -13,7 +13,10 @@ void SchedulerThread()
         for (int i = 0; i < 5000; ++i) {
             g_scheduler->RegistCoroutineTask([]() {
                 g_count++;
-                // printf("cur thread %ld %d\n", gettid(), g_count.load());
+
+                /**
+                 * printf("cur thread %ld %d\n", gettid(), g_count.load());
+                 */
             });
         }
         std::this_thread::sleep_for(bbt::core::clock::milliseconds(50));
@@ -42,9 +45,11 @@ void LoopOnce()
         printf("can`t go there!\n");
     };
 
-    // LoopOnce驱动CoPoller处理事件
-    // sleep(1);
-    // g_scheduler->LoopOnce();
+    /**
+     * LoopOnce驱动CoPoller处理事件
+     * sleep(1);
+     * g_scheduler->LoopOnce();
+     */
     sleep(1);
 }
 
@@ -58,7 +63,9 @@ void SetThreadCount()
 
 int main()
 {
-    // LoopOnce();
+    /**
+     * LoopOnce();
+     */
     SetThreadCount();
     return 0;
 }

@@ -13,6 +13,16 @@
 
 namespace bbt::coroutine::detail {
 
+#ifdef BBT_COROUTINE_STACK_TESTING
+namespace {
+std::atomic_bool s_failContext{false};
+}
+void Context::_TestFailNextCreate() noexcept
+{
+    s_failContext.store(true);
+}
+#endif
+
 fcontext_t& Context::GetCurThreadContext()
 {
     static thread_local fcontext_t _context = nullptr;
@@ -21,14 +31,22 @@ fcontext_t& Context::GetCurThreadContext()
 
 void Context::_CoroutineMain(boost::context::detail::transfer_t transfer)
 {
-    Assert(transfer.data != nullptr); // data 是 _Resume 传入的 Context*
+
+    /**
+     * data 是 _Resume 传入的 Context*
+     */
+    Assert(transfer.data != nullptr);
     auto* context = reinterpret_cast<Context*>(transfer.data);
 
-    /* 保存来源（worker）上下文：_Yield 切回时用它，所以每次切入都要重写本线程 TLS。 */
+    /**
+     * 保存来源（worker）上下文：_Yield 切回时用它，所以每次切入都要重写本线程 TLS。
+     */
     context->GetCurThreadContext() = transfer.fctx;
 
-    /* 用户主函数在本协程栈上执行。协程内任何阻塞调用都必须经 bbt::co::sync 转成挂起，
-     * 否则会占死 worker 线程；异常不得逃出 fcontext，统一在这里收口。 */
+    /**
+     * 用户主函数在本协程栈上执行。协程内任何阻塞调用都必须经 bbt::co::sync 转成挂起，
+     * 否则会占死 worker 线程；异常不得逃出 fcontext，统一在这里收口。
+     */
     try {
         context->m_user_main();
     } catch (...) {
@@ -37,7 +55,9 @@ void Context::_CoroutineMain(boost::context::detail::transfer_t transfer)
         if (co != nullptr)
             co->OnException(eptr);
 
-        /* 异常文本提取一份，日志与回调共用 */
+        /**
+         * 异常文本提取一份，日志与回调共用
+         */
         std::string what{"unknown exception"};
         try {
             if (eptr)
@@ -47,19 +67,25 @@ void Context::_CoroutineMain(boost::context::detail::transfer_t transfer)
         } catch (...) {
         }
 
-        if (g_bbt_coroutine_config->m_ext_coevent_exception_callback != nullptr) {
+        if (g_bbt_coroutine_config->RuntimeSnapshot().coevent_exception_callback != nullptr) {
             try {
-                g_bbt_coroutine_config->m_ext_coevent_exception_callback(core::errcode::Errcode(what));
+                g_bbt_coroutine_config->RuntimeSnapshot().coevent_exception_callback(core::errcode::Errcode(what));
             } catch (...) {
-                /* 回调异常不得逃出 fcontext */
+
+                /**
+                 * 回调异常不得逃出 fcontext
+                 */
             }
         } else {
-            /* 运行时契约：detached 无人接收的异常必须日志 + 计数，禁止静默丢失。
+
+            /**
+             * 运行时契约：detached 无人接收的异常必须日志 + 计数，禁止静默丢失。
              * re-throw 会逃出 fcontext 导致 terminate，故交付 = 日志+计数。
              * WHY 不用 WarnPrint：本 catch 运行在协程自身栈上，而
              * DebugPrint 族内部各带 char[4096] 栈缓冲（vformat+VPrint≈8KB），
              * 会打爆默认 4KB 协程栈；直接 fprintf 到 stderr，栈占用有界。
-             * 日志带 co id：与 parked 现场串联定位是哪个协程。 */
+             * 日志带 co id：与 parked 现场串联定位是哪个协程。
+             */
             const CoroutineId co_id = (co != nullptr) ? co->GetId() : BBT_COROUTINE_INVALID_COROUTINE_ID;
             std::fprintf(stderr, "[bbtco] unhandled exception co=%u: %.200s\n", static_cast<unsigned>(co_id),
                          what.c_str());
@@ -71,39 +97,36 @@ void Context::_CoroutineMain(boost::context::detail::transfer_t transfer)
     g_bbt_profiler->OnEvent_DoneCoroutine();
 #endif
 
-    /* 执行完后，切回到调度逻辑中去 */
+    /**
+     * 执行完后，切回到调度逻辑中去
+     */
     context->Yield();
 }
 
-Context::Context(size_t stack_size, const CoroutineCallback& co_func, bool stack_protect) : m_user_main(co_func)
+Context::Context(size_t stack_size, const CoroutineCallback& co_func, bool stack_protect)
+    : Context(g_bbt_stackpoll->Acquire({stack_size, stack_protect}), co_func)
 {
-    Assert(m_user_main != nullptr);
+}
 
-    /* callable 先构造（初始化列表）再借栈；显式大小与保护属性真正传给栈池，
-     * 不再被全局默认覆盖。
-     * 借栈到 make_fcontext 成功期间用窄作用域 RAII（复用 std::unique_ptr 加
-     * 自定义归还 deleter）暂持归还责任：容量不足或 make_fcontext 失败都必须
-     * 先归还再抛出；成功后才把裸指针交给本对象作为唯一借用责任。 */
-    auto stack_returner = [](Stack* stack) {
-        if (stack != nullptr)
-            g_bbt_stackpoll->Release(stack);
-    };
-    std::unique_ptr<Stack, decltype(stack_returner)> stack_guard(g_bbt_stackpoll->Apply(stack_size, stack_protect),
-                                                                 stack_returner);
-
-    if (stack_guard == nullptr) {
-        throw std::runtime_error(
-            "Coroutine stack not enough! Please try adjust the globalconfig 'm_cfg_stackpool_max_alloc_size'");
-    }
-
-    void* stack = stack_guard->StackTop();
-    m_context = boost::context::detail::make_fcontext(stack, stack_guard->UseableSize(), &Context::_CoroutineMain);
-    m_stack = stack_guard.release();
+Context::Context(StackLease stack, const CoroutineCallback& co_func) : m_user_main(co_func), m_stack(std::move(stack))
+{
+    if (!m_user_main || !m_stack)
+        throw std::runtime_error("coroutine context requires a callback and stack lease");
+#ifdef BBT_COROUTINE_STACK_TESTING
+    if (!s_failContext.exchange(false))
+#endif
+        m_context = boost::context::detail::make_fcontext(m_stack->StackTop(), m_stack->UseableSize(),
+                                                          &Context::_CoroutineMain);
+    if (!m_context)
+        throw std::runtime_error("make_fcontext failed");
 
 #ifdef BBT_COROUTINE_STACK_DIAGNOSTICS
-    /* make_fcontext 成功后、任何 jump 之前初始化采样边界：bottom/top 取真实
+
+    /**
+     * make_fcontext 成功后、任何 jump 之前初始化采样边界：bottom/top 取真实
      * StackBottom/StackTop，min_sp 从 top 起计（尚无样本时 observed = 0）。
-     * 复用栈池中的旧栈不继承上一任协程的历史样本。 */
+     * 复用栈池中的旧栈不继承上一任协程的历史样本。
+     */
     m_stackBudgetState.bottom = reinterpret_cast<uintptr_t>(m_stack->StackBottom());
     m_stackBudgetState.top = reinterpret_cast<uintptr_t>(m_stack->StackTop());
     m_stackBudgetState.min_sp = m_stackBudgetState.top;
@@ -113,18 +136,18 @@ Context::Context(size_t stack_size, const CoroutineCallback& co_func, bool stack
 
 Context::~Context()
 {
-    /* 先让两个 std::function 释放 target，再归还栈。callable 的捕获对象（含本
+
+    /**
+     * 先让两个 std::function 释放 target，再归还栈。callable 的捕获对象（含本
      * 上下文最后持有的业务资源）在 ~Context 函数体内同步析构，必须先于
      * Release(m_stack)：若先归还栈，栈即回到栈池可被复用、进程也可能在该窗口
      * 退出，此时仍挂在本对象上的捕获对象才析构，生命周期就越过了“栈已归还”
      * 这条观测界线。置空顺序与成员逆序析构一致（m_onyield_callback 声明在后、
-     * 先析构），不改变对象布局。 */
+     * 先析构）。
+     */
     m_onyield_callback = nullptr;
     m_user_main = nullptr;
-    if (m_stack != nullptr) {
-        g_bbt_stackpoll->Release(m_stack);
-        m_stack = nullptr;
-    }
+    m_stack.reset();
 }
 
 void Context::Yield()
@@ -134,9 +157,12 @@ void Context::Yield()
 
 int Context::YieldWithCallback(const CoroutineOnYieldCallback& cb)
 {
-    /* CoEvent 的触发来自别的线程（poller 派发或其他 worker 的 Notify）。若在挂起前就
+
+    /**
+     * CoEvent 的触发来自别的线程（poller 派发或其他 worker 的 Notify）。若在挂起前就
      * 注册事件，回调可能在协程还没让出时把它唤醒——一个尚未挂起的协程被 Resume 会把
-     * 状态机打乱。所以注册动作放在 on-yield 回调里，由 Resume 在真正让出之后执行。 */
+     * 状态机打乱。所以注册动作放在 on-yield 回调里，由 Resume 在真正让出之后执行。
+     */
     int ret = 0;
 
     Assert(m_onyield_callback == nullptr);
@@ -144,10 +170,13 @@ int Context::YieldWithCallback(const CoroutineOnYieldCallback& cb)
     try {
         m_onyield_callback = cb;
     } catch (...) {
-        /* target 非 SBO 时存储复制可抛 bad_alloc。此时协程
+
+        /**
+         * target 非 SBO 时存储复制可抛 bad_alloc。此时协程
          * 尚未让出，回调槽按「未登记」收口——恢复空槽与 NO_CHECK，由
          * Coroutine::YieldWithCallback 负责 await/运行态回滚。本 catch
-         * 只做成员复位，不产生新分配。 */
+         * 只做成员复位，不产生新分配。
+         */
         m_onyield_callback = nullptr;
         m_onyield_callback_result = YieldCheckStatus::NO_CHECK;
         throw;
@@ -168,33 +197,44 @@ void Context::Resume()
 {
     _Resume();
 
-    /* 执行 on-yield 检查。check 失败的重入会继续跑协程，其间可能再次挂出新回调，必须循环到没有
+    /**
+     * 执行 on-yield 检查。check 失败的重入会继续跑协程，其间可能再次挂出新回调，必须循环到没有
      * 待执行回调：只重入一次的话新回调没有执行者，协程带着未注册的 await 事件停在 EVENT_WAIT，
      * CommitPark 失败后被 Processer 丢弃引用，永久悬挂且无回收点。协程侧在 _Yield 返回后清空
-     * m_onyield_callback，本循环每次读到的是最新挂出的回调。 */
+     * m_onyield_callback，本循环每次读到的是最新挂出的回调。
+     */
     while (m_onyield_callback) {
         const bool check_succ = m_onyield_callback();
         m_onyield_callback_result =
             bbt_likely(check_succ) ? YieldCheckStatus::CHECK_SUCCESS : YieldCheckStatus::CHECK_FAILED;
         if (bbt_likely(check_succ))
             break;
-        /* check失败就回到原本协程通知一下check失败了 */
+
+        /**
+         * check失败就回到原本协程通知一下check失败了
+         */
         _Resume();
     }
 }
 
 int Context::_Yield()
 {
-    /* jump 回 TLS 记录的来源上下文。jump 返回说明来源线程又 Resume 了本协程，
-     * transfer.fctx 是本次的来源，写回 TLS 供下一次 _Yield 切回。 */
+
+    /**
+     * jump 回 TLS 记录的来源上下文。jump 返回说明来源线程又 Resume 了本协程，
+     * transfer.fctx 是本次的来源，写回 TLS 供下一次 _Yield 切回。
+     */
     boost::context::detail::transfer_t transfer{fctx : nullptr, data : nullptr};
 
 #ifdef BBT_COROUTINE_STACK_DIAGNOSTICS
-    /* 让出前先清零归属：jump 之后本线程跑的是 worker/调度逻辑（含
+
+    /**
+     * 让出前先清零归属：jump 之后本线程跑的是 worker/调度逻辑（含
      * on-yield 回调），不属于本协程，不该计入它的样本。
      * 不把旧指针保存下来在 jump 返回后恢复——本协程再次被 Resume 时
      * （可能在另一个 worker 线程），是由那次 _Resume 负责重新挂接同一
-     * Context 状态；这里恢复反而会覆盖新协程已挂好的归属。 */
+     * Context 状态；这里恢复反而会覆盖新协程已挂好的归属。
+     */
     ExchangeActiveStackBudgetState(nullptr);
 #endif
 
@@ -207,30 +247,41 @@ int Context::_Yield()
 
 int Context::_Resume()
 {
-    /* 切入本协程；jump 返回即协程又让出了。transfer.data 是上面传进去的 this，
-     * 协程侧把它当 void** 回写自己的返回 fctx（m_context 在偏移 0）。 */
+
+    /**
+     * 切入本协程；jump 返回即协程又让出了。transfer.data 是上面传进去的 this，
+     * 协程侧把它当 void** 回写自己的返回 fctx（m_context 在偏移 0）。
+     */
     boost::context::detail::transfer_t transfer{fctx : nullptr, data : nullptr};
 
 #ifdef BBT_COROUTINE_STACK_DIAGNOSTICS
-    /* jump 前把本线程 TLS 挂到本协程状态：之后在协程栈上发生的插桩入口
+
+    /**
+     * jump 前把本线程 TLS 挂到本协程状态：之后在协程栈上发生的插桩入口
      * 都计入本 Context。previous 只保留在本函数局部，jump 返回后恢复调用
      * 方此前的诊断归属（通常为 nullptr）——这只是不破坏调用者归属的归还，
      * 不构成对任意嵌套 Context Resume 的支持承诺（既有
      * GetCurThreadContext 线程 TLS 的嵌套语义不在本诊断范围内）。
      * TLS 读写都经 noinline 交换函数，防止编译器跨 jump_fcontext 缓存
-     * 旧 TLS 地址。 */
+     * 旧 TLS 地址。
+     */
     StackBudgetState* prev_state = ExchangeActiveStackBudgetState(&m_stackBudgetState);
 #endif
 
     transfer = boost::context::detail::jump_fcontext(m_context, reinterpret_cast<void*>(this));
 
 #ifdef BBT_COROUTINE_STACK_DIAGNOSTICS
-    /* jump 返回 = 协程已让出（其 _Yield 已清零）或到终态；恢复外层归属，
-     * 本线程不留本协程残留。 */
+
+    /**
+     * jump 返回 = 协程已让出（其 _Yield 已清零）或到终态；恢复外层归属，
+     * 本线程不留本协程残留。
+     */
     ExchangeActiveStackBudgetState(prev_state);
 #endif
 
-    // 保存来源协程，因为可能因为yield让出cpu，没有执行完
+    /**
+     * 保存来源协程，因为可能因为yield让出cpu，没有执行完
+     */
     auto context = transfer.data;
     *(void**)context = transfer.fctx;
 
@@ -245,10 +296,13 @@ size_t Context::GetStackSize() const noexcept
 #ifdef BBT_COROUTINE_STACK_DIAGNOSTICS
 StackBudgetSample Context::GetStackBudgetSample() const noexcept
 {
-    /* 前置条件见 Context.hpp：owner 协程自身同步安全点，或调用方已同步
+
+    /**
+     * 前置条件见 Context.hpp：owner 协程自身同步安全点，或调用方已同步
      * 确认协程不在运行；无同步并发读禁止。
      * observed_sample_bytes = top - min_sp，是插桩入口观测到的最深栈延伸，
-     * coverage 恒 PARTIAL；没有样本返回全 0（不伪造水位）。 */
+     * coverage 恒 PARTIAL；没有样本返回全 0（不伪造水位）。
+     */
     StackBudgetSample sample{};
     if (m_stackBudgetState.sample_count == 0)
         return sample;

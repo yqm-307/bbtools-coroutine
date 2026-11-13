@@ -36,7 +36,9 @@ BOOST_AUTO_TEST_SUITE(CoWaiterPayloadRoundTest)
 
 namespace {
 
-/* 唯一一次 Start 前固定 1 worker：确定性交错的前提。 */
+/**
+ * 唯一一次 Start 前固定 1 worker：确定性交错的前提。
+ */
 void EnsureRuntimeSingle()
 {
     static std::once_flag once;
@@ -57,7 +59,9 @@ bool Until(const std::function<bool()>& pred, int budget_ms = 5000)
     return true;
 }
 
-/* 借用受保护等待位做「本轮已登记」探针，不改变库语义。 */
+/**
+ * 借用受保护等待位做「本轮已登记」探针，不改变库语义。
+ */
 struct ProbeWaiter : CoWaiter {
     bool Ready()
     {
@@ -66,9 +70,11 @@ struct ProbeWaiter : CoWaiter {
     }
 };
 
-} // namespace
+}
 
-/* ⑪ 普通窄接口：第一轮载荷 7 必须在第二轮（载荷 11）登记后仍可读回 */
+/**
+ * ⑪ 普通窄接口：第一轮载荷 7 必须在第二轮（载荷 11）登记后仍可读回
+ */
 BOOST_AUTO_TEST_CASE(t_plain_wait_payload_round_isolated)
 {
     EnsureRuntimeSingle();
@@ -117,7 +123,9 @@ BOOST_AUTO_TEST_CASE(t_plain_wait_payload_round_isolated)
     BOOST_CHECK_EQUAL(second.load(), 11);
 }
 
-/* ⑫ 组合等待带参重载：同一根因，组合首胜载荷也不得被下一轮登记抹掉 */
+/**
+ * ⑫ 组合等待带参重载：同一根因，组合首胜载荷也不得被下一轮登记抹掉
+ */
 BOOST_AUTO_TEST_CASE(t_combined_wait_payload_round_isolated)
 {
     EnsureRuntimeSingle();

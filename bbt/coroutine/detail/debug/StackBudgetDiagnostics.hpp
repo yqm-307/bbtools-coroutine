@@ -2,11 +2,12 @@
 #include <cstddef>
 #include <cstdint>
 
-/** @file StackBudgetDiagnostics.hpp：可选协程栈采样诊断，仅 BBT_COROUTINE_STACK_DIAGNOSTICS 构建（Linux x86_64 + GNU，-finstrument-functions）存在。
+/**
+ * @file StackBudgetDiagnostics.hpp：可选协程栈采样诊断，仅 BBT_COROUTINE_STACK_DIAGNOSTICS 构建（Linux x86_64 + GNU，-finstrument-functions）存在。
  * 采样的是插桩函数入口的硬件 SP：mid-function alloca/VLA、未插桩 TU、信号路径都看不到，故 coverage 恒为 PARTIAL，样本不是栈用量上下界，不能当容量证明。
  * 无全栈填色、无保护页修改、无诊断期堆分配；hook 只做整数/指针比较，不分配、不日志、不抛、不取锁。
- * hook 自身开销计入样本（打点在函数入口），不能直接外推生产栈深；OFF 构建不含任何状态、API 或 hook 引用。 */
-
+ * hook 自身开销计入样本（打点在函数入口），不能直接外推生产栈深；OFF 构建不含任何状态、API 或 hook 引用。
+ */
 #ifdef BBT_COROUTINE_STACK_DIAGNOSTICS
 
 namespace bbt::coroutine::detail {
@@ -27,10 +28,26 @@ enum class StackBudgetCoverage {
  * 读取只允许在同步安全点——见 Context::GetStackBudgetSample 前置条件。
  */
 struct StackBudgetState {
-    uintptr_t bottom{0};      ///< 可用栈低边界（StackBottom）
-    uintptr_t top{0};         ///< 栈顶（初始 SP 侧，StackTop）
-    uintptr_t min_sp{0};      ///< 观测到的最低 SP（最深水位），初始 = top
-    uint64_t sample_count{0}; ///< 有效样本数，饱和计数不回绕
+
+    /**
+     * 可用栈低边界（StackBottom）
+     */
+    uintptr_t bottom{0};
+
+    /**
+     * 栈顶（初始 SP 侧，StackTop）
+     */
+    uintptr_t top{0};
+
+    /**
+     * 观测到的最低 SP（最深水位），初始 = top
+     */
+    uintptr_t min_sp{0};
+
+    /**
+     * 有效样本数，饱和计数不回绕
+     */
+    uint64_t sample_count{0};
 };
 
 /**
@@ -68,4 +85,7 @@ StackBudgetState* GetActiveStackBudgetState() noexcept;
 
 }
 
-#endif // BBT_COROUTINE_STACK_DIAGNOSTICS
+/**
+ * BBT_COROUTINE_STACK_DIAGNOSTICS
+ */
+#endif

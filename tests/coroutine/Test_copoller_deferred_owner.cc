@@ -14,7 +14,9 @@ using namespace bbt::coroutine::detail;
 
 namespace {
 
-/* 尚未 StartListen 的 timer Event：仅用于验证析构所有权，无副作用。 */
+/**
+ * 尚未 StartListen 的 timer Event：仅用于验证析构所有权，无副作用。
+ */
 std::shared_ptr<bbt::pollevent::Event> MakeUnarmedTimerEvent(CoPoller& poller)
 {
     return poller.CreateEvent(-1, bbt::pollevent::EventOpt::TIMEOUT, [](int, short, int64_t) {});
@@ -24,7 +26,9 @@ std::shared_ptr<bbt::pollevent::Event> MakeUnarmedTimerEvent(CoPoller& poller)
 
 BOOST_AUTO_TEST_SUITE(CoPollerDeferredOwnerTest)
 
-/* 非驱动线程调用 FlushDeferredEvents 是 no-op：Event 不析构，仅计数。 */
+/**
+ * 非驱动线程调用 FlushDeferredEvents 是 no-op：Event 不析构，仅计数。
+ */
 BOOST_AUTO_TEST_CASE(t_off_driver_flush_is_noop_and_counted)
 {
     CoPoller poller;
@@ -41,7 +45,9 @@ BOOST_AUTO_TEST_CASE(t_off_driver_flush_is_noop_and_counted)
     BOOST_CHECK_EQUAL(poller.GetDrainInPollCount(), 0u);
 }
 
-/* 驱动线程首次 PollOnce 前兑现积压：非驱动线程的 no-op 调用不丢事件。 */
+/**
+ * 驱动线程首次 PollOnce 前兑现积压：非驱动线程的 no-op 调用不丢事件。
+ */
 BOOST_AUTO_TEST_CASE(t_poll_once_drains_backlog_on_driver)
 {
     CoPoller poller;
@@ -57,11 +63,17 @@ BOOST_AUTO_TEST_CASE(t_poll_once_drains_backlog_on_driver)
     BOOST_CHECK(weak.expired());
 }
 
-/* 驱动线程非 poll 内调用：正常兑现。 */
+/**
+ * 驱动线程非 poll 内调用：正常兑现。
+ */
 BOOST_AUTO_TEST_CASE(t_driver_flush_outside_poll_destroys_event)
 {
     CoPoller poller;
-    poller.PollOnce(); // 本线程成为驱动线程
+
+    /**
+     * 本线程成为驱动线程
+     */
+    poller.PollOnce();
 
     auto event = MakeUnarmedTimerEvent(poller);
     std::weak_ptr<bbt::pollevent::Event> weak = event;
@@ -74,7 +86,9 @@ BOOST_AUTO_TEST_CASE(t_driver_flush_outside_poll_destroys_event)
     BOOST_CHECK_EQUAL(poller.GetDrainInPollCount(), 0u);
 }
 
-/* handler 内（poll 中）调用 FlushDeferredEvents 是 no-op：仅计数。 */
+/**
+ * handler 内（poll 中）调用 FlushDeferredEvents 是 no-op：仅计数。
+ */
 BOOST_AUTO_TEST_CASE(t_in_poll_flush_is_noop_and_counted)
 {
     CoPoller poller;
@@ -83,7 +97,11 @@ BOOST_AUTO_TEST_CASE(t_in_poll_flush_is_noop_and_counted)
 
     auto timer = poller.CreateEvent(-1, bbt::pollevent::EventOpt::TIMEOUT, [&](int, short, int64_t) {
         callbacks.fetch_add(1);
-        poller.FlushDeferredEvents(); // 此刻 m_in_poll == true
+
+        /**
+         * 此刻 m_in_poll == true
+         */
+        poller.FlushDeferredEvents();
         flushed_in_poll = true;
     });
     BOOST_REQUIRE_EQUAL(timer->StartListen(1), 0);

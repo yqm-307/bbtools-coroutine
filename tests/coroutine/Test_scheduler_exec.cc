@@ -15,7 +15,9 @@
 #include <bbt/coroutine/detail/Processer.hpp>
 #include <bbt/coroutine/detail/Scheduler.hpp>
 
-/* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。 */
+/**
+ * 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
+ */
 namespace {
 void EnsureRuntime()
 {
@@ -152,8 +154,10 @@ BOOST_AUTO_TEST_CASE(t_dense_ready_events_do_not_starve_timer_dispatch)
 {
     BOOST_REQUIRE(g_started.load());
 
-    /* 密集短定时事件摊在 1..8ms：每毫秒约 kChurnEvents/8 个 ready，模拟停拍期间
-       持续有事件派发的形态；另加一个更晚的探针事件。 */
+    /**
+     * 密集短定时事件摊在 1..8ms：每毫秒约 kChurnEvents/8 个 ready，模拟停拍期间
+     * 持续有事件派发的形态；另加一个更晚的探针事件。
+     */
     constexpr int kChurnEvents = 64;
     static std::atomic<int> churn_fired{0};
     static std::atomic<bool> probe_fired{false};
@@ -175,15 +179,19 @@ BOOST_AUTO_TEST_CASE(t_dense_ready_events_do_not_starve_timer_dispatch)
         };
     };
 
-    /* 宽松上界：只判「没有丢派发、没有被等待拖死」，不是性能断言。 */
+    /**
+     * 宽松上界：只判「没有丢派发、没有被等待拖死」，不是性能断言。
+     */
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
     while (std::chrono::steady_clock::now() < deadline
            && (probe_fired.load() == false || churn_fired.load() != kChurnEvents)) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 
-    /* 丢唤醒的形态：计数到不齐，或更晚的定时事件始终不出现（维护节拍被密集
-       事件无限推迟）。 */
+    /**
+     * 丢唤醒的形态：计数到不齐，或更晚的定时事件始终不出现（维护节拍被密集
+     * 事件无限推迟）。
+     */
     BOOST_CHECK_EQUAL(churn_fired.load(), kChurnEvents);
     BOOST_CHECK(probe_fired.load());
 }

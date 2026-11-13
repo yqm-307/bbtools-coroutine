@@ -3,10 +3,12 @@
 #include <boost/test/included/unit_test.hpp>
 #include <mutex>
 
-// Hook flags 与 socket timeout 语义保持。
-// 铁律：① MSG_DONTWAIT 在 send/recv/sendto/recvfrom 也立即返回 EAGAIN（不只 msg 家族）
-// ② SO_RCVTIMEO/SO_SNDTIMEO 到期返回 -1/EAGAIN，不静默变无限协程等待
-// ③ 等待期间 worker 不被占死（ticker 推进）。
+/**
+ * Hook flags 与 socket timeout 语义保持。
+ * 铁律：① MSG_DONTWAIT 在 send/recv/sendto/recvfrom 也立即返回 EAGAIN（不只 msg 家族）
+ * ② SO_RCVTIMEO/SO_SNDTIMEO 到期返回 -1/EAGAIN，不静默变无限协程等待
+ * ③ 等待期间 worker 不被占死（ticker 推进）。
+ */
 
 #include <atomic>
 #include <chrono>
@@ -24,7 +26,9 @@
 #include <bbt/coroutine/detail/GlobalConfig.hpp>
 #include <bbt/coroutine/detail/Scheduler.hpp>
 
-/* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。 */
+/**
+ * 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
+ */
 namespace {
 void EnsureRuntime()
 {
@@ -63,8 +67,10 @@ struct CoFixture {
     bool m_protect;
 };
 
-// 在协程内跑 fn，同时一个 ticker 协程自旋证明 worker 未被占死；
-// done 由 fn 置位后 ticker 退出。返回 ticker 次数。
+/**
+ * 在协程内跑 fn，同时一个 ticker 协程自旋证明 worker 未被占死；
+ * done 由 fn 置位后 ticker 退出。返回 ticker 次数。
+ */
 template <typename Fn> int RunWithTicker(Fn fn)
 {
     bbt::core::thread::CountDownLatch done{1};
@@ -100,7 +106,9 @@ int MakeBlockingPair(int fds[2])
     return 0;
 }
 
-// 裸 syscall 绕过 hook 灌满发送缓冲；SO_SNDTIMEO 让写有界，不会卡死测试线程
+/**
+ * 裸 syscall 绕过 hook 灌满发送缓冲；SO_SNDTIMEO 让写有界，不会卡死测试线程
+ */
 void FillSocketBuffer(int fd)
 {
     const struct timeval fill_tv{0, 100 * 1000};
@@ -110,9 +118,11 @@ void FillSocketBuffer(int fd)
     }
 }
 
-} // namespace
+}
 
-// MSG_DONTWAIT：recv 空 socketpair 立即 -1/EAGAIN，不挂起
+/**
+ * MSG_DONTWAIT：recv 空 socketpair 立即 -1/EAGAIN，不挂起
+ */
 BOOST_AUTO_TEST_CASE(t_msg_dontwait_recv_immediate)
 {
     CoFixture fx;
@@ -131,7 +141,9 @@ BOOST_AUTO_TEST_CASE(t_msg_dontwait_recv_immediate)
     ::close(fds[1]);
 }
 
-// MSG_DONTWAIT：sendto 满 socketpair 立即 -1/EAGAIN，不挂起
+/**
+ * MSG_DONTWAIT：sendto 满 socketpair 立即 -1/EAGAIN，不挂起
+ */
 BOOST_AUTO_TEST_CASE(t_msg_dontwait_sendto_immediate)
 {
     CoFixture fx;
@@ -151,7 +163,9 @@ BOOST_AUTO_TEST_CASE(t_msg_dontwait_sendto_immediate)
     ::close(fds[1]);
 }
 
-// SO_RCVTIMEO：空 socketpair recv 到期返回 -1/EAGAIN，等待有界
+/**
+ * SO_RCVTIMEO：空 socketpair recv 到期返回 -1/EAGAIN，等待有界
+ */
 BOOST_AUTO_TEST_CASE(t_rcvtimeo_bounded_eagain)
 {
     CoFixture fx;
@@ -170,14 +184,24 @@ BOOST_AUTO_TEST_CASE(t_rcvtimeo_bounded_eagain)
     });
     const auto ms =
         std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
-    BOOST_CHECK_GE(ms, 40);   // 确实等过，不是立即假成功
-    BOOST_CHECK_LT(ms, 5000); // 有界返回，不是无限等待
+
+    /**
+     * 确实等过，不是立即假成功
+     */
+    BOOST_CHECK_GE(ms, 40);
+
+    /**
+     * 有界返回，不是无限等待
+     */
+    BOOST_CHECK_LT(ms, 5000);
     BOOST_CHECK_GT(ticks, 0);
     ::close(fds[0]);
     ::close(fds[1]);
 }
 
-// SO_SNDTIMEO：满缓冲 send 到期返回 -1/EAGAIN，等待有界
+/**
+ * SO_SNDTIMEO：满缓冲 send 到期返回 -1/EAGAIN，等待有界
+ */
 BOOST_AUTO_TEST_CASE(t_sndtimeo_bounded_eagain)
 {
     CoFixture fx;
@@ -204,7 +228,9 @@ BOOST_AUTO_TEST_CASE(t_sndtimeo_bounded_eagain)
     ::close(fds[1]);
 }
 
-// SO_RCVTIMEO 未到期数据到达：正常返回数据（超时不吞就绪路径）
+/**
+ * SO_RCVTIMEO 未到期数据到达：正常返回数据（超时不吞就绪路径）
+ */
 BOOST_AUTO_TEST_CASE(t_rcvtimeo_data_arrives_returns_data)
 {
     CoFixture fx;
@@ -230,7 +256,9 @@ BOOST_AUTO_TEST_CASE(t_rcvtimeo_data_arrives_returns_data)
     ::close(fds[1]);
 }
 
-// SO_RCVTIMEO 对 read() 同样生效（Linux socket(7)：read→sock_recvmsg）
+/**
+ * SO_RCVTIMEO 对 read() 同样生效（Linux socket(7)：read→sock_recvmsg）
+ */
 BOOST_AUTO_TEST_CASE(t_rcvtimeo_applies_to_read)
 {
     CoFixture fx;
@@ -256,7 +284,9 @@ BOOST_AUTO_TEST_CASE(t_rcvtimeo_applies_to_read)
     ::close(fds[1]);
 }
 
-// 常规文件不受影响：无 SO_*TIMEO（getsockopt 失败）→ 正常读取，不假超时
+/**
+ * 常规文件不受影响：无 SO_*TIMEO（getsockopt 失败）→ 正常读取，不假超时
+ */
 BOOST_AUTO_TEST_CASE(t_regular_file_read_unaffected)
 {
     CoFixture fx;

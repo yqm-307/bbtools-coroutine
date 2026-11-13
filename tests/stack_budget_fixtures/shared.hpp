@@ -12,8 +12,5 @@ struct StackBudgetOperation {
 };
 
 struct StackBudgetConcrete : StackBudgetOperation {
-    int Run(int value) override
-    {
-        return value + 17;
-    }
+    int Run(int value) override { return value + 17; }
 };

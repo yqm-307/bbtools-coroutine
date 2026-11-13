@@ -5,15 +5,25 @@
 
 void InitConfig()
 {
-    g_bbt_coroutine_config->m_cfg_stack_size = 1024 * 8; // 设置栈大小为8KB
-    g_bbt_coroutine_config->m_cfg_stack_protect = true;  // 启用栈保护
+    /**
+     * 设置栈大小为8KB
+     */
+    g_bbt_coroutine_config->m_cfg_stack_size = 1024 * 8;
+
+    /**
+     * 启用栈保护
+     */
+    g_bbt_coroutine_config->m_cfg_stack_protect = true;
     g_bbt_coroutine_config->m_cfg_max_coroutine = 10000;
 }
 
 int main()
 {
     InitConfig();
-    /* 执行1000w个协程耗时 */
+
+    /**
+     * 执行1000w个协程耗时
+     */
     const int nsum_co = 1000000;
     std::atomic_int done_count{0};
     auto begin = bbt::core::clock::gettime();
@@ -24,7 +34,9 @@ int main()
     for (int i = 0; i < productor_num; ++i) {
         bool succ = false;
         while (!succ) {
-            // productor
+            /**
+             * productor
+             */
             bbtco_noexcept(&succ)[&done_count, nsum_co, i, productor_num]()
             {
 
@@ -45,26 +57,32 @@ int main()
         }
     }
 
-    // for (int i = 0; i < producer; ++i) {
-    //     bool succ = false;
-    //     while (!succ)
-    //     {
-    //         bbtco_noexcept(&succ) [&done_count, nsum_co, i, producer](){
-    //             for (int j = 0; j < (nsum_co / producer) + 1; ++j) {
-    //                 bbtco [&done_count, j](){
-    //                     done_count++;
-    //                 };
-    //             }
-    //         };
-    //     }
-    // }
+    /**
+     * for (int i = 0; i < producer; ++i) {
+     *     bool succ = false;
+     *     while (!succ)
+     *     {
+     *         bbtco_noexcept(&succ) [&done_count, nsum_co, i, producer](){
+     *             for (int j = 0; j < (nsum_co / producer) + 1; ++j) {
+     *                 bbtco [&done_count, j](){
+     *                     done_count++;
+     *                 };
+     *             }
+     *         };
+     *     }
+     * }
+     */
 
-    // l.Wait();
+    /**
+     * l.Wait();
+     */
 
     while (done_count < nsum_co) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
-    /* process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出 */
+    /**
+     * process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出
+     */
     printf("time cost: %ldms\n", bbt::core::clock::gettime() - begin);
 }

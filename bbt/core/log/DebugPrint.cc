@@ -9,9 +9,10 @@ namespace bbt::core::log {
 
 namespace {
 
-/* vformat 原与 Logger 同编译单元（core/log/Logger.cc）。Logger 归
- * bbtools-infra 不随迁，这里只保留 DebugPrint 实际需要的最小实现；
- * 内部链接避免与 infra 侧同名导出符号在共存期互相插入。 */
+/**
+ * 内部链接的格式化实现：与 bbtools-infra 侧同名符号隔离，避免动态链接器的
+ * 符号插入把两边的实现互换。
+ */
 std::string vformat(const char* fmt, va_list ap)
 {
     char data[ARRAY_SIZE];
@@ -20,12 +21,16 @@ std::string vformat(const char* fmt, va_list ap)
     return std::string(data);
 }
 
-} // namespace
+}
 
-// 内部辅助：头文件里没有声明，只在本编译单元使用（外部链接，链接器仍可见）。
+/**
+ * 内部辅助：头文件里没有声明，只在本编译单元使用（外部链接，链接器仍可见）。
+ */
 void VPrint(const char* fmt, const char* msg)
 {
-    // 缓冲比正文上限多留 10 字节，给前缀留位置；否则前缀会把正文尾部挤掉
+    /**
+     * 缓冲比正文上限多留 10 字节，给前缀留位置；否则前缀会把正文尾部挤掉
+     */
     char buf[LOG_BUFFER_MAX_LEN + 10];
     snprintf(buf, LOG_BUFFER_MAX_LEN, fmt, msg);
     printf("%s\n", buf);
@@ -54,4 +59,4 @@ void DebugPrint(const char* fmt, ...)
     VPrint("[DEBUG] %s", msg.c_str());
 }
 
-} // namespace bbt::core::log
+}

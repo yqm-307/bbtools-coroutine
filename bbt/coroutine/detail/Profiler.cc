@@ -2,12 +2,17 @@
 #include <bbt/coroutine/detail/Profiler.hpp>
 #include <bbt/coroutine/detail/StackPool.hpp>
 
-/* Profiler 实现：计数器自增、worker registry 维护，以及两种输出格式（可读文本/紧凑采样）。 */
+/**
+ * Profiler 实现：计数器自增、worker registry 维护，以及两种输出格式（可读文本/紧凑采样）。
+ */
 namespace bbt::coroutine::detail {
 
 Profiler::UPtr& Profiler::GetInstance()
 {
-    /* 进程寿命：运行期对象，不在静态退出期析构 */
+
+    /**
+     * 进程寿命：运行期对象，不在静态退出期析构
+     */
     static UPtr* _holder = new UPtr(new Profiler());
     return *_holder;
 }
@@ -54,7 +59,10 @@ void Profiler::OnEvent_StartProcesser(Processer::SPtr proc)
     std::unique_lock<std::mutex> _(m_processer_map_mutex);
     ProcesserId id = proc->GetId();
     auto it = m_processer_map.find(id);
-    /* 同一 ProcesserId 只登记一次：重复登记在这里断言失败，而不是覆盖旧引用。 */
+
+    /**
+     * 同一 ProcesserId 只登记一次：重复登记在这里断言失败，而不是覆盖旧引用。
+     */
     Assert(it == m_processer_map.end());
     m_processer_map.insert(std::make_pair(id, proc));
 }
@@ -67,7 +75,10 @@ void Profiler::OnEvent_StopPorcesser(Processer::SPtr proc) noexcept
         std::unique_lock<std::mutex> _(m_processer_map_mutex);
         ProcesserId id = proc->GetId();
         auto it = m_processer_map.find(id);
-        /* 退役清理按生命周期做幂等：重复清理或未注册过都只是无匹配。 */
+
+        /**
+         * 退役清理按生命周期做幂等：重复清理或未注册过都只是无匹配。
+         */
         if (it != m_processer_map.end())
             m_processer_map.erase(it);
     } catch (...) {
@@ -113,7 +124,10 @@ void Profiler::Reset()
 void Profiler::ProfileInfo(std::string& info)
 {
     auto elapsed_ms = (bbt::core::clock::now<>() - m_scheduler_begin_timestamp).count();
-    // OnEvent_StartScheudler 后立即调用时 elapsed 为 0，除零属 UB
+
+    /**
+     * OnEvent_StartScheudler 后立即调用时 elapsed 为 0，除零属 UB
+     */
     if (elapsed_ms <= 0)
         elapsed_ms = 1;
 
@@ -134,8 +148,10 @@ void Profiler::ProfileInfo(std::string& info)
     info += "StackPool 指标, alloc_count=" + std::to_string(m_stack_alloc_count.load())
             + "\trelease_count=" + std::to_string(m_stack_release_count.load()) + '\n';
 
-    /* 锁内只拷贝稳定强引用，锁外格式化：扩容/退役与 ProfileInfo 并发时
-     * registry 仍受保护，退役 P 由 reaper 在 join 后移除。 */
+    /**
+     * 锁内只拷贝稳定强引用，锁外格式化：扩容/退役与 ProfileInfo 并发时
+     * registry 仍受保护，退役 P 由 reaper 在 join 后移除。
+     */
     std::vector<Processer::SPtr> processers;
     {
         std::unique_lock<std::mutex> _(m_processer_map_mutex);
@@ -174,4 +190,4 @@ void Profiler::DumpStderr()
     }
 }
 
-} // namespace bbt::coroutine::detail
+}

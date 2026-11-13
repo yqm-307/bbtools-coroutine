@@ -8,8 +8,10 @@
 #include <memory>
 #include <thread>
 
-/* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
- * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。 */
+/**
+ * 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
+ * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。
+ */
 namespace {
 void EnsureRuntime()
 {
@@ -36,14 +38,20 @@ BOOST_AUTO_TEST_SUITE(CoRWMutexTest)
 
 BOOST_AUTO_TEST_CASE(t_start_scheduler)
 {
-    // 使用安全的协程栈大小，避免 ASAN 检测到的 stack-buffer-overflow
-    // （默认 12KB 在某些协程操作中不足，导致间歇性 crash）
-    g_bbt_coroutine_config->m_cfg_stack_size = 64 * 1024; // 64KB
+    /**
+     * 使用安全的协程栈大小，避免 ASAN 检测到的 stack-buffer-overflow
+     * （默认 12KB 在某些协程操作中不足，导致间歇性 crash）
+     *
+     * 64KB
+     */
+    g_bbt_coroutine_config->m_cfg_stack_size = 64 * 1024;
     EnsureRuntime();
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
 }
 
-/* 测试读锁非阻塞 */
+/**
+ * 测试读锁非阻塞
+ */
 BOOST_AUTO_TEST_CASE(t_rlock_block)
 {
     bbt::core::thread::CountDownLatch l{1};
@@ -163,7 +171,9 @@ BOOST_AUTO_TEST_CASE(t_rwlock_multi_co)
     l.Wait();
 }
 
-/* 测试写优先：有 writer 排队时，新 reader 不得获取锁 */
+/**
+ * 测试写优先：有 writer 排队时，新 reader 不得获取锁
+ */
 BOOST_AUTO_TEST_CASE(t_writer_priority)
 {
     struct CaseState {
@@ -236,7 +246,9 @@ BOOST_AUTO_TEST_CASE(t_writer_priority)
     BOOST_CHECK(state->reader_acquired_after_writer.load(std::memory_order_acquire));
 }
 
-/* 测试 TryRLock 非阻塞获取 */
+/**
+ * 测试 TryRLock 非阻塞获取
+ */
 BOOST_AUTO_TEST_CASE(t_try_rlock)
 {
     bbt::core::thread::CountDownLatch l{1};
@@ -258,7 +270,9 @@ BOOST_AUTO_TEST_CASE(t_try_rlock)
     l.Wait();
 }
 
-/* 测试 TryWLock 非阻塞获取 */
+/**
+ * 测试 TryWLock 非阻塞获取
+ */
 BOOST_AUTO_TEST_CASE(t_try_wlock)
 {
     bbt::core::thread::CountDownLatch l{1};
@@ -280,7 +294,9 @@ BOOST_AUTO_TEST_CASE(t_try_wlock)
     l.Wait();
 }
 
-/* 测试 TryRLock(ms) 在 writer 持有时超时 */
+/**
+ * 测试 TryRLock(ms) 在 writer 持有时超时
+ */
 BOOST_AUTO_TEST_CASE(t_try_rlock_timeout)
 {
     bbt::core::thread::CountDownLatch l{1};
@@ -303,7 +319,9 @@ BOOST_AUTO_TEST_CASE(t_try_rlock_timeout)
     l.Wait();
 }
 
-/* 测试 TryWLock(ms) 在 reader 持有时超时 */
+/**
+ * 测试 TryWLock(ms) 在 reader 持有时超时
+ */
 BOOST_AUTO_TEST_CASE(t_try_wlock_timeout)
 {
     bbt::core::thread::CountDownLatch l{1};
@@ -326,7 +344,9 @@ BOOST_AUTO_TEST_CASE(t_try_wlock_timeout)
     l.Wait();
 }
 
-/* 测试 timeout 后继续正常使用锁 */
+/**
+ * 测试 timeout 后继续正常使用锁
+ */
 BOOST_AUTO_TEST_CASE(t_timeout_recovery)
 {
     bbt::core::thread::CountDownLatch l{1};
@@ -364,9 +384,13 @@ BOOST_AUTO_TEST_CASE(t_timeout_recovery)
     l.Wait();
 }
 
-// =================== P0: TryWLock(ms) 超时后脏状态验证 ===================
+/**
+ * =================== P0: TryWLock(ms) 超时后脏状态验证 ===================
+ */
 
-// TryWLock(ms) 超时后 WLock 仍可正常获取（m_has_wait_wlock 标志正确清除）
+/**
+ * TryWLock(ms) 超时后 WLock 仍可正常获取（m_has_wait_wlock 标志正确清除）
+ */
 BOOST_AUTO_TEST_CASE(t_try_wlock_timeout_then_wlock)
 {
     bbt::core::thread::CountDownLatch l{1};
@@ -375,14 +399,20 @@ BOOST_AUTO_TEST_CASE(t_try_wlock_timeout_then_wlock)
     {
         auto rwlock = bbt::coroutine::sync::CoRWMutex::Create();
 
-        // 持有读锁
+        /**
+         * 持有读锁
+         */
         rwlock->RLock();
 
-        // TryWLock 超时
+        /**
+         * TryWLock 超时
+         */
         int ret = rwlock->TryWLock(50);
         BOOST_ASSERT(ret == 1);
 
-        // 释放读锁后，WLock 应该可以正常获取（m_has_wait_wlock 已清除）
+        /**
+         * 释放读锁后，WLock 应该可以正常获取（m_has_wait_wlock 已清除）
+         */
         rwlock->RUnLock();
 
         bbtco_sleep(20);
@@ -396,7 +426,9 @@ BOOST_AUTO_TEST_CASE(t_try_wlock_timeout_then_wlock)
     l.Wait();
 }
 
-// TryWLock(ms) 超时后 reader 不受影响（m_has_wait_wlock 标志正确清除）
+/**
+ * TryWLock(ms) 超时后 reader 不受影响（m_has_wait_wlock 标志正确清除）
+ */
 BOOST_AUTO_TEST_CASE(t_try_wlock_timeout_then_rlock)
 {
     bbt::core::thread::CountDownLatch l{1};
@@ -406,16 +438,22 @@ BOOST_AUTO_TEST_CASE(t_try_wlock_timeout_then_rlock)
     {
         auto rwlock = bbt::coroutine::sync::CoRWMutex::Create();
 
-        // 持有读锁
+        /**
+         * 持有读锁
+         */
         rwlock->RLock();
 
-        // TryWLock 超时
+        /**
+         * TryWLock 超时
+         */
         int ret = rwlock->TryWLock(50);
         BOOST_ASSERT(ret == 1);
 
         rwlock->RUnLock();
 
-        // 其他 reader 应该可以正常获取读锁（不被假 writer 阻塞）
+        /**
+         * 其他 reader 应该可以正常获取读锁（不被假 writer 阻塞）
+         */
         bbtco[rwlock, &nread]()
         {
             rwlock->RLock();
@@ -431,7 +469,9 @@ BOOST_AUTO_TEST_CASE(t_try_wlock_timeout_then_rlock)
     l.Wait();
 }
 
-// 多次 TryWLock(ms) 超时后锁仍正常工作
+/**
+ * 多次 TryWLock(ms) 超时后锁仍正常工作
+ */
 BOOST_AUTO_TEST_CASE(t_try_wlock_multiple_timeouts)
 {
     bbt::core::thread::CountDownLatch l{1};
@@ -440,7 +480,9 @@ BOOST_AUTO_TEST_CASE(t_try_wlock_multiple_timeouts)
     {
         auto rwlock = bbt::coroutine::sync::CoRWMutex::Create();
 
-        // 持有读锁，连续多次 TryWLock 超时
+        /**
+         * 持有读锁，连续多次 TryWLock 超时
+         */
         rwlock->RLock();
 
         for (int i = 0; i < 5; ++i) {
@@ -450,7 +492,9 @@ BOOST_AUTO_TEST_CASE(t_try_wlock_multiple_timeouts)
 
         rwlock->RUnLock();
 
-        // 释放后所有操作正常
+        /**
+         * 释放后所有操作正常
+         */
         BOOST_ASSERT(rwlock->TryWLock() == 0);
         rwlock->WUnLock();
 
@@ -464,7 +508,9 @@ BOOST_AUTO_TEST_CASE(t_try_wlock_multiple_timeouts)
     l.Wait();
 }
 
-/* 增强多 reader / 多 writer 压力测试 */
+/**
+ * 增强多 reader / 多 writer 压力测试
+ */
 BOOST_AUTO_TEST_CASE(t_rwlock_multi_co_stress)
 {
     std::atomic_bool running{true};
@@ -522,8 +568,10 @@ BOOST_AUTO_TEST_CASE(t_rwlock_multi_co_stress)
 
 BOOST_AUTO_TEST_CASE(t_stop_scheduler)
 {
-    // 等待所有 processer 线程完全退出，避免 Boost.Test 全局析构竞态
-    // （未加等待时 Test_co_rwmutex 间歇性 segfault @0x2b8, ~20% 失败率）
+    /**
+     * 等待所有 processer 线程完全退出，避免 Boost.Test 全局析构竞态
+     * （未加等待时 Test_co_rwmutex 间歇性 segfault @0x2b8, ~20% 失败率）
+     */
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
 }
 

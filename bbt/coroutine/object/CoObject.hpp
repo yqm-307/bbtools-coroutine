@@ -1,4 +1,5 @@
-/** @file CoObject.hpp
+/**
+ * @file CoObject.hpp
  * @brief 对象身份与实际寿命观测；执行域限制由独立的 CoRuntimeOnly 表达。
  */
 #pragma once
@@ -28,19 +29,25 @@ CoObjectInfo CreateObjectInfo(std::string kind, std::string name);
  */
 class CoObject : public ICoObject, public MemberBase<CoObjectId, CoObject> {
 public:
-    /// @brief 分配新身份并登记到默认 Manager；runtime 未初始化时抛 `std::logic_error`。
+    /**
+     * @brief 分配新身份并登记到默认 Manager；runtime 未初始化时抛 `std::logic_error`。
+     */
     explicit CoObject(std::string kind, std::string name);
-    /// @brief 析构并结算对象实际销毁；不抛出异常。
+
+    /**
+     * @brief 析构并结算对象实际销毁；不抛出异常。
+     */
     ~CoObject() noexcept override = default;
 
-    /// @brief 当前身份快照（id/kind/name）；id 在对象寿命内不变。
-    CoObjectInfo GetObjectInfo() const override
-    {
-        return GetMemberObjectInfo();
-    }
+    /**
+     * @brief 当前身份快照（id/kind/name）；id 在对象寿命内不变。
+     */
+    CoObjectInfo GetObjectInfo() const override { return GetMemberObjectInfo(); }
 
 protected:
-    /// @brief 默认构造：派生对象由 creator 在交付 owner 前初始化唯一身份。
+    /**
+     * @brief 默认构造：派生对象由 creator 在交付 owner 前初始化唯一身份。
+     */
     CoObject() = default;
 };
 
@@ -72,4 +79,4 @@ auto MakeCoObject(std::string kind, std::string name, Creator&& creator) -> decl
     return GetCoObjectManager()->Create(std::move(kind), std::move(name), std::forward<Creator>(creator));
 }
 
-} // namespace bbt::coroutine
+}

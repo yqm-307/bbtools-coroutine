@@ -9,8 +9,10 @@
 
 using namespace bbt::coroutine;
 
-/* 最小本地 listen helper：替代 bbt::core::net::CreateListen。
- * net 模块归 bbtools-infra，coroutine 不依赖；失败返回 -1 并保留 errno。 */
+/**
+ * 最小本地 listen helper：替代 bbt::core::net::CreateListen。
+ * net 模块归 bbtools-infra，coroutine 不依赖；失败返回 -1 并保留 errno。
+ */
 static int CreateListenTcp(const char* ip, short port, bool noblock)
 {
     int fd = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -46,22 +48,22 @@ static int CreateListenTcp(const char* ip, short port, bool noblock)
 
 class Server {
 public:
-    Server(short listen_port) : m_listen_port(listen_port)
-    {
-    }
-    ~Server()
-    {
-    }
+    Server(short listen_port) : m_listen_port(listen_port) {}
+    ~Server() {}
 
     void Start()
     {
         bbtco[this]()
         {
             _Run();
-            m_cdl.Down();
+            m_run_ended.store(true);
         };
 
-        m_cdl.Wait();
+        /**
+         * 主协程让出等待 accept 循环结束；协程里用原生条件变量会占住 Processer。
+         */
+        while (!m_run_ended.load())
+            bbtco_sleep(50);
     }
 
 protected:
@@ -84,7 +86,9 @@ protected:
                 char buf[32];
                 Assert(new_fd >= 0);
 
-                // Assert(bbt::net::Util::SetFdNoBlock(new_fd) == 0);
+                /**
+                 * Assert(bbt::net::Util::SetFdNoBlock(new_fd) == 0);
+                 */
 
                 bool close = false;
                 while (!close) {
@@ -109,7 +113,9 @@ protected:
                     if (read_len <= 0 or write_len != read_len)
                         close = true;
 
-                    // printf("echo: %s\n", buf);
+                    /**
+                     * printf("echo: %s\n", buf);
+                     */
                 }
 
                 ::close(new_fd);
@@ -121,16 +127,20 @@ protected:
     }
 
 private:
-    bbt::core::thread::CountDownLatch m_cdl{1};
+    std::atomic_bool m_run_ended{false};
     short m_listen_port{-1};
 };
 
-int main()
+int bbtco_main()
 {
     std::signal(SIGPIPE, SIG_IGN);
-    g_scheduler->Start();
     Server s{10010};
     s.Start();
 
-    /* process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出 */
+    /**
+     * process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出
+     */
+    return 0;
 }
+
+BBTCO_MAIN()

@@ -15,8 +15,10 @@
 #include <netdb.h>
 #include <thread>
 
-/* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
- * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。 */
+/**
+ * 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
+ * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。
+ */
 namespace {
 void EnsureRuntime()
 {
@@ -100,9 +102,11 @@ BOOST_AUTO_TEST_CASE(t_dns_expired_deadline_does_not_enqueue)
     BOOST_CHECK(!ran.load());
 }
 
-/* DNS 协程级取消（替代已删除的 CancellationSource 案例）：work 正阻塞在 DNS
+/**
+ * DNS 协程级取消（替代已删除的 CancellationSource 案例）：work 正阻塞在 DNS
  * worker 上时对等待协程 RequestCancel——首胜为 Cancelled；worker 仍归本池所有，
- * 释放后不崩（与 t_dns_bounded_wait_keeps_worker_owned 同口径的实名断言）。 */
+ * 释放后不崩（与 t_dns_bounded_wait_keeps_worker_owned 同口径的实名断言）。
+ */
 BOOST_AUTO_TEST_CASE(t_dns_coroutine_cancel_while_worker_runs)
 {
     EnsureRuntime();
@@ -132,7 +136,9 @@ BOOST_AUTO_TEST_CASE(t_dns_coroutine_cancel_while_worker_runs)
         done.Down();
     };
 
-    /* 主线程侧有界等待：协程真正挂起在 DNS 等待上（CO_SUSPEND）后再取消 */
+    /**
+     * 主线程侧有界等待：协程真正挂起在 DNS 等待上（CO_SUSPEND）后再取消
+     */
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds{3000};
     while ((co_p.load() == nullptr || co_p.load()->GetStatus() != bbt::coroutine::detail::CoroutineStatus::CO_SUSPEND)
            && std::chrono::steady_clock::now() < deadline)
@@ -144,7 +150,9 @@ BOOST_AUTO_TEST_CASE(t_dns_coroutine_cancel_while_worker_runs)
     BOOST_REQUIRE_EQUAL(done.WaitTimeout(5000), 0);
     BOOST_CHECK_EQUAL(status.load(), static_cast<int>(bbt::coroutine::sync::CombinedWaitStatus::Cancelled));
 
-    /* 晚到的 work 仍会完成：释放 worker，证明池仍持有它能收尾 */
+    /**
+     * 晚到的 work 仍会完成：释放 worker，证明池仍持有它能收尾
+     */
     {
         std::lock_guard<std::mutex> lock(gate->mutex);
         gate->release = true;
@@ -152,9 +160,11 @@ BOOST_AUTO_TEST_CASE(t_dns_coroutine_cancel_while_worker_runs)
     gate->cv.notify_all();
 }
 
-/* DNS 域预取消（进入等待前已请求取消，对应已删除 CancellationToken 的
+/**
+ * DNS 域预取消（进入等待前已请求取消，对应已删除 CancellationToken 的
  * 「预取消不入队」路径）：入口检查必须直接收敛为 Cancelled，且不把 work
- * 交给 DNS worker。r1 指出 DNS 替代覆盖缺少该路径的明示。 */
+ * 交给 DNS worker。r1 指出 DNS 替代覆盖缺少该路径的明示。
+ */
 BOOST_AUTO_TEST_CASE(t_dns_pre_cancel_before_await_returns_cancelled)
 {
     EnsureRuntime();
@@ -163,7 +173,10 @@ BOOST_AUTO_TEST_CASE(t_dns_pre_cancel_before_await_returns_cancelled)
     std::atomic_bool ran{false};
     bbtco[&]()
     {
-        g_bbt_tls_coroutine_co->RequestCancel(); // 先请求取消，再进入等待
+        /**
+         * 先请求取消，再进入等待
+         */
+        g_bbt_tls_coroutine_co->RequestCancel();
         bbt::coroutine::sync::CombinedWaitOptions options;
         options.deadline = std::chrono::steady_clock::now() + std::chrono::seconds{30};
         status.store(static_cast<int>(

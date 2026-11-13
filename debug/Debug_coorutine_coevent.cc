@@ -2,7 +2,9 @@
 
 using namespace bbt::coroutine;
 
-// 协程挂起功能是否有问题
+/**
+ * 协程挂起功能是否有问题
+ */
 void dbg_coroutine_wait()
 {
     auto cond = sync::CoWaiter::Create();

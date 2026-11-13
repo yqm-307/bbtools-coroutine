@@ -17,7 +17,9 @@ using namespace bbt::coroutine;
 using namespace bbt::coroutine::detail;
 
 namespace {
-// 本进程不启动 runtime；新线程逐个 join，ID 增量只包含显式探针和被测查询。
+/**
+ * 本进程不启动 runtime；新线程逐个 join，ID 增量只包含显式探针和被测查询。
+ */
 void CheckColdQuery(bool enabled, bool stack_query)
 {
     const auto before = Processer::Create()->GetId();
@@ -73,7 +75,10 @@ BOOST_AUTO_TEST_CASE(existing_idle_and_creating_entry)
     bool gate = false;
     std::thread thread([&]() {
         auto local = LocalThread::GetTLSInst().get();
-        // 原创建型入口仍须在首次调用创建，之后复用同一 TLS 实例。
+
+        /**
+         * 原创建型入口仍须在首次调用创建，之后复用同一 TLS 实例。
+         */
         auto processer = Processer::GetLocalProcesser();
         same = processer != nullptr && processer == Processer::GetLocalProcesser();
         local->SetEnableUseCo(true);
@@ -119,7 +124,10 @@ BOOST_AUTO_TEST_CASE(current_coroutine_before_and_after_yield)
                 if (i == 0)
                     bbtco_yield;
             }
-            // 只捕获 shared_ptr；主线程超时退出也不留下对其栈变量的引用。
+
+            /**
+             * 只捕获 shared_ptr；主线程超时退出也不留下对其栈变量的引用。
+             */
             result->set_value(samples);
         });
         BOOST_REQUIRE(future.wait_for(std::chrono::seconds(5)) == std::future_status::ready);

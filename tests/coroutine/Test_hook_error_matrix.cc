@@ -3,9 +3,11 @@
 #include <boost/test/included/unit_test.hpp>
 #include <mutex>
 
-// Hook POSIX 错误、EOF、关闭与降级矩阵。
-// 探针：EOF/EPIPE/ECONNRESET 在协程内保持原生 errno；等待中 fd 被关闭必须唤醒，
-// 不得永久挂起（唤醒后 syscall 返回 -1/EBADF）。
+/**
+ * Hook POSIX 错误、EOF、关闭与降级矩阵。
+ * 探针：EOF/EPIPE/ECONNRESET 在协程内保持原生 errno；等待中 fd 被关闭必须唤醒，
+ * 不得永久挂起（唤醒后 syscall 返回 -1/EBADF）。
+ */
 
 #include <atomic>
 #include <chrono>
@@ -20,7 +22,9 @@
 #include <bbt/coroutine/detail/GlobalConfig.hpp>
 #include <bbt/coroutine/detail/Scheduler.hpp>
 
-/* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。 */
+/**
+ * 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
+ */
 namespace {
 void EnsureRuntime()
 {
@@ -39,8 +43,10 @@ namespace {
 struct CoFixture {
     CoFixture()
     {
-        // 写已关 socket 默认触发 SIGPIPE 杀进程；屏蔽后 write 返回 -1/EPIPE，
-        // 才能验证 Hook 保持 errno 的原生语义（POSIX 语义测试标准做法）。
+        /**
+         * 写已关 socket 默认触发 SIGPIPE 杀进程；屏蔽后 write 返回 -1/EPIPE，
+         * 才能验证 Hook 保持 errno 的原生语义（POSIX 语义测试标准做法）。
+         */
         m_old_pipe = std::signal(SIGPIPE, SIG_IGN);
         auto* cfg = g_bbt_coroutine_config.get();
         m_threads = cfg->m_cfg_static_thread_num;
@@ -82,7 +88,9 @@ template <typename Fn> void RunInCo(Fn fn)
         std::rethrow_exception(eptr);
 }
 
-// 带 deadline 的 latch 等待（同 Test_chan：CI 旧 bbtools-core 的 WaitTimeout 不可靠）
+/**
+ * 带 deadline 的 latch 等待（同 Test_chan：CI 旧 bbtools-core 的 WaitTimeout 不可靠）
+ */
 bool WaitLatch(bbt::core::thread::CountDownLatch& latch, int ms)
 {
     const auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
@@ -93,9 +101,11 @@ bool WaitLatch(bbt::core::thread::CountDownLatch& latch, int ms)
     return latch.WaitTimeout(0) == 0;
 }
 
-} // namespace
+}
 
-// EOF：对端 close 后 read 返回 0（原生 EOF 语义，不转错误）
+/**
+ * EOF：对端 close 后 read 返回 0（原生 EOF 语义，不转错误）
+ */
 BOOST_AUTO_TEST_CASE(t_eof_read_returns_zero)
 {
     CoFixture fx;
@@ -114,7 +124,9 @@ BOOST_AUTO_TEST_CASE(t_eof_read_returns_zero)
     ::close(fds[0]);
 }
 
-// EPIPE：对端关闭后 write 返回 -1/EPIPE（AF_UNIX 首次即 EPIPE）
+/**
+ * EPIPE：对端关闭后 write 返回 -1/EPIPE（AF_UNIX 首次即 EPIPE）
+ */
 BOOST_AUTO_TEST_CASE(t_epipe_write_errno_preserved)
 {
     CoFixture fx;
@@ -135,7 +147,9 @@ BOOST_AUTO_TEST_CASE(t_epipe_write_errno_preserved)
     ::close(fds[0]);
 }
 
-// ECONNRESET：对端 RST（SO_LINGER 0 close）后 recv 返回 -1/ECONNRESET
+/**
+ * ECONNRESET：对端 RST（SO_LINGER 0 close）后 recv 返回 -1/ECONNRESET
+ */
 BOOST_AUTO_TEST_CASE(t_econnreset_recv_errno_preserved)
 {
     CoFixture fx;
@@ -153,14 +167,21 @@ BOOST_AUTO_TEST_CASE(t_econnreset_recv_errno_preserved)
 
     int cli = ::socket(AF_INET, SOCK_STREAM, 0);
     BOOST_REQUIRE(cli >= 0);
-    // 非协程线程 blocking connect 到本机 backlog，立即成功
+
+    /**
+     * 非协程线程 blocking connect 到本机 backlog，立即成功
+     */
     BOOST_REQUIRE_EQUAL(::connect(cli, (sockaddr*)&addr, sizeof(addr)), 0);
     int acc = ::accept(srv, nullptr, nullptr);
     BOOST_REQUIRE(acc >= 0);
 
     const struct linger lg{1, 0};
     BOOST_REQUIRE_EQUAL(::setsockopt(acc, SOL_SOCKET, SO_LINGER, &lg, sizeof(lg)), 0);
-    BOOST_REQUIRE_EQUAL(::close(acc), 0); // RST 发给 cli
+
+    /**
+     * RST 发给 cli
+     */
+    BOOST_REQUIRE_EQUAL(::close(acc), 0);
 
     RunInCo([&]() {
         char buf[4];
@@ -173,7 +194,9 @@ BOOST_AUTO_TEST_CASE(t_econnreset_recv_errno_preserved)
     ::close(srv);
 }
 
-// 等待中 fd 被关闭：协程必须被唤醒并返回 -1/EBADF，不得永久挂起
+/**
+ * 等待中 fd 被关闭：协程必须被唤醒并返回 -1/EBADF，不得永久挂起
+ */
 BOOST_AUTO_TEST_CASE(t_close_during_wait_wakes_with_ebadf)
 {
     CoFixture fx;

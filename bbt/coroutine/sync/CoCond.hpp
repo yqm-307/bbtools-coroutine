@@ -1,4 +1,5 @@
-/** @file CoCond.hpp
+/**
+ * @file CoCond.hpp
  * @brief 协程条件变量：等待者在队列里挂起，由 Notify 族唤醒。
  */
 #pragma once
@@ -18,13 +19,20 @@ class CoCond : public std::enable_shared_from_this<CoCond> {
 public:
     typedef std::shared_ptr<CoCond> SPtr;
 
-    /// @brief 创建条件变量。
+    /**
+     * @brief 创建条件变量。
+     */
     static SPtr Create();
 
-    /// @brief 仅经 Create() 构造。
+    /**
+     * @brief 仅经 Create() 构造。
+     */
     BBTATTR_FUNC_CTOR_HIDDEN
     CoCond(PrivateTag);
-    /// @brief 销毁；残留等待者只告警，不唤醒。
+
+    /**
+     * @brief 销毁；残留等待者只告警，不唤醒。
+     */
     virtual ~CoCond();
 
     /**
@@ -54,17 +62,11 @@ protected:
     int _NotifyOne();
 
 private:
-    void _SysLock()
-    {
-        m_mutex.lock();
-    }
-    void _SysUnLock()
-    {
-        m_mutex.unlock();
-    }
+    void _SysLock() { m_mutex.lock(); }
+    void _SysUnLock() { m_mutex.unlock(); }
 
     std::queue<std::shared_ptr<CoWaiter>> m_waiter_queue;
     std::mutex m_mutex;
 };
 
-} // namespace bbt::coroutine::sync
+}

@@ -9,7 +9,9 @@ using namespace bbt::coroutine;
 
 void debug_notify()
 {
-    /* 启动调度线程、Processer线程 */
+    /**
+     * 启动调度线程、Processer线程
+     */
     g_scheduler->Start();
 
     printf("=============================================================\n");
@@ -17,33 +19,51 @@ void debug_notify()
     printf("=============================================================\n");
     PrintTime("t1");
 
-    /* 注册一个 coroutine */
+    /**
+     * 注册一个 coroutine
+     */
     bbtco[]()
     {
         PrintTime("t2");
-        /* 创建条件变量 */
+
+        /**
+         * 创建条件变量
+         */
         auto cond = sync::CoWaiter::Create();
         Assert(cond != nullptr);
 
-        /* 注册一个coroutine */
+        /**
+         * 注册一个coroutine
+         */
         bbtco[cond]()
         {
             PrintTime("t4");
-            /* 协程休眠1s后唤醒等待中的条件变量 */
+
+            /**
+             * 协程休眠1s后唤醒等待中的条件变量
+             */
             ::sleep(1);
             cond->Notify();
         };
 
         PrintTime("t3");
-        /* 让当前协程等待条件变量变化 */
+
+        /**
+         * 让当前协程等待条件变量变化
+         */
         Assert(cond->Wait() == 0);
         PrintTime("t5");
 
-        /* 注册一个coroutine */
+        /**
+         * 注册一个coroutine
+         */
         bbtco[cond]()
         {
             PrintTime("t6");
-            /* 协程休眠1s后唤醒等待中的条件变量 */
+
+            /**
+             * 协程休眠1s后唤醒等待中的条件变量
+             */
             ::sleep(1);
             cond->Notify();
         };
@@ -70,7 +90,9 @@ void debug_notify()
     std::this_thread::sleep_for(bbt::core::clock::milliseconds(2000));
 }
 
-// 协程挂起功能是否有问题
+/**
+ * 协程挂起功能是否有问题
+ */
 void dbg_coroutine_wait()
 {
     auto cond = sync::CoWaiter::Create();
@@ -217,10 +239,12 @@ int main()
 {
     g_scheduler->Start();
 
-    // debug_notify();
-    // dbg_coroutine_wait();
-    // cocond();
-    // multi_cond_check();
-    // consumer_producer();
+    /**
+     * debug_notify();
+     * dbg_coroutine_wait();
+     * cocond();
+     * multi_cond_check();
+     * consumer_producer();
+     */
     single_cond();
 }

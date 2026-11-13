@@ -56,11 +56,13 @@ void StartNoLoopOnce()
     });
 }
 
-} // namespace
+}
 
 BOOST_AUTO_TEST_SUITE(SchedulerNoLoopTest)
 
-/* NO_LOOP：未驱动不得推进；LoopOnce 在调用线程上完成，证明无隐藏驱动 */
+/**
+ * NO_LOOP：未驱动不得推进；LoopOnce 在调用线程上完成，证明无隐藏驱动
+ */
 BOOST_AUTO_TEST_CASE(t_post_handler_driven_by_looponce)
 {
     StartNoLoopOnce();
@@ -81,7 +83,9 @@ BOOST_AUTO_TEST_CASE(t_post_handler_driven_by_looponce)
     BOOST_CHECK(handler_tid == caller_tid);
 }
 
-/* 重复 Start 拒绝：不重置配置/队列、不新增 worker；LoopOnce 仍可用 */
+/**
+ * 重复 Start 拒绝：不重置配置/队列、不新增 worker；LoopOnce 仍可用
+ */
 BOOST_AUTO_TEST_CASE(t_repeat_start_rejected_keep_driving)
 {
     StartNoLoopOnce();
@@ -96,13 +100,19 @@ BOOST_AUTO_TEST_CASE(t_repeat_start_rejected_keep_driving)
     BOOST_CHECK_EQUAL(n.load(), 1);
 }
 
-/* post 不新增线程（Linux /proc/self/task 计数） */
+/**
+ * post 不新增线程（Linux /proc/self/task 计数）
+ */
 BOOST_AUTO_TEST_CASE(t_post_does_not_spawn_thread)
 {
     StartNoLoopOnce();
 
     const auto ex1 = io::GetExecutor();
-    BOOST_CHECK(ex1 == io::GetExecutor()); // 同一 io_context，无独立事件循环
+
+    /**
+     * 同一 io_context，无独立事件循环
+     */
+    BOOST_CHECK(ex1 == io::GetExecutor());
 
 #if defined(__linux__)
     const size_t before = CountSelfThreads();

@@ -137,10 +137,7 @@ extern "C" int OverloadEntry(int value)
 
 struct Cleanup {
     int& result;
-    __attribute__((noinline)) ~Cleanup()
-    {
-        result += 1;
-    }
+    __attribute__((noinline)) ~Cleanup() { result += 1; }
 };
 
 __attribute__((noinline)) int ThrowMaybe(int value)

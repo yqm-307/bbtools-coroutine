@@ -40,8 +40,10 @@ BOOST_AUTO_TEST_SUITE(HookFdEpochMultiTest)
 
 namespace {
 
-/* 唯一一次 Start 前固定 4 worker：本可执行只有这一个用例，配置不会被后续
- * 用例覆盖，一次初始化契约与多 worker 覆盖同时成立。 */
+/**
+ * 唯一一次 Start 前固定 4 worker：本可执行只有这一个用例，配置不会被后续
+ * 用例覆盖，一次初始化契约与多 worker 覆盖同时成立。
+ */
 void EnsureRuntimeMulti()
 {
     static std::once_flag once;
@@ -63,7 +65,7 @@ bool WaitLatch(bbt::core::thread::CountDownLatch& latch, int ms)
     return latch.WaitTimeout(0) == 0;
 }
 
-} // namespace
+}
 
 BOOST_AUTO_TEST_CASE(t_multi_worker_close_reuse_returns_ebadf)
 {
@@ -87,7 +89,9 @@ BOOST_AUTO_TEST_CASE(t_multi_worker_close_reuse_returns_ebadf)
         done.Down();
     };
 
-    // 主线程（非协程）：FdWaiterCount 探针确认 A 已登记，随后 close+dup2+喂数据。
+    /**
+     * 主线程（非协程）：FdWaiterCount 探针确认 A 已登记，随后 close+dup2+喂数据。
+     */
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(3000);
     while (CoPollEvent::FdWaiterCount(fds[0]) == 0 && std::chrono::steady_clock::now() < deadline)
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -102,8 +106,10 @@ BOOST_AUTO_TEST_CASE(t_multi_worker_close_reuse_returns_ebadf)
     BOOST_REQUIRE_MESSAGE(ok, "coroutine did not finish after multi-worker close+dup2");
     BOOST_CHECK_EQUAL(result.load(), -1);
 
-    /* 判别核心：旧等待若误重试到复用后的 fds[0]，'z' 会被消耗；
-     * 正确语义下 'z' 必须仍在复用对象上可读。 */
+    /**
+     * 判别核心：旧等待若误重试到复用后的 fds[0]，'z' 会被消耗；
+     * 正确语义下 'z' 必须仍在复用对象上可读。
+     */
     int fl = ::fcntl(fds[0], F_GETFL, 0);
     BOOST_REQUIRE(fl >= 0);
     BOOST_REQUIRE_EQUAL(::fcntl(fds[0], F_SETFL, fl | O_NONBLOCK), 0);

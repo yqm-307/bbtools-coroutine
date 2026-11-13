@@ -16,6 +16,9 @@ EXCLUDE_PATTERNS       = */detail/* */utils/lockfree/* */debug/*
 EXTRACT_ALL            = NO
 EXTRACT_PRIVATE        = NO
 EXTRACT_STATIC         = NO
+# 函数体内的说明块不进文档：模板/热路径实现集中在 __TXxx.hpp，体内注释若被
+# 吸附到下一个实体上会污染其 brief。
+HIDE_IN_BODY_DOCS      = YES
 ENABLE_PREPROCESSING   = YES
 MACRO_EXPANSION        = NO
 
