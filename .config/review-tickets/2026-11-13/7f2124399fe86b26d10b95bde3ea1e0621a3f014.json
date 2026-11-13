@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-13",
+  "commit": "7f2124399fe86b26d10b95bde3ea1e0621a3f014",
+  "base": "b0c1fe9cae2906a8d3f7f24447c0d3b5f41c5511",
+  "result": "pass",
+  "reviewer": "independent read-only review deleg_f28f1d3c",
+  "summary": "Ship with medium confidence and no findings. The three-file fix configures exception callbacks before runtime startup, runs four exception scenarios in separate CTest processes, retains the genuine null-callback counting path, and updates focused test selection. Runtime implementation is unchanged. Remote CI remains to be run; sanitizer and late-callback lifetime probes were not performed.",
+  "checks": [
+    {
+      "id": "llm-review",
+      "kind": "attested",
+      "status": "pass",
+      "summary": "Independent committed-diff review returned ship with no P1/P2 findings. The reviewer inspected the frozen runtime configuration mechanism, generated CTest commands, focused selection mapping and existing local focused 5/5 and smoke 8/8 logs. No additional review round or full-suite run was performed.",
+      "evidence": {
+        "reviewer": "deleg_f28f1d3c",
+        "scope": "Exact committed diff b0c1fe9cae2906a8d3f7f24447c0d3b5f41c5511..7f2124399fe86b26d10b95bde3ea1e0621a3f014: tests/coroutine/Test_exception_stop.cc, tests/CMakeLists.txt, scripts/ci/changed_files.py. Reviewer transcript: /home/yqm/.hermes/profiles/alice/cache/delegation/live/deleg_f28f1d3c/task-0.log. Local logs: /home/yqm/.hermes/profiles/alice/reports/coroutine-converge-20261112/exception-process-focused.log and exception-process-smoke.log. Remote GitHub Actions results are not part of this attestation."
+      }
+    }
+  ]
+}
