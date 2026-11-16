@@ -8,34 +8,43 @@
 #include <bbt/coroutine/detail/CoPoller.hpp>
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
 
-namespace bbt::coroutine::detail
-{
+/**
+ * CoPoller 门面实现：底层 Event 只能由驱动线程（首个调用 PollOnce 的线程）析构——asio 对象
+ * 与派发中的回调共用同一 context，别处析构会与 event loop 竞态；其它线程只能 DeferDestroyEvent。
+ */
+namespace bbt::coroutine::detail {
 
-/* StartLoop 内的在 poll 标记；handler 抛异常也不遗留 m_in_poll == true。 */
-class InPollGuard
-{
+/**
+ * StartLoop 内的在 poll 标记；handler 抛异常也不遗留 m_in_poll == true。
+ */
+class InPollGuard {
 public:
-    explicit InPollGuard(std::atomic<bool>& flag): m_flag(flag) { m_flag.store(true, std::memory_order_release); }
+    explicit InPollGuard(std::atomic<bool>& flag) : m_flag(flag) { m_flag.store(true, std::memory_order_release); }
     ~InPollGuard() { m_flag.store(false, std::memory_order_release); }
+
 private:
     std::atomic<bool>& m_flag;
 };
 
 CoPoller::UPtr& CoPoller::GetInstance()
 {
-    /* 进程寿命：持 epoll fd 且被 worker 线程使用，不在静态退出期析构 */
+
+    /**
+     * 进程寿命：持 EventLoop/io_context，不在静态退出期析构。
+     */
     static UPtr* _holder = new UPtr{new CoPoller()};
 
     return *_holder;
 }
 
-
 CoPoller::CoPoller()
 {
-    /* 首个 backend：bbt::pollevent::EventLoop（ASIO）。不是 epoll/timerfd。 */
-    auto* base = new bbt::pollevent::detail::EventBase(
-        bbt::pollevent::detail::EventBaseConfigFlag::NO_CACHE_TIME |
-        bbt::pollevent::detail::EventBaseConfigFlag::PRECISE_TIMER);
+
+    /**
+     * 首个 backend：bbt::pollevent::EventLoop（ASIO）。不是 epoll/timerfd。
+     */
+    auto* base = new bbt::pollevent::detail::EventBase(bbt::pollevent::detail::EventBaseConfigFlag::NO_CACHE_TIME
+                                                       | bbt::pollevent::detail::EventBaseConfigFlag::PRECISE_TIMER);
 
     Assert(base != nullptr);
 
@@ -43,37 +52,46 @@ CoPoller::CoPoller()
     Assert(m_event_loop != nullptr);
 }
 
-CoPoller::~CoPoller()
-{
-}
+CoPoller::~CoPoller() {}
 
-
-std::shared_ptr<bbt::pollevent::Event> CoPoller::CreateEvent(int fd, short events, const bbt::pollevent::OnEventCallback& onevent_cb)
+std::shared_ptr<bbt::pollevent::Event> CoPoller::CreateEvent(int fd, short events,
+                                                             const bbt::pollevent::OnEventCallback& onevent_cb)
 {
     return m_event_loop->CreateEvent(fd, events, onevent_cb);
 }
 
 void CoPoller::_BeginDrive()
 {
-    /* 谁首次驱动谁拥有析构权；已写入不覆盖（驱动线程唯一，Scheduler 单入口）。 */
-    std::thread::id no_driver{};
-    m_driver_tid.compare_exchange_strong(no_driver, std::this_thread::get_id(),
-                                         std::memory_order_acq_rel);
 
-    /* 兑现顺序：先兑现积压 Event，再驱动。
-       积压必须先于下一拍注册释放，否则同一 FD 会在 ASIO 重复注册。 */
+    /**
+     * 谁首次驱动谁拥有析构权；已写入不覆盖（驱动线程唯一，Scheduler 单入口）。
+     */
+    std::thread::id no_driver{};
+    m_driver_tid.compare_exchange_strong(no_driver, std::this_thread::get_id(), std::memory_order_acq_rel);
+
+    /**
+     * 兑现顺序：先兑现积压 Event，再驱动。
+     * 积压必须先于下一拍注册释放，否则同一 FD 会在 ASIO 重复注册。
+     */
     {
         std::vector<std::shared_ptr<bbt::pollevent::Event>> deferred;
         {
             std::lock_guard<std::mutex> lock(m_deferred_mutex);
             deferred.swap(m_deferred_destroy);
         }
-        /* 锁外析构，避免 Event::CancelListen 回调路径反向获取本锁。 */
+
+        /**
+         * 锁外析构，避免 Event::CancelListen 回调路径反向获取本锁。
+         */
     }
 }
 
 bool CoPoller::PollOnce()
 {
+
+    /**
+     * 清零 errno 后驱动。本函数不解释 errno：返回值只反映 StartLoop 是否派发了事件。
+     */
     errno = 0;
 
     _BeginDrive();
@@ -88,24 +106,29 @@ bool CoPoller::PollOnceUntil(std::chrono::steady_clock::time_point deadline)
 
     InPollGuard in_poll_guard{m_in_poll};
 
-    /* 已到点：不驱动 context，交给调用方下一次 PollOnce 的非阻塞 poll 兑现。
-       停拍后若已经落后于扫描节拍，这里必须立刻返回而不是补一次阻塞等待。 */
+    /**
+     * 已到点：不驱动 context，交给调用方下一次 PollOnce 的非阻塞 poll 兑现。
+     * 停拍后若已经落后于扫描节拍，这里必须立刻返回而不是补一次阻塞等待。
+     */
     if (std::chrono::steady_clock::now() >= deadline)
         return false;
 
-    /* 没有已注册事件：保持旧路径的定时休眠。无超时的 custom Chan 等纯协程
-       等待不经过 Asio，也就不会为「本就没有事件」多付一次事件循环开销。
-       GetEventNum() 是已注册对象数，不是 pending 数，故它只用来判断「值不值
-       得进入等待」，不作为安全或空队列证明。 */
-    if (m_event_loop->GetEventNum() <= 0)
-    {
+    /**
+     * 没有已注册事件：保持旧路径的定时休眠。无超时的 custom Chan 等纯协程
+     * 等待不经过 Asio，也就不会为「本就没有事件」多付一次事件循环开销。
+     * GetEventNum() 是已注册对象数，不是 pending 数，故它只用来判断「值不值
+     * 得进入等待」，不作为安全或空队列证明。
+     */
+    if (m_event_loop->GetEventNum() <= 0) {
         std::this_thread::sleep_until(deadline);
         return false;
     }
 
-    /* Event 对象数不代表 outstanding work：未监听或已完成的对象仍可能存活。
-       guard 防止这种情况下反复立即返回；等待上界由 run_one_until 自身保证，
-       不依赖另一线程可能消费掉的截止 handler。 */
+    /**
+     * Event 对象数不代表 outstanding work：未监听或已完成的对象仍可能存活。
+     * guard 防止这种情况下反复立即返回；等待上界由 run_one_until 自身保证，
+     * 不依赖另一线程可能消费掉的截止 handler。
+     */
     auto& ctx = m_event_loop->GetEventBase()->GetContext();
     const auto work = boost::asio::make_work_guard(ctx);
     ctx.restart();
@@ -126,31 +149,36 @@ int CoPoller::NotifyCancelEvent(std::shared_ptr<CoPollEvent> event)
 
 void CoPoller::DeferDestroyEvent(std::shared_ptr<bbt::pollevent::Event> event)
 {
-    if (event == nullptr) return;
+    if (event == nullptr)
+        return;
     std::lock_guard<std::mutex> lock(m_deferred_mutex);
     try {
         m_deferred_destroy.push_back(std::move(event));
     } catch (const std::bad_alloc&) {
-        /* ponytail: 仅覆盖单次 OOM，不回退 Trigger 首胜状态。shared_ptr 的 move
+
+        /**
+         * ponytail: 仅覆盖单次 OOM，不回退 Trigger 首胜状态。shared_ptr 的 move
          * 不抛，vector 扩容失败无副作用，event 仍由本调用持有且未被取消/析构；
          * 原赢家在同一锁内再提交一次，不让其它通知重复唤醒。持续 OOM 要求
-         * 另行设计预分配协议，不在此无限重试或异线程销毁 Event。 */
+         * 另行设计预分配协议，不在此无限重试或异线程销毁 Event。
+         */
         m_deferred_destroy.push_back(std::move(event));
     }
 }
 
 void CoPoller::FlushDeferredEvents()
 {
-    /* 只在驱动线程且不在 poll 内兑现；其它线程调用是 no-op（含尚未有驱动
-       线程时），积压延迟到驱动线程下一次 PollOnce 兑现（见 PollOnce 注释）。 */
-    if (m_driver_tid.load(std::memory_order_acquire) != std::this_thread::get_id())
-    {
+
+    /**
+     * 只在驱动线程且不在 poll 内兑现；其它线程调用是 no-op（含尚未有驱动
+     * 线程时），积压延迟到驱动线程下一次 PollOnce 兑现（见 PollOnce 注释）。
+     */
+    if (m_driver_tid.load(std::memory_order_acquire) != std::this_thread::get_id()) {
         m_drain_off_driver_cnt.fetch_add(1, std::memory_order_relaxed);
         return;
     }
 
-    if (m_in_poll.load(std::memory_order_acquire))
-    {
+    if (m_in_poll.load(std::memory_order_acquire)) {
         m_drain_in_poll_cnt.fetch_add(1, std::memory_order_relaxed);
         return;
     }
@@ -160,7 +188,10 @@ void CoPoller::FlushDeferredEvents()
         std::lock_guard<std::mutex> lock(m_deferred_mutex);
         deferred.swap(m_deferred_destroy);
     }
-    /* 在锁外析构，避免 Event::CancelListen 回调路径反向获取本锁。 */
+
+    /**
+     * 在锁外析构，避免 Event::CancelListen 回调路径反向获取本锁。
+     */
 }
 
 uint64_t CoPoller::GetDrainOffDriverCount() const
@@ -180,8 +211,11 @@ std::shared_ptr<bbt::pollevent::EventLoop> CoPoller::GetEventLoop() const
 
 boost::asio::any_io_executor CoPoller::GetExecutor() const
 {
-    /* io_context 由 m_event_loop 持有的 EventBase 拥有；本函数不创建
-       新事件循环，只返回指向同一 context 的 executor 句柄。 */
+
+    /**
+     * io_context 由 m_event_loop 持有的 EventBase 拥有；本函数不创建
+     * 新事件循环，只返回指向同一 context 的 executor 句柄。
+     */
     return m_event_loop->GetEventBase()->GetContext().get_executor();
 }
 

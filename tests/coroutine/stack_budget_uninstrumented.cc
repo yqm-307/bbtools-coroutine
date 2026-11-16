@@ -9,15 +9,13 @@
  * 诊断只能给出 PARTIAL，不能声称观测到真实峰值。
  */
 
-namespace bbt_stack_budget_test
-{
+namespace bbt_stack_budget_test {
 
 /**
  * 与插桩版 Burn 同构，但入口不打点：内部递归深度对采样不可见。
  * noinline 防止被并入调用方帧而伪装成「已观测」。
  */
-__attribute__((noinline))
-void UninstrumentedBurn(volatile char* sink, int depth)
+__attribute__((noinline)) void UninstrumentedBurn(volatile char* sink, int depth)
 {
     volatile char frame[384];
     for (unsigned i = 0; i < sizeof(frame); i += 64)

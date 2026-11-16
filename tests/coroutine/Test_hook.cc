@@ -12,22 +12,23 @@
 #include <fcntl.h>
 #include <errno.h>
 
-/* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
- * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。 */
-namespace
-{
+/**
+ * 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
+ * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。
+ */
+namespace {
 void EnsureRuntime()
 {
     static std::once_flag once;
-    std::call_once(once, [](){
-        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
-    });
+    std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
 }
 
-/* 最小本地 listen helper：替代 bbt::core::net::CreateListen。
+/**
+ * 最小本地 listen helper：替代 bbt::core::net::CreateListen。
  * net 模块归 bbtools-infra，coroutine 不依赖，测试侧只保留本用例所需语义。
- * 失败返回 -1 并保留 errno。 */
+ * 失败返回 -1 并保留 errno。
+ */
 static int CreateListenTcp(const char* ip, short port, bool noblock)
 {
     int fd = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -44,10 +45,8 @@ static int CreateListenTcp(const char* ip, short port, bool noblock)
     else
         ::inet_pton(AF_INET, ip, &addr.sin_addr.s_addr);
 
-    bool failed =
-        (::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one)) < 0) ||
-        (::bind(fd, (sockaddr*)&addr, sizeof(addr)) < 0) ||
-        (::listen(fd, SOMAXCONN) < 0);
+    bool failed = (::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one)) < 0)
+                  || (::bind(fd, (sockaddr*)&addr, sizeof(addr)) < 0) || (::listen(fd, SOMAXCONN) < 0);
 
     if (!failed && noblock) {
         int flags = ::fcntl(fd, F_GETFL, 0);
@@ -102,14 +101,16 @@ BOOST_AUTO_TEST_CASE(t_hook_connect)
 
     bbtco[&l]()
     {
-        // ARC runner 容器内无 sshd 监听 22 端口，connect 会 ECONNREFUSED。
-        // 改为先建本地监听再连，保持 hook 语义一致（connect 成功路径）。
+        /**
+         * ARC runner 容器内无 sshd 监听 22 端口，connect 会 ECONNREFUSED。
+         * 改为先建本地监听再连，保持 hook 语义一致（connect 成功路径）。
+         */
         int srv_fd = CreateListenTcp("127.0.0.1", 0, true);
         if (srv_fd < 0)
             BOOST_FAIL("create listen failed, errno=" << errno);
         sockaddr_in srv_addr{};
         socklen_t srv_len = sizeof(srv_addr);
-        ::getsockname(srv_fd, (sockaddr *)&srv_addr, &srv_len);
+        ::getsockname(srv_fd, (sockaddr*)&srv_addr, &srv_len);
 
         sockaddr_in addr;
         addr.sin_addr.s_addr = inet_addr("127.0.0.1");
@@ -118,7 +119,7 @@ BOOST_AUTO_TEST_CASE(t_hook_connect)
 
         int fd = ::socket(AF_INET, SOCK_STREAM, 0);
         BOOST_ASSERT(fd >= 0);
-        int ret = ::connect(fd, (sockaddr *)(&addr), sizeof(addr));
+        int ret = ::connect(fd, (sockaddr*)(&addr), sizeof(addr));
         BOOST_CHECK_MESSAGE(ret == 0, "errno=" << errno << "\tret=" << ret << "\tfd=" << fd);
         ::close(fd);
         ::close(srv_fd);
@@ -128,7 +129,7 @@ BOOST_AUTO_TEST_CASE(t_hook_connect)
     l.Wait();
 }
 
-const char *msg = "hello world";
+const char* msg = "hello world";
 
 BOOST_AUTO_TEST_CASE(t_hook_write)
 {
@@ -138,8 +139,7 @@ BOOST_AUTO_TEST_CASE(t_hook_write)
     {
         BOOST_TEST_MESSAGE("[server] server co=" << bbt::coroutine::GetLocalCoroutineId());
         int fd = CreateListenTcp("", 10001, true);
-        if (fd < 0)
-        {
+        if (fd < 0) {
             BOOST_TEST_MESSAGE("[server] create listen failed, errno=" << errno);
             BOOST_FAIL("create listen failed");
         }
@@ -147,11 +147,11 @@ BOOST_AUTO_TEST_CASE(t_hook_write)
         BOOST_ASSERT(fd >= 0);
         BOOST_TEST_MESSAGE("[server] create succ listen fd=" << fd);
         sockaddr_in cli_addr;
-        char *buf = new char[1024];
+        char* buf = new char[1024];
         memset(buf, '\0', 1024);
         socklen_t len = sizeof(cli_addr);
 
-        int new_fd = ::accept(fd, (sockaddr *)(&cli_addr), &len);
+        int new_fd = ::accept(fd, (sockaddr*)(&cli_addr), &len);
         BOOST_ASSERT(new_fd >= 0);
         BOOST_TEST_MESSAGE("[server] accept succ new_fd=" << new_fd);
         int read_len = ::read(new_fd, buf, 1024);
@@ -176,7 +176,7 @@ BOOST_AUTO_TEST_CASE(t_hook_write)
         int fd = ::socket(AF_INET, SOCK_STREAM, 0);
         BOOST_ASSERT(fd >= 0);
         BOOST_TEST_MESSAGE("[client] create socket succ!");
-        int ret = ::connect(fd, (sockaddr *)(&addr), sizeof(addr));
+        int ret = ::connect(fd, (sockaddr*)(&addr), sizeof(addr));
         BOOST_CHECK_MESSAGE(ret == 0, "[connect] errno=" << errno << "\tret=" << ret << "\tfd=" << fd);
         BOOST_ASSERT(ret == 0);
         BOOST_TEST_MESSAGE("[client] connect succ");
@@ -200,17 +200,16 @@ BOOST_AUTO_TEST_CASE(t_hook_send)
     bbtco[&l]()
     {
         int fd = CreateListenTcp("", 10001, true);
-        if (fd < 0)
-        {
+        if (fd < 0) {
             BOOST_TEST_MESSAGE("[server] create listen failed, errno=" << errno);
             BOOST_FAIL("create listen failed");
         }
         BOOST_ASSERT(fd >= 0);
         sockaddr_in cli_addr;
-        char *buf = new char[1024];
+        char* buf = new char[1024];
         memset(buf, '\0', 1024);
         socklen_t len = sizeof(cli_addr);
-        int new_fd = ::accept(fd, (sockaddr *)(&cli_addr), &len);
+        int new_fd = ::accept(fd, (sockaddr*)(&cli_addr), &len);
         BOOST_ASSERT(new_fd >= 0);
         int recv_len = ::recv(new_fd, buf, 1024, 0);
         BOOST_CHECK_GT(recv_len, 0);
@@ -231,7 +230,7 @@ BOOST_AUTO_TEST_CASE(t_hook_send)
 
         int fd = ::socket(AF_INET, SOCK_STREAM, 0);
         BOOST_ASSERT(fd >= 0);
-        int ret = ::connect(fd, (sockaddr *)(&addr), sizeof(addr));
+        int ret = ::connect(fd, (sockaddr*)(&addr), sizeof(addr));
         BOOST_CHECK_MESSAGE(ret == 0, "[connect] errno=" << errno << "\tret=" << ret << "\tfd=" << fd);
         ret = ::send(fd, msg, strlen(msg), 0);
         BOOST_CHECK_MESSAGE(ret != -1, "[send] errno=" << errno << "\tret=" << ret << "\tfd=" << fd);
@@ -248,7 +247,8 @@ BOOST_AUTO_TEST_CASE(t_bbtco_wait_for)
     int pipefd[2];
     BOOST_REQUIRE(::pipe(pipefd) == 0);
 
-    bbtco_ref {
+    bbtco_ref
+    {
         bbtco_wait_for(pipefd[0], bbtco_emev_readable, 0);
 
         char buf[128];
@@ -258,9 +258,10 @@ BOOST_AUTO_TEST_CASE(t_bbtco_wait_for)
         l.Down();
     };
 
-    bbtco_ref {
+    bbtco_ref
+    {
         bbtco_sleep(100);
-        const char *msg = "hello world";
+        const char* msg = "hello world";
         ssize_t write_len = ::write(pipefd[1], msg, strlen(msg));
         BOOST_REQUIRE_GT(write_len, 0);
     };
@@ -268,16 +269,21 @@ BOOST_AUTO_TEST_CASE(t_bbtco_wait_for)
     l.Wait();
 }
 
-// =============== Hook 异常安全 ===============
+/**
+ * =============== Hook 异常安全 ===============
+ */
 
-// 协程内 recv 传入无效 fd：系统调用失败路径 errno 不被 hook 覆盖
+/**
+ * 协程内 recv 传入无效 fd：系统调用失败路径 errno 不被 hook 覆盖
+ */
 BOOST_AUTO_TEST_CASE(t_hook_errno_badfd_preserved)
 {
     bbt::core::thread::CountDownLatch l{1};
     std::atomic_int got_errno{0};
     std::atomic_int ret{0};
 
-    bbtco [&]() {
+    bbtco[&]()
+    {
         errno = 0;
         char buf[16];
         ret = ::recv(-1, buf, sizeof(buf), 0);
@@ -290,14 +296,19 @@ BOOST_AUTO_TEST_CASE(t_hook_errno_badfd_preserved)
     BOOST_TEST(got_errno.load() == EBADF);
 }
 
-// UDP recvfrom/sendto 正常路径（协程内，新增 hook）
+/**
+ * UDP recvfrom/sendto 正常路径（协程内，新增 hook）
+ */
 BOOST_AUTO_TEST_CASE(t_hook_recvfrom_sendto)
 {
     bbt::core::thread::CountDownLatch l{1};
     std::atomic_bool recv_ok{false};
 
-    bbtco [&]() {
-        // 服务端 socket
+    bbtco[&]()
+    {
+        /**
+         * 服务端 socket
+         */
         int server_fd = ::socket(AF_INET, SOCK_DGRAM, 0);
         BOOST_REQUIRE(server_fd >= 0);
 
@@ -305,28 +316,37 @@ BOOST_AUTO_TEST_CASE(t_hook_recvfrom_sendto)
         memset(&server_addr, 0, sizeof(server_addr));
         server_addr.sin_family = AF_INET;
         server_addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-        server_addr.sin_port = 0;  // 自动分配端口
+
+        /**
+         * 自动分配端口
+         */
+        server_addr.sin_port = 0;
         BOOST_REQUIRE(::bind(server_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) == 0);
 
         socklen_t addr_len = sizeof(server_addr);
         BOOST_REQUIRE(::getsockname(server_fd, (struct sockaddr*)&server_addr, &addr_len) == 0);
 
-        // 客户端 socket（同样走 hook）
+        /**
+         * 客户端 socket（同样走 hook）
+         */
         int client_fd = ::socket(AF_INET, SOCK_DGRAM, 0);
         BOOST_REQUIRE(client_fd >= 0);
 
         const char msg[] = "udp-hook-hello";
-        // 客户端 sendto（hook）：UDP 通常立即成功
-        ssize_t sent = ::sendto(client_fd, msg, sizeof(msg), 0,
-                                (struct sockaddr*)&server_addr, sizeof(server_addr));
+
+        /**
+         * 客户端 sendto（hook）：UDP 通常立即成功
+         */
+        ssize_t sent = ::sendto(client_fd, msg, sizeof(msg), 0, (struct sockaddr*)&server_addr, sizeof(server_addr));
         BOOST_CHECK(sent == (ssize_t)sizeof(msg));
 
-        // 服务端 recvfrom（hook）
+        /**
+         * 服务端 recvfrom（hook）
+         */
         char buf[64] = {0};
         struct sockaddr_in from_addr;
         socklen_t from_len = sizeof(from_addr);
-        ssize_t got = ::recvfrom(server_fd, buf, sizeof(buf), 0,
-                                 (struct sockaddr*)&from_addr, &from_len);
+        ssize_t got = ::recvfrom(server_fd, buf, sizeof(buf), 0, (struct sockaddr*)&from_addr, &from_len);
         BOOST_CHECK(got == (ssize_t)sizeof(msg));
         BOOST_CHECK(std::string{buf} == std::string{msg});
         recv_ok = (got == (ssize_t)sizeof(msg));
@@ -340,7 +360,9 @@ BOOST_AUTO_TEST_CASE(t_hook_recvfrom_sendto)
     BOOST_TEST(recv_ok.load());
 }
 
-// recvfrom 无数据时协程挂起，对端到达后恢复（EAGAIN 挂起路径）
+/**
+ * recvfrom 无数据时协程挂起，对端到达后恢复（EAGAIN 挂起路径）
+ */
 BOOST_AUTO_TEST_CASE(t_hook_recvfrom_eagain_wakeup)
 {
     bbt::core::thread::CountDownLatch l{1};
@@ -360,23 +382,29 @@ BOOST_AUTO_TEST_CASE(t_hook_recvfrom_eagain_wakeup)
     socklen_t addr_len = sizeof(server_addr);
     BOOST_REQUIRE(::getsockname(server_fd, (struct sockaddr*)&server_addr, &addr_len) == 0);
 
-    // 主线程在对端延时发送
+    /**
+     * 主线程在对端延时发送
+     */
     std::thread sender([&]() {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         int client_fd = ::socket(AF_INET, SOCK_DGRAM, 0);
         if (client_fd < 0)
             return;
         const char msg[] = "wake";
-        ::sendto(client_fd, msg, sizeof(msg), 0,
-                 (struct sockaddr*)&server_addr, sizeof(server_addr));
+        ::sendto(client_fd, msg, sizeof(msg), 0, (struct sockaddr*)&server_addr, sizeof(server_addr));
         ::close(client_fd);
     });
 
-    bbtco [&]() {
+    bbtco[&]()
+    {
         char buf[16] = {0};
         errno = 0;
         ssize_t got = ::recvfrom(server_fd, buf, sizeof(buf), 0, nullptr, nullptr);
-        got_errno = errno;  // 成功后 errno 不应残留 EAGAIN 之外的可疑值
+
+        /**
+         * 成功后 errno 不应残留 EAGAIN 之外的可疑值
+         */
+        got_errno = errno;
         got_msg = (got > 0);
         l.Down();
     };
@@ -386,18 +414,24 @@ BOOST_AUTO_TEST_CASE(t_hook_recvfrom_eagain_wakeup)
     ::close(server_fd);
 
     BOOST_TEST(got_msg.load());
-    // 成功返回时 errno 语义未定义（POSIX 不保证），仅验证不残留 EAGAIN 之外的硬错误
-    // （无强断言：errno 在成功路径上无需固定值）
+
+    /**
+     * 成功返回时 errno 语义未定义（POSIX 不保证），仅验证不残留 EAGAIN 之外的硬错误
+     * （无强断言：errno 在成功路径上无需固定值）
+     */
 }
 
-// 协程内 read 无效 fd：EBADF 保持
+/**
+ * 协程内 read 无效 fd：EBADF 保持
+ */
 BOOST_AUTO_TEST_CASE(t_hook_read_errno_preserved)
 {
     bbt::core::thread::CountDownLatch l{1};
     std::atomic_int got_errno{0};
     std::atomic_int ret{0};
 
-    bbtco [&]() {
+    bbtco[&]()
+    {
         errno = 0;
         char buf[16];
         ret = ::read(-1, buf, sizeof(buf));
@@ -410,9 +444,13 @@ BOOST_AUTO_TEST_CASE(t_hook_read_errno_preserved)
     BOOST_TEST(got_errno.load() == EBADF);
 }
 
-// =============== connect/accept 异常安全 ===============
+/**
+ * =============== connect/accept 异常安全 ===============
+ */
 
-// connect 立即失败（ECONNREFUSED）：socket 保持可重用，重连到监听端口成功
+/**
+ * connect 立即失败（ECONNREFUSED）：socket 保持可重用，重连到监听端口成功
+ */
 BOOST_AUTO_TEST_CASE(t_hook_connect_refused_then_reuse)
 {
     bbt::core::thread::CountDownLatch l{1};
@@ -420,7 +458,9 @@ BOOST_AUTO_TEST_CASE(t_hook_connect_refused_then_reuse)
     std::atomic_bool second_ok{false};
     std::atomic_int first_errno{0};
 
-    // 监听 socket（在测试线程准备好）
+    /**
+     * 监听 socket（在测试线程准备好）
+     */
     int listen_fd = ::socket(AF_INET, SOCK_STREAM, 0);
     BOOST_REQUIRE(listen_fd >= 0);
 
@@ -435,8 +475,10 @@ BOOST_AUTO_TEST_CASE(t_hook_connect_refused_then_reuse)
     socklen_t addr_len = sizeof(listen_addr);
     BOOST_REQUIRE(::getsockname(listen_fd, (struct sockaddr*)&listen_addr, &addr_len) == 0);
 
-    // 未监听端口：bind 后立即 close 释放端口，connect 该端口（无监听者）
-    // 内核立即 RST → ECONNREFUSED
+    /**
+     * 未监听端口：bind 后立即 close 释放端口，connect 该端口（无监听者）
+     * 内核立即 RST → ECONNREFUSED
+     */
     int tmp_fd = ::socket(AF_INET, SOCK_STREAM, 0);
     BOOST_REQUIRE(tmp_fd >= 0);
     struct sockaddr_in dead_addr;
@@ -447,19 +489,28 @@ BOOST_AUTO_TEST_CASE(t_hook_connect_refused_then_reuse)
     BOOST_REQUIRE(::bind(tmp_fd, (struct sockaddr*)&dead_addr, sizeof(dead_addr)) == 0);
     socklen_t dead_len = sizeof(dead_addr);
     BOOST_REQUIRE(::getsockname(tmp_fd, (struct sockaddr*)&dead_addr, &dead_len) == 0);
-    ::close(tmp_fd);  // 端口已释放，connect 将得到 ECONNREFUSED
 
-    bbtco [&]() {
+    /**
+     * 端口已释放，connect 将得到 ECONNREFUSED
+     */
+    ::close(tmp_fd);
+
+    bbtco[&]()
+    {
         int fd = ::socket(AF_INET, SOCK_STREAM, 0);
         BOOST_REQUIRE(fd >= 0);
 
-        // 第一次 connect：无监听者，立即 ECONNREFUSED
+        /**
+         * 第一次 connect：无监听者，立即 ECONNREFUSED
+         */
         errno = 0;
         int ret1 = ::connect(fd, (struct sockaddr*)&dead_addr, sizeof(dead_addr));
         first_errno = errno;
         first_failed = (ret1 == -1);
 
-        // 同一 socket 重连到监听端口：应成功（socket 状态可重用）
+        /**
+         * 同一 socket 重连到监听端口：应成功（socket 状态可重用）
+         */
         int ret2 = ::connect(fd, (struct sockaddr*)&listen_addr, sizeof(listen_addr));
         second_ok = (ret2 == 0);
 
@@ -475,7 +526,9 @@ BOOST_AUTO_TEST_CASE(t_hook_connect_refused_then_reuse)
     BOOST_TEST(second_ok.load());
 }
 
-// 非阻塞 connect 完成后重入 connect（EISCONN）返回成功而非 -1
+/**
+ * 非阻塞 connect 完成后重入 connect（EISCONN）返回成功而非 -1
+ */
 BOOST_AUTO_TEST_CASE(t_hook_connect_eisconn_success)
 {
     bbt::core::thread::CountDownLatch l{1};
@@ -495,22 +548,29 @@ BOOST_AUTO_TEST_CASE(t_hook_connect_eisconn_success)
     socklen_t addr_len = sizeof(listen_addr);
     BOOST_REQUIRE(::getsockname(listen_fd, (struct sockaddr*)&listen_addr, &addr_len) == 0);
 
-    // 接受线程：accept 后连接完成
+    /**
+     * 接受线程：accept 后连接完成
+     */
     std::thread acceptor([&]() {
         int cli = ::accept(listen_fd, nullptr, nullptr);
         if (cli >= 0)
             ::close(cli);
     });
 
-    bbtco [&]() {
+    bbtco[&]()
+    {
         int fd = ::socket(AF_INET, SOCK_STREAM, 0);
         BOOST_REQUIRE(fd >= 0);
 
-        // 第一次 connect：可能立即完成（loopback 快）或 EINPROGRESS 挂起完成
+        /**
+         * 第一次 connect：可能立即完成（loopback 快）或 EINPROGRESS 挂起完成
+         */
         int ret1 = ::connect(fd, (struct sockaddr*)&listen_addr, sizeof(listen_addr));
         BOOST_REQUIRE(ret1 == 0);
 
-        // 已连接后再次 connect 同一地址：EISCONN 应被视为成功
+        /**
+         * 已连接后再次 connect 同一地址：EISCONN 应被视为成功
+         */
         int ret2 = ::connect(fd, (struct sockaddr*)&listen_addr, sizeof(listen_addr));
         reconn_ok = (ret2 == 0);
 
@@ -525,7 +585,9 @@ BOOST_AUTO_TEST_CASE(t_hook_connect_eisconn_success)
     BOOST_TEST(reconn_ok.load());
 }
 
-// accept 失败不影响 listen socket：accept 后 listen socket 仍可继续 accept
+/**
+ * accept 失败不影响 listen socket：accept 后 listen socket 仍可继续 accept
+ */
 BOOST_AUTO_TEST_CASE(t_hook_accept_listen_socket_unaffected)
 {
     bbt::core::thread::CountDownLatch l{1};
@@ -545,7 +607,9 @@ BOOST_AUTO_TEST_CASE(t_hook_accept_listen_socket_unaffected)
     socklen_t addr_len = sizeof(listen_addr);
     BOOST_REQUIRE(::getsockname(listen_fd, (struct sockaddr*)&listen_addr, &addr_len) == 0);
 
-    // 两个客户端先后连接
+    /**
+     * 两个客户端先后连接
+     */
     std::thread client1([&]() {
         int fd = ::socket(AF_INET, SOCK_STREAM, 0);
         if (fd < 0)
@@ -554,14 +618,19 @@ BOOST_AUTO_TEST_CASE(t_hook_accept_listen_socket_unaffected)
         ::close(fd);
     });
 
-    bbtco [&]() {
-        // 第一轮 accept（挂起直到 client1 到达）
+    bbtco[&]()
+    {
+        /**
+         * 第一轮 accept（挂起直到 client1 到达）
+         */
         int cli1 = ::accept(listen_fd, nullptr, nullptr);
         BOOST_REQUIRE(cli1 >= 0);
         ::close(cli1);
         accepted++;
 
-        // listen socket 不受影响：继续监听，第二轮 accept 由协程内自建 client 触发
+        /**
+         * listen socket 不受影响：继续监听，第二轮 accept 由协程内自建 client 触发
+         */
         int cli2_fd = ::socket(AF_INET, SOCK_STREAM, 0);
         BOOST_REQUIRE(cli2_fd >= 0);
         int ret = ::connect(cli2_fd, (struct sockaddr*)&listen_addr, sizeof(listen_addr));
@@ -583,8 +652,6 @@ BOOST_AUTO_TEST_CASE(t_hook_accept_listen_socket_unaffected)
     BOOST_TEST(accepted.load() == 2);
 }
 
-BOOST_AUTO_TEST_CASE(test_env_unload)
-{
-}
+BOOST_AUTO_TEST_CASE(test_env_unload) {}
 
 BOOST_AUTO_TEST_SUITE_END()

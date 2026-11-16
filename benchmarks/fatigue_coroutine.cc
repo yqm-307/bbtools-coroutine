@@ -9,13 +9,13 @@ int main()
 
     while (true) {
         for (int i = 0; i < 100000; ++i) {
-            bbtco ([&](){
-                ncount++;
-            });
+            bbtco([&]() { ncount++; });
         }
 
         sleep(1);
     }
 
-    /* process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出 */
+    /**
+     * process-lifetime：无业务停机入口；业务完成后返回 main 即进程退出
+     */
 }

@@ -1,0 +1,11 @@
+schema_version = 1
+timeout_seconds = 60
+
+[push]
+rules = ["review-ticket", "llm-review", "format"]
+
+[scope]
+exclude = ["bbt/coroutine/utils/lockfree/*"]
+
+[format]
+binary = "clang-format"

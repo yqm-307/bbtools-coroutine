@@ -7,19 +7,15 @@ int main()
     int ncount;
     g_scheduler->Start();
 
-    for (int i = 0; i<2; ++i)
-    {
-        bbtco [&ncount](){
-            while (true)
-            {
-                bbtco ([&](){
-                    ncount++;
-                });
+    for (int i = 0; i < 2; ++i) {
+        bbtco[&ncount]()
+        {
+            while (true) {
+                bbtco([&]() { ncount++; });
             }
         };
     }
-    
-    while(true) 
-        sleep(1);
 
+    while (true)
+        sleep(1);
 }

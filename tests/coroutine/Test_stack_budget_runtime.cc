@@ -36,33 +36,32 @@
 #include <bbt/coroutine/detail/Scheduler.hpp>
 #include <bbt/coroutine/detail/debug/StackBudgetDiagnostics.hpp>
 
-/* 进程寿命模型：runtime 只初始化一次。 */
-namespace
-{
+/**
+ * 进程寿命模型：runtime 只初始化一次。
+ */
+namespace {
 void EnsureRuntime()
 {
     static std::once_flag once;
-    std::call_once(once, [](){
-        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
-    });
+    std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
 }
 
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::detail;
 
-namespace
-{
+namespace {
 
-constexpr size_t  kStackSize    = 64 * 1024;
-constexpr int     kShallowDepth = 1;
-constexpr int     kDeepDepth    = 24;
+constexpr size_t kStackSize = 64 * 1024;
+constexpr int kShallowDepth = 1;
+constexpr int kDeepDepth = 24;
 
-/* 插桩路径上的确定性栈消耗：每层一个固定 volatile 帧，递归深度即栈深。
+/**
+ * 插桩路径上的确定性栈消耗：每层一个固定 volatile 帧，递归深度即栈深。
  * noinline 保证每层都是真实帧，不会被常量传播折叠。sink 由调用方提供，
- * 落在该协程自己的栈帧上。 */
-__attribute__((noinline))
-void Burn(volatile char* sink, int depth)
+ * 落在该协程自己的栈帧上。
+ */
+__attribute__((noinline)) void Burn(volatile char* sink, int depth)
 {
     volatile char frame[384];
     for (unsigned i = 0; i < sizeof(frame); i += 64)
@@ -73,10 +72,11 @@ void Burn(volatile char* sink, int depth)
         Burn(sink, depth - 1);
 }
 
-/* mid-function alloca 之后没有进一步的插桩调用：入口样本（alloca 前的 SP）
- * 观测不到这块延伸，只能证明 PARTIAL 覆盖，不能当真实峰值。 */
-__attribute__((noinline))
-void AllocaThenNoInstrumentedCall(volatile char* sink)
+/**
+ * mid-function alloca 之后没有进一步的插桩调用：入口样本（alloca 前的 SP）
+ * 观测不到这块延伸，只能证明 PARTIAL 覆盖，不能当真实峰值。
+ */
+__attribute__((noinline)) void AllocaThenNoInstrumentedCall(volatile char* sink)
 {
     volatile char* p = static_cast<volatile char*>(__builtin_alloca(8 * 1024));
     for (int i = 0; i < 8 * 1024; i += 64)
@@ -84,29 +84,36 @@ void AllocaThenNoInstrumentedCall(volatile char* sink)
     *sink = static_cast<char>(*sink + p[0]);
 }
 
-} // namespace
+}
 
-namespace bbt_stack_budget_test
-{
+namespace bbt_stack_budget_test {
 void UninstrumentedBurn(volatile char* sink, int depth);
 }
 
 BOOST_AUTO_TEST_SUITE(stack_budget_runtime)
 
-/* 1) 不 yield 的深调用：返回后样本保留，深路径 observed 大于浅路径。 */
+/**
+ * 1) 不 yield 的深调用：返回后样本保留，深路径 observed 大于浅路径。
+ */
 BOOST_AUTO_TEST_CASE(t_deep_observed_gt_shallow_and_retained)
 {
-    Context deep_ctx(kStackSize, []() {
-        volatile char sink{0};
-        Burn(&sink, kDeepDepth);
-    }, true);
+    Context deep_ctx(
+        kStackSize,
+        []() {
+            volatile char sink{0};
+            Burn(&sink, kDeepDepth);
+        },
+        true);
     deep_ctx.Resume();
     const auto deep = deep_ctx.GetStackBudgetSample();
 
-    Context shallow_ctx(kStackSize, []() {
-        volatile char sink{0};
-        Burn(&sink, kShallowDepth);
-    }, true);
+    Context shallow_ctx(
+        kStackSize,
+        []() {
+            volatile char sink{0};
+            Burn(&sink, kShallowDepth);
+        },
+        true);
     shallow_ctx.Resume();
     const auto shallow = shallow_ctx.GetStackBudgetSample();
 
@@ -116,26 +123,31 @@ BOOST_AUTO_TEST_CASE(t_deep_observed_gt_shallow_and_retained)
     BOOST_TEST(shallow.sample_count > 0);
     BOOST_TEST(deep.observed_sample_bytes > shallow.observed_sample_bytes);
 
-    /* 协程结束后安全点快照仍可读且不回落 */
-    BOOST_TEST(deep_ctx.GetStackBudgetSample().observed_sample_bytes ==
-               deep.observed_sample_bytes);
-    BOOST_TEST(deep_ctx.GetStackBudgetSample().sample_count ==
-               deep.sample_count);
+    /**
+     * 协程结束后安全点快照仍可读且不回落
+     */
+    BOOST_TEST(deep_ctx.GetStackBudgetSample().observed_sample_bytes == deep.observed_sample_bytes);
+    BOOST_TEST(deep_ctx.GetStackBudgetSample().sample_count == deep.sample_count);
 }
 
-/* 2) 手工 Context 跨线程 Resume：TLS 归属随 owner 迁移，两线程均无残留。 */
+/**
+ * 2) 手工 Context 跨线程 Resume：TLS 归属随 owner 迁移，两线程均无残留。
+ */
 BOOST_AUTO_TEST_CASE(t_tls_ownership_migrates_across_threads)
 {
     std::unique_ptr<Context> ctx;
     std::atomic_bool a_clean{false};
     std::atomic_bool b_clean{false};
 
-    ctx.reset(new Context(kStackSize, [&]() {
-        volatile char sink{0};
-        Burn(&sink, 8);
-        ctx->Yield();
-        Burn(&sink, kDeepDepth);
-    }, true));
+    ctx.reset(new Context(
+        kStackSize,
+        [&]() {
+            volatile char sink{0};
+            Burn(&sink, 8);
+            ctx->Yield();
+            Burn(&sink, kDeepDepth);
+        },
+        true));
 
     std::thread ta([&]() {
         ctx->Resume();
@@ -154,7 +166,10 @@ BOOST_AUTO_TEST_CASE(t_tls_ownership_migrates_across_threads)
 
     const auto end = ctx->GetStackBudgetSample();
     BOOST_TEST(static_cast<int>(end.coverage) == static_cast<int>(StackBudgetCoverage::PARTIAL));
-    /* 样本单调：迁移后不回退，且第二段更深的 Burn 推进水位 */
+
+    /**
+     * 样本单调：迁移后不回退，且第二段更深的 Burn 推进水位
+     */
     BOOST_TEST(end.sample_count >= mid.sample_count);
     BOOST_TEST(end.observed_sample_bytes >= mid.observed_sample_bytes);
     BOOST_TEST(a_clean.load());
@@ -162,29 +177,44 @@ BOOST_AUTO_TEST_CASE(t_tls_ownership_migrates_across_threads)
     BOOST_TEST(GetActiveStackBudgetState() == nullptr);
 }
 
-/* 3) YieldWithCallback 失败重入：让出期间 worker 侧无归属，重入后本协程
- * 状态恢复、回调本身不产生本协程样本。 */
+/**
+ * 3) YieldWithCallback 失败重入：让出期间 worker 侧无归属，重入后本协程
+ * 状态恢复、回调本身不产生本协程样本。
+ */
 BOOST_AUTO_TEST_CASE(t_yieldwithcallback_failed_reentry_keeps_state)
 {
     std::unique_ptr<Context> ctx;
     StackBudgetState* self_state{nullptr};
     StackBudgetState* seen_in_callback{reinterpret_cast<StackBudgetState*>(~uintptr_t{0})};
-    int               yield_cb_ret{0};
-    bool              active_restored{false};
+    int yield_cb_ret{0};
+    bool active_restored{false};
 
-    ctx.reset(new Context(kStackSize, [&]() {
-        volatile char sink{0};
-        Burn(&sink, 8);
-        self_state = GetActiveStackBudgetState();
-        /* callback 在 worker 栈上执行：此刻协程已让出，TLS 归属必须为 nullptr */
-        yield_cb_ret = ctx->YieldWithCallback([&]() -> bool {
-            seen_in_callback = GetActiveStackBudgetState();
-            return false;   /* check 失败 → Resume 侧重入本协程 */
-        });
-        /* 重入后归属应重新指向本协程同一状态（不是别的对象、不是空） */
-        active_restored = (GetActiveStackBudgetState() == self_state);
-        Burn(&sink, 8);
-    }, true));
+    ctx.reset(new Context(
+        kStackSize,
+        [&]() {
+            volatile char sink{0};
+            Burn(&sink, 8);
+            self_state = GetActiveStackBudgetState();
+
+            /**
+             * callback 在 worker 栈上执行：此刻协程已让出，TLS 归属必须为 nullptr
+             */
+            yield_cb_ret = ctx->YieldWithCallback([&]() -> bool {
+                seen_in_callback = GetActiveStackBudgetState();
+
+                /**
+                 * check 失败 → Resume 侧重入本协程
+                 */
+                return false;
+            });
+
+            /**
+             * 重入后归属应重新指向本协程同一状态（不是别的对象、不是空）
+             */
+            active_restored = (GetActiveStackBudgetState() == self_state);
+            Burn(&sink, 8);
+        },
+        true));
 
     ctx->Resume();
 
@@ -199,7 +229,9 @@ BOOST_AUTO_TEST_CASE(t_yieldwithcallback_failed_reentry_keeps_state)
     BOOST_TEST(GetActiveStackBudgetState() == nullptr);
 }
 
-/* 4) 异常展开/RAII 与终态后的安全点快照：仍 PARTIAL 且有样本。 */
+/**
+ * 4) 异常展开/RAII 与终态后的安全点快照：仍 PARTIAL 且有样本。
+ */
 BOOST_AUTO_TEST_CASE(t_exception_unwind_snapshot_partial_with_samples)
 {
     bool dtor_ran = false;
@@ -208,16 +240,21 @@ BOOST_AUTO_TEST_CASE(t_exception_unwind_snapshot_partial_with_samples)
         ~Guard() { flag = true; }
     };
 
-    Context ctx(kStackSize, [&]() {
-        volatile char sink{0};
-        Burn(&sink, 8);
-        Guard g{dtor_ran};
-        Burn(&sink, 4);
-        throw std::runtime_error("stack_budget_exception_probe");
-    }, true);
+    Context ctx(
+        kStackSize,
+        [&]() {
+            volatile char sink{0};
+            Burn(&sink, 8);
+            Guard g{dtor_ran};
+            Burn(&sink, 4);
+            throw std::runtime_error("stack_budget_exception_probe");
+        },
+        true);
 
-    /* 异常在 _CoroutineMain 边界被捕获（detached 路径：日志+计数），
-     * 终态 Yield 后 Resume 正常返回。 */
+    /**
+     * 异常在 _CoroutineMain 边界被捕获（detached 路径：日志+计数），
+     * 终态 Yield 后 Resume 正常返回。
+     */
     ctx.Resume();
 
     BOOST_TEST(dtor_ran);
@@ -227,11 +264,13 @@ BOOST_AUTO_TEST_CASE(t_exception_unwind_snapshot_partial_with_samples)
     BOOST_TEST(s.observed_sample_bytes > 0);
 }
 
-/* 5) 栈池同尺寸顺序借还 + 确定性物理复用：专用桶键 kStackSize+4096（此前
+/**
+ * 5) 栈池同尺寸顺序借还 + 确定性物理复用：专用桶键 kStackSize+4096（此前
  * 任何用例未向该键归还栈），本用例在 EnsureRuntime 之前运行、无 scheduler
  * 维护线程——c1 是该桶第一次申请，析构 FIFO 归还后桶内唯一块即它，c2 再借
  * 必然复用同一物理栈。两边捕获活动 state 的 top 相等证明复用已发生，
- * fresh 状态（sample_count/observed==0）由此对「不继承历史」有判别力。 */
+ * fresh 状态（sample_count/observed==0）由此对「不继承历史」有判别力。
+ */
 BOOST_AUTO_TEST_CASE(t_pool_reuse_fresh_context_no_history)
 {
     constexpr size_t kDedicatedStack = kStackSize + 4096;
@@ -239,21 +278,30 @@ BOOST_AUTO_TEST_CASE(t_pool_reuse_fresh_context_no_history)
     uintptr_t top2{0};
 
     {
-        Context c1(kDedicatedStack, [&]() {
-            volatile char sink{0};
-            top1 = GetActiveStackBudgetState()->top;
-            Burn(&sink, 16);
-        }, true);
+        Context c1(
+            kDedicatedStack,
+            [&]() {
+                volatile char sink{0};
+                top1 = GetActiveStackBudgetState()->top;
+                Burn(&sink, 16);
+            },
+            true);
         c1.Resume();
         BOOST_TEST(c1.GetStackBudgetSample().sample_count > 0);
         BOOST_TEST(top1 != 0);
     }
-    /* c1 析构归还栈后再借同尺寸同保护：同键桶里唯一空闲块就是它 */
-    Context c2(kDedicatedStack, [&]() {
-        volatile char sink{0};
-        top2 = GetActiveStackBudgetState()->top;
-        Burn(&sink, 4);
-    }, true);
+
+    /**
+     * c1 析构归还栈后再借同尺寸同保护：同键桶里唯一空闲块就是它
+     */
+    Context c2(
+        kDedicatedStack,
+        [&]() {
+            volatile char sink{0};
+            top2 = GetActiveStackBudgetState()->top;
+            Burn(&sink, 4);
+        },
+        true);
     {
         const auto fresh = c2.GetStackBudgetSample();
         BOOST_TEST(fresh.sample_count == 0);
@@ -261,43 +309,49 @@ BOOST_AUTO_TEST_CASE(t_pool_reuse_fresh_context_no_history)
         BOOST_TEST(static_cast<int>(fresh.coverage) == static_cast<int>(StackBudgetCoverage::PARTIAL));
     }
     c2.Resume();
-    BOOST_TEST(top2 == top1);   /* 确定性物理复用：同一块栈，样本不继承 */
+
+    /**
+     * 确定性物理复用：同一块栈，样本不继承
+     */
+    BOOST_TEST(top2 == top1);
     BOOST_TEST(c2.GetStackBudgetSample().sample_count > 0);
 }
 
-/* 6) 多 native 线程各自独立 Context 交错 yield：归属完整隔离无竞态。 */
+/**
+ * 6) 多 native 线程各自独立 Context 交错 yield：归属完整隔离无竞态。
+ */
 BOOST_AUTO_TEST_CASE(t_multi_thread_independent_contexts_isolated)
 {
     constexpr int kThreads = 4;
-    constexpr int kRounds  = 6;
+    constexpr int kRounds = 6;
 
     struct Worker {
         std::unique_ptr<Context> ctx;
-        std::atomic_bool         done{false};
-        std::atomic_bool         tls_clean{false};
-        StackBudgetSample        sample{};
-        int                      depth{0};
+        std::atomic_bool done{false};
+        std::atomic_bool tls_clean{false};
+        StackBudgetSample sample{};
+        int depth{0};
     };
 
     std::array<Worker, kThreads> workers;
-    for (int i = 0; i < kThreads; ++i)
-    {
+    for (int i = 0; i < kThreads; ++i) {
         workers[i].depth = (i % 2 == 0) ? kDeepDepth : kShallowDepth + 3;
         auto* w = &workers[i];
-        w->ctx.reset(new Context(kStackSize, [w]() {
-            volatile char sink{0};
-            for (int r = 0; r < kRounds; ++r)
-            {
-                Burn(&sink, w->depth);
-                w->ctx->Yield();
-            }
-            w->done = true;
-        }, true));
+        w->ctx.reset(new Context(
+            kStackSize,
+            [w]() {
+                volatile char sink{0};
+                for (int r = 0; r < kRounds; ++r) {
+                    Burn(&sink, w->depth);
+                    w->ctx->Yield();
+                }
+                w->done = true;
+            },
+            true));
     }
 
     std::array<std::thread, kThreads> threads;
-    for (int i = 0; i < kThreads; ++i)
-    {
+    for (int i = 0; i < kThreads; ++i) {
         auto* w = &workers[i];
         threads[i] = std::thread([w]() {
             while (!w->done.load())
@@ -309,56 +363,76 @@ BOOST_AUTO_TEST_CASE(t_multi_thread_independent_contexts_isolated)
     for (auto& t : threads)
         t.join();
 
-    for (int i = 0; i < kThreads; ++i)
-    {
+    for (int i = 0; i < kThreads; ++i) {
         BOOST_TEST_INFO("worker " << i);
         BOOST_TEST(static_cast<int>(workers[i].sample.coverage) == static_cast<int>(StackBudgetCoverage::PARTIAL));
         BOOST_TEST(workers[i].sample.sample_count > 0);
         BOOST_TEST(workers[i].sample.observed_sample_bytes > 0);
         BOOST_TEST(workers[i].tls_clean.load());
     }
-    /* 深/浅组各自独立推进：深组水位显著高于浅组（隔离且各自生效） */
-    BOOST_TEST(workers[0].sample.observed_sample_bytes >
-               workers[1].sample.observed_sample_bytes);
+
+    /**
+     * 深/浅组各自独立推进：深组水位显著高于浅组（隔离且各自生效）
+     */
+    BOOST_TEST(workers[0].sample.observed_sample_bytes > workers[1].sample.observed_sample_bytes);
     BOOST_TEST(GetActiveStackBudgetState() == nullptr);
 }
 
-/* 7) 未插桩 TU 与 mid-function alloca：只能断言 PARTIAL，不声称观测到
- * 真实峰值。 */
+/**
+ * 7) 未插桩 TU 与 mid-function alloca：只能断言 PARTIAL，不声称观测到
+ * 真实峰值。
+ */
 BOOST_AUTO_TEST_CASE(t_partial_coverage_boundaries)
 {
-    /* 未插桩 helper：其内部帧不打点，observed 只反映插桩调用方的入口 SP */
-    Context c1(kStackSize, []() {
-        volatile char sink{0};
-        bbt_stack_budget_test::UninstrumentedBurn(&sink, kDeepDepth);
-    }, true);
+    /**
+     * 未插桩 helper：其内部帧不打点，observed 只反映插桩调用方的入口 SP
+     */
+    Context c1(
+        kStackSize,
+        []() {
+            volatile char sink{0};
+            bbt_stack_budget_test::UninstrumentedBurn(&sink, kDeepDepth);
+        },
+        true);
     c1.Resume();
     const auto uninst = c1.GetStackBudgetSample();
     BOOST_TEST(static_cast<int>(uninst.coverage) == static_cast<int>(StackBudgetCoverage::PARTIAL));
     BOOST_TEST(uninst.sample_count > 0);
-    /* 深度消耗真实发生但未插桩：observed 必须显著小于插桩深路径，
-     * 证明它是 PARTIAL 观测而非真实峰值。 */
-    Context c2(kStackSize, []() {
-        volatile char sink{0};
-        Burn(&sink, kDeepDepth);
-    }, true);
-    c2.Resume();
-    BOOST_TEST(uninst.observed_sample_bytes <
-               c2.GetStackBudgetSample().observed_sample_bytes);
 
-    /* mid-function alloca：8KiB 延伸发生在入口打点之后、其后无插桩调用 */
-    Context c3(kStackSize, []() {
-        volatile char sink{0};
-        AllocaThenNoInstrumentedCall(&sink);
-    }, true);
+    /**
+     * 深度消耗真实发生但未插桩：observed 必须显著小于插桩深路径，
+     * 证明它是 PARTIAL 观测而非真实峰值。
+     */
+    Context c2(
+        kStackSize,
+        []() {
+            volatile char sink{0};
+            Burn(&sink, kDeepDepth);
+        },
+        true);
+    c2.Resume();
+    BOOST_TEST(uninst.observed_sample_bytes < c2.GetStackBudgetSample().observed_sample_bytes);
+
+    /**
+     * mid-function alloca：8KiB 延伸发生在入口打点之后、其后无插桩调用
+     */
+    Context c3(
+        kStackSize,
+        []() {
+            volatile char sink{0};
+            AllocaThenNoInstrumentedCall(&sink);
+        },
+        true);
     c3.Resume();
     const auto alloca_sample = c3.GetStackBudgetSample();
     BOOST_TEST(static_cast<int>(alloca_sample.coverage) == static_cast<int>(StackBudgetCoverage::PARTIAL));
     BOOST_TEST(alloca_sample.sample_count > 0);
 }
 
-/* 8) 真实 Scheduler 多协程 yield/resume 隔离：CountDownLatch 协调，
- * 超时立即 _Exit，避免悬垂进程。 */
+/**
+ * 8) 真实 Scheduler 多协程 yield/resume 隔离：CountDownLatch 协调，
+ * 超时立即 _Exit，避免悬垂进程。
+ */
 BOOST_AUTO_TEST_CASE(t_scheduler_multi_coroutine_isolation)
 {
     EnsureRuntime();
@@ -368,38 +442,45 @@ BOOST_AUTO_TEST_CASE(t_scheduler_multi_coroutine_isolation)
     std::array<StackBudgetSample, kCo> samples{};
     std::array<std::atomic_bool, kCo> captured{};
 
-    for (int i = 0; i < kCo; ++i)
-    {
-        const int deep   = (i % 2 == 0) ? kDeepDepth : kShallowDepth + 2;
-        const int deep2  = (i % 2 == 0) ? 8 : kDeepDepth;
-        g_scheduler->RegistCoroutineTask(kStackSize, [&, i, deep, deep2]() {
-            volatile char sink{0};
-            auto* self = g_bbt_tls_coroutine_co;
-            Burn(&sink, deep);
-            bbtco_yield;
-            Burn(&sink, deep2);
-            /* owner 协程在自身运行安全点读（同线程同步写，无并发）；
-             * 快照拷贝到测试侧，由 latch 建立 happens-before */
-            if (self != nullptr) {
-                samples[i] = self->GetStackBudgetSample();
-                captured[i] = true;
-            }
-            latch.Down();
-        }, "stack_budget_isolation");
+    for (int i = 0; i < kCo; ++i) {
+        const int deep = (i % 2 == 0) ? kDeepDepth : kShallowDepth + 2;
+        const int deep2 = (i % 2 == 0) ? 8 : kDeepDepth;
+        g_scheduler->RegistCoroutineTask(
+            kStackSize,
+            [&, i, deep, deep2]() {
+                volatile char sink{0};
+                auto* self = g_bbt_tls_coroutine_co;
+                Burn(&sink, deep);
+                bbtco_yield;
+                Burn(&sink, deep2);
+
+                /**
+                 * owner 协程在自身运行安全点读（同线程同步写，无并发）；
+                 * 快照拷贝到测试侧，由 latch 建立 happens-before
+                 */
+                if (self != nullptr) {
+                    samples[i] = self->GetStackBudgetSample();
+                    captured[i] = true;
+                }
+                latch.Down();
+            },
+            "stack_budget_isolation");
     }
 
     if (latch.WaitTimeout(60000) != 0)
         _Exit(2);
 
-    for (int i = 0; i < kCo; ++i)
-    {
+    for (int i = 0; i < kCo; ++i) {
         BOOST_TEST_INFO("coroutine " << i);
         BOOST_TEST(captured[i].load());
         BOOST_TEST(static_cast<int>(samples[i].coverage) == static_cast<int>(StackBudgetCoverage::PARTIAL));
         BOOST_TEST(samples[i].sample_count > 0);
         BOOST_TEST(samples[i].observed_sample_bytes > 0);
     }
-    /* 深浅两类协程各自推进自己的最深水位 */
+
+    /**
+     * 深浅两类协程各自推进自己的最深水位
+     */
     BOOST_TEST(samples[0].observed_sample_bytes > 0);
     BOOST_TEST(samples[1].observed_sample_bytes > 0);
 }

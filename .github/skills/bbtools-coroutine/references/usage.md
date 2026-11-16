@@ -12,29 +12,28 @@
 
 ```cpp
 #include <bbt/coroutine/coroutine.hpp>
-#include <unistd.h>
 using namespace bbt::coroutine;
 
-int main()
+int bbtco_main()
 {
-    g_scheduler->Start();
-
     bbtco [](){
         printf("co %lu\n", GetLocalCoroutineId());
         bbtco_sleep(50);
         bbtco_yield;
     };
 
-    sleep(1);
-    return 0;   // process-lifetime：无业务停机入口，返回 main 即进程退出
+    bbtco_sleep(1000);   // 主协程让出等待，不阻塞调度线程
+    return 0;            // process-lifetime：无业务停机入口，返回即进程退出
 }
+
+BBTCO_MAIN()
 ```
 
 对照：`examples/coroutine.cc`。
 
-- 默认 `Start()` = 后台调度线程。返回后即可 `bbtco`。
+- 应用只写 `bbtco_main`；native `main` 由 `BBTCO_MAIN*` 生成，runtime 负责启动、hook 与只等主任务。不要自己调用 `g_scheduler->Start()`。
 - `bbtco` 是 detached，注册后不保证执行顺序。
-- 主线程要用普通 `sleep`/`latch` 等协程跑一段时间；没有业务停机入口，业务完成后返回 main 即进程退出。示例的 `sleep(1)` 只等待时间，不证明任务完成；要等业务跑完，用 `latch`/`Chan` 收齐后再返回。
+- 主协程内用协程等待（`bbtco_sleep`、`Chan`、`CoCond`）等业务收齐；原生条件变量、`future::wait/get`、`join` 会占住 Processer，不是协程等待。
 - 运行时一次初始化：重复 `Start()` 抛 `std::logic_error`；`IsInitialized()` 初始化后恒真。
 - 给关键协程起名：`bbtco_desc("worker") [](){};`
 

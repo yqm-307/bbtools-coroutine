@@ -2,12 +2,17 @@
 #include <bbt/coroutine/detail/Profiler.hpp>
 #include <bbt/coroutine/detail/StackPool.hpp>
 
-namespace bbt::coroutine::detail
-{
+/**
+ * Profiler 实现：计数器自增、worker registry 维护，以及两种输出格式（可读文本/紧凑采样）。
+ */
+namespace bbt::coroutine::detail {
 
 Profiler::UPtr& Profiler::GetInstance()
 {
-    /* 进程寿命：运行期对象，不在静态退出期析构 */
+
+    /**
+     * 进程寿命：运行期对象，不在静态退出期析构
+     */
     static UPtr* _holder = new UPtr(new Profiler());
     return *_holder;
 }
@@ -21,7 +26,6 @@ void Profiler::OnEvent_DoneCoroutine()
 {
     m_total_done_co_count++;
 }
-
 
 void Profiler::OnEvent_CreateCoroutine()
 {
@@ -55,6 +59,10 @@ void Profiler::OnEvent_StartProcesser(Processer::SPtr proc)
     std::unique_lock<std::mutex> _(m_processer_map_mutex);
     ProcesserId id = proc->GetId();
     auto it = m_processer_map.find(id);
+
+    /**
+     * 同一 ProcesserId 只登记一次：重复登记在这里断言失败，而不是覆盖旧引用。
+     */
     Assert(it == m_processer_map.end());
     m_processer_map.insert(std::make_pair(id, proc));
 }
@@ -67,7 +75,10 @@ void Profiler::OnEvent_StopPorcesser(Processer::SPtr proc) noexcept
         std::unique_lock<std::mutex> _(m_processer_map_mutex);
         ProcesserId id = proc->GetId();
         auto it = m_processer_map.find(id);
-        /* 退役清理按生命周期做幂等：重复清理或未注册过都只是无匹配。 */
+
+        /**
+         * 退役清理按生命周期做幂等：重复清理或未注册过都只是无匹配。
+         */
         if (it != m_processer_map.end())
             m_processer_map.erase(it);
     } catch (...) {
@@ -95,7 +106,6 @@ void Profiler::OnEvent_CoMutexLockYield()
     m_comutex_lock_count++;
 }
 
-
 void Profiler::Reset()
 {
     m_total_regist_co_count.store(0);
@@ -114,27 +124,34 @@ void Profiler::Reset()
 void Profiler::ProfileInfo(std::string& info)
 {
     auto elapsed_ms = (bbt::core::clock::now<>() - m_scheduler_begin_timestamp).count();
-    // OnEvent_StartScheudler 后立即调用时 elapsed 为 0，除零属 UB
+
+    /**
+     * OnEvent_StartScheudler 后立即调用时 elapsed 为 0，除零属 UB
+     */
     if (elapsed_ms <= 0)
         elapsed_ms = 1;
 
     info.clear();
     info += "================== Scheduler ProfileInfo ==================\n";
-    info += "已运行时间(ms)："  + std::to_string(elapsed_ms) + '\n';
-    info += "完成协程数："      + std::to_string(m_total_done_co_count.load())  + '\n';
-    info += "注册协程数："      + std::to_string(m_total_regist_co_count.load()) + '\n';
-    info += "执行速率(n/ms)："  + std::to_string(m_total_done_co_count.load() / elapsed_ms) + '\n';
-    info += "未释放协程数："    + std::to_string(m_create_coroutine_count.load() - m_destory_coroutine_count.load()) + '\n';
-    info += "Steal数量："       + std::to_string(m_total_steal_count.load()) + '\n';
-    info += "StackPool大小："   + std::to_string(g_bbt_stackpoll->AllocSize()) + '\n';
-    info += "StackPool Rtts："  + std::to_string(g_bbt_stackpoll->GetCoAvgCount()) + '\n';
-    info += "CoEvent 注册数量："  + std::to_string(m_regist_event_count.load()) + '\n';
-    info += "CoEvent 触发数量："  + std::to_string(m_trigger_event_count.load()) + '\n';
+    info += "已运行时间(ms)：" + std::to_string(elapsed_ms) + '\n';
+    info += "完成协程数：" + std::to_string(m_total_done_co_count.load()) + '\n';
+    info += "注册协程数：" + std::to_string(m_total_regist_co_count.load()) + '\n';
+    info += "执行速率(n/ms)：" + std::to_string(m_total_done_co_count.load() / elapsed_ms) + '\n';
+    info +=
+        "未释放协程数：" + std::to_string(m_create_coroutine_count.load() - m_destory_coroutine_count.load()) + '\n';
+    info += "Steal数量：" + std::to_string(m_total_steal_count.load()) + '\n';
+    info += "StackPool大小：" + std::to_string(g_bbt_stackpoll->AllocSize()) + '\n';
+    info += "StackPool Rtts：" + std::to_string(g_bbt_stackpoll->GetCoAvgCount()) + '\n';
+    info += "CoEvent 注册数量：" + std::to_string(m_regist_event_count.load()) + '\n';
+    info += "CoEvent 触发数量：" + std::to_string(m_trigger_event_count.load()) + '\n';
     info += "CoMutex竞争导致挂起次数：" + std::to_string(m_comutex_lock_count.load()) + '\n';
-    info += "StackPool 指标, alloc_count=" + std::to_string(m_stack_alloc_count.load()) + "\trelease_count=" + std::to_string(m_stack_release_count.load()) + '\n';
+    info += "StackPool 指标, alloc_count=" + std::to_string(m_stack_alloc_count.load())
+            + "\trelease_count=" + std::to_string(m_stack_release_count.load()) + '\n';
 
-    /* 锁内只拷贝稳定强引用，锁外格式化：扩容/退役与 ProfileInfo 并发时
-     * registry 仍受保护，退役 P 由 reaper 在 join 后移除。 */
+    /**
+     * 锁内只拷贝稳定强引用，锁外格式化：扩容/退役与 ProfileInfo 并发时
+     * registry 仍受保护，退役 P 由 reaper 在 join 后移除。
+     */
     std::vector<Processer::SPtr> processers;
     {
         std::unique_lock<std::mutex> _(m_processer_map_mutex);
@@ -142,43 +159,35 @@ void Profiler::ProfileInfo(std::string& info)
         for (auto&& kv : m_processer_map)
             processers.push_back(kv.second);
     }
-    for (auto&& processer : processers)
-    {
+    for (auto&& processer : processers) {
         if (processer == nullptr)
             continue;
-        info += "\tPID："                    + std::to_string(processer->GetId()) +
-                "\t本地队列任务数："          + std::to_string(processer->GetExecutableNum()) +
-                "\t上下文切换次数："          + std::to_string(processer->GetContextSwapTimes()) +
-                "\t挂起时间(ms)："            + std::to_string(processer->GetSuspendCostTime() / 1000) +
-                "\tSteal数量(偷/被偷)："           + std::to_string(processer->GetStealSuccTimes()) + "/" + std::to_string(processer->GetStealCount()) +
-                "\t空队列循环数："                 + std::to_string(processer->GetStallLoopCount()) +
-                '\n';
+        info += "\tPID：" + std::to_string(processer->GetId()) + "\t本地队列任务数："
+                + std::to_string(processer->GetExecutableNum()) + "\t上下文切换次数："
+                + std::to_string(processer->GetContextSwapTimes()) + "\t挂起时间(ms)："
+                + std::to_string(processer->GetSuspendCostTime() / 1000) + "\tSteal数量(偷/被偷)："
+                + std::to_string(processer->GetStealSuccTimes()) + "/" + std::to_string(processer->GetStealCount())
+                + "\t空队列循环数：" + std::to_string(processer->GetStallLoopCount()) + '\n';
     }
 }
 
 void Profiler::DumpStderr()
 {
     auto elapsed_ms = (bbt::core::clock::now<>() - m_scheduler_begin_timestamp).count();
-    fprintf(stderr,
-        "[PROFILE] t=%llums event_reg=%llu event_trig=%llu steal=%llu co_done=%llu\n",
-        (unsigned long long)elapsed_ms,
-        (unsigned long long)m_regist_event_count.load(),
-        (unsigned long long)m_trigger_event_count.load(),
-        (unsigned long long)m_total_steal_count.load(),
-        (unsigned long long)m_total_done_co_count.load());
+    fprintf(stderr, "[PROFILE] t=%llums event_reg=%llu event_trig=%llu steal=%llu co_done=%llu\n",
+            (unsigned long long)elapsed_ms, (unsigned long long)m_regist_event_count.load(),
+            (unsigned long long)m_trigger_event_count.load(), (unsigned long long)m_total_steal_count.load(),
+            (unsigned long long)m_total_done_co_count.load());
 
     std::unique_lock<std::mutex> _(m_processer_map_mutex);
     for (auto&& proc : m_processer_map) {
-        fprintf(stderr,
-            "  PID=%llu q=%zu swap=%llu steal=%llu/%llu suspend_ms=%llu stall=%llu\n",
-            (unsigned long long)proc.second->GetId(),
-            proc.second->GetExecutableNum(),
-            (unsigned long long)proc.second->GetContextSwapTimes(),
-            (unsigned long long)proc.second->GetStealSuccTimes(),
-            (unsigned long long)proc.second->GetStealCount(),
-            (unsigned long long)(proc.second->GetSuspendCostTime() / 1000),
-            (unsigned long long)proc.second->GetStallLoopCount());
+        fprintf(stderr, "  PID=%llu q=%zu swap=%llu steal=%llu/%llu suspend_ms=%llu stall=%llu\n",
+                (unsigned long long)proc.second->GetId(), proc.second->GetExecutableNum(),
+                (unsigned long long)proc.second->GetContextSwapTimes(),
+                (unsigned long long)proc.second->GetStealSuccTimes(), (unsigned long long)proc.second->GetStealCount(),
+                (unsigned long long)(proc.second->GetSuspendCostTime() / 1000),
+                (unsigned long long)proc.second->GetStallLoopCount());
     }
 }
 
-} // namespace bbt::coroutine::detail
+}

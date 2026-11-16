@@ -6,31 +6,30 @@
 
 #include <bbt/coroutine/coroutine.hpp>
 
-/* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
- * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。 */
-namespace
-{
+/**
+ * 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
+ * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。
+ */
+namespace {
 void EnsureRuntime()
 {
     static std::once_flag once;
-    std::call_once(once, [](){
-        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
-    });
+    std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
 
-/* 有界完成观察：在预算内轮询谓词，返回是否成立。
+/**
+ * 有界完成观察：在预算内轮询谓词，返回是否成立。
  *
  * 为什么需要：CoPool 任务体里的 done.Down() 只表示任务执行到了该点，
  * 而异常计数/回调发生在 _WorkCo 捕获异常、调用 _HandleWorkException 之后
  * （见 CoPool::_WorkCo）。因此 done.Wait() 返回后立即读
  * GetUnhandledExceptionCount 可能少算最后一个任务——这是测试观测竞态，
  * 不是实现缺陷。用有界轮询等待真实后处理完成，而不是固定 sleep 刷绿，
- * 超时即失败，断言强度不降低。 */
-template <typename Pred>
-bool WaitUntil(Pred pred, int budget_ms = 2000)
+ * 超时即失败，断言强度不降低。
+ */
+template <typename Pred> bool WaitUntil(Pred pred, int budget_ms = 2000)
 {
-    const auto deadline = std::chrono::steady_clock::now()
-        + std::chrono::milliseconds(budget_ms);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(budget_ms);
     do {
         if (pred())
             return true;
@@ -58,7 +57,7 @@ BOOST_AUTO_TEST_CASE(t_test_copool)
     std::atomic_int count = 0;
 
     for (int i = 0; i < max_co; ++i) {
-        pool->Submit([&](){
+        pool->Submit([&]() {
             BOOST_ASSERT(GetLocalCoroutineId() > 0);
             count++;
             l.Down();
@@ -70,33 +69,51 @@ BOOST_AUTO_TEST_CASE(t_test_copool)
     BOOST_CHECK_EQUAL(count, max_co);
 }
 
-// =============== P1: Release 行为测试 ===============
+/**
+ * =============== P1: Release 行为测试 ===============
+ */
 
-// Release 后池停止接受新任务（协程内调用）
+/**
+ * Release 后池停止接受新任务（协程内调用）
+ */
 BOOST_AUTO_TEST_CASE(t_release_stops_pool)
 {
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco [&](){
+    bbtco[&]()
+    {
         auto pool = bbtco_make_copool(10);
 
-        // 提交一些任务并等待完成
+        /**
+         * 提交一些任务并等待完成
+         */
         std::atomic_int count{0};
         bbt::core::thread::CountDownLatch done{10};
         for (int i = 0; i < 10; ++i) {
-            pool->Submit([&](){ count++; done.Down(); });
+            pool->Submit([&]() {
+                count++;
+                done.Down();
+            });
         }
         done.Wait();
         BOOST_TEST(count == 10);
 
-        // Release 停止池
+        /**
+         * Release 停止池
+         */
         pool->Release();
 
-        // Release 后 Submit 返回 -1（池已停止，拒绝入队）
+        /**
+         * Release 后 Submit 返回 -1（池已停止，拒绝入队）
+         */
         count = 0;
-        BOOST_TEST(pool->Submit([&](){ count++; }) == -1);
+        BOOST_TEST(pool->Submit([&]() { count++; }) == -1);
         bbtco_sleep(50);
-        BOOST_TEST(count == 0); // 池已停止，任务不会执行
+
+        /**
+         * 池已停止，任务不会执行
+         */
+        BOOST_TEST(count == 0);
 
         l.Down();
     };
@@ -104,15 +121,21 @@ BOOST_AUTO_TEST_CASE(t_release_stops_pool)
     l.Wait();
 }
 
-// Release 后重复 Release 安全
+/**
+ * Release 后重复 Release 安全
+ */
 BOOST_AUTO_TEST_CASE(t_double_release_safe)
 {
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco [&](){
+    bbtco[&]()
+    {
         auto pool = bbtco_make_copool(10);
         pool->Release();
-        // 第二次不应崩溃
+
+        /**
+         * 第二次不应崩溃
+         */
         pool->Release();
         BOOST_TEST(true);
         l.Down();
@@ -121,12 +144,15 @@ BOOST_AUTO_TEST_CASE(t_double_release_safe)
     l.Wait();
 }
 
-// 空池 Release 安全
+/**
+ * 空池 Release 安全
+ */
 BOOST_AUTO_TEST_CASE(t_release_empty_pool)
 {
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco [&](){
+    bbtco[&]()
+    {
         auto pool = bbtco_make_copool(10);
         pool->Release();
         BOOST_TEST(true);
@@ -136,12 +162,15 @@ BOOST_AUTO_TEST_CASE(t_release_empty_pool)
     l.Wait();
 }
 
-// 多个池独立 Release
+/**
+ * 多个池独立 Release
+ */
 BOOST_AUTO_TEST_CASE(t_multiple_pools_release)
 {
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco [&](){
+    bbtco[&]()
+    {
         std::atomic_int count1{0};
         std::atomic_int count2{0};
         bbt::core::thread::CountDownLatch done1{100};
@@ -151,22 +180,35 @@ BOOST_AUTO_TEST_CASE(t_multiple_pools_release)
         auto pool2 = bbtco_make_copool(20);
 
         for (int i = 0; i < 100; ++i) {
-            pool1->Submit([&](){ count1++; done1.Down(); });
-            pool2->Submit([&](){ count2++; done2.Down(); });
+            pool1->Submit([&]() {
+                count1++;
+                done1.Down();
+            });
+            pool2->Submit([&]() {
+                count2++;
+                done2.Down();
+            });
         }
 
         done1.Wait();
         done2.Wait();
 
-        // 释放 pool1
+        /**
+         * 释放 pool1
+         */
         pool1->Release();
         BOOST_TEST(count1 == 100);
 
-        // pool2 仍可用
+        /**
+         * pool2 仍可用
+         */
         std::atomic_int count2b{0};
         bbt::core::thread::CountDownLatch extra{50};
         for (int i = 0; i < 50; ++i)
-            pool2->Submit([&](){ count2b++; extra.Down(); });
+            pool2->Submit([&]() {
+                count2b++;
+                extra.Down();
+            });
         extra.Wait();
         BOOST_TEST(count2b == 50);
 
@@ -177,19 +219,25 @@ BOOST_AUTO_TEST_CASE(t_multiple_pools_release)
     l.Wait();
 }
 
-// Submit + Release 大量任务压力测试
+/**
+ * Submit + Release 大量任务压力测试
+ */
 BOOST_AUTO_TEST_CASE(t_stress_submit_release)
 {
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco [&](){
+    bbtco[&]()
+    {
         for (int r = 0; r < 10; ++r) {
             auto pool = bbtco_make_copool(20);
             std::atomic_int count{0};
             bbt::core::thread::CountDownLatch done{500};
 
             for (int i = 0; i < 500; ++i)
-                pool->Submit([&](){ count++; done.Down(); });
+                pool->Submit([&]() {
+                    count++;
+                    done.Down();
+                });
 
             done.Wait();
             BOOST_TEST(count == 500);
@@ -202,19 +250,32 @@ BOOST_AUTO_TEST_CASE(t_stress_submit_release)
     l.Wait();
 }
 
-// =============== 协程异常隔离测试 ===============
+/**
+ * =============== 协程异常隔离测试 ===============
+ */
 
-// 持续提交抛异常任务 + 正常任务交错，池持续工作、正常任务全部完成
+/**
+ * 持续提交抛异常任务 + 正常任务交错，池持续工作、正常任务全部完成
+ */
 BOOST_AUTO_TEST_CASE(t_throwing_tasks_pool_alive)
 {
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco [&](){
+    bbtco[&]()
+    {
         auto pool = bbtco_make_copool(8);
-        const int n_mix = 200;  // 抛异常与正常任务各 100，交错提交
+
+        /**
+         * 抛异常与正常任务各 100，交错提交
+         */
+        const int n_mix = 200;
         std::atomic_int ok_count{0};
         std::atomic_int throw_count{0};
-        bbt::core::thread::CountDownLatch done{n_mix / 2};  // 仅正常任务 Down
+
+        /**
+         * 仅正常任务 Down
+         */
+        bbt::core::thread::CountDownLatch done{n_mix / 2};
 
         for (int i = 0; i < n_mix; ++i) {
             if (i % 2 == 0) {
@@ -233,24 +294,28 @@ BOOST_AUTO_TEST_CASE(t_throwing_tasks_pool_alive)
         done.Wait();
         BOOST_TEST(ok_count == n_mix / 2);
 
-        // 异常被隔离后池仍可继续接收新任务
+        /**
+         * 异常被隔离后池仍可继续接收新任务
+         */
         std::atomic_int extra{0};
         bbt::core::thread::CountDownLatch extra_done{10};
         for (int i = 0; i < 10; ++i)
-            pool->Submit([&](){ extra++; extra_done.Down(); });
+            pool->Submit([&]() {
+                extra++;
+                extra_done.Down();
+            });
         extra_done.Wait();
         BOOST_TEST(extra == 10);
 
-        // done 只等到正常任务 Down；分别观察任务执行与异常后处理，
-        // 不把库内 relaxed 异常计数当作 throw_count 的发布屏障。
-        const bool all_thrown = WaitUntil([&](){
-            return throw_count.load() == n_mix / 2;
-        });
+        /**
+         * done 只等到正常任务 Down；分别观察任务执行与异常后处理，
+         * 不把库内 relaxed 异常计数当作 throw_count 的发布屏障。
+         */
+        const bool all_thrown = WaitUntil([&]() { return throw_count.load() == n_mix / 2; });
         BOOST_TEST(all_thrown);
         BOOST_TEST(throw_count == n_mix / 2);
-        const bool all_handled = WaitUntil([&](){
-            return pool->GetUnhandledExceptionCount() == (uint64_t)(n_mix / 2);
-        });
+        const bool all_handled =
+            WaitUntil([&]() { return pool->GetUnhandledExceptionCount() == (uint64_t)(n_mix / 2); });
         BOOST_TEST(all_handled);
         BOOST_TEST(pool->GetUnhandledExceptionCount() == (uint64_t)(n_mix / 2));
 
@@ -261,12 +326,15 @@ BOOST_AUTO_TEST_CASE(t_throwing_tasks_pool_alive)
     l.Wait();
 }
 
-// "忽略"策略默认计数观测
+/**
+ * "忽略"策略默认计数观测
+ */
 BOOST_AUTO_TEST_CASE(t_exception_ignore_count)
 {
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco [&](){
+    bbtco[&]()
+    {
         auto pool = bbtco_make_copool(4);
         const int n = 25;
         bbt::core::thread::CountDownLatch done{n};
@@ -274,16 +342,21 @@ BOOST_AUTO_TEST_CASE(t_exception_ignore_count)
         for (int i = 0; i < n; ++i) {
             pool->Submit([&]() {
                 done.Down();
-                throw 42;  // 非 std 异常，catch(...) 需同样接住
+
+                /**
+                 * 非 std 异常，catch(...) 需同样接住
+                 */
+                throw 42;
             });
         }
 
         done.Wait();
-        // 计数在 worker 捕获异常后才递增（_WorkCo -> _HandleWorkException），
-        // 有界等待最后一次后处理，避免把"排队未执行"误判为完成。
-        const bool all_handled = WaitUntil([&](){
-            return pool->GetUnhandledExceptionCount() == (uint64_t)n;
-        });
+
+        /**
+         * 计数在 worker 捕获异常后才递增（_WorkCo -> _HandleWorkException），
+         * 有界等待最后一次后处理，避免把"排队未执行"误判为完成。
+         */
+        const bool all_handled = WaitUntil([&]() { return pool->GetUnhandledExceptionCount() == (uint64_t)n; });
         BOOST_TEST(all_handled);
         BOOST_TEST(pool->GetUnhandledExceptionCount() == (uint64_t)n);
 
@@ -294,12 +367,15 @@ BOOST_AUTO_TEST_CASE(t_exception_ignore_count)
     l.Wait();
 }
 
-// 回调策略：异常交付回调
+/**
+ * 回调策略：异常交付回调
+ */
 BOOST_AUTO_TEST_CASE(t_exception_callback)
 {
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco [&](){
+    bbtco[&]()
+    {
         auto pool = bbtco_make_copool(4);
         std::atomic_int cb_calls{0};
         std::atomic_bool got_runtime_error{false};
@@ -312,7 +388,10 @@ BOOST_AUTO_TEST_CASE(t_exception_callback)
                 got_runtime_error = true;
             } catch (...) {
             }
-            // 先完成结果写入，再发布完成计数，观察者不可读到半份回调结果。
+
+            /**
+             * 先完成结果写入，再发布完成计数，观察者不可读到半份回调结果。
+             */
             cb_calls++;
         });
 
@@ -322,28 +401,35 @@ BOOST_AUTO_TEST_CASE(t_exception_callback)
         });
 
         done.Wait();
-        // 回调在 worker 捕获异常后触发，晚于任务体 Down；等待回调真实发生，
-        // 不用固定 sleep 掩盖"回调未执行"。
-        const bool cb_done = WaitUntil([&](){ return cb_calls.load() == 1; });
+
+        /**
+         * 回调在 worker 捕获异常后触发，晚于任务体 Down；等待回调真实发生，
+         * 不用固定 sleep 掩盖"回调未执行"。
+         */
+        const bool cb_done = WaitUntil([&]() { return cb_calls.load() == 1; });
         BOOST_TEST(cb_done);
         BOOST_TEST(got_runtime_error.load() == true);
-        // 走回调路径的不计入 ignore 计数
+
+        /**
+         * 走回调路径的不计入 ignore 计数
+         */
         BOOST_TEST(pool->GetUnhandledExceptionCount() == 0);
 
-        // 回调抛异常：隔离（仅计数），池不崩溃
-        pool->SetExceptionCallback([&](std::exception_ptr) {
-            throw std::runtime_error("callback itself throws");
-        });
+        /**
+         * 回调抛异常：隔离（仅计数），池不崩溃
+         */
+        pool->SetExceptionCallback([&](std::exception_ptr) { throw std::runtime_error("callback itself throws"); });
         bbt::core::thread::CountDownLatch done2{1};
         pool->Submit([&]() {
             done2.Down();
             throw std::runtime_error("x");
         });
         done2.Wait();
-        // 回调自身抛出后由 _HandleWorkException 计数，同样晚于 Down
-        const bool isolated = WaitUntil([&](){
-            return pool->GetUnhandledExceptionCount() == 1;
-        });
+
+        /**
+         * 回调自身抛出后由 _HandleWorkException 计数，同样晚于 Down
+         */
+        const bool isolated = WaitUntil([&]() { return pool->GetUnhandledExceptionCount() == 1; });
         BOOST_TEST(isolated);
         BOOST_TEST(pool->GetUnhandledExceptionCount() == 1);
 
@@ -354,25 +440,30 @@ BOOST_AUTO_TEST_CASE(t_exception_callback)
     l.Wait();
 }
 
-// future 传递策略：SubmitWithFuture 交付异常与正常完成
+/**
+ * future 传递策略：SubmitWithFuture 交付异常与正常完成
+ */
 BOOST_AUTO_TEST_CASE(t_submit_with_future)
 {
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco [&](){
+    bbtco[&]()
+    {
         auto pool = bbtco_make_copool(4);
 
-        // 正常任务：future.get() 正常返回
+        /**
+         * 正常任务：future.get() 正常返回
+         */
         std::atomic_int ok{0};
-        auto f_ok = pool->SubmitWithFuture([&](){ ok++; });
+        auto f_ok = pool->SubmitWithFuture([&]() { ok++; });
         BOOST_TEST(f_ok.valid());
         f_ok.get();
         BOOST_TEST(ok == 1);
 
-        // 异常任务：future.get() 抛出任务异常
-        auto f_err = pool->SubmitWithFuture([]() {
-            throw std::logic_error("future-err");
-        });
+        /**
+         * 异常任务：future.get() 抛出任务异常
+         */
+        auto f_err = pool->SubmitWithFuture([]() { throw std::logic_error("future-err"); });
         BOOST_TEST(f_err.valid());
         bool caught = false;
         try {
@@ -383,7 +474,9 @@ BOOST_AUTO_TEST_CASE(t_submit_with_future)
         }
         BOOST_TEST(caught == true);
 
-        // future 路径不占用池级 ignore 计数
+        /**
+         * future 路径不占用池级 ignore 计数
+         */
         BOOST_TEST(pool->GetUnhandledExceptionCount() == 0);
 
         pool->Release();
@@ -393,19 +486,25 @@ BOOST_AUTO_TEST_CASE(t_submit_with_future)
     l.Wait();
 }
 
-// Release 异常路径：抛异常任务后 Release 正常返回（不挂起）
+/**
+ * Release 异常路径：抛异常任务后 Release 正常返回（不挂起）
+ */
 BOOST_AUTO_TEST_CASE(t_release_after_throwing)
 {
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco [&](){
+    bbtco[&]()
+    {
         for (int round = 0; round < 5; ++round) {
             auto pool = bbtco_make_copool(4);
             for (int i = 0; i < 20; ++i)
                 pool->Submit([]() { throw std::runtime_error("x"); });
 
             bbtco_sleep(20);
-            // 修复前：worker 协程异常逃逸终结 → m_latch 永不 Down → 挂起
+
+            /**
+             * 修复前：worker 协程异常逃逸终结 → m_latch 永不 Down → 挂起
+             */
             pool->Release();
             BOOST_TEST(true);
         }
@@ -415,21 +514,31 @@ BOOST_AUTO_TEST_CASE(t_release_after_throwing)
     l.Wait();
 }
 
-// Release 排空语义：Release 取消式停机，队列滞留任务不得让 future 永挂——
-// Release 必须 drain（delete Work → promise 释放 → future 以 broken_promise 兑现）。
-// 修复前 Release 不 drain，滞留 future 永远无效（RED）。
+/**
+ * Release 排空语义：Release 取消式停机，队列滞留任务不得让 future 永挂——
+ * Release 必须 drain（delete Work → promise 释放 → future 以 broken_promise 兑现）。
+ * 修复前 Release 不 drain，滞留 future 永远无效（RED）。
+ */
 BOOST_AUTO_TEST_CASE(t_release_drains_pending_futures)
 {
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco [&](){
+    bbtco[&]()
+    {
         auto pool = bbtco_make_copool(1);
-        // 唯一 worker 被占住，后续任务只能滞留在队列
-        pool->Submit([&](){ bbtco_sleep(200); });
+
+        /**
+         * 唯一 worker 被占住，后续任务只能滞留在队列
+         */
+        pool->Submit([&]() { bbtco_sleep(200); });
         std::vector<std::future<void>> fs;
         for (int i = 0; i < 3; ++i)
-            fs.push_back(pool->SubmitWithFuture([&](){ BOOST_FAIL("drained task must not run"); }));
-        bbtco_sleep(20); // 确保 3 个任务已入队、worker 已占用
+            fs.push_back(pool->SubmitWithFuture([&]() { BOOST_FAIL("drained task must not run"); }));
+
+        /**
+         * 确保 3 个任务已入队、worker 已占用
+         */
+        bbtco_sleep(20);
 
         pool->Release();
 
@@ -437,11 +546,12 @@ BOOST_AUTO_TEST_CASE(t_release_drains_pending_futures)
             const bool ready = (f.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
             BOOST_TEST(ready);
             bool broken = false;
-            try { f.get(); }
-            catch (const std::future_error& e) {
+            try {
+                f.get();
+            } catch (const std::future_error& e) {
                 broken = (e.code() == std::make_error_code(std::future_errc::broken_promise));
+            } catch (...) {
             }
-            catch (...) {}
             BOOST_TEST(broken);
         }
         l.Down();
@@ -450,8 +560,6 @@ BOOST_AUTO_TEST_CASE(t_release_drains_pending_futures)
     l.Wait();
 }
 
-BOOST_AUTO_TEST_CASE(t_end)
-{
-}
+BOOST_AUTO_TEST_CASE(t_end) {}
 
 BOOST_AUTO_TEST_SUITE_END()

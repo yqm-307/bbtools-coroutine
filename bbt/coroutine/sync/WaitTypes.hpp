@@ -1,8 +1,11 @@
+/**
+ * @file WaitTypes.hpp
+ * @brief 等待选项与结果类型（Deadline、WaitStatus、CombinedWaitStatus）。
+ */
 #pragma once
 #include <chrono>
 
-namespace bbt::coroutine
-{
+namespace bbt::coroutine {
 
 /**
  * @brief 等待截止时间：单调时钟（steady_clock）。
@@ -20,14 +23,31 @@ using Deadline = std::chrono::steady_clock::time_point;
  * 取消只来自协程级 RequestCancel；运行时不设业务取消令牌，业务取消由
  * 调用方经带载荷的 Notify 表达，再由上层把 Completed 解释为业务终态。
  */
-enum class WaitStatus
-{
-    Completed,          ///< 信号已完成（带载荷 Notify 或纯 Notify 到达）
-    TimedOut,           ///< 本次等待到达 deadline
-    Cancelled,          ///< 当前协程协作取消终止了等待
-    InvalidContext,     ///< 非协程上下文调用 Wait
-    AlreadyWaiting,     ///< 已有其它等待者占用唯一等待位
-    RuntimeUnavailable, ///< 事件建立/登记失败（等待基础设施不可用）
+enum class WaitStatus {
+    /**
+     * 信号已完成（带载荷 Notify 或纯 Notify 到达）
+     */
+    Completed,
+    /**
+     * 本次等待到达 deadline
+     */
+    TimedOut,
+    /**
+     * 当前协程协作取消终止了等待
+     */
+    Cancelled,
+    /**
+     * 非协程上下文调用 Wait
+     */
+    InvalidContext,
+    /**
+     * 已有其它等待者占用唯一等待位
+     */
+    AlreadyWaiting,
+    /**
+     * 事件建立/登记失败（等待基础设施不可用）
+     */
+    RuntimeUnavailable,
 };
 
 /**
@@ -36,30 +56,54 @@ enum class WaitStatus
  * 不携带取消令牌：等待中的取消由协程级 RequestCancel 产生
  * WaitStatus::Cancelled，业务级取消改用带载荷 Notify。
  */
-struct WaitOptions
-{
-    Deadline            deadline = Deadline::max();
+struct WaitOptions {
+    Deadline deadline = Deadline::max();
 };
 
-} // namespace bbt::coroutine
+}
 
-namespace bbt::coroutine::sync
-{
+namespace bbt::coroutine::sync {
 
 /**
  * @brief 组合等待结果：首胜原因可区分（同窄接口 WaitStatus 的扩展口径）
  */
-enum class CombinedWaitStatus
-{
-    FdReadable,         ///< fd 可读就绪首胜
-    FdWriteable,        ///< fd 可写就绪首胜
-    Completed,          ///< Notify() 到达
-    TimedOut,           ///< deadline 到点（或进入时已过期）
-    Cancelled,          ///< 协程级 RequestCancel 取消
-    AlreadyWaiting,     ///< 已有其它等待者占用唯一等待位
-    InvalidContext,     ///< 非协程上下文
-    InvalidOptions,     ///< 申请 fd interest 但 fd < 0
-    RuntimeUnavailable, ///< 事件创建/登记失败（未真正挂起）
+enum class CombinedWaitStatus {
+    /**
+     * fd 可读就绪首胜
+     */
+    FdReadable,
+    /**
+     * fd 可写就绪首胜
+     */
+    FdWriteable,
+    /**
+     * Notify() 到达
+     */
+    Completed,
+    /**
+     * deadline 到点（或进入时已过期）
+     */
+    TimedOut,
+    /**
+     * 协程级 RequestCancel 取消
+     */
+    Cancelled,
+    /**
+     * 已有其它等待者占用唯一等待位
+     */
+    AlreadyWaiting,
+    /**
+     * 非协程上下文
+     */
+    InvalidContext,
+    /**
+     * 申请 fd interest 但 fd < 0
+     */
+    InvalidOptions,
+    /**
+     * 事件创建/登记失败（未真正挂起）
+     */
+    RuntimeUnavailable,
 };
 
 /**
@@ -70,12 +114,22 @@ enum class CombinedWaitStatus
  * 单调时钟，默认 max() 表示不设截止。不携带取消令牌：等待中的取消由
  * 协程级 RequestCancel 产生，业务级取消改用带载荷 Notify。
  */
-struct CombinedWaitOptions
-{
-    bool                want_readable{false};   ///< 申请可读 interest
-    bool                want_writeable{false};  ///< 申请可写 interest
-    int                 fd{-1};                 ///< 等待的描述符
-    Deadline            deadline = Deadline::max();
+struct CombinedWaitOptions {
+    /**
+     * 申请可读 interest
+     */
+    bool want_readable{false};
+
+    /**
+     * 申请可写 interest
+     */
+    bool want_writeable{false};
+
+    /**
+     * 等待的描述符
+     */
+    int fd{-1};
+    Deadline deadline = Deadline::max();
 };
 
-} // namespace bbt::coroutine::sync
+}

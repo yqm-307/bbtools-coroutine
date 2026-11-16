@@ -25,6 +25,7 @@
 | [docs/guides/stack-budget.md](docs/guides/stack-budget.md) | 协程入口栈预算工具与可选运行诊断 |
 | [docs/guides/real-client-acceptance.md](docs/guides/real-client-acceptance.md) | 真实客户端验收场景说明（发布 Gate） |
 | [docs/guides/ci.md](docs/guides/ci.md) | CI 流水线使用指南（唯一 CI 落点） |
+| [bbtools-pub README](https://github.com/yqm-307/bbtools-pub/blob/main/README.md) | 跨仓设计、编码、Review 与用例设计规范入口（固定 submodule） |
 | [.github/skills/bbtools-coroutine/SKILL.md](.github/skills/bbtools-coroutine/SKILL.md) | Agent 写调用代码的入口 |
 
 ## 安装
@@ -39,10 +40,17 @@
 ```shell
 git clone https://github.com/yqm-307/bbtools-coroutine.git
 cd bbtools-coroutine
+git submodule update --init --recursive
+./scripts/install/install.sh    # 构建到 build-install 并安装到 ~/.local，无需 root
+```
+
+前缀默认 `~/.local`，`BBT_INSTALL_PREFIX` 可覆盖；并行度 `BBT_JOBS`（默认 2）、构建目录 `BBT_BUILD_DIR` 同理。`scripts/install/uninstall.sh` 按同一前缀卸载。
+
+需要 ccache 或自定义并行度的完整构建仍可手动执行：
+
+```shell
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-JOBS=$(( $(nproc) / 4 )); JOBS=$(( JOBS < 2 ? 2 : JOBS ))
-cmake --build build --parallel "$JOBS"
-cd scripts/install && sudo ./install.sh    # 头文件装到 /usr/local/include，库装到 /usr/local/lib
+flock /tmp/bbt-build.lock cmake --build build --parallel 2
 ```
 
 CMake 常用开关（布尔项默认全部 `OFF`，完整选项以 `CMakeLists.txt` 为准）：
@@ -95,9 +103,8 @@ Chan、CoCond、CoMutex、CoPool、CoSelect、CoRWMutex、WaitFor、defer、Hook
 
 ```shell
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DNEED_TEST=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-JOBS=$(( $(nproc) / 4 )); JOBS=$(( JOBS < 2 ? 2 : JOBS ))
-cmake --build build --parallel "$JOBS"
-ctest --test-dir build --output-on-failure        # 套件数以 `ctest -N` 输出为准
+flock /tmp/bbt-build.lock cmake --build build --parallel 2
+bash scripts/ci/run_test_profile.sh --build-dir build --profile smoke   # 全量 smoke；套件数以 `ctest -N` 为准
 ```
 
 冒烟、长时 soak、真实客户端验收与本地验证阶梯见[开发与发布流程](docs/guides/development.md)。

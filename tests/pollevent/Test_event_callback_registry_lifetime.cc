@@ -1,4 +1,5 @@
-/* runtime 与仍存活的 Event 可跨过 main 返回；回调注册表不能提前析构。
+/**
+ * runtime 与仍存活的 Event 可跨过 main 返回；回调注册表不能提前析构。
  * exit_live_event 留存一个活 Event，以捕获对象的析构退出码观察此边界。
  * normal_reclaim / cancel_reclaim 同时验证正常销毁与取消仍逐项回收回调。
  * 每种模式由 CTest 启动独立进程，退出哨兵用 _exit 避免递归静态析构。
@@ -15,23 +16,21 @@
 #define CHECK(x) do { if (!(x)) { \
     std::fprintf(stderr, "FAIL line=%d %s\n", __LINE__, #x); return 1; } } while (0)
 
-namespace
-{
+namespace {
 
 constexpr int kExitCodeStaticDtorHit = 42;
 
-struct Sentinel
-{
+struct Sentinel {
     ~Sentinel()
     {
         m_destructorCount.fetch_add(1, std::memory_order_acq_rel);
         if (m_mainReturned.load(std::memory_order_acquire))
             ::_exit(kExitCodeStaticDtorHit);
     }
-    static std::atomic<int>  m_destructorCount;
+    static std::atomic<int> m_destructorCount;
     static std::atomic<bool> m_mainReturned;
 };
-std::atomic<int>  Sentinel::m_destructorCount{0};
+std::atomic<int> Sentinel::m_destructorCount{0};
 std::atomic<bool> Sentinel::m_mainReturned{false};
 
 bbt::pollevent::detail::EventBase* GetEventBase()
@@ -50,10 +49,8 @@ int RunExitLiveEvent()
     int fds[2];
     CHECK(::pipe(fds) == 0);
 
-    auto* ev = new pe::Event(
-        base, fds[0],
-        static_cast<short>(pe::EventOpt::READABLE),
-        [sentinel = std::make_shared<Sentinel>()](int, short, pe::EventId) {});
+    auto* ev = new pe::Event(base, fds[0], static_cast<short>(pe::EventOpt::READABLE),
+                             [sentinel = std::make_shared<Sentinel>()](int, short, pe::EventId) {});
     (void)ev;
 
     CHECK(pe::Event::CallbackEntryCount() >= 1);
@@ -73,7 +70,7 @@ int RunNormalReclaim()
     CHECK(::pipe(fds) == 0);
 
     const auto cb_before = pe::Event::CallbackEntryCount();
-    const int  dtor_before = Sentinel::m_destructorCount.load();
+    const int dtor_before = Sentinel::m_destructorCount.load();
 
     std::weak_ptr<Sentinel> wp;
     {
@@ -81,8 +78,7 @@ int RunNormalReclaim()
         wp = sentinel;
         CHECK(sentinel.use_count() == 1);
         {
-            pe::Event ev(base, fds[0],
-                         static_cast<short>(pe::EventOpt::READABLE),
+            pe::Event ev(base, fds[0], static_cast<short>(pe::EventOpt::READABLE),
                          [sentinel](int, short, pe::EventId) {});
             CHECK(pe::Event::CallbackEntryCount() == cb_before + 1);
             CHECK(sentinel.use_count() == 2);
@@ -113,15 +109,14 @@ int RunCancelReclaim()
     CHECK(::pipe(fds) == 0);
 
     const auto cb_before = pe::Event::CallbackEntryCount();
-    const int  dtor_before = Sentinel::m_destructorCount.load();
+    const int dtor_before = Sentinel::m_destructorCount.load();
 
     std::weak_ptr<Sentinel> wp;
     {
         auto sentinel = std::make_shared<Sentinel>();
         wp = sentinel;
         {
-            pe::Event ev(base, fds[0],
-                         static_cast<short>(pe::EventOpt::READABLE),
+            pe::Event ev(base, fds[0], static_cast<short>(pe::EventOpt::READABLE),
                          [sentinel](int, short, pe::EventId) {});
             CHECK(pe::Event::CallbackEntryCount() == cb_before + 1);
 
@@ -142,7 +137,7 @@ int RunCancelReclaim()
     return 0;
 }
 
-} // namespace
+}
 
 int main(int argc, char** argv)
 {

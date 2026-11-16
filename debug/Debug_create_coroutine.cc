@@ -8,9 +8,7 @@ int main()
 {
     std::vector<Coroutine::Ptr> vec;
 
-    while (true)
-    {
-        vec.push_back(Coroutine::Create(1024, [](){}, true));    
+    while (true) {
+        vec.push_back(Coroutine::Create(1024, []() {}, true));
     }
-
 }

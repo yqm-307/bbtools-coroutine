@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-13",
+  "commit": "8a0ff85e5857d5702049a52dd0fe185b3a1197a4",
+  "base": "76741ea53009ce96c1bdb9cf22273349ba6c7a87",
+  "result": "pass",
+  "reviewer": "independent read-only review deleg_d322cdd6",
+  "summary": "Ship: README.md now links to the bbtools-pub README through a stable HTTPS URL. This fixes the CI docs-check failure caused by the CI checkout not initializing the submodule. The focused review found no P1/P2 issue and no unrelated change.",
+  "checks": [
+    {
+      "id": "llm-review",
+      "kind": "attested",
+      "status": "pass",
+      "summary": "Focused independent review returned ship with high confidence; the external link is skipped by check_docs.py and the fixed submodule contract remains unchanged.",
+      "evidence": {
+        "reviewer": "deleg_d322cdd6",
+        "scope": "Only staged README.md change in index tree 56d83b4ff17a56e4e49f261f2882d4488a402c7b; prior runtime candidate remains unchanged."
+      }
+    }
+  ]
+}

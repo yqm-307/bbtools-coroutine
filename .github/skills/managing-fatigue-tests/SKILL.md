@@ -11,8 +11,6 @@ Fatigue tests are long-running stress binaries for individual coroutine primitiv
 
 **Scope:** 本 skill 只覆盖 `fatigue_<name>` 的本地构建与监控路径，不自动纳入 CI。发布/CI 门禁的压测走 `unified_stress` 模块集合；需变更门禁覆盖时先按现行授权确认，入口见 `docs/guides/ci.md` §9。
 
-**Announce at start:** "I'm using the managing-fatigue-tests skill."
-
 ## When to Use
 
 - Creating a new fatigue test for a coroutine primitive
@@ -80,10 +78,9 @@ target_link_libraries(fatigue_<name> ${MY_LIBS})
 `./build.sh` 不开启 benchmark（且会继续执行 `scripts/install/install.sh`），不要用它构建 fatigue。显式 configure 一次，再按 target 增量构建：
 
 ```bash
-# From project root；JOBS 取 max(2, nproc/4)，同机多 agent 并行时不要全量并行
-JOBS=$(( $(nproc) / 4 )); JOBS=$(( JOBS < 2 ? 2 : JOBS ))
+# From project root；并发与排队按 AGENTS.md（固定 2，经 flock 队列）
 cmake -S . -B build -DNEED_BENCHMARK=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-cmake --build build --target fatigue_<name> --parallel "$JOBS"   # <name> 填实际模块名，如 comutex
+flock /tmp/bbt-build.lock cmake --build build --target fatigue_<name> --parallel 2   # <name> 填实际模块名，如 comutex
 ```
 
 Binaries output to: `build/bin/benchmarks/fatigue_<name>`
@@ -162,4 +159,4 @@ When all processes exit, a final `{"done": true}` message is sent.
 
 ## Shutdown
 
-Press `Ctrl+C` in the monitor terminal. All launched processes receive `SIGTERM` then `SIGKILL` (3s grace). Collected data auto-saves to `fatigue_results.csv` in the project root.
+Press `Ctrl+C` in the monitor terminal. All launched processes receive `SIGTERM` then `SIGKILL` (3s grace). Collected data auto-saves to `fatigue_results.csv` in the project root（已 gitignore，属运行证据，不入仓）.

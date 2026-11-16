@@ -15,7 +15,8 @@ void RunOnce()
     bbt::core::thread::CountDownLatch l{nco_num};
 
     for (int i = 0; i < nco_num; ++i) {
-        bbtco [&mutex, &a, &b, begin, &l]() {
+        bbtco[&mutex, &a, &b, begin, &l]()
+        {
             while ((bbt::core::clock::gettime_mono() - begin) < nsec) {
                 if (mutex->TryLock(1) == 0) {
                     Assert(a == b);
@@ -34,20 +35,36 @@ void RunOnce()
 void DeadLockAssert()
 {
     auto mutex = bbtco_make_comutex();
-    bbtco [&](){
+    bbtco[&]()
+    {
         mutex->Lock();
-        // mutex->Lock(); // assert fail
-        // mutex->TryLock(); // assert fail
-        // mutex->TryLock(1); // assert fail
+
+        /**
+         * mutex->Lock(); // assert fail
+         * mutex->TryLock(); // assert fail
+         * mutex->TryLock(1); // assert fail
+         */
 
         mutex->UnLock();
-        mutex->Lock();      // success
+
+        /**
+         * success
+         */
+        mutex->Lock();
 
         mutex->UnLock();
-        mutex->TryLock();   // success
+
+        /**
+         * success
+         */
+        mutex->TryLock();
 
         mutex->UnLock();
-        mutex->TryLock(1);  // success
+
+        /**
+         * success
+         */
+        mutex->TryLock(1);
     };
 
     sleep(1);
@@ -57,9 +74,10 @@ int main()
 {
     g_scheduler->Start();
 
-    // for (int i = 0; i < 100; ++i)
-    //     RunOnce();
+    /**
+     * for (int i = 0; i < 100; ++i)
+     *     RunOnce();
+     */
 
     DeadLockAssert();
-
 }

@@ -19,27 +19,30 @@
 
 #include <bbt/coroutine/coroutine.hpp>
 
-/* 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
- * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。 */
-namespace
-{
+/**
+ * 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
+ * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。
+ */
+namespace {
 void EnsureRuntime()
 {
     static std::once_flag once;
-    std::call_once(once, [](){
-        bbt::coroutine::detail::Scheduler::GetInstance()->Start();
-    });
+    std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
 }
 
 using namespace bbt::coroutine;
 
-/* =========================================================================
-   Scheduler — 协程调度器启停 & 注册协程任务
-   ========================================================================= */
+/**
+ * =========================================================================
+ * Scheduler — 协程调度器启停 & 注册协程任务
+ * =========================================================================
+ */
 BOOST_AUTO_TEST_SUITE(Smoke_Scheduler)
 
-/* 运行时只初始化一次：Start 成功后再调用抛 std::logic_error（没有 Stop/重启）。 */
+/**
+ * 运行时只初始化一次：Start 成功后再调用抛 std::logic_error（没有 Stop/重启）。
+ */
 BOOST_AUTO_TEST_CASE(smoke_scheduler_start_once_and_reject_repeat)
 {
     auto& sche = detail::Scheduler::GetInstance();
@@ -57,9 +60,7 @@ BOOST_AUTO_TEST_CASE(smoke_scheduler_regist_run_coroutine)
     EnsureRuntime();
 
     std::atomic_int counter{0};
-    g_scheduler->RegistCoroutineTask([&counter]() {
-        counter++;
-    });
+    g_scheduler->RegistCoroutineTask([&counter]() { counter++; });
 
     for (int i = 0; i < 300 && counter.load() == 0; ++i)
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -82,9 +83,11 @@ BOOST_AUTO_TEST_CASE(smoke_scheduler_regist_succ_out_param)
 
 BOOST_AUTO_TEST_SUITE_END()
 
-/* =========================================================================
-   Chan — 有缓冲 / 无缓冲通道基本读写
-   ========================================================================= */
+/**
+ * =========================================================================
+ * Chan — 有缓冲 / 无缓冲通道基本读写
+ * =========================================================================
+ */
 BOOST_AUTO_TEST_SUITE(Smoke_Chan)
 
 BOOST_AUTO_TEST_CASE(smoke_chan_buffered_write_read)
@@ -151,9 +154,11 @@ BOOST_AUTO_TEST_CASE(smoke_chan_close_empty)
 
 BOOST_AUTO_TEST_SUITE_END()
 
-/* =========================================================================
-   CoMutex — 协程互斥锁
-   ========================================================================= */
+/**
+ * =========================================================================
+ * CoMutex — 协程互斥锁
+ * =========================================================================
+ */
 BOOST_AUTO_TEST_SUITE(Smoke_CoMutex)
 
 BOOST_AUTO_TEST_CASE(smoke_comutex_lock_unlock)
@@ -189,7 +194,9 @@ BOOST_AUTO_TEST_CASE(smoke_comutex_trylock_immediate)
     auto mtx = sync::CoMutex::Create();
     std::atomic_bool trylock_ok{false};
 
-    // TryLock must be called from within a coroutine (has deadlock assertion)
+    /**
+     * TryLock must be called from within a coroutine (has deadlock assertion)
+     */
     sche->RegistCoroutineTask([&]() {
         int ret = mtx->TryLock();
         if (ret == 0) {
@@ -204,9 +211,11 @@ BOOST_AUTO_TEST_CASE(smoke_comutex_trylock_immediate)
 
 BOOST_AUTO_TEST_SUITE_END()
 
-/* =========================================================================
-   CoCond — 协程条件变量
-   ========================================================================= */
+/**
+ * =========================================================================
+ * CoCond — 协程条件变量
+ * =========================================================================
+ */
 BOOST_AUTO_TEST_SUITE(Smoke_CoCond)
 
 BOOST_AUTO_TEST_CASE(smoke_cocond_wait_notify_one)
@@ -233,9 +242,11 @@ BOOST_AUTO_TEST_CASE(smoke_cocond_wait_notify_one)
 
 BOOST_AUTO_TEST_SUITE_END()
 
-/* =========================================================================
-   CoRWMutex — 读写锁
-   ========================================================================= */
+/**
+ * =========================================================================
+ * CoRWMutex — 读写锁
+ * =========================================================================
+ */
 BOOST_AUTO_TEST_SUITE(Smoke_CoRWMutex)
 
 BOOST_AUTO_TEST_CASE(smoke_corwmutex_read_lock_unlock)
@@ -267,7 +278,11 @@ BOOST_AUTO_TEST_CASE(smoke_corwmutex_write_lock_unlock)
 {
     auto& sche = detail::Scheduler::GetInstance();
     EnsureRuntime();
-    std::this_thread::sleep_for(std::chrono::milliseconds(1)); // 确保 Processer 启动完毕
+
+    /**
+     * 确保 Processer 启动完毕
+     */
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
 
     auto rwmtx = sync::CoRWMutex::Create();
     std::atomic_int shared{0};
@@ -285,7 +300,9 @@ BOOST_AUTO_TEST_CASE(smoke_corwmutex_write_lock_unlock)
         done.set_value();
     });
 
-    // 等待协程执行完毕，最多 3 秒
+    /**
+     * 等待协程执行完毕，最多 3 秒
+     */
     BOOST_REQUIRE(fut.wait_for(std::chrono::seconds(3)) == std::future_status::ready);
 
     BOOST_CHECK_EQUAL(shared, 43);
@@ -293,9 +310,11 @@ BOOST_AUTO_TEST_CASE(smoke_corwmutex_write_lock_unlock)
 
 BOOST_AUTO_TEST_SUITE_END()
 
-/* =========================================================================
-   CoPool — 协程池
-   ========================================================================= */
+/**
+ * =========================================================================
+ * CoPool — 协程池
+ * =========================================================================
+ */
 BOOST_AUTO_TEST_SUITE(Smoke_CoPool)
 
 BOOST_AUTO_TEST_CASE(smoke_copool_submit_and_release)
@@ -305,13 +324,9 @@ BOOST_AUTO_TEST_CASE(smoke_copool_submit_and_release)
     auto pool = pool::CoPool::Create(2);
     std::atomic_int counter{0};
 
-    pool->Submit([&counter]() {
-        counter++;
-    });
+    pool->Submit([&counter]() { counter++; });
 
-    pool->Submit([&counter]() {
-        counter++;
-    });
+    pool->Submit([&counter]() { counter++; });
 
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
     pool->Release();
@@ -321,9 +336,11 @@ BOOST_AUTO_TEST_CASE(smoke_copool_submit_and_release)
 
 BOOST_AUTO_TEST_SUITE_END()
 
-/* =========================================================================
-   Hook — sleep 钩子
-   ========================================================================= */
+/**
+ * =========================================================================
+ * Hook — sleep 钩子
+ * =========================================================================
+ */
 BOOST_AUTO_TEST_SUITE(Smoke_Hook)
 
 BOOST_AUTO_TEST_CASE(smoke_hook_sleep)
@@ -334,7 +351,9 @@ BOOST_AUTO_TEST_CASE(smoke_hook_sleep)
     std::atomic_bool slept{false};
 
     sche->RegistCoroutineTask([&]() {
-        // bbtco_sleep uses the hook mechanism to yield instead of blocking the thread
+        /**
+         * bbtco_sleep uses the hook mechanism to yield instead of blocking the thread
+         */
         bbtco_sleep(10);
         slept = true;
     });
@@ -345,9 +364,11 @@ BOOST_AUTO_TEST_CASE(smoke_hook_sleep)
 
 BOOST_AUTO_TEST_SUITE_END()
 
-/* =========================================================================
-   Defer — 延迟执行
-   ========================================================================= */
+/**
+ * =========================================================================
+ * Defer — 延迟执行
+ * =========================================================================
+ */
 BOOST_AUTO_TEST_SUITE(Smoke_Defer)
 
 BOOST_AUTO_TEST_CASE(smoke_defer_execute)
@@ -358,10 +379,14 @@ BOOST_AUTO_TEST_CASE(smoke_defer_execute)
     std::atomic_bool defer_executed{false};
 
     sche->RegistCoroutineTask([&]() {
-        bbtco_defer {
+        bbtco_defer
+        {
             defer_executed = true;
         };
-        // defer fires when this coroutine exits
+
+        /**
+         * defer fires when this coroutine exits
+         */
     });
 
     std::this_thread::sleep_for(std::chrono::milliseconds(200));

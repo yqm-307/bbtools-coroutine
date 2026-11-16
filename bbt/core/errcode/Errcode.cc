@@ -1,39 +1,19 @@
+/**
+ * Errcode 的成员实现：只有字符串拷贝/移动和取值，没有共享状态，也不需要加锁。
+ */
 #include "Errcode.hpp"
 
-namespace bbt::core::errcode
-{
+namespace bbt::core::errcode {
 
+Errcode::Errcode() {}
 
-Errcode::Errcode()
-{
-}
+Errcode::Errcode(const Errcode& other) : m_err_type(other.m_err_type), m_err_msg(other.m_err_msg) {}
 
+Errcode::Errcode(Errcode&& other) : m_err_type(std::move(other.m_err_type)), m_err_msg(std::move(other.m_err_msg)) {}
 
-Errcode::Errcode(const Errcode& other):
-    m_err_type(other.m_err_type),
-    m_err_msg(other.m_err_msg)
-{
-}
+Errcode::Errcode(const std::string& msg, ErrType type) : m_err_type(type), m_err_msg(msg) {}
 
-
-Errcode::Errcode(Errcode&& other):
-    m_err_type(std::move(other.m_err_type)),
-    m_err_msg(std::move(other.m_err_msg))
-{
-}
-
-
-Errcode::Errcode(const std::string& msg, ErrType type):
-    m_err_type(type),
-    m_err_msg(msg)
-{
-}
-
-
-
-Errcode::~Errcode()
-{
-}
+Errcode::~Errcode() {}
 
 Errcode& Errcode::operator=(const Errcode& other)
 {
@@ -41,7 +21,6 @@ Errcode& Errcode::operator=(const Errcode& other)
     m_err_type = other.m_err_type;
     return *this;
 }
-
 
 Errcode& Errcode::operator=(Errcode&& other)
 {
@@ -65,6 +44,4 @@ ErrType Errcode::Type() const
     return m_err_type;
 }
 
-
-
-} // namespace bbt::core::errcode
+}

@@ -7,4 +7,7 @@ static __attribute__((noinline)) int LocalSame(int value)
     return bytes[value & 127];
 }
 
-extern "C" int RightEntry(int value) { return LocalSame(value) + 2; }
+extern "C" int RightEntry(int value)
+{
+    return LocalSame(value) + 2;
+}

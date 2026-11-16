@@ -34,15 +34,16 @@ using namespace bbt::coroutine::detail;
 
 BOOST_AUTO_TEST_SUITE(SchedulerStartModesTest)
 
-namespace
-{
+namespace {
 
 int RunInChild(const std::function<int()>& body)
 {
     const pid_t pid = ::fork();
     BOOST_REQUIRE(pid >= 0);
     if (pid == 0) {
-        /* 子进程：只做被测动作，_exit 跳过 boost/静态析构，退出码即结论 */
+        /**
+         * 子进程：只做被测动作，_exit 跳过 boost/静态析构，退出码即结论
+         */
         const int rc = body();
         ::_exit(rc);
     }
@@ -50,7 +51,11 @@ int RunInChild(const std::function<int()>& body)
     BOOST_REQUIRE_EQUAL(::waitpid(pid, &status, 0), pid);
     if (WIFEXITED(status))
         return WEXITSTATUS(status);
-    return -1;   // 被信号终止（崩溃/超时）时返回 -1
+
+    /**
+     * 被信号终止（崩溃/超时）时返回 -1
+     */
+    return -1;
 }
 
 bool WaitFlag(const std::atomic_bool& flag, int ms)
@@ -64,7 +69,9 @@ bool WaitFlag(const std::atomic_bool& flag, int ms)
     return true;
 }
 
-/* 退出标记：atexit 需要普通函数指针，故用文件级 fd + 无捕获函数。 */
+/**
+ * 退出标记：atexit 需要普通函数指针，故用文件级 fd + 无捕获函数。
+ */
 namespace {
 int g_exit_marker_fd = -1;
 void WriteExitMarker()
@@ -73,14 +80,16 @@ void WriteExitMarker()
     const ssize_t n = ::write(g_exit_marker_fd, &flag, 1);
     (void)n;
 }
-} // namespace
+}
 
-/* 子进程走**真实进程退出路径**：body() 返回后调用 std::exit（与从 main
+/**
+ * 子进程走**真实进程退出路径**：body() 返回后调用 std::exit（与从 main
  * 返回同一套 __run_exit_handlers：atexit 处理器 + 静态对象析构），而不是
  * _exit。子进程在退出处理阶段往管道写一个标记字节，父进程读到才认为
  * 「析构链确实执行过」——否则用例只是又验证了一次退出码 0（r1 已证 _exit
  * 让静态析构从未执行，是假验证）。
- * 返回：>=0 为子进程退出码；-1 异常终止（信号）；-2 退出处理器未执行。 */
+ * 返回：>=0 为子进程退出码；-1 异常终止（信号）；-2 退出处理器未执行。
+ */
 int RunInChildRealExit(const std::function<int()>& body)
 {
     int marker[2] = {-1, -1};
@@ -92,7 +101,11 @@ int RunInChildRealExit(const std::function<int()>& body)
         g_exit_marker_fd = marker[1];
         std::atexit(WriteExitMarker);
         const int rc = body();
-        std::exit(rc);          // 非 _exit：执行真实退出/静态析构链
+
+        /**
+         * 非 _exit：执行真实退出/静态析构链
+         */
+        std::exit(rc);
     }
     ::close(marker[1]);
     char got = 0;
@@ -100,16 +113,25 @@ int RunInChildRealExit(const std::function<int()>& body)
     ::close(marker[0]);
     int status = 0;
     BOOST_REQUIRE_EQUAL(::waitpid(pid, &status, 0), pid);
+
+    /**
+     * 退出处理器未执行：验收不成立
+     */
     if (nread != 1 || got != 'E')
-        return -2;               // 退出处理器未执行：验收不成立
+        return -2;
     if (WIFEXITED(status))
         return WEXITSTATUS(status);
-    return -1;                   // 被信号终止（崩溃/超时）
+
+    /**
+     * 被信号终止（崩溃/超时）
+     */
+    return -1;
 }
 
-/* 主线程侧有界等待一个协程结果（协程不在本线程，可以阻塞） */
-template<class T>
-bool WaitValue(const std::atomic<T>& value, const T& expected, int ms)
+/**
+ * 主线程侧有界等待一个协程结果（协程不在本线程，可以阻塞）
+ */
+template <class T> bool WaitValue(const std::atomic<T>& value, const T& expected, int ms)
 {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
     while (value.load(std::memory_order_acquire) != expected) {
@@ -120,9 +142,11 @@ bool WaitValue(const std::atomic<T>& value, const T& expected, int ms)
     return true;
 }
 
-} // namespace
+}
 
-/* ① THREAD：Start 立即返回且已发布初始化；注册的协程真实执行 */
+/**
+ * ① THREAD：Start 立即返回且已发布初始化；注册的协程真实执行
+ */
 BOOST_AUTO_TEST_CASE(t_thread_mode_independent_process)
 {
     const int rc = RunInChild([]() -> int {
@@ -131,16 +155,21 @@ BOOST_AUTO_TEST_CASE(t_thread_mode_independent_process)
         if (!g_scheduler->IsInitialized())
             return 10;
         std::atomic_bool ran{false};
-        bbtco [&]() { ran.store(true, std::memory_order_release); };
+        bbtco[&]()
+        {
+            ran.store(true, std::memory_order_release);
+        };
         return WaitFlag(ran, 3000) ? 0 : 11;
     });
     BOOST_CHECK_EQUAL(rc, 0);
 }
 
-/* ② NO_LOOP：Start 返回并发布初始化；纯 CPU 协程不需要 LoopOnce 也能跑
+/**
+ * ② NO_LOOP：Start 返回并发布初始化；纯 CPU 协程不需要 LoopOnce 也能跑
  *     （LoopOnce 只驱动事件循环）。反向判别：**到期定时器只有在 LoopOnce
  *     推进时才收敛**——deadline 早已过期但未驱动时等待者仍挂起，显式
- *     LoopOnce 后才得到 TimedOut，证明 NO_LOOP 下没有隐藏的驱动线程。 */
+ *     LoopOnce 后才得到 TimedOut，证明 NO_LOOP 下没有隐藏的驱动线程。
+ */
 BOOST_AUTO_TEST_CASE(t_noloop_mode_independent_process)
 {
     const int rc = RunInChild([]() -> int {
@@ -149,19 +178,26 @@ BOOST_AUTO_TEST_CASE(t_noloop_mode_independent_process)
         if (!g_scheduler->IsInitialized())
             return 20;
         std::atomic_bool ran{false};
-        bbtco [&]() { ran.store(true, std::memory_order_release); };
+        bbtco[&]()
+        {
+            ran.store(true, std::memory_order_release);
+        };
         if (!WaitFlag(ran, 3000))
             return 21;
 
         auto waiter = sync::CoWaiter::Create();
         std::atomic_int resolved{-1};
-        bbtco [&]() {
+        bbtco[&]()
+        {
             WaitOptions options;
             options.deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds{60};
             const auto st = waiter->Wait(options);
             resolved.store(st == WaitStatus::TimedOut ? 1 : 2);
         };
-        /* 远远超过 deadline 也不得收敛：没有 LoopOnce 就没有事件循环推进 */
+
+        /**
+         * 远远超过 deadline 也不得收敛：没有 LoopOnce 就没有事件循环推进
+         */
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
         if (resolved.load() != -1)
             return 22;
@@ -176,10 +212,12 @@ BOOST_AUTO_TEST_CASE(t_noloop_mode_independent_process)
     BOOST_CHECK_EQUAL(rc, 0);
 }
 
-/* ③ LOOP：Start 阻塞在当前线程驱动调度；观察线程确认初始化已发布、协程被
+/**
+ * ③ LOOP：Start 阻塞在当前线程驱动调度；观察线程确认初始化已发布、协程被
  *     执行，并确认**到期定时器由 LOOP 自己的事件循环推进**（本线程无法调用
  *     LoopOnce，Start 正阻塞在它的 _Run 里），随后 _exit 收尾——本用例只
- *     验证驱动，退出路径由 ⑤ 用真实 std::exit 覆盖。 */
+ *     验证驱动，退出路径由 ⑤ 用真实 std::exit 覆盖。
+ */
 BOOST_AUTO_TEST_CASE(t_loop_mode_independent_process)
 {
     const int rc = RunInChild([]() -> int {
@@ -187,39 +225,62 @@ BOOST_AUTO_TEST_CASE(t_loop_mode_independent_process)
         std::atomic_bool ran{false};
         std::atomic_int timer_state{-1};
         std::thread observer([&]() {
-            /* Start 阻塞在 LOOP 模式，注册只能在初始化发布之后由另一线程做 */
+            /**
+             * Start 阻塞在 LOOP 模式，注册只能在初始化发布之后由另一线程做
+             */
             const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
             while (!g_scheduler->IsInitialized()) {
                 if (std::chrono::steady_clock::now() > deadline)
                     ::_exit(30);
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
-            bbtco [&]() { ran.store(true, std::memory_order_release); };
+            bbtco[&]()
+            {
+                ran.store(true, std::memory_order_release);
+            };
+
+            /**
+             * 初始化已发布但调度未推进：LOOP 驱动失败
+             */
             if (!WaitFlag(ran, 3000))
-                ::_exit(31);   // 初始化已发布但调度未推进：LOOP 驱动失败
+                ::_exit(31);
 
             auto waiter = sync::CoWaiter::Create();
-            bbtco [&]() {
+            bbtco[&]()
+            {
                 WaitOptions options;
-                options.deadline =
-                    std::chrono::steady_clock::now() + std::chrono::milliseconds{80};
+                options.deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds{80};
                 const auto st = waiter->Wait(options);
                 timer_state.store(st == WaitStatus::TimedOut ? 1 : 2);
             };
+
+            /**
+             * LOOP 未驱动到期定时器
+             */
             if (!WaitValue(timer_state, 1, 3000))
-                ::_exit(33);   // LOOP 未驱动到期定时器
+                ::_exit(33);
             ::_exit(0);
         });
-        g_scheduler->Start(SCHE_START_OPT_SCHE_LOOP);   // 阻塞：由 observer 结束进程
+
+        /**
+         * 阻塞：由 observer 结束进程
+         */
+        g_scheduler->Start(SCHE_START_OPT_SCHE_LOOP);
         observer.detach();
-        return 32;                                       // 理论上不可达
+
+        /**
+         * 理论上不可达
+         */
+        return 32;
     });
     BOOST_CHECK_EQUAL(rc, 0);
 }
 
-/* ④ 真实并发 Start：所有线程在屏障后同时起跑，恰好一次成功，其余
+/**
+ * ④ 真实并发 Start：所有线程在屏障后同时起跑，恰好一次成功，其余
  *    std::logic_error；不重置配置/队列。无屏障时首个线程可能已完成 Start，
- *    用例退化为「各自调用结果」，证据强度不足（r1 已指出）。 */
+ *    用例退化为「各自调用结果」，证据强度不足（r1 已指出）。
+ */
 BOOST_AUTO_TEST_CASE(t_concurrent_start_one_wins)
 {
     const int rc = RunInChild([]() -> int {
@@ -233,8 +294,12 @@ BOOST_AUTO_TEST_CASE(t_concurrent_start_one_wins)
             for (int i = 0; i < kThreads; ++i) {
                 ts[i] = std::thread([&]() {
                     ready.fetch_add(1, std::memory_order_release);
+
+                    /**
+                     * 屏障：同时起跑
+                     */
                     while (!go.load(std::memory_order_acquire))
-                        std::this_thread::yield();       // 屏障：同时起跑
+                        std::this_thread::yield();
                     try {
                         g_scheduler->Start();
                         ok.fetch_add(1);
@@ -258,12 +323,14 @@ BOOST_AUTO_TEST_CASE(t_concurrent_start_one_wins)
     BOOST_CHECK_EQUAL(rc, 0);
 }
 
-/* ⑤ 正常进程退出：挂起中的协程 + 已启动运行时 + 已登记的 fd 等待项，
+/**
+ * ⑤ 正常进程退出：挂起中的协程 + 已启动运行时 + 已登记的 fd 等待项，
  *    走**真实进程退出路径**（子进程 std::exit：atexit 处理器 + 静态对象
  *    析构，不是 _exit）。父进程必须读到退出处理阶段的标记字节，证明析构链
  *    确实执行过（r1 已证 _exit 让该用例只验证了退出码）。
  *    worker 可达静态（含 CoPollEvent 的 fd→epoch/waiter 注册表）按进程寿命
- *    持有、不在静态退出期析构，故退出期不得崩溃/被信号终止。 */
+ *    持有、不在静态退出期析构，故退出期不得崩溃/被信号终止。
+ */
 BOOST_AUTO_TEST_CASE(t_process_exit_with_parked_coroutine)
 {
     const int rc = RunInChildRealExit([]() -> int {
@@ -272,32 +339,52 @@ BOOST_AUTO_TEST_CASE(t_process_exit_with_parked_coroutine)
         std::atomic_bool parked{false};
         std::atomic_bool fd_parked{false};
         auto waiter = sync::CoWaiter::Create();
-        bbtco [&]() {
+        bbtco[&]()
+        {
             parked.store(true, std::memory_order_release);
-            waiter->Wait();   // 无 deadline：进程寿命内一直挂起
+
+            /**
+             * 无 deadline：进程寿命内一直挂起
+             */
+            waiter->Wait();
         };
         if (!WaitFlag(parked, 3000))
             return 50;
 
-        /* 再挂一个 fd 等待项：让 CoPollEvent 的静态 fd 注册表在退出时非空，
-         * 覆盖 worker 可达静态的寿命链。 */
+        /**
+         * 再挂一个 fd 等待项：让 CoPollEvent 的静态 fd 注册表在退出时非空，
+         * 覆盖 worker 可达静态的寿命链。
+         */
         int sp[2] = {-1, -1};
         if (::socketpair(AF_UNIX, SOCK_STREAM, 0, sp) != 0)
             return 51;
-        bbtco [&]() {
+        bbtco[&]()
+        {
             char c = 0;
             fd_parked.store(true, std::memory_order_release);
-            ::read(sp[0], &c, 1);   // 无数据：park 在 fd 事件上
+
+            /**
+             * 无数据：park 在 fd 事件上
+             */
+            ::read(sp[0], &c, 1);
         };
         if (!WaitFlag(fd_parked, 3000))
             return 52;
         for (int i = 0; i < 3000 && CoPollEvent::FdWaiterCount(sp[0]) == 0; ++i)
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
+        /**
+         * fd 等待项未登记，寿命链覆盖不成立
+         */
         if (CoPollEvent::FdWaiterCount(sp[0]) == 0)
-            return 53;          // fd 等待项未登记，寿命链覆盖不成立
+            return 53;
 
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        return 0;   // → 子进程 std::exit(0)：真实退出/静态析构链
+
+        /**
+         * → 子进程 std::exit(0)：真实退出/静态析构链
+         */
+        return 0;
     });
     BOOST_CHECK_EQUAL(rc, 0);
 }

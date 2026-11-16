@@ -4,16 +4,15 @@
 using namespace bbt::coroutine;
 
 void dbg_regist_co()
-{    
-    for (int i = 0; i < 10000; ++i)
-    {
-        bbtco [=](){
+{
+    for (int i = 0; i < 10000; ++i) {
+        bbtco[=]()
+        {
             printf("当前协程id %lu 当前线程id %ld\n", GetLocalCoroutineId(), gettid());
         };
     }
 
     std::this_thread::sleep_for(bbt::core::clock::milliseconds(100));
-
 }
 
 void dbg_bbtco_yield()
@@ -22,7 +21,8 @@ void dbg_bbtco_yield()
 
     bbtco_yield;
 
-    bbtco [&](){
+    bbtco[&]()
+    {
         bbtco_yield;
         printf("1\n");
         bbtco_yield;

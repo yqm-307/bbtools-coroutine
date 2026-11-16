@@ -1,4 +1,4 @@
-# 测试约定见 docs/conventions.md §6：文件 Test_<行为>.cc，ctest 名
+# 测试约定见 docs/conventions.md §6 与 docs/guides/testing.md：文件 Test_<行为>.cc，ctest 名
 # <module>.<行为>（行为段小写下划线），label ∈ {smoke,unit,integration,live,perf}。
 # 本目录按模块分子目录：core/ coroutine/ pollevent/。
 #
@@ -131,6 +131,9 @@ bbt_unit_test(Test_event_callback_registry_lifetime
     MODES exit_live_event normal_reclaim cancel_reclaim
     TIMEOUT 15 LABELS "unit")
 
+# 监听轮次：旧完成回调、回调内重入启动/取消、取消后重启与排队回调寿命。
+bbt_unit_test(Test_event_round TIMEOUT 30 LABELS "unit")
+
 ################################################################
 # coroutine 模块：runtime / 栈 / 调度
 ################################################################
@@ -142,6 +145,10 @@ bbt_unit_test(Test_event_callback_registry_lifetime
 # nm 对未 strip 的实际库做正反对照）。
 target_compile_definitions(bbt_coroutine PUBLIC BBT_COROUTINE_STACK_TESTING)
 
+# pollevent Event 的受控交错注入点（StartListen 装配中 / fd 完成回调取锁前）。
+# 与上面同理只在 NEED_TEST 构建存在，生产构建不含该分支。
+target_compile_definitions(bbt_coroutine PUBLIC BBT_POLLEVENT_TESTING)
+
 bbt_unit_test(Test_runtime_oom
     MODES fresh prepare tracked trigger defer
     TIMEOUT 15 LABELS "unit"
@@ -149,6 +156,19 @@ bbt_unit_test(Test_runtime_oom
 
 # 含真实定时回收等待（m_cfg_stackpool_adjust_interval=5000ms 量级）与隔离子进程
 bbt_unit_test(Test_coroutine_stack TIMEOUT 180 LABELS "unit")
+bbt_unit_test(Test_stack_ownership
+    MODES exact_buckets auto_budget config_validation native_failures async_failures
+          pending_cancel committed_cancel pending_deadline single_worker_progress
+    MODE_ARGS "exact_buckets:--run_test=stack_ownership/exact_buckets"
+              "auto_budget:--run_test=stack_ownership/auto_budget"
+              "config_validation:--run_test=stack_ownership/config_validation"
+              "native_failures:--run_test=stack_ownership/native_failures"
+              "async_failures:--run_test=stack_ownership/async_failures"
+              "pending_cancel:--run_test=stack_ownership/pending_cancel"
+              "committed_cancel:--run_test=stack_ownership/committed_cancel"
+              "pending_deadline:--run_test=stack_ownership/pending_deadline"
+              "single_worker_progress:--run_test=stack_ownership/single_worker_progress"
+    TIMEOUT 30 LABELS "unit;integration")
 
 # 多尺寸固定栈 runtime：薄 main 三种模式，各自独立进程（单进程只 Start 一次）
 bbt_unit_test(Test_multi_size_stack_runtime
@@ -173,11 +193,52 @@ bbt_unit_test(Test_runtime_context
     MODE_ARGS "no_create:--run_test=context_no_create"
               "runtime:--run_test=context_runtime"
     TIMEOUT 20 LABELS "unit")
+# 入口用例通过 exec 独立进程观察 native main 的真实退出码；宏及 setup_runtime 各自编译。
+foreach(variant RANGE 0 7)
+    add_executable(Runtime_main_child_${variant} coroutine/runtime_main_child.cc)
+    target_compile_definitions(Runtime_main_child_${variant} PRIVATE BBT_ENTRY_VARIANT=${variant})
+    target_link_libraries(Runtime_main_child_${variant} ${MY_LIBS} ${CMAKE_DL_LIBS})
+    target_link_options(Runtime_main_child_${variant} PRIVATE -Wl,--export-dynamic)
+endforeach()
+bbt_unit_test(Test_runtime_main
+    MODES normal hook_failure start_failure submit_failure main_failure options
+          invalid_options stack_policy reentry detached macros host_publish host_main_done
+          host_registration host_exit host_failure
+    MODE_ARGS "normal:--run_test=runtime_main/normal"
+              "hook_failure:--run_test=runtime_main/hook_failure"
+              "start_failure:--run_test=runtime_main/start_failure"
+              "submit_failure:--run_test=runtime_main/submit_failure"
+              "main_failure:--run_test=runtime_main/main_failure"
+              "options:--run_test=runtime_main/options"
+              "invalid_options:--run_test=runtime_main/invalid_options"
+              "stack_policy:--run_test=runtime_main/stack_policy"
+              "reentry:--run_test=runtime_main/reentry"
+              "detached:--run_test=runtime_main/detached"
+              "macros:--run_test=runtime_main/macros"
+              "host_publish:--run_test=runtime_main/host_publish"
+              "host_main_done:--run_test=runtime_main/host_main_done"
+              "host_registration:--run_test=runtime_main/host_registration"
+              "host_exit:--run_test=runtime_main/host_exit"
+              "host_failure:--run_test=runtime_main/host_failure"
+    TIMEOUT 60 LABELS "unit;integration")
+target_compile_definitions(Test_runtime_main PRIVATE
+    BBT_ENTRY_CHILD_BASE="$<TARGET_FILE_DIR:Runtime_main_child_0>/Runtime_main_child_")
+add_dependencies(Test_runtime_main Runtime_main_child_0 Runtime_main_child_1 Runtime_main_child_2
+                 Runtime_main_child_3 Runtime_main_child_4 Runtime_main_child_5
+                 Runtime_main_child_6 Runtime_main_child_7)
+
 bbt_unit_test(Test_runtime_objects TIMEOUT 30 LABELS "unit")
 bbt_unit_test(Test_async_syntax TIMEOUT 20 LABELS "unit")
 bbt_unit_test(Test_coroutine_exception LABELS "smoke;unit" TIMEOUT 60)
 bbt_unit_test(Test_coroutine_cancel TIMEOUT 10 LABELS "unit")
-bbt_unit_test(Test_exception_stop TIMEOUT 10 LABELS "unit")
+# 异常回调在启动时冻结；各场景独立启动 runtime，原测试名保留给空回调路径。
+bbt_unit_test(Test_exception_stop TIMEOUT 10 LABELS "unit"
+    COMMAND_ARG "--run_test=ExceptionContractTest/t_unhandled_exception_counted_without_callback")
+foreach(case exception_ptr_saved_when_callback exception_callback_throw_isolated timeout_is_status_not_exception)
+    add_test(NAME coroutine.exception_stop_${case}
+        COMMAND Test_exception_stop --run_test=ExceptionContractTest/t_${case})
+    set_tests_properties(coroutine.exception_stop_${case} PROPERTIES TIMEOUT 10 LABELS "unit")
+endforeach()
 
 # 扩缩容配置/驱动模式各独立进程，禁止一次进程重复 Start。
 add_executable(Test_scheduler_scaling coroutine/Test_scheduler_scaling.cc)
@@ -202,8 +263,8 @@ scaling_probe_replace(
     "    m_enqueue_inflight.fetch_add(1, std::memory_order_seq_cst);"
     "    ::ScalingAdmissionProbe(this, 1);\n    m_enqueue_inflight.fetch_add(1, std::memory_order_seq_cst);")
 scaling_probe_replace(
-    "    const bool enqueued = m_coroutine_queue.Enqueue(coroutine->m_cfs, coroutine, priority,"
-    "    ::ScalingAdmissionProbe(this, 2);\n    const bool enqueued = m_coroutine_queue.Enqueue(coroutine->m_cfs, coroutine, priority,")
+    "    const bool enqueued = m_coroutine_queue.Enqueue(\n        coroutine->m_cfs, coroutine, priority,"
+    "    ::ScalingAdmissionProbe(this, 2);\n    const bool enqueued = m_coroutine_queue.Enqueue(\n        coroutine->m_cfs, coroutine, priority,")
 scaling_probe_replace("    _WaitEnqueueQuiescent();"
     "    ::ScalingAdmissionProbe(this, 3);\n    _WaitEnqueueQuiescent();")
 scaling_probe_replace("\n}\n\nbool Processer::_HasDriverOwnership()"
@@ -215,8 +276,8 @@ set(_sc_scheduler "${PROJECT_SOURCE_DIR}/bbt/coroutine/detail/Scheduler.cc")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_sc_scheduler}")
 file(READ "${_sc_scheduler}" _sc_probe)
 scaling_probe_replace(
-    "                    : target + m_scale_step;\n                const auto result = _ApplyTargetLocked(next, notify, lock);"
-    "                    : target + m_scale_step;\n                ::ScalingAutoCommitProbe();\n                const auto result = _ApplyTargetLocked(next, notify, lock);")
+    "    const size_t next = m_scale_step >= remain ? m_max_num : target + m_scale_step;"
+    "    const size_t next = m_scale_step >= remain ? m_max_num : target + m_scale_step;\n    ::ScalingAutoCommitProbe();")
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/Scheduler_scaling_probe.cc"
     "void ScalingAutoCommitProbe();\n${_sc_probe}")
 target_sources(Test_scheduler_scaling PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/Scheduler_scaling_probe.cc")
@@ -324,6 +385,19 @@ bbt_unit_test(Test_profiler LABELS "unit")
 bbt_unit_test(Test_co_rwmutex TIMEOUT 30 LABELS "unit")
 bbt_unit_test(Test_coevent LABELS "smoke;unit" TIMEOUT 60)
 bbt_unit_test(Test_copool LABELS "smoke;unit" TIMEOUT 60)
+# 尺寸路由池：混合尺寸、容量/并发有界、关闭竞争、异常隔离、自等待拒绝与单 Processer 推进
+bbt_unit_test(Test_copool_router
+    MODES mixed_size queue_full release_submit_race exception_isolation
+          same_pool_dependency empty_class allocation_failure single_processer_progress
+    MODE_ARGS "mixed_size:--run_test=copool_router/mixed_size"
+              "queue_full:--run_test=copool_router/queue_full"
+              "release_submit_race:--run_test=copool_router/release_submit_race"
+              "exception_isolation:--run_test=copool_router/exception_isolation"
+              "same_pool_dependency:--run_test=copool_router/same_pool_dependency"
+              "empty_class:--run_test=copool_router/empty_class"
+              "allocation_failure:--run_test=copool_router/allocation_failure"
+              "single_processer_progress:--run_test=copool_router/single_processer_progress"
+    TIMEOUT 60 LABELS "unit")
 bbt_unit_test(Test_smoke LABELS "smoke;unit" TIMEOUT 60)
 bbt_unit_test(Test_reliability LABELS "integration")
 
@@ -383,6 +457,9 @@ set_tests_properties(coroutine.coeventvalue_dso PROPERTIES TIMEOUT 15 LABELS "in
 set(PUBLIC_HEADER_TU_DIR ${PROJECT_BINARY_DIR}/public_header_tu)
 file(MAKE_DIRECTORY ${PUBLIC_HEADER_TU_DIR})
 set(BBT_PUBLIC_HEADERS
+    bbt/coroutine/runtime/RuntimeMain.hpp
+    bbt/coroutine/runtime/RuntimeOptions.hpp
+    bbt/coroutine/syntax/RuntimeMacros.hpp
     bbt/coroutine/sync/WaitTypes.hpp
     bbt/coroutine/sync/CoEventValue.hpp
     bbt/coroutine/sync/CoWaiter.hpp
@@ -458,13 +535,13 @@ foreach(_neg too_large bad_id too_deep)
     set(_bbt_neg_out_${_neg} "${_bbt_neg_out}")
 endforeach()
 
-if(NOT _bbt_neg_out_too_large MATCHES "载荷超过 24 字节内联容量")
+if(NOT _bbt_neg_out_too_large MATCHES "payload exceeds the 24-byte inline capacity")
     message(FATAL_ERROR "too_large.cc 的失败原因不是容量断言：\n${_bbt_neg_out_too_large}")
 endif()
-if(NOT _bbt_neg_out_bad_id MATCHES "自定义类型 ID 必须落在自定义登记区间")
+if(NOT _bbt_neg_out_bad_id MATCHES "custom type ID must fall inside the custom registration range")
     message(FATAL_ERROR "bad_id.cc 的失败原因不是 ID 区间断言：\n${_bbt_neg_out_bad_id}")
 endif()
-if(NOT _bbt_neg_out_too_deep MATCHES "指针层级超过 kCoEventValueMaxPointerDepth")
+if(NOT _bbt_neg_out_too_deep MATCHES "pointer depth exceeds kCoEventValueMaxPointerDepth")
     message(FATAL_ERROR "too_deep.cc 的失败原因不是层级容量断言：\n${_bbt_neg_out_too_deep}")
 endif()
 

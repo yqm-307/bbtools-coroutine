@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-13",
+  "commit": "455a90b5ed7fad304803c38cd8db07a140d6516e",
+  "base": "76741ea53009ce96c1bdb9cf22273349ba6c7a87",
+  "result": "pass",
+  "reviewer": "independent read-only review deleg_92864c08",
+  "summary": "Ship: the CoPool shutdown, cancellation rollback, queue draining, StackPool admission, worker failure containment, and GlobalConfig candidate changes were independently reviewed. The review found no new P1/P2 blocking defect. The reviewed index tree was 0a5c1c87ef5789098953c7a95de9eca1fe4f5e43; the final code commit preserves its content and only normalizes the local pre-push wrapper executable bit.",
+  "checks": [
+    {
+      "id": "llm-review",
+      "kind": "attested",
+      "status": "pass",
+      "summary": "Fourth independent review returned ship with medium-high confidence; prior destructor UAF, cancelled rollback starvation, and noexcept drain allocation findings were closed.",
+      "evidence": {
+        "reviewer": "deleg_92864c08",
+        "scope": "BASE 76741ea53009ce96c1bdb9cf22273349ba6c7a87 to reviewed index tree 0a5c1c87ef5789098953c7a95de9eca1fe4f5e43, with focused attention on bbt/coroutine/pool/CoPool.cc, bbt/coroutine/detail/StackPoolAllocation.cc, bbt/coroutine/detail/GlobalConfig.cc, bbt/coroutine/detail/GlobalConfig.hpp, and tests/coroutine/Test_stack_ownership.cc; final commit tree content matches the reviewed tree."
+      }
+    }
+  ]
+}
