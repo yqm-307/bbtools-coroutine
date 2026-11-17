@@ -4,10 +4,7 @@
 
 ## 共用规范入口
 
-- 设计：`third-party/bbtools-pub/docs/10-design/README.md`
-- 编码与文档：`third-party/bbtools-pub/docs/20-coding/README.md`
-- Review：`third-party/bbtools-pub/docs/30-review/README.md`
-- 用例设计：`third-party/bbtools-pub/docs/40-testcase/README.md`
+- 上游公共规范：`third-party/bbtools-pub/README.md`（根路由）——设计、编码、Review、用例设计的通用方法由 pub 指向 `third-party/bbt-agent-toolkit/agents/`，家族 C++ 约定在 pub `docs/cpp/`
 - 本仓实现与验证：本文及 `docs/guides/`、`docs/architecture/`
 
 ## 1. 命名
