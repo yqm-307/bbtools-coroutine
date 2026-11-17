@@ -339,10 +339,13 @@ WaitStatus CoWaiter::WaitWithCallback(const WaitOptions& options, const detail::
 
         /**
          * deadline 转毫秒定时：粒度上取整保证不提前超时；剩余期限达到
-         * INT_MAX 毫秒（含 max() 无期限）即不挂定时器。
+         * INT_MAX 毫秒（含 max() 无期限）即不挂定时器。第二次取时可能已
+         * 越过 deadline，此时不能注册不会触发的 0ms 定时器。
          */
         const auto remain_ms =
             std::chrono::ceil<std::chrono::milliseconds>(options.deadline - std::chrono::steady_clock::now()).count();
+        if (remain_ms <= 0)
+            return WaitStatus::TimedOut;
         const bool has_timer = remain_ms < std::numeric_limits<int>::max();
         if (has_timer)
             timeout_ms = static_cast<int>(remain_ms);

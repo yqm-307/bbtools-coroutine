@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-17",
+  "commit": "dd9f538634cf180b4b9047c701f07e27a4fcac35",
+  "base": "b60a924e401c3f40d684988e4b1977c5aadeb92c",
+  "result": "pass",
+  "reviewer": "independent read-only review deleg_85dffea3",
+  "summary": "Ship with high confidence and no blocking findings. The narrow CoWaiter::WaitWithCallback path now returns WaitStatus::TimedOut when the second deadline sample yields remain_ms <= 0, matching the existing CombinedWait guard and preventing a non-firing 0ms timer from becoming an untimed wait. Review covered the pre-merge patch on b0ba3e0; after merging origin/main the identical guard was re-applied and post-merge focused unit tests passed. Public interface, notification protocol and scheduler threading are unchanged. The historical CI failure's unique root cause is not proven by natural stress samples.",
+  "checks": [
+    {
+      "id": "llm-review",
+      "kind": "attested",
+      "status": "pass",
+      "summary": "Independent committed-diff review returned ship with no blocking items. Reviewer verified deadline-rounding cases (sub-ms positive remainder still registers a positive timer; zero/negative remainder returns TimedOut; INT_MAX/unbounded semantics unchanged), guard placement before wait-slot registration, and equivalence with CombinedWait. No source, test, config or Git writes by the reviewer; only review-fix.md was created.",
+      "evidence": {
+        "reviewer": "deleg_85dffea3",
+        "scope": "Pre-merge patch on b0ba3e0239c06bf91a874f988187c7e2f56bf13d: bbt/coroutine/sync/CoWaiter.cc (sha256 c3bafa29329e99f7b45383f9bdeac80a311bfc281d5eef22faf8d34d68f6815e). Review file: /home/yqm/.omh/runtime/dag/local-b88d8f07d92a126bcf71f78a4e197977188bdd3779-e86b2a0ceeaaca77/framework-issue79/review-fix.md. Reviewer transcript: /home/yqm/.hermes/profiles/alice/cache/delegation/live/deleg_85dffea3/task-0.log. Post-merge verification on dd9f538: coroutine.cowaiter_outcome and coroutine.cowaiter_payload 2/2 passed (build/issue79-main-verify, ctest -j1). Pre-merge acceptance on pinned deps (coroutine b0ba3e0, infra f4c71dc): framework_f3/shutdown_incomplete_actor_late_egress 30/30 CPU-stress rounds with actor_outbound:ok and no code5; framework.shutdown ctest 1/1. Remote CI on dd9f538 observed 6/6 passed before merge. Controlled post-patch end-to-end regression was not rerun by the reviewer; early-Notify latency window is tracked separately as bbtools-infra#125."
+      }
+    }
+  ]
+}
