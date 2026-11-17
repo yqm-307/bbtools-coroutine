@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-17",
+  "commit": "190e7d72345e8f410b17b389c09f35641699b101",
+  "base": "b60a924e401c3f40d684988e4b1977c5aadeb92c",
+  "result": "pass",
+  "reviewer": "Alice (协调者) + 独立审查 gpt-6-astra (deleg_1756f4e2)",
+  "summary": "pub 把通用规范拆到 bbt-agent-toolkit 后（pub fd49720 只留家族 C++ 约定 docs/cpp/ 与 tools/），本仓指向 third-party/bbtools-pub/docs/{10-design,20-coding,30-review,40-testcase}/ 的入口全部失效。本提交把 AGENTS.md 公共规范列与 docs/conventions.md 入口清单统一改指 pub 根路由 third-party/bbtools-pub/README.md，注释形态入口改用 pub docs/cpp/comments.md，并把 third-party/bbtools-pub submodule 升到已合并的 fd497203e8；不改任何规则含义与门禁。",
+  "checks": [
+    {
+      "id": "llm-review",
+      "kind": "attested",
+      "status": "pass",
+      "summary": "三仓同批送独立审查，结论“可提交”：旧路径零残留、新 pub 目标存在、规则未被改弱、三仓一致、未硬编码 toolkit 具体文件。",
+      "evidence": {
+        "reviewer": "gpt-6-astra / openai-api (deleg_1756f4e2, sa-0-a8c2dafb, 237s)",
+        "report": "/home/yqm/.hermes/profiles/alice/cache/scratch/consumer-retarget-review.md",
+        "candidate_sha256": "536570349de0c3bd0ab46835bfaed4d0f490be1655fe9cd6ec40c98c001ceb25",
+        "scope": "AGENTS.md 公共规范列、docs/conventions.md 上游入口、third-party/bbtools-pub gitlink -> fd497203e82fa8c8a87647659f30443a8e9c6087"
+      }
+    },
+    {
+      "id": "diff-check",
+      "kind": "auto",
+      "status": "pass",
+      "summary": "git diff --cached --check 无输出、退出 0。"
+    },
+    {
+      "id": "refs-exist",
+      "kind": "auto",
+      "status": "pass",
+      "summary": "仓内所有 third-party/bbtools-pub/... 反引号路径逐个存在性核对（build/ 等未跟踪目录除外），无失效引用。"
+    }
+  ]
+}

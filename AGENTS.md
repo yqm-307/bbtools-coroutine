@@ -12,12 +12,14 @@
 
 先按任务选一条路径，不全量预载。
 
-| 任务 | 公共规范（pub submodule） | 本仓真源 |
+上游公共规范统一从 `third-party/bbtools-pub/README.md` 根路由进入：bbtools 家族特有约定在 pub `docs/cpp/`；设计、编码、Review、用例设计的通用方法由 pub 指向 `third-party/bbt-agent-toolkit/`，本仓不直接固定 toolkit 路径。
+
+| 任务 | 公共规范（pub 根路由） | 本仓真源 |
 |---|---|---|
-| 设计 API、模块边界、失败与关闭语义 | `third-party/bbtools-pub/docs/10-design/README.md` | `docs/architecture/core-runtime-contract.md`（唯一契约真源，记录目标契约，不等于当前实现；实现与契约冲突时显式记录并补回归，不默默改写契约） |
-| 写或改实现 | `third-party/bbtools-pub/docs/20-coding/README.md`（C++、注释、文档专项按入口展开） | `docs/conventions.md`（命名、目录、所有权、Co-only 入口、示例）；格式以 `.clang-format`、`.editorconfig` 为真源 |
-| 评审 | `third-party/bbtools-pub/docs/30-review/README.md` | 本文「审查门禁」 |
-| 设计测试、选择运行范围 | `third-party/bbtools-pub/docs/40-testcase/README.md` | `docs/guides/testing.md`、`docs/conventions.md` §6 |
+| 设计 API、模块边界、失败与关闭语义 | `third-party/bbtools-pub/README.md`「选择一条阅读路径」 | `docs/architecture/core-runtime-contract.md`（唯一契约真源，记录目标契约，不等于当前实现；实现与契约冲突时显式记录并补回归，不默默改写契约） |
+| 写或改实现 | `third-party/bbtools-pub/README.md`「选择一条阅读路径」；家族 C++ 约定见 `third-party/bbtools-pub/docs/cpp/` | `docs/conventions.md`（命名、目录、所有权、Co-only 入口、示例）；格式以 `.clang-format`、`.editorconfig` 为真源 |
+| 评审 | `third-party/bbtools-pub/README.md`「选择一条阅读路径」 | 本文「审查门禁」 |
+| 设计测试、选择运行范围 | `third-party/bbtools-pub/README.md`「选择一条阅读路径」 | `docs/guides/testing.md`、`docs/conventions.md` §6 |
 | 写**调用本库**的代码 | — | `.github/skills/bbtools-coroutine/SKILL.md`、`docs/guides/api-reference.md`、`docs/guides/user-guide.md` |
 | 开发流程、验证、发布 | — | `docs/guides/development.md`、`docs/guides/ci.md` |
 | 性能优化 | — | `docs/guides/performance.md`；本地疲劳/基准路径 `.github/skills/managing-fatigue-tests/SKILL.md` |
@@ -71,5 +73,5 @@
 ### 仓库卫生
 
 - 文档一事一处，随代码在同一 PR 更新；README 只保留状态与入口（≤200 行，`docs-check` 校验）；ADR 编号唯一递增，合入后只追加取代关系。细则见 `docs/conventions.md` §8。
-- 注释说明 WHY，不重复 WHAT；必须保留时序与所有权约束，公开头文件开头说明职责；不留 Issue/PR、审查/阶段代号、契约行号或临时版本号；形态规则见 `third-party/bbtools-pub/docs/20-coding/documentation.md`。
+- 注释说明 WHY，不重复 WHAT；必须保留时序与所有权约束，公开头文件开头说明职责；不留 Issue/PR、审查/阶段代号、契约行号或临时版本号；形态规则见 `third-party/bbtools-pub/docs/cpp/comments.md`。
 - 构建产物只进已忽略的 `build*/`；运行证据、原始日志不入仓（perf 基线见 `perf-baseline` 分支）。
