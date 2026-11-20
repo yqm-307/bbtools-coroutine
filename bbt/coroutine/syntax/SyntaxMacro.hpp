@@ -117,6 +117,7 @@
  * @brief 让出执行权：`bbtco_yield;`
  *
  * 当前协程立即回到就绪队列，其他就绪协程先运行，之后可能在任意 worker 线程恢复。
+ * 每次调用取得当前 worker，并持有其强引用直到本次让出返回。
  * 不在协程内调用时直接跳过（不报错）。
  * 展开自带 `do { ... } while(0);` 并已含结尾分号：不要写在没有花括号的
  * `if (...) bbtco_yield; else ...` 里（多出的分号会让 else 编译失败），写成 `if (...) { bbtco_yield; }`。
@@ -124,9 +125,11 @@
 #define bbtco_yield \
 do \
 { \
-    if (g_bbt_tls_coroutine_co == nullptr) \
+    const auto bbtco_yield_worker = g_bbt_tls_processer; \
+    if (!bbtco_yield_worker) \
         break; \
-    g_bbt_tls_coroutine_co->YieldAndPushGCoQueue(); \
+    if (auto* bbtco_yield_co = bbtco_yield_worker->GetCurrentCoroutine()) \
+        bbtco_yield_co->YieldAndPushGCoQueue(); \
 } while(0);
 
 /**

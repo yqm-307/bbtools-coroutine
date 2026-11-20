@@ -9,6 +9,16 @@
 
 namespace bbt::coroutine::sync {
 
+namespace {
+
+// 从调用处传入，让 worker 的临时强引用覆盖可能挂起的完整表达式。
+detail::Coroutine::Ptr CurrentCoroutine(const detail::Processer::SPtr& processer)
+{
+    return processer ? processer->GetCurrentCoroutine() : nullptr;
+}
+
+}
+
 CoMutex::SPtr CoMutex::Create()
 {
     return std::make_shared<CoMutex>(PrivateTag{});
@@ -27,7 +37,7 @@ void CoMutex::Lock()
     _SysLock();
 
     AssertWithInfo(g_bbt_tls_helper->EnableUseCo(), "must use in coroutine!");
-    AssertWithInfo(m_locked_co != g_bbt_tls_coroutine_co, "comutex deadlock!");
+    AssertWithInfo(m_locked_co != CurrentCoroutine(g_bbt_tls_processer), "comutex deadlock!");
 
     while (m_status == CoMutexStatus::COMUTEX_LOCKED) {
 #if defined(BBT_COROUTINE_PROFILE)
@@ -54,7 +64,7 @@ void CoMutex::Lock()
         }
 
         _SysUnLock();
-        g_bbt_tls_coroutine_co->YieldAndPushGCoQueue();
+        CurrentCoroutine(g_bbt_tls_processer)->YieldAndPushGCoQueue();
         _SysLock();
     }
 
@@ -82,7 +92,7 @@ int CoMutex::TryLock()
 
     int ret = 0;
     _SysLock();
-    AssertWithInfo(m_locked_co != g_bbt_tls_coroutine_co, "comutex deadlock!");
+    AssertWithInfo(m_locked_co != CurrentCoroutine(g_bbt_tls_processer), "comutex deadlock!");
 
     if (m_status == CoMutexStatus::COMUTEX_FREE)
         _OnLocked();
@@ -101,7 +111,7 @@ int CoMutex::TryLock(int ms)
      */
     int ret = 0;
     _SysLock();
-    AssertWithInfo(m_locked_co != g_bbt_tls_coroutine_co, "comutex deadlock!");
+    AssertWithInfo(m_locked_co != CurrentCoroutine(g_bbt_tls_processer), "comutex deadlock!");
 
     if (m_status == CoMutexStatus::COMUTEX_LOCKED) {
         ret = _WaitUnLockUnitlTimeout(ms, [this]() {
@@ -148,7 +158,7 @@ void CoMutex::_SysUnLock()
 
 int CoMutex::_WaitUnLockUnitlTimeout(int timeout, const detail::CoroutineOnYieldCallback& cb)
 {
-    auto* coroutine = g_bbt_tls_coroutine_co;
+    auto* coroutine = CurrentCoroutine(g_bbt_tls_processer);
     AssertWithInfo(coroutine != nullptr, "current coroutine is nullptr!");
 
     /**
@@ -226,7 +236,7 @@ int CoMutex::_WaitUnLockUnitlTimeout(int timeout, const detail::CoroutineOnYield
 
 int CoMutex::_WaitUnLock(const detail::CoroutineOnYieldCallback& cb)
 {
-    auto* coroutine = g_bbt_tls_coroutine_co;
+    auto* coroutine = CurrentCoroutine(g_bbt_tls_processer);
     AssertWithInfo(coroutine != nullptr, "current coroutine is nullptr!");
 
     /**
@@ -285,7 +295,7 @@ void CoMutex::_NotifyOne()
 void CoMutex::_OnLocked()
 {
     Assert(m_status == CoMutexStatus::COMUTEX_FREE);
-    m_locked_co = g_bbt_tls_coroutine_co;
+    m_locked_co = CurrentCoroutine(g_bbt_tls_processer);
     m_status = CoMutexStatus::COMUTEX_LOCKED;
 }
 

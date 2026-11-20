@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-21",
+  "commit": "2b0ea4f09d0e7dc1deac0accc6a87d817f3dbda4",
+  "base": "6da49be93923e008736b8fe1f6cef4e9f675b8ec",
+  "result": "pass",
+  "reviewer": "独立审查 deleg_844b9e57，组合尾延迟复核 deleg_21be75d2，Alice 据原报告登记",
+  "summary": "CoSelect 仅在需要等待时创建等待器。两路缓冲通道交替就绪，独立复测每条消息的 CPU 耗时中位下降 28.27%，组合复测下降 27.55%。",
+  "checks": [
+    {
+      "id": "llm-review",
+      "kind": "attested",
+      "status": "pass",
+      "summary": "已核对就绪、Default、超时、关闭与实际等待路径，包括登记后复查、摘除 watcher 后 Cancel。组合 CTest 12/12。直接通道 P99 成本中位首测增加 33.33%，独立复测增加 6.36%，低于约定的 10%。单对 75→112 ns，保留为尾延迟风险。",
+      "evidence": {
+        "reviewer": "deleg_844b9e57 和 deleg_21be75d2 / chan-select-check-20261121",
+        "scope": "6da49be93923e008736b8fe1f6cef4e9f675b8ec..2b0ea4f09d0e7dc1deac0accc6a87d817f3dbda4，仅 bbt/coroutine/sync/__TCoSelect.hpp。与独立审查的 diff SHA256 f5d61e2e050cd47873a14a039384fa404d857d82bb16c4ab80270ade437eb935 一致，重编的组合调用方与审查实物字节一致。",
+        "report_sha256": "0e655ca2047234704fbe4f54b49ade5b03b901b8db360415077f1dfb65f68984",
+        "measurements_sha256": "3e8a6afb62f07ca7396732207231248e54cd70c59d010ab553d92a3c247df970",
+        "tail_report_sha256": "bc3f4c097b561f2e6c09f07ad788917c81137b6db5533526278afd700099b972",
+        "tail_measurements_sha256": "09b98b7843a56f41c6168f4fc51975cebdb1718cc47da3434fc29d7aacc90af2"
+      }
+    }
+  ]
+}

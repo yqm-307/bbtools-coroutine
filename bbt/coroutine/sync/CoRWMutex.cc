@@ -145,37 +145,44 @@ int CoRWMutex::WLock()
 
 int CoRWMutex::RUnLock()
 {
-
-    /**
-     * Notify 链 Wake 推迟到锁外
-     */
-    detail::DriverWakeDeferral _defer;
     _SysLock();
 
     m_rlock_hold_num--;
     m_status = (m_rlock_hold_num == 0) ? CORWMUTEX_FREE : CORWMUTEX_RLOCKED;
 
-    if (m_status == CORWMUTEX_FREE)
-        _NotifyOne();
+    if (m_status != CORWMUTEX_FREE || (m_wait_writelock_queue.empty() && m_wait_readlock_queue.empty())) {
+        _SysUnLock();
+        return 0;
+    }
 
+    /**
+     * Notify 链 Wake 推迟到锁外
+     */
+    detail::DriverWakeDeferral _defer;
+    _NotifyOne();
     _SysUnLock();
     return 0;
 }
 
 int CoRWMutex::WUnLock()
 {
-
-    /**
-     * 同 RUnLock
-     */
-    detail::DriverWakeDeferral _defer;
     _SysLock();
 
     m_status = CORWMUTEX_FREE;
 
-    if (!m_wait_writelock_queue.empty())
+    const bool has_waiting_writer = !m_wait_writelock_queue.empty();
+    if (!has_waiting_writer && m_wait_readlock_queue.empty()) {
+        _SysUnLock();
+        return 0;
+    }
+
+    /**
+     * Notify 链 Wake 推迟到锁外
+     */
+    detail::DriverWakeDeferral _defer;
+    if (has_waiting_writer)
         _NotifyOne();
-    else if (!m_wait_readlock_queue.empty())
+    else
         _NotifyAll(true);
 
     _SysUnLock();

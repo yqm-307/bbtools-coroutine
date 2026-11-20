@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-21",
+  "commit": "9fa811d5237c4d8e2490e9e6c67490ffedd25df4",
+  "base": "670126fe52a867f2687b65586648233de0e49437",
+  "result": "pass",
+  "reviewer": "独立审查 deleg_b0c7c262，Alice 据原报告登记",
+  "summary": "独立复核主动让出时当前 worker 的取得与持有。16 个协程在单、双 worker 上的每次让出及恢复耗时中位分别下降 25.41% 和 21.55%。",
+  "checks": [
+    {
+      "id": "llm-review",
+      "kind": "attested",
+      "status": "pass",
+      "summary": "已核对宏的语句边界、原生调用、异常传播和挂起时的引用持有期。独立三对均完成参与者配额。定向 CTest 6/6。初测单协程的 337→823 ns P99 尖峰保留在记录中，独立三对均改善。",
+      "evidence": {
+        "reviewer": "deleg_b0c7c262 / yield-once-check-20261121/review",
+        "scope": "670126fe52a867f2687b65586648233de0e49437..9fa811d5237c4d8e2490e9e6c67490ffedd25df4，仅 bbt/coroutine/syntax/SyntaxMacro.hpp。diff SHA256 ca8474c701ee8d7aec2911d65b0e8ad65eeb14cafc8ce0c8d721ee4fb6c7c0d9。",
+        "report_sha256": "4521ec35eaaff0f900291ffa6e409d7ee86c2f0742eb9feee730412481a12512",
+        "measurements_sha256": "81f73af88fd8dcc42195c2f0f340a788d361c49d3b8f54a839a54aaf1f1d892c"
+      }
+    }
+  ]
+}

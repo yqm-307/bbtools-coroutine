@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-21",
+  "commit": "32633e47eb5db62d9984228d6ccf89785bbc47ea",
+  "base": "80ab6a6c587fd3534bad3fff61e9b10443adc5d1",
+  "result": "pass",
+  "reviewer": "独立审查 deleg_8577e553，Alice 据原报告登记",
+  "summary": "单 worker、读写比 3 比 1、每进程 100 万次加解锁，独立三对每次 CPU 耗时中位下降 14.44%，同版最大绝对差为 0.54%。四项组合定向 CTest 14/14 通过。",
+  "checks": [
+    {
+      "id": "llm-review",
+      "kind": "attested",
+      "status": "pass",
+      "summary": "核对了最后一个读者与写者释放、写优先、失效槽位回退、嵌套延期和解锁后驱动唤醒。初测双 worker 单对读/写 P99 为 36→55、33→43 ns，独立三对的中位均改善。直接从释放回调重入同一把锁的动态覆盖仍有缺口。",
+      "evidence": {
+        "reviewer": "deleg_8577e553 / core-perf-20261120/unlock-check",
+        "scope": "80ab6a6c587fd3534bad3fff61e9b10443adc5d1..32633e47eb5db62d9984228d6ccf89785bbc47ea，仅 bbt/coroutine/sync/CoRWMutex.cc。补丁 SHA256 ee1c2e9271f778b48b43724bfaa9ad6c8dd7f594d5b68554ecbc299e17a467bd 与 6da49be 基点的独审范围字节相同。组合构建的 44 个对象及共享库与独审候选一致。",
+        "report_sha256": "7e33169c3f5587663dda4c90ba86462ce251a5ddba941791810d6968b717bb6a",
+        "measurements_sha256": "1bec52b32864af944658e6f4ef73942fd8d732395980bd46fae0de3ff62a4160",
+        "integration_measurements_sha256": "0ad2d30e6f0941713a37d4c5442831c5b065f07a55862dc36cc6075d6589f43b"
+      }
+    }
+  ]
+}
