@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-21",
+  "commit": "556b163bc521b5766e8db2f1e3b835715380af13",
+  "base": "b6830d96736258a29bb6e03e987c73c690f8a24d",
+  "result": "pass",
+  "reviewer": "独立审查 deleg_6840bab6，Alice 据原报告登记",
+  "summary": "独立审查保留 CoMutex 局部查询。七处查询保留原有异常传播和 worker 持有期。五项聚焦 CTest 通过，独立三对无竞争临界区 CPU 耗时中位下降 28.89%。",
+  "checks": [
+    {
+      "id": "llm-review",
+      "kind": "attested",
+      "status": "pass",
+      "summary": "已审差异与代码提交逐字节一致。复核覆盖挂起恢复、登记失败、超时、互斥和解锁。多参与者场景各自完成配额，短任务和通道的中位变化在预设风险线内。",
+      "evidence": {
+        "reviewer": "deleg_6840bab6 / comutex-local-check-20261120/check",
+        "scope": "b6830d96736258a29bb6e03e987c73c690f8a24d..556b163bc521b5766e8db2f1e3b835715380af13 全部改动，仅 bbt/coroutine/sync/CoMutex.cc。diff SHA256 63590fccbc4382b6e19c4318dd16779154c94d272572af587496a5fceb5276af。",
+        "report_sha256": "cd6da72c7e6090075719afba444386f48190518da90abb960585046eb231f1e0",
+        "measurements_sha256": "e530f414328ea2cf7624a3cc54122b119d66561e85d651b8b948c0094353cc62"
+      }
+    }
+  ]
+}
