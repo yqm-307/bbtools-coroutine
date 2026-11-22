@@ -67,8 +67,6 @@ inline int CoSelect::Run()
 {
     Assert(!m_cases.empty());
 
-    auto waiter = CoWaiter::Create();
-
     /**
      * 1. 先全部 Try：有就绪立即返回，不挂起
      */
@@ -78,6 +76,7 @@ inline int CoSelect::Run()
      * 2. Default 优先于 Timeout：有 Default 且全未就绪立即 -1，不挂起
      */
     if (index < 0 && !m_has_default) {
+        auto waiter = CoWaiter::Create();
 
         /**
          * 3. cb 在 Yield 之后执行：注册 watcher 后再 Try 一遍补丢唤醒窗口
@@ -104,14 +103,14 @@ inline int CoSelect::Run()
             index = _TryAll();
         else
             index = cb_index;
-    }
 
-    /**
-     * 4. 无论命中/超时/Default 都清理：先摘 watcher 再 Cancel，迟到的 Notify 返回 -1
-     */
-    for (auto& c : m_cases)
-        c.unwatch(waiter);
-    waiter->Cancel();
+        /**
+         * 只有等待路径会登记 watcher。先从各通道摘除，再 Cancel，使迟到的 Notify 返回 -1。
+         */
+        for (auto& c : m_cases)
+            c.unwatch(waiter);
+        waiter->Cancel();
+    }
 
     return index;
 }
