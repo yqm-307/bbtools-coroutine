@@ -56,9 +56,12 @@ public:
     static StackConfig ValidateConfig(const StackConfig& config, StackRequest default_stack);
 
     /**
-     * @brief 获取精确规格；Co 缓存未命中在既有 native 维护 lane 分配，无同步兜底。
+     * @brief 获取精确规格；CO_RUNNING 协程的缓存未命中交给既有 native 维护 lane。
+     * 无协程上下文或已处于 CO_SUSPEND 的登记回调由当前 native worker 直接分配，
+     * 避免再次占用同一 await 槽。
      *
-     * 等待使用调用方 deadline 和协程取消。容量拒绝返回空 lease；其它失败抛出，不发布任务。
+     * CO_RUNNING 协程的等待使用调用方 deadline 和协程取消。容量拒绝返回空 lease；
+     * 其它失败抛出，不发布任务。
      */
     StackLease Acquire(StackRequest request, const WaitOptions& wait = {});
 

@@ -18,6 +18,7 @@
 #include <chrono>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <thread>
 #include <vector>
@@ -26,6 +27,7 @@
 #include <bbt/coroutine/coroutine.hpp>
 #include <bbt/coroutine/detail/Coroutine.hpp>
 #include <bbt/coroutine/detail/Scheduler.hpp>
+#include <bbt/coroutine/detail/StackPool.hpp>
 #include <bbt/coroutine/sync/CoEventValue.hpp>
 #include <bbt/coroutine/sync/CoWaiter.hpp>
 
@@ -108,6 +110,53 @@ BOOST_AUTO_TEST_CASE(t_sync_notify_in_callback_delivers_payload)
     BOOST_CHECK_EQUAL(cb_count.load(), 1);
     BOOST_CHECK_EQUAL(got.load(), 7);
     BOOST_CHECK(has_value.load());
+}
+
+/**
+ * ①b 等待登记回调内创建协程：冷栈申请不能再次占用当前等待者的 await 槽
+ */
+BOOST_AUTO_TEST_CASE(t_callback_can_submit_when_stack_bucket_is_cold)
+{
+    EnsureRuntime();
+    constexpr size_t kChildStack = 192 * 1024;
+    auto waiter = CoWaiter::Create();
+    bbt::core::thread::CountDownLatch done{1};
+    std::atomic<WaitStatus> st{};
+    std::atomic_bool submitted{false};
+    std::atomic_bool child_done{false};
+    auto child_lifetime = std::make_shared<int>(0);
+    const std::weak_ptr<int> child_lifetime_weak = child_lifetime;
+
+    auto& stack_pool = *detail::StackPool::GetInstance();
+    stack_pool.ReleaseUnused();
+    const auto before = stack_pool.Observe();
+
+    bbtco[&]()
+    {
+        st.store(waiter->WaitWithCallback(WaitOptions{}, [&]() {
+            bool ok = false;
+            g_scheduler->RegistCoroutineTask(
+                kChildStack,
+                [token = std::move(child_lifetime), &child_done]() {
+                    (void)token;
+                    child_done.store(true);
+                },
+                ok);
+            submitted.store(ok);
+            waiter->Notify();
+            return true;
+        }));
+        done.Down();
+    };
+
+    BOOST_REQUIRE_EQUAL(done.WaitTimeout(5000), 0);
+    BOOST_REQUIRE(st.load() == WaitStatus::Completed);
+    BOOST_CHECK(submitted.load());
+    BOOST_REQUIRE(WaitUntil([&]() {
+        const auto current = stack_pool.Observe();
+        return child_done.load() && child_lifetime_weak.expired() && current.borrowed == before.borrowed
+               && current.pending == before.pending;
+    }));
 }
 
 /**
