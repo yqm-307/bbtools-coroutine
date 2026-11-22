@@ -339,7 +339,8 @@ StackLease StackPool::Acquire(StackRequest request, const WaitOptions& wait)
     if (wait.deadline <= std::chrono::steady_clock::now())
         throw StackWaitError(WaitStatus::TimedOut);
     const auto processer = Processer::TryGetLocalProcesser();
-    if (processer && processer->GetCurrentCoroutine() && processer->GetCurrentCoroutine()->IsCancelRequested())
+    const auto current = processer == nullptr ? nullptr : processer->GetCurrentCoroutine();
+    if (current && current->IsCancelRequested())
         throw StackWaitError(WaitStatus::Cancelled);
     auto allocation = _Prepare(request);
     if (!allocation)
@@ -347,7 +348,10 @@ StackLease StackPool::Acquire(StackRequest request, const WaitOptions& wait)
     allocation->deadline = wait.deadline;
     if (allocation->done)
         return std::move(allocation->lease);
-    if (!processer || !processer->GetCurrentCoroutine()) {
+    // A post-yield callback already owns the current coroutine's await slot.
+    // Stack acquisition must complete on the native worker instead of trying
+    // to suspend that same coroutine for the maintenance lane.
+    if (current == nullptr || current->GetStatus() == CoroutineStatus::CO_SUSPEND) {
         _Allocate(allocation);
     } else {
         allocation->waiter = sync::CoWaiter::Create();

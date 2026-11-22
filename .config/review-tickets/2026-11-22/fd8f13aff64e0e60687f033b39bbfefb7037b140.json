@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-22",
+  "commit": "fd8f13aff64e0e60687f033b39bbfefb7037b140",
+  "base": "6bacde6b9916283a2f572863bd160922fd62630f",
+  "result": "pass",
+  "reviewer": "独立审查 deleg_f82f811a，Alice 据原报告登记",
+  "summary": "修复 WaitWithCallback 挂起回调内冷栈申请再次占用同一 await 槽的问题。CO_SUSPEND 回调路径改为当前 native worker 直接完成分配，普通 CO_RUNNING 路径保留维护 lane 等待。独立审查无阻塞项，审查提出的资源收口断言与契约注释缺口已在本提交中补齐。",
+  "checks": [
+    {
+      "id": "llm-review",
+      "kind": "attested",
+      "status": "pass",
+      "summary": "独立审查核对了 WaitWithCallback 回调时序、CO_SUSPEND 状态、await 槽占用、StackLease/Allocation 的 pending/live/borrowed 收口，以及 CO_RUNNING 路径的 deadline/cancellation 语义。审查结果 no_blockers_found。",
+      "evidence": {
+        "reviewer": "deleg_f82f811a / sa-0-5e5dc2b2",
+        "scope": "6bacde6b9916283a2f572863bd160922fd62630f..fd8f13aff64e0e60687f033b39bbfefb7037b140。实现审查重点为 bbt/coroutine/detail/StackPoolAllocation.cc；回归范围为 tests/coroutine/Test_cowaiter_payload.cc。审查原始记录：/home/yqm/.hermes/profiles/alice/cache/delegation/live/deleg_f82f811a/task-0.log。最终提交另含 StackPool.hpp 的契约注释收口，以及回归测试对 child lifetime、borrowed 和 pending 的等待断言。"
+      }
+    }
+  ]
+}
