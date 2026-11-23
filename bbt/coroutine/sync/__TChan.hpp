@@ -741,7 +741,7 @@ template <class TItem> int Chan<TItem, 0>::Read(ItemType& item)
         /**
          * 同 buffered Read 的注册后复查：push 落在检查/登记窗口时不丢唤醒
          */
-        int ret = BaseType::_WaitUntilEnableReadOrTimeout(500, [this]() {
+        int ret = BaseType::_WaitUntilEnableRead([this]() {
             BaseType::_RecheckEnableRead([this]() { return m_write_idx > m_read_idx || IsClosed(); });
             return true;
         });
