@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-23",
+  "commit": "fbafbddb869fa8460edd53abff60d4f14a1b4672",
+  "base": "dc338e9b0c463a3a2a156b003485c801c2fad60f",
+  "result": "pass",
+  "reviewer": "独立审查 deleg_e8c8666c，Alice 据原报告登记",
+  "summary": "最终组合独立静态审查未发现阻塞项。Release 与 TSAN 分别通过 23 项直接耦合测试、8 项等待与 fd 专项回归、8 项冒烟；运行结果由交付者另行验证。",
+  "checks": [
+    {
+      "id": "llm-review",
+      "kind": "attested",
+      "status": "pass",
+      "summary": "核对等待首胜、跨 worker 恢复、驱动锁外调用、fd close epoch 和 CoPool 封口排空契约。独审未运行测试或基准，也未查询 GitHub 讨论线程。",
+      "evidence": {
+        "reviewer": "deleg_e8c8666c / sa-0-eaab3fd0",
+        "scope": "dc338e9b0c463a3a2a156b003485c801c2fad60f..fbafbddb869fa8460edd53abff60d4f14a1b4672。审查输入是同基点的完整工作树 diff，冻结指纹 081175d3a82de25e702f4a4133811d89db345811b21030a01775e6ac51f080ea；逐文件对照代码提交，45 个改动文件字节相同，Test_comutex.cc 只调整四处 lambda 空格，最终指纹 2c2dab2eecff193988b33ad3ff9e7a6d77ed4159c79406e8bfb353669f2d079f 已重跑测试。"
+      }
+    }
+  ]
+}
