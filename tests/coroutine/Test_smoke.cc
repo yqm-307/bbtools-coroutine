@@ -98,22 +98,28 @@ BOOST_AUTO_TEST_CASE(smoke_chan_buffered_write_read)
     auto ch = Chan<int, 8>();
 
     std::atomic_bool done{false};
+    std::atomic_int write_ret{-1};
+    std::atomic_int read_ret{-1};
+    std::atomic_int read_value{0};
 
     sche->RegistCoroutineTask([&]() {
         int val = 42;
         int ret = ch->Write(val);
-        BOOST_CHECK_EQUAL(ret, 0);
+        write_ret.store(ret, std::memory_order_release);
         done = true;
     });
 
     sche->RegistCoroutineTask([&]() {
         int val = 0;
         int ret = ch->Read(val);
-        BOOST_CHECK_EQUAL(ret, 0);
-        BOOST_CHECK_EQUAL(val, 42);
+        read_ret.store(ret, std::memory_order_release);
+        read_value.store(val, std::memory_order_release);
     });
 
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    BOOST_CHECK_EQUAL(write_ret.load(std::memory_order_acquire), 0);
+    BOOST_CHECK_EQUAL(read_ret.load(std::memory_order_acquire), 0);
+    BOOST_CHECK_EQUAL(read_value.load(std::memory_order_acquire), 42);
     BOOST_CHECK(done);
 }
 

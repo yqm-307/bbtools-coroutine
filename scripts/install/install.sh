@@ -26,7 +26,7 @@ copy_headers() {
 copy_headers bbt/coroutine
 copy_headers bbt/pollevent
 for file in \
-    bbt/core/Attribute.hpp bbt/core/Define.hpp \
+    bbt/core/Attribute.hpp bbt/core/Define.hpp bbt/core/Sanitizer.hpp \
     bbt/core/clock bbt/core/errcode bbt/core/thread \
     bbt/core/util/Assert.hpp bbt/core/util/Result.hpp \
     bbt/core/log/DebugPrint.hpp; do

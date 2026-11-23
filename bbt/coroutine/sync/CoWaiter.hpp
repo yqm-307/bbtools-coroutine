@@ -7,6 +7,10 @@
 #include <bbt/coroutine/sync/WaitTypes.hpp>
 #include <bbt/coroutine/sync/CoEventValue.hpp>
 
+namespace bbt::coroutine::detail {
+class WaitNode;
+}
+
 namespace bbt::coroutine::sync {
 
 /**
@@ -155,11 +159,19 @@ public:
      * 这不表达业务取消；业务取消由 adapter 经带载荷 Notify 表达，再由上层
      * 把 Completed 解释成 Cancelled/Closed。
      */
-    void Cancel() { m_run_status = COND_FREE; }
+    void Cancel()
+    {
+        std::lock_guard<std::mutex> lock(m_notify_mutex);
+        m_run_status = COND_FREE;
+    }
 
 protected:
+    int _WaitCustom(const detail::CoroutineOnYieldCallback& cb);
+    WaitStatus _WaitCustom(const WaitOptions& options, const detail::CoroutineOnYieldCallback& cb, CoEventValue* value);
+
     std::mutex m_notify_mutex;
     std::shared_ptr<detail::CoPollEvent> m_co_event{nullptr};
+    std::shared_ptr<detail::WaitNode> m_wait_node{nullptr};
     volatile CoCondStatus m_run_status{COND_DEFAULT};
 
     /**

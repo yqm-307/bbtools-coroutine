@@ -62,8 +62,8 @@ int CoRWMutex::RLock()
     {
 
         /**
-         * 最终非挂起段：Notify 链在 m_mutex 内执行，Wake 推迟到
-         * _SysUnLock 之后；guard 不覆盖上方可能 Yield 的等待循环。
+         * Notify 在锁内竞争首胜，已挂起的胜者在 _SysUnLock 后才投递；
+         * guard 不覆盖上方可能 Yield 的等待循环。
          */
         detail::DriverWakeDeferral _defer;
         m_status = CORWMUTEX_RLOCKED;

@@ -18,6 +18,7 @@
 #include <bbt/coroutine/detail/Scheduler.hpp>
 #include <bbt/coroutine/detail/Processer.hpp>
 #include <bbt/coroutine/detail/CoPoller.hpp>
+#include <bbt/coroutine/detail/DriverWakeDeferral.hpp>
 #include <bbt/coroutine/detail/GlobalConfig.hpp>
 #include <bbt/coroutine/detail/Profiler.hpp>
 #include <bbt/coroutine/detail/LocalThread.hpp>
@@ -400,14 +401,26 @@ ProcesserScalingMode Scheduler::GetProcesserScalingMode()
     return m_scaling_mode.load(std::memory_order_acquire);
 }
 
-void Scheduler::_WakeProcesserDrivers()
+Processer::SPtr Scheduler::_FindActiveProcesser(ProcesserId id)
 {
+    std::lock_guard<std::mutex> lock(m_processer_map_mutex);
+    const auto it = m_processer_map.find(id);
+    return it != m_processer_map.end() ? it->second : nullptr;
+}
+
+void Scheduler::_WakeProcesserDrivers(ProcesserId target)
+{
+    auto& self = *GetInstance();
+    if (target != BBT_COROUTINE_INVALID_PROCESSER_ID) {
+        if (auto processer = self._FindActiveProcesser(target))
+            processer->_WakeDriver();
+        return;
+    }
 
     /**
      * active 快照持有稳定强引用；这里只补发 driver Wake，不重新发布任务/latch。
      * 退役 P 已移出 active，不会被本路径唤醒或写入。
      */
-    auto& self = *GetInstance();
     std::shared_ptr<const ProcesserList> snapshot;
     {
         std::lock_guard<std::mutex> lock(self.m_processer_map_mutex);
@@ -443,7 +456,7 @@ void Scheduler::RegistCoroutineTask(size_t stack_size, const CoroutineCallback& 
     }
 }
 
-void Scheduler::OnActiveCoroutine(CoroutinePriority priority, Coroutine::Ptr coroutine)
+void Scheduler::OnActiveCoroutine(CoroutinePriority priority, Coroutine::Ptr coroutine, ProcesserId wait_processer_id)
 {
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
     g_bbt_dbgmgr->Check_IsResumedCo(coroutine->GetId());
@@ -459,10 +472,21 @@ void Scheduler::OnActiveCoroutine(CoroutinePriority priority, Coroutine::Ptr cor
     if (local_processer != nullptr && local_processer->_EnqueueAdmitted(priority, coroutine, false))
         return;
 
+    if (wait_processer_id != BBT_COROUTINE_INVALID_PROCESSER_ID
+        && (local_processer == nullptr || local_processer->GetId() != wait_processer_id)) {
+        auto target = _FindActiveProcesser(wait_processer_id);
+        /**
+         * 强引用只保护对象寿命。用原 admission 协议复查退役：成功入队则由
+         * 目标执行或退役排空转交；失败时协程仍归本次完成路径，由 global 兜底。
+         */
+        if (target != nullptr && target->_EnqueueAdmitted(priority, coroutine, true)) {
+            if (!DriverWakeDeferral::Defer(wait_processer_id))
+                target->_WakeDriver();
+            return;
+        }
+    }
+
     /**
-     * 无停机、无代际：激活的协程一律回全局队列；没有需要 reclaim 的
-     * “已停止/旧代际”路径，也不再有 Stop 排空的所有权交接。
-     *
      * 唤醒已接纳的任务不能因一次队列扩容失败而失去所有权。
      */
     while (!_EnqueueGlobal(priority, coroutine))

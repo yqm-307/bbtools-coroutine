@@ -5,9 +5,14 @@
 #include <system_error>
 #include <unordered_map>
 #include <boost/asio.hpp>
+#include <bbt/core/Sanitizer.hpp>
 #include <bbt/pollevent/Event.hpp>
 #include <bbt/pollevent/detail/EventBase.hpp>
 #include <bbt/core/clock/Clock.hpp>
+
+#ifdef BBT_TSAN_ENABLED
+#include <sanitizer/tsan_interface.h>
+#endif
 
 namespace bbt::pollevent {
 
@@ -478,7 +483,13 @@ void Event::AddEventCallback(EventId id, const OnEventCallback& cb)
 {
     auto& reg = _Registry();
     std::lock_guard<std::mutex> lock(reg.m_mutex);
+#ifdef BBT_TSAN_ENABLED
+    __tsan_acquire(&reg.m_mutex);
+#endif
     reg.m_callbacks[id] = cb;
+#ifdef BBT_TSAN_ENABLED
+    __tsan_release(&reg.m_mutex);
+#endif
 }
 
 OnEventCallback Event::TakeEventCallback(EventId id)
@@ -486,11 +497,21 @@ OnEventCallback Event::TakeEventCallback(EventId id)
     OnEventCallback removed;
     auto& reg = _Registry();
     std::lock_guard<std::mutex> lock(reg.m_mutex);
+#ifdef BBT_TSAN_ENABLED
+    __tsan_acquire(&reg.m_mutex);
+#endif
     auto it = reg.m_callbacks.find(id);
-    if (it == reg.m_callbacks.end())
+    if (it == reg.m_callbacks.end()) {
+#ifdef BBT_TSAN_ENABLED
+        __tsan_release(&reg.m_mutex);
+#endif
         return removed;
+    }
     removed = std::move(it->second);
     reg.m_callbacks.erase(it);
+#ifdef BBT_TSAN_ENABLED
+    __tsan_release(&reg.m_mutex);
+#endif
     return removed;
 }
 

@@ -3,6 +3,7 @@
 #include <boost/test/included/unit_test.hpp>
 
 #include <iostream>
+#include <atomic>
 #include <string>
 #include <vector>
 #include <set>
@@ -2113,33 +2114,39 @@ BOOST_AUTO_TEST_CASE(t_chan_trywrite_timeout_does_not_steal_wakeup)
 {
     BOOST_TEST_MESSAGE("enter t_chan_trywrite_timeout_does_not_steal_wakeup");
     bbt::core::thread::CountDownLatch l{1};
-    bbtco[&l]()
+    std::atomic_int setup_ret{-999};
+    std::atomic_int a_ret{-999};
+    std::atomic_int read1_ret{-999};
+    std::atomic_int read1_val{-999};
+    std::atomic_int b_ret{-999};
+    std::atomic_int read2_ret{-999};
+    std::atomic_int read2_val{-999};
+    bbtco[&l, &setup_ret, &a_ret, &read1_ret, &read1_val, &b_ret, &read2_ret, &read2_val]()
     {
         auto c = Chan<int, 1>();
 
         /**
          * 填满缓冲
          */
-        BOOST_CHECK_EQUAL(c->TryWrite(1), 0);
+        setup_ret.store(c->TryWrite(1), std::memory_order_release);
 
         /**
          * A：写不进，80ms 后超时退出，留下失效 waiter
          */
-        bbtco[c]()
+        bbtco[c, &a_ret]()
         {
-            BOOST_CHECK_EQUAL(c->TryWrite(2, 80), 1);
+            a_ret.store(c->TryWrite(2, 80), std::memory_order_release);
         };
 
         bbt::core::thread::CountDownLatch lb{1};
-        std::atomic_int bret{-999};
 
         /**
          * 让 A 先入队，B 排在僵尸 waiter 之后
          */
         detail::Hook_Sleep(20);
-        bbtco[c, &lb, &bret]()
+        bbtco[c, &lb, &b_ret]()
         {
-            bret = c->Write(3);
+            b_ret.store(c->Write(3), std::memory_order_release);
             lb.Down();
         };
 
@@ -2149,23 +2156,25 @@ BOOST_AUTO_TEST_CASE(t_chan_trywrite_timeout_does_not_steal_wakeup)
         detail::Hook_Sleep(120);
 
         int v = 0;
-        BOOST_CHECK_EQUAL(c->Read(v), 0);
-
-        /**
-         * 这次 Read 触发 _OnEnableWrite，应跳过僵尸唤醒 B
-         */
-        BOOST_CHECK_EQUAL(v, 1);
+        read1_ret.store(c->Read(v), std::memory_order_release);
+        read1_val.store(v, std::memory_order_release);
 
         /**
          * B 必须 1s 内完成，禁止死等
          */
         WaitLatch(lb, 1000);
-        BOOST_CHECK_EQUAL(bret.load(), 0);
-        BOOST_CHECK_EQUAL(c->Read(v), 0);
-        BOOST_CHECK_EQUAL(v, 3);
+        read2_ret.store(c->Read(v), std::memory_order_release);
+        read2_val.store(v, std::memory_order_release);
         l.Down();
     };
     WaitLatch(l, 10000);
+    BOOST_CHECK_EQUAL(setup_ret.load(std::memory_order_acquire), 0);
+    BOOST_CHECK_EQUAL(a_ret.load(std::memory_order_acquire), 1);
+    BOOST_CHECK_EQUAL(read1_ret.load(std::memory_order_acquire), 0);
+    BOOST_CHECK_EQUAL(read1_val.load(std::memory_order_acquire), 1);
+    BOOST_CHECK_EQUAL(b_ret.load(std::memory_order_acquire), 0);
+    BOOST_CHECK_EQUAL(read2_ret.load(std::memory_order_acquire), 0);
+    BOOST_CHECK_EQUAL(read2_val.load(std::memory_order_acquire), 3);
 }
 
 /**
@@ -2243,6 +2252,214 @@ BOOST_AUTO_TEST_CASE(t_chan_capacity_pressure_no_lost_wakeup)
         WaitLatch(reader, 8000);
         BOOST_CHECK_EQUAL(writer_ok.load(), kWriters);
     }
+}
+
+/**
+ * 截止时间保护的让权自旋：仅在协程内使用，等待某个已发生的事实变得可见。
+ * 超时返回 false 交由调用方断言失败；不引入正确性依赖的固定等待。
+ */
+static bool SpinUntilCo(const std::function<bool()>& ready, int timeout_ms)
+{
+    auto deadline = bbt::core::clock::nowAfter(bbt::core::clock::milliseconds(timeout_ms));
+    while (!ready()) {
+        if (bbt::core::clock::is_expired<bbt::core::clock::milliseconds>(deadline))
+            return false;
+        bbtco_yield;
+    }
+    return true;
+}
+
+/**
+ * Close 与多 writer 单槽竞争：一次 pop 只放行一个 writer，Close 只裁决未胜出者（-1）。
+ * 抓错：Close 重复交付（多个 writer push 成功）、关闭后 writer 仍返回 0（关闭状态
+ * 发布滞后）、Close 全量唤醒后重复 push 的越界崩溃。
+ * 状态全部挂在 shared_ptr 上：writer 协程可能因产品缺陷滞留挂起，捕获不得指向
+ * 栈生命周期；断言全部在主线程做出（Boost.Test 并发上报不安全）。
+ */
+BOOST_AUTO_TEST_CASE(t_close_wake_multi_writer_single_slot)
+{
+    struct CaseState {
+        std::shared_ptr<bbt::coroutine::sync::Chan<int, 1>> chan;
+        std::atomic_int attempts{0};
+        std::atomic_int wins{0};
+        std::atomic_int losses{0};
+        std::atomic_int loss_ret{0};
+        std::atomic_int winner_val{0};
+        std::atomic_int settled{0};
+        std::atomic_int read_v0_ret{-999};
+        std::atomic_int read_v0{0};
+        std::atomic_int post_r1_ret{-999};
+        std::atomic_int post_r1{0};
+        std::atomic_int post_r2_ret{-999};
+        std::atomic_int stage_attempts_ok{0};
+        std::atomic_int stage_winner_ok{0};
+        std::atomic_int stage_settled_ok{0};
+    };
+    auto state = std::make_shared<CaseState>();
+    state->chan = Chan<int, 1>();
+    BOOST_REQUIRE(state->chan != nullptr);
+    BOOST_CHECK_EQUAL(state->chan->Write(100), 0);
+
+    bbt::core::thread::CountDownLatch l{1};
+
+    for (int val : {201, 202}) {
+        bbtco[state, val]()
+        {
+            state->attempts.fetch_add(1);
+            int ret = state->chan->Write(val);
+            if (ret == 0) {
+                state->wins.fetch_add(1);
+                state->winner_val.store(val);
+            } else {
+                state->losses.fetch_add(1);
+                state->loss_ret.store(ret);
+            }
+            state->settled.fetch_add(1);
+        };
+    }
+
+    bbtco[state, &l]()
+    {
+        /**
+         * 阶段门槛：两名 writer 都已发起写入后再释放唯一槽位
+         */
+        state->stage_attempts_ok.store(SpinUntilCo([&state] { return state->attempts.load() == 2; }, 3000) ? 1 : 0);
+        int v = 0;
+        state->read_v0_ret.store(state->chan->Read(v));
+        state->read_v0.store(v);
+
+        /**
+         * 胜出者完成 push（槽位重新占满）后才 Close：否则胜出者会在复查关闭时被误判为 -1
+         */
+        state->stage_winner_ok.store(SpinUntilCo([&state] { return state->wins.load() >= 1; }, 3000) ? 1 : 0);
+        state->chan->Close();
+        state->stage_settled_ok.store(SpinUntilCo([&state] { return state->settled.load() == 2; }, 5000) ? 1 : 0);
+
+        /**
+         * 100 已在读端取走；关闭后仅剩胜出者入队的值，随后读尽
+         */
+        state->post_r1_ret.store(state->chan->Read(v));
+        state->post_r1.store(v);
+        state->post_r2_ret.store(state->chan->Read(v));
+        l.Down();
+    };
+
+    WaitLatch(l, 10000);
+
+    BOOST_CHECK_EQUAL(state->stage_attempts_ok.load(), 1);
+    BOOST_CHECK_EQUAL(state->read_v0_ret.load(), 0);
+    BOOST_CHECK_EQUAL(state->read_v0.load(), 100);
+    BOOST_CHECK_EQUAL(state->stage_winner_ok.load(), 1);
+    BOOST_CHECK_EQUAL(state->stage_settled_ok.load(), 1);
+
+    /**
+     * 恰好一个 writer 胜出；收口数恰为 2（重复恢复会多计）
+     */
+    BOOST_CHECK_EQUAL(state->wins.load(), 1);
+    BOOST_CHECK_EQUAL(state->wins.load() + state->losses.load(), 2);
+    BOOST_CHECK_EQUAL(state->loss_ret.load(), -1);
+
+    BOOST_CHECK_EQUAL(state->post_r1_ret.load(), 0);
+    BOOST_CHECK_EQUAL(state->post_r1.load(), state->winner_val.load());
+    BOOST_CHECK_EQUAL(state->post_r2_ret.load(), -1);
+}
+
+/**
+ * 关闭后缓冲数据按序排空：非空 chan 关闭，已入队数据对读者仍然可见，
+ * 排空后读写才按关闭语义失败。ReadAll 走同一责任路径。
+ * 抓错：Close 清空/丢弃缓冲、关闭状态发布破坏排空路径、关闭后写未被拒绝。
+ * 断言全部在主线程做出。
+ */
+BOOST_AUTO_TEST_CASE(t_close_drains_buffered_items_in_order)
+{
+    struct CaseState {
+        std::atomic_int w1{-999};
+        std::atomic_int w2{-999};
+        std::atomic_int w3{-999};
+        std::atomic_int closed_flag{-1};
+        std::atomic_int r1{-999};
+        std::atomic_int v1{0};
+        std::atomic_int r2{-999};
+        std::atomic_int v2{0};
+        std::atomic_int r3{-999};
+        std::atomic_int v3{0};
+        std::atomic_int r4{-999};
+        std::atomic_int rtr{-999};
+        std::atomic_int rall{-999};
+        std::atomic_int wpost{-999};
+        std::atomic_int w7{-999};
+        std::atomic_int w8{-999};
+        std::atomic_int rall2{-999};
+        std::atomic_int n2{-1};
+        std::atomic_int i0{-999};
+        std::atomic_int i1{-999};
+    };
+    auto state = std::make_shared<CaseState>();
+    bbt::core::thread::CountDownLatch l{1};
+
+    bbtco[state, &l]()
+    {
+        {
+            auto c = Chan<int, 8>();
+            state->w1.store(c->Write(1));
+            state->w2.store(c->Write(2));
+            state->w3.store(c->Write(3));
+            c->Close();
+            state->closed_flag.store(c->IsClosed() ? 1 : 0);
+
+            int v = 0;
+            state->r1.store(c->Read(v));
+            state->v1.store(v);
+            state->r2.store(c->Read(v));
+            state->v2.store(v);
+            state->r3.store(c->Read(v));
+            state->v3.store(v);
+            state->r4.store(c->Read(v));
+            state->rtr.store(c->TryRead(v));
+
+            std::vector<int> items;
+            state->rall.store(c->ReadAll(items));
+            state->wpost.store(c->Write(4));
+        }
+
+        {
+            auto c = Chan<int, 8>();
+            state->w7.store(c->Write(7));
+            state->w8.store(c->Write(8));
+            c->Close();
+
+            std::vector<int> items;
+            state->rall2.store(c->ReadAll(items));
+            state->n2.store(static_cast<int>(items.size()));
+            state->i0.store(items.size() > 0 ? items[0] : -999);
+            state->i1.store(items.size() > 1 ? items[1] : -999);
+        }
+        l.Down();
+    };
+
+    WaitLatch(l, 5000);
+
+    BOOST_CHECK_EQUAL(state->w1.load(), 0);
+    BOOST_CHECK_EQUAL(state->w2.load(), 0);
+    BOOST_CHECK_EQUAL(state->w3.load(), 0);
+    BOOST_CHECK_EQUAL(state->closed_flag.load(), 1);
+    BOOST_CHECK_EQUAL(state->r1.load(), 0);
+    BOOST_CHECK_EQUAL(state->v1.load(), 1);
+    BOOST_CHECK_EQUAL(state->r2.load(), 0);
+    BOOST_CHECK_EQUAL(state->v2.load(), 2);
+    BOOST_CHECK_EQUAL(state->r3.load(), 0);
+    BOOST_CHECK_EQUAL(state->v3.load(), 3);
+    BOOST_CHECK_EQUAL(state->r4.load(), -1);
+    BOOST_CHECK_NE(state->rtr.load(), 0);
+    BOOST_CHECK_EQUAL(state->rall.load(), -1);
+    BOOST_CHECK_EQUAL(state->wpost.load(), -1);
+
+    BOOST_CHECK_EQUAL(state->w7.load(), 0);
+    BOOST_CHECK_EQUAL(state->w8.load(), 0);
+    BOOST_CHECK_EQUAL(state->rall2.load(), 0);
+    BOOST_CHECK_EQUAL(state->n2.load(), 2);
+    BOOST_CHECK_EQUAL(state->i0.load(), 7);
+    BOOST_CHECK_EQUAL(state->i1.load(), 8);
 }
 
 BOOST_AUTO_TEST_CASE(t_end) {}

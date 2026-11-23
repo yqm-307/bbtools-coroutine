@@ -66,14 +66,15 @@ bool WaitUntil(const std::function<bool()>& pred, int budget_ms = 10000)
 }
 
 /**
- * 协程已进入事件挂起：CO_SUSPEND 置位先于挂起回调内的事件登记；
- * 观察到即说明等待事件对象已建好，此后 Notify/取消必走状态机路径。
+ * 等待槽已登记，说明 Notify/取消必走本轮等待状态机路径。
  */
-bool CoroutineSuspended(std::atomic<Coroutine*>& co)
-{
-    auto* p = co.load();
-    return p != nullptr && p->GetStatus() == CoroutineStatus::CO_SUSPEND;
-}
+struct ProbeWaiter : sync::CoWaiter {
+    bool Ready()
+    {
+        std::lock_guard<std::mutex> lock(m_notify_mutex);
+        return m_co_event != nullptr || m_wait_node != nullptr;
+    }
+};
 
 /**
  * 自旋 Notify 直到成功或有界放弃；用于覆盖「登记前完成」的落点窗口
@@ -118,7 +119,7 @@ BOOST_AUTO_TEST_CASE(t_resume_reason_cancel_is_distinct_from_timeout)
      * (a) 真超时：定时器到点唤醒，掩码只含 TIMEOUT
      */
     {
-        auto waiter = sync::CoWaiter::Create();
+        auto waiter = std::make_shared<ProbeWaiter>();
         bbt::core::thread::CountDownLatch done{1};
         std::atomic<WaitStatus> st{};
         std::atomic<int> mask{-1};
@@ -142,7 +143,7 @@ BOOST_AUTO_TEST_CASE(t_resume_reason_cancel_is_distinct_from_timeout)
      * (b) 协程级取消：掩码只含 CANCELLED，不再借 TIMEOUT
      */
     {
-        auto waiter = sync::CoWaiter::Create();
+        auto waiter = std::make_shared<ProbeWaiter>();
         bbt::core::thread::CountDownLatch done{1};
         std::atomic<Coroutine*> co_p{nullptr};
         std::atomic<WaitStatus> st{};
@@ -159,7 +160,7 @@ BOOST_AUTO_TEST_CASE(t_resume_reason_cancel_is_distinct_from_timeout)
             mask.store(g_bbt_tls_coroutine_co->GetLastResumeEvent());
             done.Down();
         };
-        BOOST_REQUIRE(WaitUntil([&]() { return CoroutineSuspended(co_p); }));
+        BOOST_REQUIRE(WaitUntil([&]() { return waiter->Ready(); }));
         co_p.load()->RequestCancel();
         done.Wait();
         BOOST_CHECK(st.load() == WaitStatus::Cancelled);
@@ -172,7 +173,7 @@ BOOST_AUTO_TEST_CASE(t_resume_reason_cancel_is_distinct_from_timeout)
      * (c) Notify 完成：掩码只含 CUSTOM
      */
     {
-        auto waiter = sync::CoWaiter::Create();
+        auto waiter = std::make_shared<ProbeWaiter>();
         bbt::core::thread::CountDownLatch done{1};
         std::atomic<Coroutine*> co_p{nullptr};
         std::atomic<WaitStatus> st{};
@@ -185,7 +186,7 @@ BOOST_AUTO_TEST_CASE(t_resume_reason_cancel_is_distinct_from_timeout)
             mask.store(g_bbt_tls_coroutine_co->GetLastResumeEvent());
             done.Down();
         };
-        BOOST_REQUIRE(WaitUntil([&]() { return CoroutineSuspended(co_p); }));
+        BOOST_REQUIRE(WaitUntil([&]() { return waiter->Ready(); }));
         BOOST_CHECK_EQUAL(waiter->Notify(), 0);
         done.Wait();
         BOOST_CHECK(st.load() == WaitStatus::Completed);
@@ -202,7 +203,7 @@ BOOST_AUTO_TEST_CASE(t_resume_reason_cancel_is_distinct_from_timeout)
 BOOST_AUTO_TEST_CASE(t_register_before_complete_no_lost_wakeup)
 {
     for (int i = 0; i < 200; ++i) {
-        auto waiter = sync::CoWaiter::Create();
+        auto waiter = std::make_shared<ProbeWaiter>();
         bbt::core::thread::CountDownLatch done{1};
         std::atomic<WaitStatus> st{};
 
@@ -231,7 +232,7 @@ BOOST_AUTO_TEST_CASE(t_register_before_complete_no_lost_wakeup)
  */
 BOOST_AUTO_TEST_CASE(t_timeout_wins_then_complete_stays_timedout)
 {
-    auto waiter = sync::CoWaiter::Create();
+    auto waiter = std::make_shared<ProbeWaiter>();
     bbt::core::thread::CountDownLatch first_done{1}, done{1};
     std::atomic<WaitStatus> st1{}, st2{};
     std::atomic<int> mask1{-1};
@@ -283,7 +284,7 @@ BOOST_AUTO_TEST_CASE(t_timeout_wins_then_complete_stays_timedout)
  */
 BOOST_AUTO_TEST_CASE(t_late_cancel_after_wait_returns)
 {
-    auto waiter = sync::CoWaiter::Create();
+    auto waiter = std::make_shared<ProbeWaiter>();
 
     bbt::core::thread::CountDownLatch first_done{1}, second_done{1}, done{1};
     std::atomic<Coroutine*> co_p{nullptr};
@@ -311,7 +312,7 @@ BOOST_AUTO_TEST_CASE(t_late_cancel_after_wait_returns)
     /**
      * 第一轮：挂起中被正常 Notify 完成
      */
-    BOOST_REQUIRE(WaitUntil([&]() { return CoroutineSuspended(co_p); }));
+    BOOST_REQUIRE(WaitUntil([&]() { return waiter->Ready(); }));
     BOOST_CHECK_EQUAL(waiter->Notify(), 0);
     first_done.Wait();
     BOOST_CHECK(st1.load() == WaitStatus::Completed);
@@ -319,7 +320,7 @@ BOOST_AUTO_TEST_CASE(t_late_cancel_after_wait_returns)
     /**
      * 第二轮同样由 Notify 完成
      */
-    BOOST_REQUIRE(WaitUntil([&]() { return CoroutineSuspended(co_p); }));
+    BOOST_REQUIRE(WaitUntil([&]() { return waiter->Ready(); }));
     BOOST_CHECK_EQUAL(waiter->Notify(), 0);
     second_done.Wait();
     BOOST_CHECK(st2.load() == WaitStatus::Completed);
@@ -350,7 +351,7 @@ BOOST_AUTO_TEST_CASE(t_legacy_waiter_behavior_unchanged)
      * 正常唤醒：Notify → 全 0
      */
     for (int i = 0; i < 4; ++i) {
-        auto waiter = sync::CoWaiter::Create();
+        auto waiter = std::make_shared<ProbeWaiter>();
         bbt::core::thread::CountDownLatch done{1};
         std::atomic<Coroutine*> co_p{nullptr};
         std::atomic<int> ret{-99};
@@ -376,7 +377,7 @@ BOOST_AUTO_TEST_CASE(t_legacy_waiter_behavior_unchanged)
             ret.store(r);
             done.Down();
         };
-        BOOST_REQUIRE(WaitUntil([&]() { return CoroutineSuspended(co_p); }));
+        BOOST_REQUIRE(WaitUntil([&]() { return waiter->Ready(); }));
         BOOST_CHECK_EQUAL(waiter->Notify(), 0);
         done.Wait();
         BOOST_CHECK_EQUAL(ret.load(), on_notify[i]);
@@ -386,7 +387,7 @@ BOOST_AUTO_TEST_CASE(t_legacy_waiter_behavior_unchanged)
      * 真超时：超时族 → 1
      */
     for (int i = 2; i < 4; ++i) {
-        auto waiter = sync::CoWaiter::Create();
+        auto waiter = std::make_shared<ProbeWaiter>();
         bbt::core::thread::CountDownLatch done{1};
         std::atomic<int> ret{-99};
 
@@ -408,7 +409,7 @@ BOOST_AUTO_TEST_CASE(t_legacy_waiter_behavior_unchanged)
      * 协程级取消：Wait 族 → 0，超时族 → 1（与借用超时位时期一致）
      */
     for (int i = 0; i < 4; ++i) {
-        auto waiter = sync::CoWaiter::Create();
+        auto waiter = std::make_shared<ProbeWaiter>();
         bbt::core::thread::CountDownLatch done{1};
         std::atomic<Coroutine*> co_p{nullptr};
         std::atomic<int> ret{-99};
@@ -434,7 +435,7 @@ BOOST_AUTO_TEST_CASE(t_legacy_waiter_behavior_unchanged)
             ret.store(r);
             done.Down();
         };
-        BOOST_REQUIRE(WaitUntil([&]() { return CoroutineSuspended(co_p); }));
+        BOOST_REQUIRE(WaitUntil([&]() { return waiter->Ready(); }));
         co_p.load()->RequestCancel();
         done.Wait();
         BOOST_CHECK_EQUAL(ret.load(), on_cancel[i]);
@@ -452,7 +453,7 @@ BOOST_AUTO_TEST_CASE(t_cancel_distinct_from_completed)
      * (a) 挂起中协程级取消 → Cancelled，掩码为 CANCELLED
      */
     {
-        auto waiter = sync::CoWaiter::Create();
+        auto waiter = std::make_shared<ProbeWaiter>();
         WaitOptions opt;
 
         bbt::core::thread::CountDownLatch done{1};
@@ -467,7 +468,7 @@ BOOST_AUTO_TEST_CASE(t_cancel_distinct_from_completed)
             mask.store(g_bbt_tls_coroutine_co->GetLastResumeEvent());
             done.Down();
         };
-        BOOST_REQUIRE(WaitUntil([&]() { return CoroutineSuspended(co_p); }));
+        BOOST_REQUIRE(WaitUntil([&]() { return waiter->Ready(); }));
         co_p.load()->RequestCancel();
         done.Wait();
         BOOST_CHECK(st.load() == WaitStatus::Cancelled);
@@ -480,7 +481,7 @@ BOOST_AUTO_TEST_CASE(t_cancel_distinct_from_completed)
      * (b) 同一形态等待由 Notify 完成 → Completed，掩码为 CUSTOM
      */
     {
-        auto waiter = sync::CoWaiter::Create();
+        auto waiter = std::make_shared<ProbeWaiter>();
         WaitOptions opt;
 
         bbt::core::thread::CountDownLatch done{1};
@@ -495,7 +496,7 @@ BOOST_AUTO_TEST_CASE(t_cancel_distinct_from_completed)
             mask.store(g_bbt_tls_coroutine_co->GetLastResumeEvent());
             done.Down();
         };
-        BOOST_REQUIRE(WaitUntil([&]() { return CoroutineSuspended(co_p); }));
+        BOOST_REQUIRE(WaitUntil([&]() { return waiter->Ready(); }));
         BOOST_CHECK_EQUAL(waiter->Notify(), 0);
         done.Wait();
         BOOST_CHECK(st.load() == WaitStatus::Completed);
@@ -509,7 +510,7 @@ BOOST_AUTO_TEST_CASE(t_cancel_distinct_from_completed)
  */
 BOOST_AUTO_TEST_CASE(t_narrow_wait_rejections)
 {
-    auto waiter = sync::CoWaiter::Create();
+    auto waiter = std::make_shared<ProbeWaiter>();
     bbt::core::thread::CountDownLatch done{1};
     std::atomic<Coroutine*> co_p{nullptr};
     std::atomic<WaitStatus> st_a{}, st_b{}, st_expired{};
@@ -520,7 +521,7 @@ BOOST_AUTO_TEST_CASE(t_narrow_wait_rejections)
         st_a.store(waiter->Wait(WaitOptions{}));
         done.Down();
     };
-    BOOST_REQUIRE(WaitUntil([&]() { return CoroutineSuspended(co_p); }));
+    BOOST_REQUIRE(WaitUntil([&]() { return waiter->Ready(); }));
 
     /**
      * 并发第二个等待者 → AlreadyWaiting

@@ -49,7 +49,7 @@ namespace bbt::coroutine::pool {
 class CoPool : boost::noncopyable {
 public:
     /**
-     * @brief 创建池并注册 max_co 个 work 协程 + 1 个 monitor；须在 runtime 初始化后调用，max_co 须 > 0（断言）。
+     * @brief 创建池并注册 max_co 个 work 协程；须在 runtime 初始化后调用，max_co 须 > 0（断言）。
      * @return 池的共享 owner；无可用 worker 抛 std::runtime_error，栈申请失败抛 length_error/bad_alloc。
      */
     static std::shared_ptr<CoPool> Create(int max_co);
@@ -57,7 +57,7 @@ public:
     /**
      * @brief 创建尺寸路由池。
      * @throw std::invalid_argument 空类列表、0 worker/队列容量、规范化后重复的类
-     * @throw std::runtime_error 类或 monitor 的 worker 栈超出当前 StackPool 预算，
+     * @throw std::runtime_error 类 worker 栈超出当前 StackPool 预算，
      *        或 worker 创建失败；已创建的 worker 全部回收后才抛出，不留半成品池
      */
     static std::shared_ptr<CoPool> Create(const CoPoolOptions& options);
@@ -129,7 +129,7 @@ public:
 
 protected:
     /**
-     * 注册 m_max_co_num 个 work 协程和一个 monitor 协程；只在构造时调用一次
+     * 注册 m_max_co_num 个 work 协程；只在构造时调用一次
      */
     void _Start();
 
@@ -139,9 +139,12 @@ protected:
     void _WorkCo();
 
     /**
-     * 监控协程主循环：每 1ms 检查队列并补唤醒漏掉通知的 work 协程
+     * 等待默认队列的持久 signal；sequence 负责覆盖 waiter 登记前的入队窗口
      */
-    void _MonitorCo();
+    struct WaitSignal;
+    void _WaitForWork(WaitSignal& signal, uint64_t observed_sequence);
+    void _NotifyOne(WaitSignal& signal) noexcept;
+    void _NotifyAll(WaitSignal& signal) noexcept;
 
 private:
     /**
@@ -155,10 +158,9 @@ private:
     void _WorkCoRoute(ClassState& state);
 
     /**
-     * 两种模式共用的 worker/monitor 登记与退出记账；失败时回退 created 计数
+     * 两种模式共用的 worker 登记与退出记账；失败时回退 created 计数
      */
     void _StartWorker(StackRequest request, ClassState* state, const char* desc);
-    void _StartMonitor(StackRequest request, const char* desc);
 
     /**
      * 尺寸路由模式的构造期创建：先校验/容量查询，再逐个建 worker，失败自回收
@@ -170,8 +172,10 @@ private:
      */
     void _AbortStart() noexcept;
 
+    void _Seal() noexcept;
+
     /**
-     * 封口后等待已登记 worker/monitor 真实退出；Co 与 native 域都可调用
+     * 封口后等待已登记 worker 真实退出；Co 与 native 域都可调用
      */
     void _WaitWorkersExit();
 
@@ -181,6 +185,7 @@ private:
     bool _IsInPoolWorker() const;
     void _RecordWorkerId();
     ClassState* _FindClass(StackRequest request) const;
+    bool _EnqueueDefault(class Work* work);
     CoPoolSubmitStatus _Enqueue(ClassState& state, class Work* work);
 
     /**
@@ -204,7 +209,7 @@ private:
     void _HandleWorkerException(const std::exception_ptr& eptr) noexcept;
 
     /**
-     * Release 置 false 后，work/monitor 协程在下一轮循环条件处退出
+     * Release 置 false 后，worker 协程在下一轮循环条件处退出
      */
     std::atomic_bool m_is_running{true};
     const int m_max_co_num{0};
@@ -215,15 +220,19 @@ private:
     moodycamel::ConcurrentQueue<Work*> m_works_queue;
 
     /**
+     * 默认提交的检查与入队必须和封口串行；通知、排空与任务析构都在锁外。
+     */
+    std::mutex m_work_queue_mutex;
+
+    /**
      * 非空表示尺寸路由模式；兼容模式保持单队列语义
      */
     std::vector<std::unique_ptr<ClassState>> m_classes;
 
     /**
-     * work 协程无任务时的等待点；入队方 NotifyOne 唤醒一个
+     * 默认队列的持久唤醒信号；sequence 覆盖 waiter 登记前的入队窗口。
      */
-    std::shared_ptr<sync::CoCond> m_cond{nullptr};
-    std::mutex m_cond_mtx;
+    std::unique_ptr<WaitSignal> m_work_signal;
 
     /**
      * worker 从登记到退出的账目：Release 必须等到每个已登记 worker 真实离开，

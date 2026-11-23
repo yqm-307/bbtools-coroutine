@@ -90,6 +90,11 @@ public:
      * 完成），PENDING（触发已先胜）→TRIGGERING 就地完成并返回 true。
      */
     int Trigger(short trigger_events);
+
+    /**
+     * @brief 同步原语锁内竞争 CUSTOM 首胜，已挂起的胜者由通知 guard 在锁外完成。
+     */
+    int TriggerCustom();
     int Regist();
     int UnRegist();
     bool CommitPark();
@@ -164,6 +169,10 @@ protected:
     static CoPollEventId _GenerateId();
 
 private:
+    friend class DriverWakeDeferral;
+    int _Trigger(short trigger_events, bool defer_completion);
+    void _FinishTrigger(short trigger_events) noexcept;
+
     CoroutineId m_co_id{0};
     std::shared_ptr<bbt::pollevent::Event> m_event{nullptr};
     int m_fd{-1};
@@ -175,6 +184,11 @@ private:
 
     CoPollEventCallback m_onevent_callback{nullptr};
     std::atomic<uint64_t> m_state{PackCoPollEventState(CoPollEventPhase::INITED)};
+
+    /**
+     * 仅由赢得 PARKED → TRIGGERING 的线程串入锁外完成队列。
+     */
+    SPtr m_next_completion;
 
     /**
      * fd → 活跃等待事件注册表 + fd 代际

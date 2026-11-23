@@ -3,6 +3,7 @@
  * @brief 协程互斥锁：抢不到锁的协程挂起，不占住 worker 线程。
  */
 #pragma once
+#include <variant>
 #include <bbt/coroutine/detail/Define.hpp>
 #include <bbt/coroutine/detail/Coroutine.hpp>
 #include <bbt/coroutine/sync/CoWaiter.hpp>
@@ -76,9 +77,10 @@ protected:
 
 private:
     /**
-     * 等待者按入队顺序排队；被置空的槽位是等待装配失败回滚的 tombstone，_NotifyOne 跳过。
+     * 无限和定时等待共用 FIFO；装配失败留空槽，由 _NotifyOne 跳过。
      */
-    std::queue<std::shared_ptr<detail::CoPollEvent>> m_wait_event_queue;
+    using WaitEntry = std::variant<std::shared_ptr<detail::CoPollEvent>, std::shared_ptr<detail::WaitNode>>;
+    std::queue<WaitEntry> m_wait_event_queue;
 
     /**
      * 当前持锁协程，只用于同协程重复加锁的死锁断言，不参与所有权判定。

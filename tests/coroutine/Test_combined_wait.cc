@@ -5,7 +5,7 @@
  * 覆盖：FD 首胜（READ/WRITE）、Notify 首胜、timeout 首胜、
  * RequestCancel/令牌取消、park 前 Notify 防丢、无效 fd/options、
  * 重复等待（等待位占用/复用）、Stop parked 回收（复用既有 Stop 契约）。
- * 确定性手段与 Test_cowaiter_outcome 一致：以 CO_SUSPEND 为屏障，
+ * 确定性手段与 Test_cowaiter_outcome 一致：以受锁保护的等待槽为屏障，
  * 禁止 sleep 凑时序。
  */
 
@@ -96,11 +96,13 @@ struct ConfigSnapshot {
 
 std::atomic_bool g_started{false};
 
-bool CoroutineSuspended(const std::atomic<Coroutine*>& co)
-{
-    auto* p = co.load();
-    return p != nullptr && p->GetStatus() == CoroutineStatus::CO_SUSPEND;
-}
+struct ProbeWaiter : sync::CoWaiter {
+    bool Ready()
+    {
+        std::lock_guard<std::mutex> lock(m_notify_mutex);
+        return m_co_event != nullptr || m_wait_node != nullptr;
+    }
+};
 
 bool NotifyUntilSuccess(const sync::CoWaiter::SPtr& waiter, int budget_ms = 10000)
 {
@@ -165,7 +167,7 @@ BOOST_AUTO_TEST_CASE(t_begin)
  */
 BOOST_AUTO_TEST_CASE(t_fd_readable_first_win)
 {
-    auto waiter = sync::CoWaiter::Create();
+    auto waiter = std::make_shared<ProbeWaiter>();
     PipeFds pipe = MakePipe();
     bbt::core::thread::CountDownLatch done{1};
     std::atomic<sync::CombinedWaitStatus> st{};
@@ -183,7 +185,7 @@ BOOST_AUTO_TEST_CASE(t_fd_readable_first_win)
         mask.store(g_bbt_tls_coroutine_co->GetLastResumeEvent());
         done.Down();
     };
-    BOOST_REQUIRE(WaitUntil([&]() { return CoroutineSuspended(co_p); }));
+    BOOST_REQUIRE(WaitUntil([&]() { return waiter->Ready(); }));
 
     BOOST_CHECK_EQUAL(::write(pipe.write, "x", 1), 1);
     done.Wait();
@@ -204,7 +206,7 @@ BOOST_AUTO_TEST_CASE(t_fd_writeable_first_win)
     int fds[2] = {-1, -1};
     BOOST_REQUIRE_EQUAL(pipe(fds), 0);
     fcntl(fds[1], F_SETFL, O_NONBLOCK);
-    auto waiter = sync::CoWaiter::Create();
+    auto waiter = std::make_shared<ProbeWaiter>();
     bbt::core::thread::CountDownLatch done{1};
     std::atomic<sync::CombinedWaitStatus> st{};
     std::atomic<int> mask{-1};
@@ -221,7 +223,7 @@ BOOST_AUTO_TEST_CASE(t_fd_writeable_first_win)
         mask.store(g_bbt_tls_coroutine_co->GetLastResumeEvent());
         done.Down();
     };
-    BOOST_REQUIRE(WaitUntil([&]() { return CoroutineSuspended(co_p); }));
+    BOOST_REQUIRE(WaitUntil([&]() { return waiter->Ready(); }));
     done.Wait();
     ::close(fds[0]);
     ::close(fds[1]);
@@ -240,7 +242,7 @@ BOOST_AUTO_TEST_CASE(t_fd_writeable_first_win)
  */
 BOOST_AUTO_TEST_CASE(t_notify_first_win)
 {
-    auto waiter = sync::CoWaiter::Create();
+    auto waiter = std::make_shared<ProbeWaiter>();
     PipeFds pipe = MakePipe();
     bbt::core::thread::CountDownLatch done{1};
     std::atomic<sync::CombinedWaitStatus> st{};
@@ -256,7 +258,7 @@ BOOST_AUTO_TEST_CASE(t_notify_first_win)
         st.store(waiter->Wait(opt));
         done.Down();
     };
-    BOOST_REQUIRE(WaitUntil([&]() { return CoroutineSuspended(co_p); }));
+    BOOST_REQUIRE(WaitUntil([&]() { return waiter->Ready(); }));
     BOOST_CHECK_EQUAL(waiter->Notify(), 0);
     done.Wait();
     ClosePipe(pipe);
@@ -268,7 +270,7 @@ BOOST_AUTO_TEST_CASE(t_notify_first_win)
  */
 BOOST_AUTO_TEST_CASE(t_timeout_first_win)
 {
-    auto waiter = sync::CoWaiter::Create();
+    auto waiter = std::make_shared<ProbeWaiter>();
     PipeFds pipe = MakePipe();
     bbt::core::thread::CountDownLatch done{1};
     std::atomic<sync::CombinedWaitStatus> st{};
@@ -296,7 +298,7 @@ BOOST_AUTO_TEST_CASE(t_timeout_first_win)
  */
 BOOST_AUTO_TEST_CASE(t_request_cancel_first_win)
 {
-    auto waiter = sync::CoWaiter::Create();
+    auto waiter = std::make_shared<ProbeWaiter>();
     PipeFds pipe = MakePipe();
     bbt::core::thread::CountDownLatch done{1};
     std::atomic<sync::CombinedWaitStatus> st{};
@@ -312,7 +314,7 @@ BOOST_AUTO_TEST_CASE(t_request_cancel_first_win)
         st.store(waiter->Wait(opt));
         done.Down();
     };
-    BOOST_REQUIRE(WaitUntil([&]() { return CoroutineSuspended(co_p); }));
+    BOOST_REQUIRE(WaitUntil([&]() { return waiter->Ready(); }));
     co_p.load()->RequestCancel();
     done.Wait();
     ClosePipe(pipe);
@@ -330,7 +332,7 @@ BOOST_AUTO_TEST_CASE(t_cancel_first_win)
      * (a) 挂起中取消
      */
     {
-        auto waiter = sync::CoWaiter::Create();
+        auto waiter = std::make_shared<ProbeWaiter>();
         PipeFds pipe = MakePipe();
         bbt::core::thread::CountDownLatch done{1};
         std::atomic<sync::CombinedWaitStatus> st{};
@@ -346,7 +348,7 @@ BOOST_AUTO_TEST_CASE(t_cancel_first_win)
             st.store(waiter->Wait(opt));
             done.Down();
         };
-        BOOST_REQUIRE(WaitUntil([&]() { return CoroutineSuspended(co_p); }));
+        BOOST_REQUIRE(WaitUntil([&]() { return waiter->Ready(); }));
         co_p.load()->RequestCancel();
         done.Wait();
         ClosePipe(pipe);
@@ -357,7 +359,7 @@ BOOST_AUTO_TEST_CASE(t_cancel_first_win)
      * (b) 入口已取消：立即返回，不发生挂起
      */
     {
-        auto waiter = sync::CoWaiter::Create();
+        auto waiter = std::make_shared<ProbeWaiter>();
         PipeFds pipe = MakePipe();
         bbt::core::thread::CountDownLatch done{1};
         std::atomic<sync::CombinedWaitStatus> st{};
@@ -385,7 +387,7 @@ BOOST_AUTO_TEST_CASE(t_cancel_first_win)
 BOOST_AUTO_TEST_CASE(t_notify_before_park_no_lost_wakeup)
 {
     for (int i = 0; i < 100; ++i) {
-        auto waiter = sync::CoWaiter::Create();
+        auto waiter = std::make_shared<ProbeWaiter>();
         bbt::core::thread::CountDownLatch done{1};
         std::atomic<sync::CombinedWaitStatus> st{};
 
@@ -407,7 +409,7 @@ BOOST_AUTO_TEST_CASE(t_notify_before_park_no_lost_wakeup)
  */
 static sync::CombinedWaitStatus waiter_bad_probe(const sync::CombinedWaitOptions& opt)
 {
-    auto waiter = sync::CoWaiter::Create();
+    auto waiter = std::make_shared<ProbeWaiter>();
     return waiter->Wait(opt);
 }
 
@@ -440,7 +442,7 @@ BOOST_AUTO_TEST_CASE(t_invalid_options_rejected)
  */
 BOOST_AUTO_TEST_CASE(t_read_write_interest_combined)
 {
-    auto waiter = sync::CoWaiter::Create();
+    auto waiter = std::make_shared<ProbeWaiter>();
     PipeFds pipe = MakePipe();
     bbt::core::thread::CountDownLatch done{1};
     std::atomic<sync::CombinedWaitStatus> st{};
@@ -457,7 +459,7 @@ BOOST_AUTO_TEST_CASE(t_read_write_interest_combined)
         st.store(waiter->Wait(opt));
         done.Down();
     };
-    BOOST_REQUIRE(WaitUntil([&]() { return CoroutineSuspended(co_p); }));
+    BOOST_REQUIRE(WaitUntil([&]() { return waiter->Ready(); }));
     BOOST_REQUIRE_EQUAL(::write(pipe.write, "x", 1), 1);
     BOOST_REQUIRE_EQUAL(done.WaitTimeout(5000), 0);
     ClosePipe(pipe);
@@ -469,7 +471,7 @@ BOOST_AUTO_TEST_CASE(t_read_write_interest_combined)
  */
 BOOST_AUTO_TEST_CASE(t_repeated_wait_slot_reuse)
 {
-    auto waiter = sync::CoWaiter::Create();
+    auto waiter = std::make_shared<ProbeWaiter>();
     bbt::core::thread::CountDownLatch first_done{1}, second_done{1}, third_done{1};
     std::atomic<sync::CombinedWaitStatus> st1{}, st2{}, st3{};
     std::atomic<Coroutine*> first_co{nullptr}, third_co{nullptr};
@@ -484,7 +486,7 @@ BOOST_AUTO_TEST_CASE(t_repeated_wait_slot_reuse)
         first_done.Down();
     };
 
-    BOOST_REQUIRE(WaitUntil([&]() { return CoroutineSuspended(first_co); }));
+    BOOST_REQUIRE(WaitUntil([&]() { return waiter->Ready(); }));
 
     /**
      * 第一个等待者仍占用事件槽时，另一协程必须立即得到 AlreadyWaiting。
@@ -509,7 +511,7 @@ BOOST_AUTO_TEST_CASE(t_repeated_wait_slot_reuse)
         st3.store(waiter->Wait(sync::CombinedWaitOptions{}));
         third_done.Down();
     };
-    BOOST_REQUIRE(WaitUntil([&]() { return CoroutineSuspended(third_co); }));
+    BOOST_REQUIRE(WaitUntil([&]() { return waiter->Ready(); }));
     BOOST_CHECK_EQUAL(waiter->Notify(), 0);
     BOOST_REQUIRE_EQUAL(third_done.WaitTimeout(5000), 0);
     BOOST_CHECK(st3.load() == sync::CombinedWaitStatus::Completed);

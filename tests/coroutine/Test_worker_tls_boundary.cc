@@ -25,13 +25,14 @@
  *  - 支持多 worker 并行，单个协程同一时刻只能在一个 worker 上运行；
  *  - 协程挂起后允许恢复到其他 worker（"允许"，不是"必须"）。
  *
- * 因此本文件把断言分成两类，避免把契约没承诺的行为写成硬要求：
- *  1. 硬不变量（无论是否迁移都必须成立）：运行时 TLS 在每次 Resume 后指向协程自身、
- *     协程 ID 跨挂起稳定、同一协程不并发运行。
- *  2. 观测型存活断言（当前实现的行为，注释里标明上限）：事件完成后恢复确实会发生
- *     跨 worker 迁移，且用户 thread_local 是 worker 作用域而非协程作用域。这两条用于
- *     保证"迁移路径"和"用户 TLS 边界"被真正执行到；若将来实现改为固定 worker 亲和，
- *     需要按契约重新评估这两条，而不是直接改契约。
+ * 因此本文件只写契约承诺的硬不变量：
+ *  1. 运行时 TLS 在每次 Resume 后指向协程自身、协程 ID 跨挂起稳定；
+ *  2. 同一协程不并发运行（采样型探测）；
+ *  3. 用户 thread_local 是 worker 作用域而非协程作用域。
+ *
+ * 唤醒后落到哪个 worker 由调度竞争决定，契约只承诺"允许迁移"、不保证迁移，
+ * 因此本文件不以迁移次数作断言；确定性的跨 worker 迁移覆盖由
+ * Test_processer_driver 的 steal_migrate 场景承接。
  *
  * 用户 TLS 边界（本文件要固定下来的结论）：
  *  - 运行时 TLS（g_bbt_tls_processer / g_bbt_tls_coroutine_co）由运行时在每次 Resume
@@ -69,21 +70,13 @@ constexpr int kYieldIterations = 32;
 constexpr int kYieldTimeoutMs = 10000;
 
 /**
- * 40 轮：迁移是竞争结果（探针阶段 24 轮观测 14~20 次，本文件修复后 12 次复跑观测
- * 25~35 次），把"整段一次迁移都没有"的概率压到可忽略。
+ * 40 轮反复挂起/外部唤醒，覆盖唤醒路径与每次 Resume 的 TLS 不变量；不依赖迁移发生。
  */
 constexpr int kEventRounds = 40;
 constexpr int kEventWaitTimeoutMs = 2000;
 
 /**
- * park 后先让该 worker 有机会空闲：经验上这样唤醒后的协程更常被另一个 worker 取走
- * （本地 40 轮观测 25~35 次跨 worker 恢复）。该参数只影响迁移出现频率，
- * 不影响任何硬不变量断言。
- */
-constexpr int kParkIdleMs = 5;
-
-/**
- * Notify 在 COND_WAIT 未发布时返回 -1，被抢占的 worker 可能超过 kParkIdleMs；
+ * Notify 在 COND_WAIT 未发布时返回 -1，被抢占的 worker 可能需较长时间才发布；
  * 有界重试，避免把调度延迟误报成运行时等待缺陷。
  */
 constexpr int kNotifyRetryLimit = 500;
@@ -122,7 +115,6 @@ ProcesserId LocalWorkerId()
 
 struct EventStats {
     std::atomic<uint64_t> rounds{0};
-    std::atomic<uint64_t> migrated{0};
     std::atomic<uint64_t> tls_bad{0};
     std::atomic<uint64_t> wait_failed{0};
     std::atomic<uint64_t> resume_timeout{0};
@@ -136,8 +128,6 @@ struct EventStats {
 struct EventRoundState {
     bbt::core::thread::CountDownLatch parked{1};
     bbt::core::thread::CountDownLatch resumed{1};
-    std::atomic<ProcesserId> parked_worker{0};
-    std::atomic<ProcesserId> resume_worker{0};
     std::atomic<int> wait_ret{99};
     std::atomic<uint64_t> tls_bad{0};
 };
@@ -283,8 +273,8 @@ BOOST_AUTO_TEST_CASE(t_runtime_tls_stable_across_yields)
 
     /**
      * 参与调度的 worker 数：这里只作健壮性下界（>=1）。
-     * 真正的跨 worker 覆盖由事件阶段的 migrated > 0 提供——yield 阶段是否发生迁移
-     * 由调度竞争决定（修复后 12 次复跑观测 0~8/128），不适合写成硬断言。
+     * yield 阶段是否发生迁移由调度竞争决定，不适合写成硬断言；确定性的跨 worker
+     * 迁移覆盖由 Test_processer_driver 的 steal_migrate 场景承接。
      */
     size_t participating_workers = 0;
     {
@@ -308,15 +298,13 @@ BOOST_AUTO_TEST_CASE(t_runtime_tls_stable_across_yields)
 
 /**
  * 事件完成路径：协程在 worker 上 park，被外部线程唤醒后可能在其他 worker 上恢复。
- * 每次恢复仍然必须满足运行时 TLS 不变量，并且至少观察到一次跨 worker 恢复。
+ * 每次恢复仍然必须满足运行时 TLS 不变量；迁移不是契约承诺，本用例只断言唤醒成功
+ * 与硬不变量，不断言迁移次数。
  *
- * 时序约束（两条都来自实现事实，不能省）：
- *  1. CoWaiter::Notify() 在 m_run_status 尚未进入 COND_WAIT 时返回 -1 并丢弃唤醒
- *     （CoWaiter.cc Notify 的 m_co_event/m_run_status 判据），而 COND_WAIT 是在协程
- *     进入 WaitWithTimeout 后才发布。因此固定 sleep 不足以覆盖被抢占的 worker，
- *     这里用有界重试 + Notify 返回值断言，避免把调度延迟误报成运行时等待缺陷。
- *  2. 先让 park 所在 worker 有机会进入空闲；经验上这提高"唤醒后被另一个 worker
- *     从全局队列取走"的比例（本地观测 25~35/40），本文件的跨 worker 覆盖依赖它。
+ * 时序约束（来自实现事实，不能省）：CoWaiter::Notify() 在 m_run_status 尚未进入
+ * COND_WAIT 时返回 -1 并丢弃唤醒（CoWaiter.cc Notify 的 m_co_event/m_run_status
+ * 判据），而 COND_WAIT 是在协程进入 WaitWithTimeout 后才发布。因此这里用有界重试
+ * + Notify 返回值断言，避免把调度延迟误报成运行时等待缺陷。
  *
  * 轮次状态用 shared_ptr 持有并被协程按值捕获：即使某一轮在等待超时后才恢复，
  * 协程访问的仍是有效对象，不会出现悬垂引用。
@@ -334,7 +322,6 @@ BOOST_AUTO_TEST_CASE(t_runtime_tls_stable_after_event_wake)
         bbtco[state, waiter]()
         {
             const CoroutineId self = GetLocalCoroutineId();
-            state->parked_worker.store(LocalWorkerId());
             state->parked.Down();
             state->wait_ret.store(waiter->WaitWithTimeout(kEventWaitTimeoutMs));
 
@@ -348,7 +335,6 @@ BOOST_AUTO_TEST_CASE(t_runtime_tls_stable_after_event_wake)
                 || cur->GetStatus() != CoroutineStatus::CO_RUNNING || worker == 0) {
                 state->tls_bad.fetch_add(1);
             }
-            state->resume_worker.store(worker);
             state->resumed.Down();
         };
 
@@ -356,8 +342,6 @@ BOOST_AUTO_TEST_CASE(t_runtime_tls_stable_after_event_wake)
             stats.coroutine_not_started.fetch_add(1);
             break;
         }
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(kParkIdleMs));
 
         int notify_ret = -1;
         for (int i = 0; i < kNotifyRetryLimit && (notify_ret = waiter->Notify()) != 0; ++i)
@@ -381,10 +365,6 @@ BOOST_AUTO_TEST_CASE(t_runtime_tls_stable_after_event_wake)
             stats.wait_failed.fetch_add(1);
         if (state->tls_bad.load() != 0)
             stats.tls_bad.fetch_add(1);
-        if (state->parked_worker.load() != 0 && state->resume_worker.load() != 0
-            && state->parked_worker.load() != state->resume_worker.load()) {
-            stats.migrated.fetch_add(1);
-        }
         stats.rounds.fetch_add(1);
     }
 
@@ -395,17 +375,7 @@ BOOST_AUTO_TEST_CASE(t_runtime_tls_stable_after_event_wake)
     BOOST_CHECK_EQUAL(stats.tls_bad.load(), 0u);
     BOOST_CHECK_EQUAL(stats.rounds.load(), static_cast<uint64_t>(kEventRounds));
 
-    /**
-     * 观测型断言（上限已注明）：当前实现把唤醒后的协程放回全局队列，由任意 worker
-     * 取走，因此事件完成后跨 worker 恢复是常态行为。本条要求"至少观测到一次"，
-     * 用于保证迁移路径被真正执行；契约只要求"允许恢复其他 worker"，
-     * 若将来改为固定 worker 亲和，应调整本条而不是改契约。
-     */
-    BOOST_CHECK_MESSAGE(stats.migrated.load() > 0, "未观测到事件完成后跨 worker 恢复；跨 worker 迁移路径未被覆盖");
-
-    BOOST_TEST_MESSAGE("事件唤醒阶段：rounds=" << stats.rounds.load() << " migrated=" << stats.migrated.load()
-                                               << " (跨 worker 恢复占比 " << stats.migrated.load() << "/"
-                                               << kEventRounds << ")");
+    BOOST_TEST_MESSAGE("事件唤醒阶段：rounds=" << stats.rounds.load() << "（唤醒成功与 TLS/状态不变量已逐轮校验）");
 }
 
 BOOST_AUTO_TEST_CASE(t_end)

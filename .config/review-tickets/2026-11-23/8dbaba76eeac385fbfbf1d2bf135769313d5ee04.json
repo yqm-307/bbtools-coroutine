@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-23",
+  "commit": "8dbaba76eeac385fbfbf1d2bf135769313d5ee04",
+  "base": "af406093435c53696708346f53800eb4f54fb642",
+  "result": "pass",
+  "reviewer": "独立审查 deleg_2da03156、deleg_01b65e83，Alice 据原报告登记",
+  "summary": "首轮审查发现的测试头兼容与安装清单两项阻塞均已修复，独立复审通过。交付者另行验证 Release 和 TSAN 各 8 项冒烟与 8 项定向测试，以及新增头文件的安装、编译和卸载。完整安装后编译遇到 main 基线同样复现的 __TResult.hpp 缺失。",
+  "checks": [
+    {
+      "id": "llm-review",
+      "kind": "attested",
+      "status": "pass",
+      "summary": "首轮核对统一的 TSAN 特性检测及运行时守卫，复审核对 fd 测试调用分流与新增头文件安装卸载对称性，确认两项阻塞均关闭。审查仅覆盖静态差异，构建和测试由交付者执行。",
+      "evidence": {
+        "reviewer": "deleg_2da03156 / sa-0-d5ba046b；deleg_01b65e83 / sa-0-56e9a4ad",
+        "scope": "af406093435c53696708346f53800eb4f54fb642..8dbaba76eeac385fbfbf1d2bf135769313d5ee04。最终八文件与 wait-wake-gcc13-final.OEcwh0/source.sha256 逐一匹配。"
+      }
+    }
+  ]
+}
