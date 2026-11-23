@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-23",
+  "commit": "62b930748da1608e09dca2ad68928213c4883c3f",
+  "base": "bf3da1dc6faa2770abd243a64a607002be1851f1",
+  "result": "pass",
+  "reviewer": "独立审查 deleg_132458fc / sa-0-e8430732",
+  "summary": "修复事件 TLS 测试对非契约迁移结果的概率性断言，并把跨 worker 迁移后的 TLS 身份、协程 ID、运行状态和等待结果校验放入确定性 steal_migrate 场景。独立复核通过，Release 与 TSAN 定向验证各 2/2 通过。",
+  "checks": [
+    {
+      "id": "llm-review",
+      "kind": "attested",
+      "status": "pass",
+      "summary": "确认迁移覆盖未削弱，TLS 快照在线程内读取并通过原子值发布，测试线程不解引用已结束协程对象。",
+      "evidence": {
+        "reviewer": "deleg_132458fc / sa-0-e8430732",
+        "scope": "bf3da1dc6faa2770abd243a64a607002be1851f1..62b930748da1608e09dca2ad68928213c4883c3f，tests/coroutine/Test_worker_tls_boundary.cc 与 Test_processer_driver.cc。"
+      }
+    }
+  ]
+}
