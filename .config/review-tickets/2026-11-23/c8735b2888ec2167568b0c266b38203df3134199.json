@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-23",
+  "commit": "c8735b2888ec2167568b0c266b38203df3134199",
+  "base": "a7e84306ce2a002ab8719baf8dc96a00abee9f4d",
+  "result": "pass",
+  "reviewer": "GPT-6.2 Astra（既有独立审查与合并复核）",
+  "summary": "同步已合入 main 的 runtime 变更，保留 async 语法迁移，并解决 4 个测试文件的冲突。",
+  "checks": [
+    {
+      "id": "llm-review",
+      "kind": "attested",
+      "status": "pass",
+      "summary": "main 同步内容来自已合并 PR #442，原 async 变更已有独立审查；本次冲突文件已复核并通过 323/323 构建与 35/35 测试。",
+      "evidence": {
+        "reviewer": "GPT-6.2 Astra（PR #442 已合并；PR #443 原提交独立审查 deleg_483ffff9）",
+        "scope": "a7e84306ce2a002ab8719baf8dc96a00abee9f4d..c8735b2888ec2167568b0c266b38203df3134199"
+      }
+    }
+  ]
+}
