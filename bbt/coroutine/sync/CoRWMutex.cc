@@ -529,4 +529,4 @@ void CoRWMutex::_SysUnLock()
     m_mutex.unlock();
 }
 
-}
+} // namespace bbt::coroutine::sync

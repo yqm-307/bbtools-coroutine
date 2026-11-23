@@ -15,7 +15,7 @@ struct PendingWake {
 
 thread_local PendingWake tl_pending;
 
-}
+} // namespace
 
 DriverWakeDeferral*& DriverWakeDeferral::_TlsOutermost() noexcept
 {
@@ -85,4 +85,4 @@ DriverWakeDeferral::~DriverWakeDeferral() noexcept
         Scheduler::_WakeProcesserDrivers(pending.m_target);
 }
 
-}
+} // namespace bbt::coroutine::detail

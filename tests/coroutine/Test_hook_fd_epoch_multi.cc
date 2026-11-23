@@ -67,7 +67,7 @@ bool WaitLatch(bbt::core::thread::CountDownLatch& latch, int ms)
     return latch.WaitTimeout(0) == 0;
 }
 
-}
+} // namespace
 
 BOOST_AUTO_TEST_CASE(t_multi_worker_close_reuse_returns_ebadf)
 {
@@ -117,8 +117,8 @@ BOOST_AUTO_TEST_CASE(t_multi_worker_close_reuse_returns_ebadf)
     BOOST_REQUIRE_EQUAL(::fcntl(fds[0], F_SETFL, fl | O_NONBLOCK), 0);
     char probe = 0;
     const ssize_t got = ::read(fds[0], &probe, 1);
-    BOOST_CHECK_MESSAGE(got == 1 && probe == 'z',
-                        "reused-fd byte was consumed by stale coroutine read (got=" << got << ")");
+    BOOST_CHECK_MESSAGE(
+        got == 1 && probe == 'z', "reused-fd byte was consumed by stale coroutine read (got=" << got << ")");
     if (::fcntl(fds[0], F_GETFD) >= 0)
         FdEpochClose(fds[0]);
     FdEpochClose(fds[1]);

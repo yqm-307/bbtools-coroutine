@@ -63,6 +63,7 @@ struct RuntimeConfigSnapshot {
 class GlobalConfig {
 public:
     typedef std::unique_ptr<GlobalConfig> UPtr;
+
     static UPtr& GetInstance()
     {
 
@@ -249,4 +250,4 @@ private:
     void _CaptureSetup(RuntimeConfigSnapshot& out) const;
 };
 
-}
+} // namespace bbt::coroutine::detail

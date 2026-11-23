@@ -107,6 +107,7 @@ public:
 
     std::atomic_bool fail{false};
     std::atomic_int m_wakes{0};
+
     ProcesserDriverResult OnTick(ProcesserDriverPhase) override
     {
         if (m_gate)

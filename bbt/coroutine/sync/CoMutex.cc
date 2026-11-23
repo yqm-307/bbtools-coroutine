@@ -18,7 +18,7 @@ detail::Coroutine::Ptr CurrentCoroutine(const detail::Processer::SPtr& processer
     return processer ? processer->GetCurrentCoroutine() : nullptr;
 }
 
-}
+} // namespace
 
 CoMutex::SPtr CoMutex::Create()
 {
@@ -288,8 +288,9 @@ void CoMutex::_NotifyOne()
         if (const auto* node = std::get_if<std::shared_ptr<detail::WaitNode>>(&waiter)) {
             if (*node && (*node)->Trigger(detail::POLL_EVENT_CUSTOM) == 0)
                 break;
-        } else if (const auto& event = std::get<std::shared_ptr<detail::CoPollEvent>>(waiter);
-                   event && event->TriggerCustom() == 0) {
+        } else if (
+            const auto& event = std::get<std::shared_ptr<detail::CoPollEvent>>(waiter);
+            event && event->TriggerCustom() == 0) {
             break;
         }
     }
@@ -309,4 +310,4 @@ void CoMutex::_OnUnLocked()
     m_locked_co = nullptr;
 }
 
-}
+} // namespace bbt::coroutine::sync

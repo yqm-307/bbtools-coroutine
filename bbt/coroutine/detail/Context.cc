@@ -21,6 +21,7 @@ namespace bbt::coroutine::detail {
 namespace {
 std::atomic_bool s_failContext{false};
 }
+
 void Context::_TestFailNextCreate() noexcept
 {
     s_failContext.store(true);
@@ -91,8 +92,8 @@ void Context::_CoroutineMain(boost::context::detail::transfer_t transfer)
              * 日志带 co id：与 parked 现场串联定位是哪个协程。
              */
             const CoroutineId co_id = (co != nullptr) ? co->GetId() : BBT_COROUTINE_INVALID_COROUTINE_ID;
-            std::fprintf(stderr, "[bbtco] unhandled exception co=%u: %.200s\n", static_cast<unsigned>(co_id),
-                         what.c_str());
+            std::fprintf(
+                stderr, "[bbtco] unhandled exception co=%u: %.200s\n", static_cast<unsigned>(co_id), what.c_str());
             g_bbt_coroutine_config->m_unhandled_exception_count.fetch_add(1, std::memory_order_relaxed);
         }
     }
@@ -112,15 +113,17 @@ Context::Context(size_t stack_size, const CoroutineCallback& co_func, bool stack
 {
 }
 
-Context::Context(StackLease stack, const CoroutineCallback& co_func) : m_user_main(co_func), m_stack(std::move(stack))
+Context::Context(StackLease stack, const CoroutineCallback& co_func)
+    : m_user_main(co_func)
+    , m_stack(std::move(stack))
 {
     if (!m_user_main || !m_stack)
         throw std::runtime_error("coroutine context requires a callback and stack lease");
 #ifdef BBT_COROUTINE_STACK_TESTING
     if (!s_failContext.exchange(false))
 #endif
-        m_context = boost::context::detail::make_fcontext(m_stack->StackTop(), m_stack->UseableSize(),
-                                                          &Context::_CoroutineMain);
+        m_context = boost::context::detail::make_fcontext(
+            m_stack->StackTop(), m_stack->UseableSize(), &Context::_CoroutineMain);
     if (!m_context)
         throw std::runtime_error("make_fcontext failed");
 #ifdef BBT_TSAN_ENABLED
@@ -337,4 +340,4 @@ StackBudgetSample Context::GetStackBudgetSample() const noexcept
 }
 #endif
 
-}
+} // namespace bbt::coroutine::detail

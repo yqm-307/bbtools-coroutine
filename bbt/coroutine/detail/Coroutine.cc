@@ -39,7 +39,7 @@ int NormalizeTriggerEvent(short trigger_events)
     return ret;
 }
 
-}
+} // namespace
 
 /**
  * 单测故障注入标志（定义，声明见 Coroutine.hpp）
@@ -52,8 +52,8 @@ CoroutineId Coroutine::_GenCoroutineId()
     return (++_generate_id);
 }
 
-Coroutine::Ptr Coroutine::Create(size_t stack_size, const CoroutineCallback& co_func, bool need_protect,
-                                 const char* desc)
+Coroutine::Ptr
+Coroutine::Create(size_t stack_size, const CoroutineCallback& co_func, bool need_protect, const char* desc)
 {
     return Create(g_bbt_stackpoll->Acquire({stack_size, need_protect}), co_func, desc);
 }
@@ -76,22 +76,23 @@ Coroutine::Coroutine(size_t stack_size, const CoroutineCallback& co_func, bool n
 }
 
 Coroutine::Coroutine(StackLease stack, const CoroutineCallback& co_func)
-    : m_context(std::move(stack),
-                [=]() {
-                    try {
-                        co_func();
-                        m_yield_disposition = CoroutineYieldDisposition::FINAL;
-                        m_run_status = CoroutineStatus::CO_FINAL;
-                    } catch (...) {
+    : m_context(
+          std::move(stack),
+          [=]() {
+              try {
+                  co_func();
+                  m_yield_disposition = CoroutineYieldDisposition::FINAL;
+                  m_run_status = CoroutineStatus::CO_FINAL;
+              } catch (...) {
 
-                        /**
+                  /**
                          * 无 Processer TLS 时 Context 捕不到当前协程；失败必须进入终态。
                          */
-                        OnException();
-                        throw;
-                    }
-                }),
-      m_id(_GenCoroutineId())
+                  OnException();
+                  throw;
+              }
+          })
+    , m_id(_GenCoroutineId())
 {
     m_run_status = CoroutineStatus::CO_RUNNABLE;
 #ifdef BBT_COROUTINE_PROFILE
@@ -141,8 +142,8 @@ void Coroutine::Resume()
      */
 #ifdef BBT_COROUTINE_DEBUG_PRINT
     char resume_log[64];
-    std::snprintf(resume_log, sizeof(resume_log), "[Coroutine::Resume] co=%llu",
-                  static_cast<unsigned long long>(GetId()));
+    std::snprintf(
+        resume_log, sizeof(resume_log), "[Coroutine::Resume] co=%llu", static_cast<unsigned long long>(GetId()));
     g_bbt_dbgp_full(resume_log);
 #endif
     m_context.Resume();
@@ -176,8 +177,11 @@ int Coroutine::YieldWithCallback(const CoroutineOnYieldCallback& cb)
      */
 #ifdef BBT_COROUTINE_DEBUG_PRINT
     char yieldcb_log[80];
-    std::snprintf(yieldcb_log, sizeof(yieldcb_log), "[Coroutine::YieldWithCallback] co=%llu",
-                  static_cast<unsigned long long>(GetId()));
+    std::snprintf(
+        yieldcb_log,
+        sizeof(yieldcb_log),
+        "[Coroutine::YieldWithCallback] co=%llu",
+        static_cast<unsigned long long>(GetId()));
     g_bbt_dbgp_full(yieldcb_log);
 #endif
 
@@ -253,8 +257,11 @@ void Coroutine::YieldAndPushGCoQueue()
 #endif
 #ifdef BBT_COROUTINE_DEBUG_PRINT
     char yieldpush_log[80];
-    std::snprintf(yieldpush_log, sizeof(yieldpush_log), "[Coroutine::YieldAndPushGCoQueue] co=%llu",
-                  static_cast<unsigned long long>(GetId()));
+    std::snprintf(
+        yieldpush_log,
+        sizeof(yieldpush_log),
+        "[Coroutine::YieldAndPushGCoQueue] co=%llu",
+        static_cast<unsigned long long>(GetId()));
     g_bbt_dbgp_full(yieldpush_log);
 #endif
     m_context.Yield();
@@ -679,9 +686,14 @@ void Coroutine::OnCoPollEvent(int event, int custom_key)
      */
 #ifdef BBT_COROUTINE_DEBUG_PRINT
     char trigger_log[160];
-    std::snprintf(trigger_log, sizeof(trigger_log), "[CoEvent:Trigger] co=%llu trigger_event=%d id=%llu customkey=%d",
-                  static_cast<unsigned long long>(GetId()), static_cast<int>(event),
-                  static_cast<unsigned long long>(ev->GetId()), custom_key);
+    std::snprintf(
+        trigger_log,
+        sizeof(trigger_log),
+        "[CoEvent:Trigger] co=%llu trigger_event=%d id=%llu customkey=%d",
+        static_cast<unsigned long long>(GetId()),
+        static_cast<int>(event),
+        static_cast<unsigned long long>(ev->GetId()),
+        custom_key);
     g_bbt_dbgp_full(trigger_log);
 #endif
     _SetAwaitEvent(nullptr);
@@ -735,4 +747,4 @@ size_t Coroutine::GetStackSize() const noexcept
     return m_context.GetStackSize();
 }
 
-}
+} // namespace bbt::coroutine::detail

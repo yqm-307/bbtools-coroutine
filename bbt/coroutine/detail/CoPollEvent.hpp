@@ -65,6 +65,7 @@ public:
      * 内完成，故本类型不再自带锁。
      */
     void SetNotifyValue(const bbt::coroutine::CoEventValue& value) { m_notify_value = value; }
+
     bbt::coroutine::CoEventValue GetNotifyValue() const { return m_notify_value; }
 
     /**
@@ -205,6 +206,7 @@ private:
         bool closing{false};
         std::vector<std::weak_ptr<CoPollEvent>> waiters;
     };
+
     using FdSlots = std::unordered_map<int, FdSlot>;
 
     /**
@@ -242,4 +244,4 @@ private:
     uint64_t m_wait_epoch{0};
 };
 
-}
+} // namespace bbt::coroutine::detail

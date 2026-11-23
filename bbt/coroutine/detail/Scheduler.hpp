@@ -151,8 +151,11 @@ public:
     /**
      * @brief 精确尺寸/保护属性提交；Co 缓存未命中按 wait 等待维护流，失败不入队。
      */
-    void RegistCoroutineTask(StackRequest request, const CoroutineCallback& handle, const WaitOptions& wait = {},
-                             const char* desc = nullptr);
+    void RegistCoroutineTask(
+        StackRequest request,
+        const CoroutineCallback& handle,
+        const WaitOptions& wait = {},
+        const char* desc = nullptr);
 #ifdef BBT_COROUTINE_STACK_TESTING
     static void _TestFailNextSubmit() noexcept;
 
@@ -169,8 +172,8 @@ public:
      *  分配失败沿用 RegistCoroutineTask 既有异常
      */
     void RegistCoroutineTaskOn(ProcesserId target, const CoroutineCallback& handle, const char* desc = nullptr);
-    void RegistCoroutineTaskOn(ProcesserId target, size_t stack_size, const CoroutineCallback& handle,
-                               const char* desc = nullptr);
+    void RegistCoroutineTaskOn(
+        ProcesserId target, size_t stack_size, const CoroutineCallback& handle, const char* desc = nullptr);
 
     /**
      * ---- processer driver adapter（运行时契约，见 IProcesserDriver.hpp）----
@@ -178,8 +181,8 @@ public:
      * 结果可能过期，绑定/定向投递前须重新校验；未初始化或快照为空时返回空 vector。
      */
     std::vector<ProcesserId> GetWorkerProcesserIds();
-    ProcesserDriverStatus RegisterProcesserDriver(ProcesserId target, std::shared_ptr<IProcesserDriver> driver,
-                                                  ProcesserDriverToken& out_token);
+    ProcesserDriverStatus RegisterProcesserDriver(
+        ProcesserId target, std::shared_ptr<IProcesserDriver> driver, ProcesserDriverToken& out_token);
     ProcesserDriverStatus QueryProcesserDriver(ProcesserId target, ProcesserDriverSnapshot& out_snapshot);
     ProcesserDriverStatus UnregisterProcesserDriver(const ProcesserDriverToken& token);
 
@@ -268,10 +271,10 @@ protected:
      * 以下 *Locked 入口由调用方持有 m_lifecycle_mutex。
      * 返回的 out_notify 必须在退出全部锁后逐个 _PublishRunnable。
      */
-    ProcesserResizeResult _ApplyTargetLocked(size_t target, std::vector<Processer::SPtr>& out_notify,
-                                             std::unique_lock<std::mutex>& lifecycle_lock);
-    bool _PrepareExpansionLocked(size_t need, std::vector<Processer::SPtr>& out_new,
-                                 std::unique_lock<std::mutex>& lifecycle_lock);
+    ProcesserResizeResult _ApplyTargetLocked(
+        size_t target, std::vector<Processer::SPtr>& out_notify, std::unique_lock<std::mutex>& lifecycle_lock);
+    bool _PrepareExpansionLocked(
+        size_t need, std::vector<Processer::SPtr>& out_new, std::unique_lock<std::mutex>& lifecycle_lock);
     ProcesserResizeResult _CommitShrinkLocked(size_t need, size_t target, std::vector<Processer::SPtr>& out_notify);
     size_t _ActiveCountLocked();
 
@@ -308,11 +311,11 @@ protected:
     bool _ClaimAutoSampleLocked();
     bool _SampleScalingLoadLocked(ScalingLoad& out_load);
     void _AccumulateScalingHitsLocked(const ScalingLoad& load);
-    void _ApplyScalingDecisionLocked(std::vector<Processer::SPtr>& out_notify,
-                                     std::unique_lock<std::mutex>& lifecycle_lock);
+    void
+    _ApplyScalingDecisionLocked(std::vector<Processer::SPtr>& out_notify, std::unique_lock<std::mutex>& lifecycle_lock);
     void _ScaleUpOneStepLocked(std::vector<Processer::SPtr>& out_notify, std::unique_lock<std::mutex>& lifecycle_lock);
-    void _ScaleDownOneStepLocked(std::vector<Processer::SPtr>& out_notify,
-                                 std::unique_lock<std::mutex>& lifecycle_lock);
+    void
+    _ScaleDownOneStepLocked(std::vector<Processer::SPtr>& out_notify, std::unique_lock<std::mutex>& lifecycle_lock);
 
     /**
      * 有限推进 reaper：只认领 Exited，join 全程不持 runtime/driver/队列锁
@@ -420,4 +423,4 @@ private:
     uint64_t m_regist_coroutine_count{0};
 };
 
-}
+} // namespace bbt::coroutine::detail

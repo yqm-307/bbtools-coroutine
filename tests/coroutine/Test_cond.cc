@@ -22,6 +22,7 @@ void EnsureRuntime()
     static std::once_flag once;
     std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
+
 /**
  * 截止时间保护的让权自旋：仅在协程内使用，等待某个已发生的事实变得可见。
  * 超时返回 false 交由调用方断言失败；不引入正确性依赖的固定等待。
@@ -51,7 +52,7 @@ void WaitCountBounded(std::atomic_int& count, int target, int timeout_ms)
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
 }
-}
+} // namespace
 
 using namespace bbt::coroutine;
 
@@ -398,12 +399,14 @@ BOOST_AUTO_TEST_CASE(t_notify_claims_exactly_once_no_cross_wake)
         std::atomic_int ret{-999};
         std::atomic_int resumes{0};
     };
+
     struct CaseState {
         std::array<SlotState, 4> slots;
         std::atomic_int done{0};
         std::atomic_int stage_ok{0};
         std::atomic_int notify_ret{-999};
     };
+
     auto state = std::make_shared<CaseState>();
 
     for (int i = 0; i < 4; ++i) {
@@ -464,6 +467,7 @@ BOOST_AUTO_TEST_CASE(t_notifyone_before_wait_not_sticky)
         std::atomic_int settled{0};
         std::atomic_int stage_ok{0};
     };
+
     auto state = std::make_shared<CaseState>();
 
     bbtco[state]()
@@ -503,6 +507,7 @@ BOOST_AUTO_TEST_CASE(t_cancel_after_notify_claim_pairing)
         std::atomic_int settled{0};
         std::atomic_int stage_ok{0};
     };
+
     auto state = std::make_shared<CaseState>();
 
     bbtco[state]()

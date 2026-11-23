@@ -26,7 +26,7 @@ namespace {
 using ClassKey = std::pair<size_t, bool>;
 
 constexpr int kShutdownPollMs = 1;
-}
+} // namespace
 
 /**
  * 一个持久唤醒信号：sequence 记录每次入队/关闭，waiters 只保存当前挂起的 worker。
@@ -60,13 +60,16 @@ std::shared_ptr<CoPool> CoPool::Create(const CoPoolOptions& options)
     return std::make_shared<CoPool>(options);
 }
 
-CoPool::CoPool(int max) : m_max_co_num(max), m_work_signal(std::make_unique<WaitSignal>())
+CoPool::CoPool(int max)
+    : m_max_co_num(max)
+    , m_work_signal(std::make_unique<WaitSignal>())
 {
     Assert(m_max_co_num > 0);
     _Start();
 }
 
-CoPool::CoPool(const CoPoolOptions& options) : m_work_signal(std::make_unique<WaitSignal>())
+CoPool::CoPool(const CoPoolOptions& options)
+    : m_work_signal(std::make_unique<WaitSignal>())
 {
     _StartRouted(options);
 }
@@ -455,8 +458,8 @@ CoPoolSubmitStatus CoPool::_Enqueue(ClassState& state, Work* work)
 
 void CoPool::_Start()
 {
-    const StackRequest request{g_bbt_coroutine_config->RuntimeSnapshot().stack_size,
-                               g_bbt_coroutine_config->RuntimeSnapshot().stack_protect};
+    const StackRequest request{
+        g_bbt_coroutine_config->RuntimeSnapshot().stack_size, g_bbt_coroutine_config->RuntimeSnapshot().stack_protect};
     m_worker_ids.reserve(static_cast<size_t>(m_max_co_num));
     try {
 
@@ -670,4 +673,4 @@ void CoPool::_WorkCoRoute(ClassState& state)
     }
 }
 
-}
+} // namespace bbt::coroutine::pool

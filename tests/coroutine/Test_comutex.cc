@@ -9,6 +9,7 @@
 #include <bbt/core/thread/Lock.hpp>
 #include <bbt/coroutine/coroutine.hpp>
 #include <bbt/coroutine/sync/CoMutex.hpp>
+
 /**
  * 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
  * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。
@@ -49,7 +50,7 @@ void WaitCountBounded(std::atomic_int& count, int target, int timeout_ms)
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
 }
-}
+} // namespace
 
 using namespace bbt::coroutine::sync;
 
@@ -348,6 +349,7 @@ BOOST_AUTO_TEST_CASE(t_unlock_handoff_single_wake_payload_visible)
         std::atomic_int x1{0};
         std::atomic_int x2{0};
     };
+
     auto state = std::make_shared<CaseState>();
 
     bbtco[state]()
@@ -418,6 +420,7 @@ BOOST_AUTO_TEST_CASE(t_trylock_timeout_dead_waiter_skipped)
         std::atomic_int stage_b_ok{0};
         std::atomic_int stage_c_ok{0};
     };
+
     auto state = std::make_shared<CaseState>();
 
     bbtco[state]()

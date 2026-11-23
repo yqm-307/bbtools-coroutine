@@ -24,10 +24,12 @@ inline ssize_t FdEpochRead(int fd, void* buf, size_t n)
 {
     return bbt::coroutine::detail::Hook_Read(fd, buf, n);
 }
+
 inline ssize_t FdEpochWrite(int fd, const void* buf, size_t n)
 {
     return bbt::coroutine::detail::Hook_Write(fd, buf, n);
 }
+
 inline int FdEpochClose(int fd)
 {
     return bbt::coroutine::detail::Hook_Close(fd);
@@ -37,10 +39,12 @@ inline ssize_t FdEpochRead(int fd, void* buf, size_t n)
 {
     return ::read(fd, buf, n);
 }
+
 inline ssize_t FdEpochWrite(int fd, const void* buf, size_t n)
 {
     return ::write(fd, buf, n);
 }
+
 inline int FdEpochClose(int fd)
 {
     return ::close(fd);

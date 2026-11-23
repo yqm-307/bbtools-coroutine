@@ -24,12 +24,16 @@ void ReportWaitNodeException(CoroutineId owner, uint64_t generation, const char*
          * 异常处理器也可能失败，退回到不分配的日志与计数。
          */
     }
-    std::fprintf(stderr, "[bbtco] unhandled wait node exception co=%llu generation=%llu: %.200s\n",
-                 static_cast<unsigned long long>(owner), static_cast<unsigned long long>(generation), message);
+    std::fprintf(
+        stderr,
+        "[bbtco] unhandled wait node exception co=%llu generation=%llu: %.200s\n",
+        static_cast<unsigned long long>(owner),
+        static_cast<unsigned long long>(generation),
+        message);
     config.m_unhandled_exception_count.fetch_add(1, std::memory_order_relaxed);
 }
 
-}
+} // namespace
 
 WaitNode::SPtr WaitNode::Create(CoroutineId owner, OnTrigger on_trigger)
 {
@@ -37,8 +41,10 @@ WaitNode::SPtr WaitNode::Create(CoroutineId owner, OnTrigger on_trigger)
 }
 
 WaitNode::WaitNode(CoroutineId owner, OnTrigger on_trigger)
-    : m_owner(owner), m_generation(_NextGeneration()), m_on_trigger(std::move(on_trigger)),
-      m_state(_Pack(Phase::INITED, 0))
+    : m_owner(owner)
+    , m_generation(_NextGeneration())
+    , m_on_trigger(std::move(on_trigger))
+    , m_state(_Pack(Phase::INITED, 0))
 {
 }
 
@@ -71,8 +77,8 @@ int WaitNode::Trigger(short trigger_events)
     for (;;) {
         const auto phase = _Phase(state);
         if (phase == Phase::INITED || phase == Phase::ARMING || phase == Phase::ARMED) {
-            if (m_state.compare_exchange_weak(state, _Pack(Phase::PENDING, trigger_events), std::memory_order_acq_rel,
-                                              std::memory_order_acquire))
+            if (m_state.compare_exchange_weak(
+                    state, _Pack(Phase::PENDING, trigger_events), std::memory_order_acq_rel, std::memory_order_acquire))
                 return 0;
             continue;
         }
@@ -80,8 +86,11 @@ int WaitNode::Trigger(short trigger_events)
         if (phase != Phase::PARKED)
             return -1;
 
-        if (m_state.compare_exchange_weak(state, _Pack(Phase::TRIGGERING, trigger_events), std::memory_order_acq_rel,
-                                          std::memory_order_acquire)) {
+        if (m_state.compare_exchange_weak(
+                state,
+                _Pack(Phase::TRIGGERING, trigger_events),
+                std::memory_order_acq_rel,
+                std::memory_order_acquire)) {
             if (DriverWakeDeferral::DeferCompletion(*this))
                 return 0;
             return _Complete(trigger_events);
@@ -96,14 +105,14 @@ int WaitNode::Regist()
         return 0;
 
     uint64_t expected = _Pack(Phase::INITED, 0);
-    if (!m_state.compare_exchange_strong(expected, _Pack(Phase::ARMING, 0), std::memory_order_acq_rel,
-                                         std::memory_order_acquire)) {
+    if (!m_state.compare_exchange_strong(
+            expected, _Pack(Phase::ARMING, 0), std::memory_order_acq_rel, std::memory_order_acquire)) {
         return _Phase(expected) == Phase::PENDING ? 0 : -1;
     }
 
     expected = _Pack(Phase::ARMING, 0);
-    if (m_state.compare_exchange_strong(expected, _Pack(Phase::ARMED, 0), std::memory_order_acq_rel,
-                                        std::memory_order_acquire))
+    if (m_state.compare_exchange_strong(
+            expected, _Pack(Phase::ARMED, 0), std::memory_order_acq_rel, std::memory_order_acquire))
         return 0;
 
     return _Phase(expected) == Phase::PENDING ? 0 : -1;
@@ -115,8 +124,8 @@ bool WaitNode::CommitPark()
     for (;;) {
         const auto phase = _Phase(state);
         if (phase == Phase::ARMED) {
-            if (m_state.compare_exchange_weak(state, _Pack(Phase::PARKED, 0), std::memory_order_acq_rel,
-                                              std::memory_order_acquire))
+            if (m_state.compare_exchange_weak(
+                    state, _Pack(Phase::PARKED, 0), std::memory_order_acq_rel, std::memory_order_acquire))
                 return false;
             continue;
         }
@@ -125,8 +134,11 @@ bool WaitNode::CommitPark()
             return false;
 
         const auto trigger_events = _Flags(state);
-        if (m_state.compare_exchange_weak(state, _Pack(Phase::TRIGGERING, trigger_events), std::memory_order_acq_rel,
-                                          std::memory_order_acquire)) {
+        if (m_state.compare_exchange_weak(
+                state,
+                _Pack(Phase::TRIGGERING, trigger_events),
+                std::memory_order_acq_rel,
+                std::memory_order_acquire)) {
             _Complete(trigger_events);
             return true;
         }
@@ -141,8 +153,8 @@ int WaitNode::UnRegist()
         if (phase != Phase::INITED && phase != Phase::ARMING && phase != Phase::ARMED && phase != Phase::PARKED)
             return -1;
 
-        if (m_state.compare_exchange_weak(state, _Pack(Phase::CANCELLED, 0), std::memory_order_acq_rel,
-                                          std::memory_order_acquire))
+        if (m_state.compare_exchange_weak(
+                state, _Pack(Phase::CANCELLED, 0), std::memory_order_acq_rel, std::memory_order_acquire))
             return 0;
     }
 }
@@ -170,4 +182,4 @@ int WaitNode::_Complete(short trigger_events) noexcept
     return 0;
 }
 
-}
+} // namespace bbt::coroutine::detail

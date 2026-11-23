@@ -2298,6 +2298,7 @@ BOOST_AUTO_TEST_CASE(t_close_wake_multi_writer_single_slot)
         std::atomic_int stage_winner_ok{0};
         std::atomic_int stage_settled_ok{0};
     };
+
     auto state = std::make_shared<CaseState>();
     state->chan = Chan<int, 1>();
     BOOST_REQUIRE(state->chan != nullptr);
@@ -2397,6 +2398,7 @@ BOOST_AUTO_TEST_CASE(t_close_drains_buffered_items_in_order)
         std::atomic_int i0{-999};
         std::atomic_int i1{-999};
     };
+
     auto state = std::make_shared<CaseState>();
     bbt::core::thread::CountDownLatch l{1};
 

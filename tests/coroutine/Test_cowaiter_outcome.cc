@@ -36,7 +36,7 @@ void EnsureRuntime()
     static std::once_flag once;
     std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
-}
+} // namespace
 
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::detail;
@@ -90,7 +90,7 @@ bool NotifyUntilSuccess(const sync::CoWaiter::SPtr& waiter, int budget_ms = 1000
     return true;
 }
 
-}
+} // namespace
 
 BOOST_AUTO_TEST_SUITE(CoWaiterOutcomeTest)
 
@@ -219,8 +219,9 @@ BOOST_AUTO_TEST_CASE(t_register_before_complete_no_lost_wakeup)
         /**
          * 唤醒丢失时 bounded 失败而非挂死整个用例
          */
-        BOOST_REQUIRE_MESSAGE(done.WaitTimeout(5000) == 0,
-                              "round " << i << "：等待未在有界时间内返回（notified=" << notified.load() << ")");
+        BOOST_REQUIRE_MESSAGE(
+            done.WaitTimeout(5000) == 0,
+            "round " << i << "：等待未在有界时间内返回（notified=" << notified.load() << ")");
         notifier.join();
         BOOST_CHECK_MESSAGE(st.load() == WaitStatus::Completed, "round " << i << "：登记前完成丢了通知");
     }

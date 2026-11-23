@@ -71,7 +71,7 @@ struct SameSizeOtherPayload {
     std::int64_t seq{0};
     std::uint32_t code{0};
 };
-}
+} // namespace
 
 BBT_COEVENT_VALUE_REGISTER_TYPE(SameSizeOtherPayload, 0x301);
 

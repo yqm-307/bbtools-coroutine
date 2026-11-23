@@ -619,10 +619,12 @@ BOOST_AUTO_TEST_CASE(t_wunlock_wakes_all_blocked_readers)
         std::atomic_int stage_writer_holding_ok{0};
         std::atomic_int stage_blocked_ok{0};
     };
+
     auto state = std::make_shared<CaseState>();
     std::weak_ptr<CaseState> weak_state{state};
     bbt::coroutine::sync::CoRWMutexTestAccess::SetWaitCallbacks(
-        *state->rw, [weak_state] {},
+        *state->rw,
+        [weak_state] {},
         [weak_state] {
             if (auto shared_state = weak_state.lock())
                 shared_state->blocked_readers.fetch_add(1, std::memory_order_release);
@@ -701,6 +703,7 @@ BOOST_AUTO_TEST_CASE(t_timedout_writer_then_blocked_reader_wakes)
         std::atomic_int stage_r2_blocked_ok{0};
         std::atomic_int stage_w1_timeout_ok{0};
     };
+
     auto state = std::make_shared<CaseState>();
     std::weak_ptr<CaseState> weak_state{state};
     bbt::coroutine::sync::CoRWMutexTestAccess::SetWaitCallbacks(
