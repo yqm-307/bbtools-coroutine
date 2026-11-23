@@ -79,7 +79,7 @@ int CoCond::_NotifyOne()
     int ret = -1;
 
     /**
-     * waiter->Notify() 的触发链在 m_mutex 内执行；driver Wake 推迟到本函数退出之后。
+     * 在队列锁内跳过无效 waiter 并竞争首胜，恢复投递需等解锁。
      */
     detail::DriverWakeDeferral _defer;
     _SysLock();

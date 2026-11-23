@@ -42,6 +42,7 @@
 #include <bbt/coroutine/detail/Processer.hpp>
 #include <bbt/coroutine/detail/Scheduler.hpp>
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
+#include <bbt/coroutine/detail/WaitNode.hpp>
 #include <bbt/coroutine/detail/interface/IProcesserDriver.hpp>
 #include <bbt/coroutine/sync/CoWaiter.hpp>
 #include <bbt/coroutine/sync/Chan.hpp>
@@ -762,17 +763,14 @@ struct WorkerFence {
 };
 
 /**
- * 只读 probe：复制 waiter 当前登记事件，锁外读状态。不修改生产状态。
+ * 只读 probe：纯 custom 等待登记在 m_wait_node，锁下确认非终态节点仍在槽中，
+ * 与旧事件探针判断同一“登记存活”点。不修改生产状态。
  */
 struct CoWaiterProbe : sync::CoWaiter {
-    int SnapshotEventStatus()
+    bool SnapshotWaitNodeRegistered()
     {
-        std::shared_ptr<detail::CoPollEvent> ev;
-        {
-            std::lock_guard<std::mutex> l(m_notify_mutex);
-            ev = m_co_event;
-        }
-        return ev ? static_cast<int>(ev->GetStatus()) : -1;
+        std::lock_guard<std::mutex> l(m_notify_mutex);
+        return m_wait_node != nullptr && !m_wait_node->IsFinal();
     }
 };
 
@@ -1184,6 +1182,8 @@ void CaseWaitWakeup()
          * Notified 退出
          */
         BOOST_TEST(st->wait_exits.at(sel) == 1);
+        /** 外部发布的持久 Wake 已驱动 driver 唤醒（未丢通知，持久化 latch 生效） */
+        BOOST_TEST(st->wakes.load() >= 1);
     }
     BOOST_TEST(LatchWait(task_done));
 
@@ -1709,67 +1709,69 @@ void CaseReentrancy()
     auto stB = std::make_shared<FakeState>();
     static thread_local bool notifying_this_activation = false;
     std::atomic<int> activation_a{0}, activation_b{0};
-    stB->on_wake = [&] {
-        if (notifying_this_activation)
-            ++activation_b;
-    };
     std::atomic<ProcesserId> registered_pid{0}, chan_pid{0};
     std::atomic_bool committed{false}, chan_committed{false};
     auto after_commit = [&] {
         auto pid = Processer::TryGetLocalProcesser()->GetId();
         if (registered_pid.load() == pid)
             committed = true;
-        if (chan_pid.load() == pid && chan->reader->SnapshotEventStatus() == static_cast<int>(POLLEVENT_LISTEN))
+        if (chan_pid.load() == pid && chan->reader->SnapshotWaitNodeRegistered())
             chan_committed = true;
     };
     stA->on_after = after_commit;
     stB->on_after = after_commit;
 
     /**
-     * on_wake 绑定前配置一次，内部按 stage 分发；不再写 plain 成员
+     * 定向唤醒下真实提交目标在绑定前不可知：两台 driver 的 on_wake 装
+     * 同一套 stage 分发与锁外重入检查，提交到谁谁执行。activation 只数
+     * caller 线程在本次触发窗口内的 Wake，不把无关唤醒计入。
      */
-    stA->on_wake = [&, waiter, chan, stage, reenter_ok, once, notify_reenter, chan_size] {
-        if (notifying_this_activation)
-            ++activation_a;
-        switch (stage->load(std::memory_order_acquire)) {
-        /**
-         * adapter 重入：GetWorkers/Query/受控递归 Regist 一次
-         */
-        case 1: {
-            if (!once->exchange(false))
+    auto make_on_wake = [&](std::atomic<int>& activation) {
+        return [&, waiter, chan, stage, reenter_ok, once, notify_reenter, chan_size] {
+            if (notifying_this_activation)
+                ++activation;
+            switch (stage->load(std::memory_order_acquire)) {
+            /**
+             * adapter 重入：GetWorkers/Query/受控递归 Regist 一次
+             */
+            case 1: {
+                if (!once->exchange(false))
+                    break;
+                auto wids = sche.GetWorkerProcesserIds();
+                ProcesserDriverSnapshot s;
+                bool query_ok = (sche.QueryProcesserDriver(pid0, s) == ProcesserDriverStatus::Ok);
+                bool regist_ok = true;
+                try {
+                    Post(sche, [] {});
+                } catch (...) {
+                    regist_ok = false;
+                }
+                BBTATTR_COMM_UNUSED auto cid = GetLocalCoroutineId();
+                if (!wids.empty() && query_ok && regist_ok)
+                    (*reenter_ok)++;
                 break;
-            auto wids = sche.GetWorkerProcesserIds();
-            ProcesserDriverSnapshot s;
-            bool query_ok = (sche.QueryProcesserDriver(pid0, s) == ProcesserDriverStatus::Ok);
-            bool regist_ok = true;
-            try {
-                Post(sche, [] {});
-            } catch (...) {
-                regist_ok = false;
             }
-            BBTATTR_COMM_UNUSED auto cid = GetLocalCoroutineId();
-            if (!wids.empty() && query_ok && regist_ok)
-                (*reenter_ok)++;
-            break;
-        }
 
-        /**
-         * scope 退出后锁已释放：带载荷 Notify 返回 -1 不死锁
-         */
-        case 2:
-            *notify_reenter = waiter->Notify(bbt::coroutine::CoEventValue::From(1));
-            break;
+            /**
+             * scope 退出后锁已释放：带载荷 Notify 返回 -1 不死锁
+             */
+            case 2:
+                *notify_reenter = waiter->Notify(bbt::coroutine::CoEventValue::From(1));
+                break;
 
-        /**
-         * Wake 内重入 chan.size()：外层 OS 锁已释放才能返回
-         */
-        case 3:
-            *chan_size = chan->size();
-            break;
-        default:
-            break;
-        }
+            /**
+             * Wake 内重入 chan.size()：外层 OS 锁已释放才能返回
+             */
+            case 3:
+                *chan_size = chan->size();
+                break;
+            default:
+                break;
+            }
+        };
     };
+    stA->on_wake = make_on_wake(activation_a);
+    stB->on_wake = make_on_wake(activation_b);
     auto drvA = std::make_shared<FakeDriver>(stA);
     auto drvB = std::make_shared<FakeDriver>(stB);
     ProcesserDriverToken tokA{}, tokB{};
@@ -1784,8 +1786,9 @@ void CaseReentrancy()
     BOOST_TEST(WaitUntil([&] { return reenter_ok->load() >= 1; }));
 
     /**
-     * (b) 真实全局广播：确认 PARKED 后 Notify，两台 bound driver 的
-     * Wake 都应观测到；Wake 内重入同一 waiter.Notify(value)。
+     * (b) 定向唤醒：确认 PARKED 后 Notify，只允许 caller 线程向真实提交
+     * 目标（登记 waiter 的 worker）发恰好一次 Wake，peer 零次；Wake 内
+     * 重入同一 waiter.Notify(value) 返回 -1 不死锁。
      */
     bbt::core::thread::CountDownLatch resumed{1};
     Post(sche, [&, waiter] {
@@ -1801,21 +1804,32 @@ void CaseReentrancy()
      */
     PD_REQUIRE(WaitUntil([&] { return committed.load(); }));
     stage->store(2, std::memory_order_release);
-    const int wake_a = stA->wakes.load(), wake_b = stB->wakes.load();
+    const bool wait_target_known = (registered_pid.load() == pid0) || (registered_pid.load() == ids[1]);
+    BOOST_TEST(wait_target_known);
+    const bool wait_on_a = (registered_pid.load() == pid0);
+    auto& wait_activation_target = wait_on_a ? activation_a : activation_b;
+    auto& wait_activation_peer = wait_on_a ? activation_b : activation_a;
+    auto& wait_target_wakes = wait_on_a ? stA->wakes : stB->wakes;
+    auto& wait_peer_wakes = wait_on_a ? stB->wakes : stA->wakes;
+    const int wait_target_before = wait_target_wakes.load();
+    const int wait_peer_before = wait_peer_wakes.load();
+    activation_a.store(0);
+    activation_b.store(0);
     notifying_this_activation = true;
     BOOST_TEST(waiter->Notify() == 0);
     notifying_this_activation = false;
-    BOOST_TEST(activation_a.load() == 1);
-    BOOST_TEST(activation_b.load() == 1);
     BOOST_TEST(LatchWait(resumed));
-    BOOST_TEST(stA->wakes.load() > wake_a);
-    BOOST_TEST(stB->wakes.load() > wake_b);
+    BOOST_TEST(wait_activation_target.load() == 1);
+    BOOST_TEST(wait_activation_peer.load() == 0);
+    BOOST_TEST(wait_target_wakes.load() == wait_target_before + 1);
+    BOOST_TEST(wait_peer_wakes.load() == wait_peer_before);
     BOOST_TEST(WaitUntil([&] { return notify_reenter->load() != 99; }));
     BOOST_TEST(notify_reenter->load() == -1);
 
     /**
-     * (c) Chan 链：真实读者挂起后 TryWrite 的 _OnEnableRead→Notify→
-     * 广播触发 Wake；Wake 内 chan.size() 证明外层 OS 锁已释放。
+     * (c) Chan 链：真实读者挂起后 TryWrite 的 _OnEnableRead→Notify 只
+     * 定向唤醒读者提交目标一次，peer 零次；Wake 内 chan.size() 证明
+     * 外层 OS 锁已释放。
      */
     bbt::core::thread::CountDownLatch read_done{1};
     Post(sche, [&, chan] {
@@ -1826,13 +1840,30 @@ void CaseReentrancy()
     });
     PD_REQUIRE(WaitUntil([&] { return chan_committed.load(); }));
     stage->store(3, std::memory_order_release);
+    const bool chan_target_known = (chan_pid.load() == pid0) || (chan_pid.load() == ids[1]);
+    BOOST_TEST(chan_target_known);
+    const bool chan_on_a = (chan_pid.load() == pid0);
+    auto& chan_activation_target = chan_on_a ? activation_a : activation_b;
+    auto& chan_activation_peer = chan_on_a ? activation_b : activation_a;
+    auto& chan_target_wakes = chan_on_a ? stA->wakes : stB->wakes;
+    auto& chan_peer_wakes = chan_on_a ? stB->wakes : stA->wakes;
+    const int chan_target_before = chan_target_wakes.load();
+    const int chan_peer_before = chan_peer_wakes.load();
+    activation_a.store(0);
+    activation_b.store(0);
+    notifying_this_activation = true;
     BOOST_TEST(chan->TryWrite(1) == 0);
+    notifying_this_activation = false;
+    BOOST_TEST(LatchWait(read_done));
+    BOOST_TEST(chan_activation_target.load() == 1);
+    BOOST_TEST(chan_activation_peer.load() == 0);
+    BOOST_TEST(chan_target_wakes.load() == chan_target_before + 1);
+    BOOST_TEST(chan_peer_wakes.load() == chan_peer_before);
 
     /**
      * 0或1取决于reader进度
      */
     BOOST_TEST(WaitUntil([&] { return chan_size->load() <= 1u; }));
-    BOOST_TEST(LatchWait(read_done));
     stage->store(0, std::memory_order_release);
 
     /**

@@ -4,8 +4,9 @@
 #include <limits>
 #include <bbt/coroutine/sync/CoWaiter.hpp>
 #include <bbt/pollevent/Event.hpp>
-#include <bbt/coroutine/detail/CoPoller.hpp>
+
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
+#include <bbt/coroutine/detail/WaitNode.hpp>
 #include <bbt/coroutine/detail/Scheduler.hpp>
 #include <bbt/coroutine/detail/Coroutine.hpp>
 #include <bbt/coroutine/detail/LocalThread.hpp>
@@ -24,135 +25,141 @@ CoWaiter::CoWaiter() : m_run_status(COND_FREE) {}
 
 CoWaiter::~CoWaiter() {}
 
-int CoWaiter::Wait()
+int CoWaiter::_WaitCustom(const detail::CoroutineOnYieldCallback& cb)
 {
     AssertWithInfo(g_bbt_tls_helper->EnableUseCo(), "not in coroutine!");
     auto* coroutine = g_bbt_tls_coroutine_co;
     AssertWithInfo(coroutine != nullptr, "current coroutine is nullptr!");
-    std::shared_ptr<detail::CoPollEvent> wait_event;
 
+    std::shared_ptr<detail::WaitNode> wait_node;
     {
         std::lock_guard<std::mutex> lock(m_notify_mutex);
-
-        /**
-         * 保证只有一个协程可以成功挂起
-         */
-        if (m_co_event != nullptr) {
+        if (m_co_event != nullptr || m_wait_node != nullptr)
             return -1;
-        }
 
-        wait_event = coroutine->RegistCustom(detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND);
-        m_co_event = wait_event;
-        if (m_co_event == nullptr) {
+        wait_node = coroutine->RegistWaitNode();
+        if (wait_node == nullptr)
             return -1;
-        }
-
+        m_wait_node = wait_node;
         m_run_status = COND_WAIT;
     }
 
-    /**
-     * 必须经 Coroutine::_RegistAwaitEvent 登记——该公共路径在事件挂上前
-     * 检查 IsCancelRequested（预取消立即自唤醒），成功后把协程纳入登记，
-     * 事件状态机回收才有落点。直接 event->Regist() 会绕过两者：
-     * 预取消协程无限挂起。
-     */
-
-    /**
-     * 临时 std::function 包装与 Coroutine 入参拷贝都可能抛
-     * bad_alloc；此时协程未挂起、挂起回调未执行，须把已占的等待位与
-     * await 登记完整回滚，否则下一次 Wait 被拒且等待位泄漏。
-     */
     try {
-        coroutine->YieldWithCallback([coroutine]() { return coroutine->_RegistAwaitEvent(); });
+        const auto ret = coroutine->YieldWithCallback([coroutine, cb]() {
+            if (!coroutine->_RegistAwaitEvent())
+                return false;
+            if (cb)
+                cb();
+            return true;
+        });
+
+        std::lock_guard<std::mutex> lock(m_notify_mutex);
+        if (m_wait_node == wait_node) {
+            m_wait_node = nullptr;
+            m_run_status = COND_FREE;
+        }
+        return ret;
     } catch (...) {
-        coroutine->_SetAwaitEvent(nullptr);
-        {
-            std::lock_guard<std::mutex> lock(m_notify_mutex);
-            if (m_co_event == wait_event) {
-                m_co_event = nullptr;
-                m_run_status = COND_FREE;
-            }
+        coroutine->_SetWaitNode(nullptr);
+        wait_node->UnRegist();
+        std::lock_guard<std::mutex> lock(m_notify_mutex);
+        if (m_wait_node == wait_node) {
+            m_wait_node = nullptr;
+            m_run_status = COND_FREE;
+        }
+        throw;
+    }
+}
+
+WaitStatus CoWaiter::_WaitCustom(const WaitOptions& options, const detail::CoroutineOnYieldCallback& cb,
+                                 CoEventValue* value)
+{
+    if (!g_bbt_tls_helper->EnableUseCo())
+        return WaitStatus::InvalidContext;
+    auto* coroutine = g_bbt_tls_coroutine_co;
+    if (coroutine == nullptr)
+        return WaitStatus::InvalidContext;
+    if (coroutine->IsCancelRequested())
+        return WaitStatus::Cancelled;
+    if (options.deadline != Deadline::max())
+        return WaitStatus::TimedOut;
+
+    std::shared_ptr<detail::WaitNode> wait_node;
+    {
+        std::lock_guard<std::mutex> lock(m_notify_mutex);
+        if (m_co_event != nullptr) {
+            if (!m_co_event->IsFinal())
+                return WaitStatus::AlreadyWaiting;
+            m_co_event = nullptr;
+            m_run_status = COND_FREE;
+        }
+        if (m_wait_node != nullptr) {
+            if (!m_wait_node->IsFinal())
+                return WaitStatus::AlreadyWaiting;
+            m_wait_node = nullptr;
+            m_run_status = COND_FREE;
+        }
+
+        wait_node = coroutine->RegistWaitNode();
+        if (wait_node == nullptr)
+            return WaitStatus::RuntimeUnavailable;
+        m_wait_node = wait_node;
+        m_run_status = COND_WAIT;
+    }
+
+    int yield_ret = 0;
+    try {
+        yield_ret = coroutine->YieldWithCallback([coroutine, cb]() {
+            if (!coroutine->_RegistAwaitEvent())
+                return false;
+            if (cb)
+                cb();
+            return true;
+        });
+    } catch (...) {
+        coroutine->_SetWaitNode(nullptr);
+        wait_node->UnRegist();
+        std::lock_guard<std::mutex> lock(m_notify_mutex);
+        if (m_wait_node == wait_node) {
+            m_wait_node = nullptr;
+            m_run_status = COND_FREE;
         }
         throw;
     }
 
+    const int resume_event = yield_ret == 0 ? coroutine->GetLastResumeEvent() : 0;
     {
         std::lock_guard<std::mutex> lock(m_notify_mutex);
-
-        /**
-         * 只解绑本次登记：窄接口的终态残留清理可能已把等待位让给后到者
-         */
-        if (m_co_event == wait_event) {
-            m_co_event = nullptr;
+        if (m_wait_node == wait_node) {
+            m_wait_node = nullptr;
             m_run_status = COND_FREE;
         }
+        if (value) {
+            if (yield_ret == 0 && (resume_event & POLL_EVENT_CUSTOM))
+                *value = wait_node->GetNotifyValue();
+            else
+                *value = CoEventValue{};
+        }
     }
-    return 0;
+
+    if (yield_ret != 0)
+        return WaitStatus::RuntimeUnavailable;
+    if (resume_event & POLL_EVENT_CANCELLED)
+        return WaitStatus::Cancelled;
+    if (resume_event & POLL_EVENT_CUSTOM)
+        return WaitStatus::Completed;
+    return WaitStatus::Cancelled;
+}
+
+int CoWaiter::Wait()
+{
+    return _WaitCustom({});
 }
 
 int CoWaiter::WaitWithCallback(const detail::CoroutineOnYieldCallback& cb)
 {
-    AssertWithInfo(g_bbt_tls_helper->EnableUseCo(), "not in coroutine!");
-    auto* coroutine = g_bbt_tls_coroutine_co;
-    AssertWithInfo(coroutine != nullptr, "current coroutine is nullptr!");
     Assert(cb != nullptr);
-    std::shared_ptr<detail::CoPollEvent> wait_event;
-    int ret = 0;
-
-    {
-        std::lock_guard<std::mutex> lock(m_notify_mutex);
-        if (m_co_event != nullptr) {
-            return -1;
-        }
-
-        wait_event = coroutine->RegistCustom(detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND);
-        m_co_event = wait_event;
-        if (m_co_event == nullptr) {
-            return -1;
-        }
-
-        m_run_status = COND_WAIT;
-    }
-
-    /**
-     * 同 Wait()，走公共登记路径；cb 在挂起成功后、恢复前调用一次。
-     */
-
-    /**
-     * 同 Wait() 的回滚约定——装配抛异常时协程未挂起、回调
-     * 未执行，清 await 与等待位后原样上抛。
-     */
-    try {
-        ret = coroutine->YieldWithCallback([coroutine, cb]() {
-            if (!coroutine->_RegistAwaitEvent())
-                return false;
-            cb();
-            return true;
-        });
-    } catch (...) {
-        coroutine->_SetAwaitEvent(nullptr);
-        {
-            std::lock_guard<std::mutex> lock(m_notify_mutex);
-            if (m_co_event == wait_event) {
-                m_co_event = nullptr;
-                m_run_status = COND_FREE;
-            }
-        }
-        throw;
-    }
-
-    {
-        std::lock_guard<std::mutex> lock(m_notify_mutex);
-
-        /**
-         * 只解绑本次登记：窄接口的终态残留清理可能已把等待位让给后到者
-         */
-        if (m_co_event == wait_event) {
-            m_co_event = nullptr;
-            m_run_status = COND_FREE;
-        }
-    }
-    return ret;
+    return _WaitCustom(cb);
 }
 
 int CoWaiter::WaitWithTimeout(int ms)
@@ -165,7 +172,7 @@ int CoWaiter::WaitWithTimeout(int ms)
 
     {
         std::lock_guard<std::mutex> lock(m_notify_mutex);
-        if (m_co_event != nullptr) {
+        if (m_co_event != nullptr || m_wait_node != nullptr) {
             return -1;
         }
 
@@ -229,7 +236,7 @@ int CoWaiter::WaitWithTimeoutAndCallback(int ms, const detail::CoroutineOnYieldC
 
     {
         std::lock_guard<std::mutex> lock(m_notify_mutex);
-        if (m_co_event != nullptr) {
+        if (m_co_event != nullptr || m_wait_node != nullptr) {
             return -1;
         }
 
@@ -292,6 +299,8 @@ WaitStatus CoWaiter::Wait(const WaitOptions& options)
 WaitStatus CoWaiter::WaitWithCallback(const WaitOptions& options, const detail::CoroutineOnYieldCallback& on_registered,
                                       CoEventValue* value)
 {
+    if (options.deadline == Deadline::max())
+        return _WaitCustom(options, on_registered, value);
 
     /**
      * 五段：入口校验 → 建事件 → 挂起 → 决议 → 解绑；任何一段失败都不得留下占位的等待位。
@@ -334,6 +343,13 @@ WaitStatus CoWaiter::WaitWithCallback(const WaitOptions& options, const detail::
             if (!m_co_event->IsFinal())
                 return WaitStatus::AlreadyWaiting;
             m_co_event = nullptr;
+            m_run_status = COND_FREE;
+        }
+
+        if (m_wait_node != nullptr) {
+            if (!m_wait_node->IsFinal())
+                return WaitStatus::AlreadyWaiting;
+            m_wait_node = nullptr;
             m_run_status = COND_FREE;
         }
 
@@ -464,6 +480,23 @@ CombinedWaitStatus CoWaiter::Wait(const CombinedWaitOptions& options,
 CombinedWaitStatus CoWaiter::Wait(const CombinedWaitOptions& options,
                                   const detail::CoroutineOnYieldCallback& on_registered, CoEventValue* value)
 {
+    if (!options.want_readable && !options.want_writeable && options.deadline == Deadline::max()) {
+        const auto status = _WaitCustom(WaitOptions{}, on_registered, value);
+        switch (status) {
+        case WaitStatus::Completed:
+            return CombinedWaitStatus::Completed;
+        case WaitStatus::Cancelled:
+            return CombinedWaitStatus::Cancelled;
+        case WaitStatus::AlreadyWaiting:
+            return CombinedWaitStatus::AlreadyWaiting;
+        case WaitStatus::InvalidContext:
+            return CombinedWaitStatus::InvalidContext;
+        case WaitStatus::RuntimeUnavailable:
+            return CombinedWaitStatus::RuntimeUnavailable;
+        case WaitStatus::TimedOut:
+            return CombinedWaitStatus::TimedOut;
+        }
+    }
 
     /**
      * 五段：选项/入口校验 → 建事件 → 挂起 → 决议 → 解绑。fd interest 与定时器必须
@@ -513,6 +546,13 @@ CombinedWaitStatus CoWaiter::Wait(const CombinedWaitOptions& options,
             if (!m_co_event->IsFinal())
                 return CombinedWaitStatus::AlreadyWaiting;
             m_co_event = nullptr;
+            m_run_status = COND_FREE;
+        }
+
+        if (m_wait_node != nullptr) {
+            if (!m_wait_node->IsFinal())
+                return CombinedWaitStatus::AlreadyWaiting;
+            m_wait_node = nullptr;
             m_run_status = COND_FREE;
         }
 
@@ -636,18 +676,26 @@ int CoWaiter::Notify()
      */
 
     /**
-     * Trigger→OnActiveCoroutine→广播的整条链都在 m_notify_mutex 内同步
-     * 执行；driver Wake 必须推迟到本函数退出（全部锁已释放）之后。
+     * 在锁内锁存本轮首胜；已挂起事件的调度投递等最外层通知锁释放。
      */
     detail::DriverWakeDeferral _defer;
-    std::lock_guard<std::mutex> lock(m_notify_mutex);
+    std::shared_ptr<detail::WaitNode> wait_node;
+    {
+        std::lock_guard<std::mutex> lock(m_notify_mutex);
 
-    if (m_co_event == nullptr || m_run_status != COND_WAIT) {
-        return -1;
+        if (m_run_status != COND_WAIT)
+            return -1;
+        if (m_co_event != nullptr) {
+            m_run_status = COND_ACTIVE;
+            return m_co_event->TriggerCustom();
+        }
+        if (m_wait_node == nullptr)
+            return -1;
+
+        m_run_status = COND_ACTIVE;
+        wait_node = m_wait_node;
     }
-
-    m_run_status = COND_ACTIVE;
-    return g_bbt_poller->NotifyCustomEvent(m_co_event);
+    return wait_node->Trigger(POLL_EVENT_CUSTOM);
 }
 
 int CoWaiter::Notify(const CoEventValue& value)
@@ -663,20 +711,25 @@ int CoWaiter::Notify(const CoEventValue& value)
      * 同无参 Notify：外调推迟到锁外
      */
     detail::DriverWakeDeferral _defer;
-    std::lock_guard<std::mutex> lock(m_notify_mutex);
+    std::shared_ptr<detail::WaitNode> wait_node;
+    {
+        std::lock_guard<std::mutex> lock(m_notify_mutex);
 
-    if (m_co_event == nullptr || m_run_status != COND_WAIT) {
-        return -1;
+        if (m_run_status != COND_WAIT)
+            return -1;
+        if (m_co_event != nullptr) {
+            m_co_event->SetNotifyValue(value);
+            m_run_status = COND_ACTIVE;
+            return m_co_event->TriggerCustom();
+        }
+        if (m_wait_node == nullptr)
+            return -1;
+
+        m_wait_node->SetNotifyValue(value);
+        m_run_status = COND_ACTIVE;
+        wait_node = m_wait_node;
     }
-
-    /**
-     * 首胜才落载荷：载荷落到本轮事件对象（归属该轮等待），状态在同一把
-     * 锁内转为 COND_ACTIVE，后到的 Notify 直接在上面的判断退出，不覆盖
-     * 赢家载荷，也不影响尚未取走结果的上一轮等待。
-     */
-    m_co_event->SetNotifyValue(value);
-    m_run_status = COND_ACTIVE;
-    return g_bbt_poller->NotifyCustomEvent(m_co_event);
+    return wait_node->Trigger(POLL_EVENT_CUSTOM);
 }
 
 }

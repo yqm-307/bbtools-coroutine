@@ -9,6 +9,10 @@
 #include <bbt/pollevent/detail/EventBase.hpp>
 #include <bbt/core/clock/Clock.hpp>
 
+#if defined(__SANITIZE_THREAD__) || (defined(__clang__) && __has_feature(thread_sanitizer))
+#include <sanitizer/tsan_interface.h>
+#endif
+
 namespace bbt::pollevent {
 
 struct Event::CallbackRegistry {
@@ -478,7 +482,13 @@ void Event::AddEventCallback(EventId id, const OnEventCallback& cb)
 {
     auto& reg = _Registry();
     std::lock_guard<std::mutex> lock(reg.m_mutex);
+#if defined(__SANITIZE_THREAD__) || (defined(__clang__) && __has_feature(thread_sanitizer))
+    __tsan_acquire(&reg.m_mutex);
+#endif
     reg.m_callbacks[id] = cb;
+#if defined(__SANITIZE_THREAD__) || (defined(__clang__) && __has_feature(thread_sanitizer))
+    __tsan_release(&reg.m_mutex);
+#endif
 }
 
 OnEventCallback Event::TakeEventCallback(EventId id)
@@ -486,11 +496,21 @@ OnEventCallback Event::TakeEventCallback(EventId id)
     OnEventCallback removed;
     auto& reg = _Registry();
     std::lock_guard<std::mutex> lock(reg.m_mutex);
+#if defined(__SANITIZE_THREAD__) || (defined(__clang__) && __has_feature(thread_sanitizer))
+    __tsan_acquire(&reg.m_mutex);
+#endif
     auto it = reg.m_callbacks.find(id);
-    if (it == reg.m_callbacks.end())
+    if (it == reg.m_callbacks.end()) {
+#if defined(__SANITIZE_THREAD__) || (defined(__clang__) && __has_feature(thread_sanitizer))
+        __tsan_release(&reg.m_mutex);
+#endif
         return removed;
+    }
     removed = std::move(it->second);
     reg.m_callbacks.erase(it);
+#if defined(__SANITIZE_THREAD__) || (defined(__clang__) && __has_feature(thread_sanitizer))
+    __tsan_release(&reg.m_mutex);
+#endif
     return removed;
 }
 

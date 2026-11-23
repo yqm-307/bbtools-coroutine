@@ -5,7 +5,7 @@
 #include <bbt/coroutine/pool/Work.hpp>
 #include <bbt/coroutine/pool/CoPool.hpp>
 #include <bbt/coroutine/coroutine.hpp>
-#include <bbt/coroutine/sync/CoCond.hpp>
+#include <bbt/coroutine/sync/CoWaiter.hpp>
 #include <bbt/coroutine/detail/Coroutine.hpp>
 #include <bbt/coroutine/detail/GlobalConfig.hpp>
 #include <bbt/coroutine/detail/Hook.hpp>
@@ -29,8 +29,16 @@ constexpr int kShutdownPollMs = 1;
 }
 
 /**
+ * 一个持久唤醒信号：sequence 记录每次入队/关闭，waiters 只保存当前挂起的 worker。
+ */
+struct CoPool::WaitSignal {
+    std::mutex mutex;
+    std::deque<sync::CoWaiter::SPtr> waiters;
+    std::atomic_uint64_t sequence{0};
+};
+
+/**
  * 一个尺寸类的运行态：路由键、固定 worker 数、有界队列与它自己的等待原语。
- * 每类独立 CoCond，避免唤醒落到别的类的 worker 上白白空转。
  */
 struct CoPool::ClassState {
     StackRequest request{0, false};
@@ -39,7 +47,7 @@ struct CoPool::ClassState {
     size_t capacity{0};
     std::mutex mutex;
     std::deque<Work*> queue;
-    sync::CoCond::SPtr cond{nullptr};
+    std::unique_ptr<WaitSignal> signal;
 };
 
 std::shared_ptr<CoPool> CoPool::Create(int max_co)
@@ -52,13 +60,13 @@ std::shared_ptr<CoPool> CoPool::Create(const CoPoolOptions& options)
     return std::make_shared<CoPool>(options);
 }
 
-CoPool::CoPool(int max) : m_max_co_num(max), m_cond(sync::CoCond::Create())
+CoPool::CoPool(int max) : m_max_co_num(max), m_work_signal(std::make_unique<WaitSignal>())
 {
     Assert(m_max_co_num > 0);
     _Start();
 }
 
-CoPool::CoPool(const CoPoolOptions& options) : m_cond(sync::CoCond::Create())
+CoPool::CoPool(const CoPoolOptions& options) : m_work_signal(std::make_unique<WaitSignal>())
 {
     _StartRouted(options);
 }
@@ -92,23 +100,12 @@ int CoPool::Submit(const CoPoolWorkCallback& workfunc)
     if (work == nullptr)
         return -1;
 
-    /**
-     * 池已停止：此后没有消费者，入队只会滞留到析构时才被释放。
-     */
-    if (!m_is_running.load(std::memory_order_acquire)) {
+    if (!_EnqueueDefault(work)) {
         delete work;
         return -1;
     }
 
-    if (!m_works_queue.enqueue(work)) {
-        delete work;
-        return -1;
-    }
-
-    /**
-     * 这次唤醒可能落空（worker 刚 try_dequeue 失败、还没挂上 waiter），由 _MonitorCo 按队列长度补发。
-     */
-    m_cond->NotifyOne();
+    _NotifyOne(*m_work_signal);
     return 0;
 }
 
@@ -121,17 +118,12 @@ int CoPool::Submit(CoPoolWorkCallback&& workfunc)
     if (work == nullptr)
         return -1;
 
-    if (!m_is_running.load(std::memory_order_acquire)) {
+    if (!_EnqueueDefault(work)) {
         delete work;
         return -1;
     }
 
-    if (!m_works_queue.enqueue(work)) {
-        delete work;
-        return -1;
-    }
-
-    m_cond->NotifyOne();
+    _NotifyOne(*m_work_signal);
     return 0;
 }
 
@@ -196,17 +188,12 @@ std::future<void> CoPool::SubmitWithFuture(const CoPoolWorkCallback& workfunc)
     if (work == nullptr)
         return {};
 
-    if (!m_is_running.load(std::memory_order_acquire)) {
+    if (!_EnqueueDefault(work)) {
         delete work;
         return {};
     }
 
-    if (!m_works_queue.enqueue(work)) {
-        delete work;
-        return {};
-    }
-
-    m_cond->NotifyOne();
+    _NotifyOne(*m_work_signal);
     return future;
 }
 
@@ -222,17 +209,12 @@ std::future<void> CoPool::SubmitWithFuture(CoPoolWorkCallback&& workfunc)
     if (work == nullptr)
         return {};
 
-    if (!m_is_running.load(std::memory_order_acquire)) {
+    if (!_EnqueueDefault(work)) {
         delete work;
         return {};
     }
 
-    if (!m_works_queue.enqueue(work)) {
-        delete work;
-        return {};
-    }
-
-    m_cond->NotifyOne();
+    _NotifyOne(*m_work_signal);
     return future;
 }
 
@@ -292,7 +274,7 @@ void CoPool::_HandleWorkerException(const std::exception_ptr& eptr) noexcept
      * Wait/condition infrastructure failure invalidates the fixed-worker guarantee.
      * Stop admission first so no caller can enqueue work after the failure is visible.
      */
-    m_is_running.store(false, std::memory_order_release);
+    _Seal();
     m_unhandled_exception_count.fetch_add(1, std::memory_order_relaxed);
 
     /**
@@ -302,14 +284,14 @@ void CoPool::_HandleWorkerException(const std::exception_ptr& eptr) noexcept
      */
     (void)eptr;
     try {
-        if (m_cond != nullptr)
-            m_cond->NotifyAll();
+        if (m_work_signal != nullptr)
+            _NotifyAll(*m_work_signal);
     } catch (...) {
     }
     for (const auto& state : m_classes) {
         try {
-            if (state->cond != nullptr)
-                state->cond->NotifyAll();
+            if (state->signal != nullptr)
+                _NotifyAll(*state->signal);
         } catch (...) {
         }
     }
@@ -335,9 +317,15 @@ void CoPool::Release()
     if (_IsInPoolWorker())
         throw std::logic_error("CoPool::Release cannot wait for its own worker");
 
-    m_is_running.store(false, std::memory_order_release);
+    _Seal();
     _WaitWorkersExit();
     _DrainQueues();
+}
+
+void CoPool::_Seal() noexcept
+{
+    std::lock_guard<std::mutex> lock(m_work_queue_mutex);
+    m_is_running.store(false, std::memory_order_release);
 }
 
 void CoPool::_WaitWorkersExit()
@@ -349,10 +337,10 @@ void CoPool::_WaitWorkersExit()
      */
     const bool in_co = (GetLocalCoroutineId() != 0);
     while (m_exited_workers.load(std::memory_order_acquire) < m_created_workers.load(std::memory_order_acquire)) {
-        if (m_cond != nullptr)
-            m_cond->NotifyAll();
+        if (m_work_signal != nullptr)
+            _NotifyAll(*m_work_signal);
         for (const auto& state : m_classes)
-            state->cond->NotifyAll();
+            _NotifyAll(*state->signal);
 
         if (in_co) {
             /**
@@ -370,6 +358,9 @@ void CoPool::_WaitWorkersExit()
 
 void CoPool::_DrainQueues() noexcept
 {
+    /**
+     * _Seal 已与默认入队串行化，不会再有新任务；释放 Work 可能析构用户捕获，不能持队列锁。
+     */
     Work* item = nullptr;
     while (m_works_queue.try_dequeue(item))
         delete item;
@@ -432,6 +423,12 @@ CoPool::ClassState* CoPool::_FindClass(StackRequest request) const
     return nullptr;
 }
 
+bool CoPool::_EnqueueDefault(Work* work)
+{
+    std::lock_guard<std::mutex> lock(m_work_queue_mutex);
+    return m_is_running.load(std::memory_order_acquire) && m_works_queue.enqueue(work);
+}
+
 CoPoolSubmitStatus CoPool::_Enqueue(ClassState& state, Work* work)
 {
     {
@@ -452,7 +449,7 @@ CoPoolSubmitStatus CoPool::_Enqueue(ClassState& state, Work* work)
         }
     }
 
-    state.cond->NotifyOne();
+    _NotifyOne(*state.signal);
     return CoPoolSubmitStatus::Accepted;
 }
 
@@ -460,7 +457,7 @@ void CoPool::_Start()
 {
     const StackRequest request{g_bbt_coroutine_config->RuntimeSnapshot().stack_size,
                                g_bbt_coroutine_config->RuntimeSnapshot().stack_protect};
-    m_worker_ids.reserve(static_cast<size_t>(m_max_co_num) + 1);
+    m_worker_ids.reserve(static_cast<size_t>(m_max_co_num));
     try {
 
         /**
@@ -469,10 +466,6 @@ void CoPool::_Start()
         for (int i = 0; i < m_max_co_num; ++i)
             _StartWorker(request, nullptr, "work co");
 
-        /**
-         * 启动监视协程
-         */
-        _StartMonitor(request, "monitor co");
     } catch (...) {
         _AbortStart();
         throw;
@@ -494,26 +487,6 @@ void CoPool::_StartWorker(StackRequest request, ClassState* state, const char* d
                     _WorkCoRoute(*state);
                 else
                     _WorkCo();
-            } catch (...) {
-                _HandleWorkerException(std::current_exception());
-            }
-            m_exited_workers.fetch_add(1, std::memory_order_acq_rel);
-        };
-        g_scheduler->RegistCoroutineTask(request, body, {}, desc);
-    } catch (...) {
-        --m_created_workers;
-        throw;
-    }
-}
-
-void CoPool::_StartMonitor(StackRequest request, const char* desc)
-{
-    ++m_created_workers;
-    try {
-        auto body = [this]() {
-            try {
-                _RecordWorkerId();
-                _MonitorCo();
             } catch (...) {
                 _HandleWorkerException(std::current_exception());
             }
@@ -558,26 +531,21 @@ void CoPool::_StartRouted(const CoPoolOptions& options)
         state->key = key;
         state->worker_num = config.worker_num;
         state->capacity = config.queue_capacity;
-        state->cond = sync::CoCond::Create();
+        state->signal = std::make_unique<WaitSignal>();
         classes.push_back(std::move(state));
     }
 
     /**
-     * 创建前容量校验：worker 栈与 monitor 栈都要在当前 StackPool 策略里真正可接纳，
+     * 创建前容量校验：worker 栈要在当前 StackPool 策略里真正可接纳，
      * 不通过就不留半个池。查询是只读快照，真实分配仍可能失败，失败走下面的回滚。
      */
     for (const auto& state : classes)
         if (!g_bbt_stackpoll->CanAdmit(state->request, state->worker_num))
             throw std::runtime_error("CoPool: class workers exceed the stack budget");
 
-    const StackRequest monitor{g_bbt_coroutine_config->RuntimeSnapshot().stack_size,
-                               g_bbt_coroutine_config->RuntimeSnapshot().stack_protect};
-    if (!g_bbt_stackpoll->CanAdmit(monitor, 1))
-        throw std::runtime_error("CoPool: monitor stack exceeds the stack budget");
-
     if (total_workers == std::numeric_limits<size_t>::max())
         throw std::length_error("CoPool: worker count overflow");
-    m_worker_ids.reserve(total_workers + 1);
+    m_worker_ids.reserve(total_workers);
     m_classes = std::move(classes);
 
     try {
@@ -585,7 +553,6 @@ void CoPool::_StartRouted(const CoPoolOptions& options)
             for (size_t i = 0; i != state->worker_num; ++i)
                 _StartWorker(state->request, state.get(), "copool worker");
 
-        _StartMonitor(monitor, "copool monitor");
     } catch (...) {
         _AbortStart();
         throw;
@@ -599,16 +566,79 @@ void CoPool::_AbortStart() noexcept
      * 已登记的 worker 看到封口后会立即退出并归还栈；等到它们真实离开，
      * 调用方的析构（shared_ptr 未交付）才不会撕掉在跑协程引用的成员。
      */
-    m_is_running.store(false, std::memory_order_release);
+    _Seal();
     _WaitWorkersExit();
+}
+
+void CoPool::_WaitForWork(WaitSignal& signal, uint64_t observed_sequence)
+{
+    auto waiter = sync::CoWaiter::Create();
+    waiter->WaitWithCallback([this, &signal, waiter, observed_sequence]() {
+        bool notify = false;
+        {
+            std::lock_guard<std::mutex> lock(signal.mutex);
+            signal.waiters.push_back(waiter);
+            if (!m_is_running.load(std::memory_order_acquire)
+                || signal.sequence.load(std::memory_order_acquire) != observed_sequence) {
+                signal.waiters.pop_back();
+                notify = true;
+            }
+        }
+        if (notify)
+            waiter->Notify();
+        return true;
+    });
+}
+
+void CoPool::_NotifyOne(WaitSignal& signal) noexcept
+{
+    sync::CoWaiter::SPtr waiter;
+    {
+        std::lock_guard<std::mutex> lock(signal.mutex);
+        signal.sequence.fetch_add(1, std::memory_order_release);
+        if (!signal.waiters.empty()) {
+            waiter = signal.waiters.front();
+            signal.waiters.pop_front();
+        }
+    }
+
+    while (waiter != nullptr) {
+        try {
+            if (waiter->Notify() == 0)
+                return;
+        } catch (...) {
+        }
+        std::lock_guard<std::mutex> lock(signal.mutex);
+        if (signal.waiters.empty())
+            return;
+        waiter = signal.waiters.front();
+        signal.waiters.pop_front();
+    }
+}
+
+void CoPool::_NotifyAll(WaitSignal& signal) noexcept
+{
+    std::deque<sync::CoWaiter::SPtr> waiters;
+    {
+        std::lock_guard<std::mutex> lock(signal.mutex);
+        signal.sequence.fetch_add(1, std::memory_order_release);
+        waiters.swap(signal.waiters);
+    }
+    for (const auto& waiter : waiters) {
+        try {
+            waiter->Notify();
+        } catch (...) {
+        }
+    }
 }
 
 void CoPool::_WorkCo()
 {
     while (m_is_running.load(std::memory_order_acquire)) {
+        const auto observed_sequence = m_work_signal->sequence.load(std::memory_order_acquire);
         Work* work = nullptr;
         if (!m_works_queue.try_dequeue(work)) {
-            m_cond->Wait();
+            _WaitForWork(*m_work_signal, observed_sequence);
             continue;
         }
 
@@ -620,6 +650,7 @@ void CoPool::_WorkCo()
 void CoPool::_WorkCoRoute(ClassState& state)
 {
     while (m_is_running.load(std::memory_order_acquire)) {
+        const auto observed_sequence = state.signal->sequence.load(std::memory_order_acquire);
         Work* work = nullptr;
         {
             std::lock_guard<std::mutex> lock(state.mutex);
@@ -630,46 +661,12 @@ void CoPool::_WorkCoRoute(ClassState& state)
         }
 
         if (work == nullptr) {
-            state.cond->Wait();
+            _WaitForWork(*state.signal, observed_sequence);
             continue;
         }
 
         _RunWork(work);
         delete work;
-    }
-}
-
-void CoPool::_MonitorCo()
-{
-
-    /**
-     * 补发唤醒的兜底：入队与 NotifyOne 之间有窗口（worker 刚取队列失败、还没挂上
-     * waiter），这次唤醒会丢、任务留在队列里，Submit 侧无法重试，所以这里按队列长度补发；
-     * NotifyOne 返回非 0 说明没有挂起的 worker，提前退出。
-     */
-    while (m_is_running.load(std::memory_order_acquire)) {
-        if (m_classes.empty()) {
-            auto remain_works_num = m_works_queue.size_approx();
-
-            for (size_t i = 0; i < remain_works_num; ++i) {
-                if (m_cond->NotifyOne() != 0)
-                    break;
-            }
-        } else {
-            for (const auto& state : m_classes) {
-                size_t queued = 0;
-                {
-                    std::lock_guard<std::mutex> lock(state->mutex);
-                    queued = state->queue.size();
-                }
-                for (size_t i = 0; i < queued; ++i) {
-                    if (state->cond->NotifyOne() != 0)
-                        break;
-                }
-            }
-        }
-
-        bbtco_sleep(1);
     }
 }
 

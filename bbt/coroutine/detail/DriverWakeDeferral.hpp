@@ -1,48 +1,58 @@
 #pragma once
+#include <memory>
 #include <bbt/coroutine/detail/Define.hpp>
 
 namespace bbt::coroutine::detail {
 
+class CoPollEvent;
+class WaitNode;
+
 /**
- * @brief driver Wake 延期机制（runtime 内部，无对外 API）。
+ * @brief 同步原语通知的锁外收尾（runtime 内部）。
  *
- * 触发链（CoWaiter::Notify → Trigger → OnActiveCoroutine → 广播）可能
- * 运行在同步原语外层 OS 锁内，而 driver->Wake() 必须在整条调用链的
- * runtime 锁之外执行。本机制提供 TLS 计数：
- *  - 构造 depth++，析构 depth--；最外层退出时若 pending 置位，清位后
- *    对全部已登记 worker 补发 driver Wake（不重新发布任务/latch）。
- *  - 延期期间任务发布与 latch 照常立即生效，只推迟外部 Wake 调用。
+ * 自定义通知在锁内竞争首胜，已挂起事件的完成与 driver Wake 留到最外层
+ * 通知锁释放后执行。其它任务的发布和 latch 不延期，只推迟 driver Wake。
  *
- * 时序约束：guard 对象绝不能跨 Yield/协程挂起——TLS 属线程而非协程，
- * 跨挂起会把「外调窗口」错误延伸到恢复之后的其它上下文。
+ * guard 必须在所保护的锁释放后析构，且不能跨 Yield：TLS 属于线程而非协程。
  */
 class DriverWakeDeferral {
 public:
-    /**
-     * 构造 depth++；析构 depth--，退到最外层且 pending 置位时补发 driver Wake。
-     */
-    DriverWakeDeferral() noexcept { ++_TlsDepth(); }
+    DriverWakeDeferral() noexcept
+    {
+        auto& outermost = _TlsOutermost();
+        if (outermost == nullptr)
+            outermost = this;
+    }
     ~DriverWakeDeferral() noexcept;
 
     DriverWakeDeferral(const DriverWakeDeferral&) = delete;
     DriverWakeDeferral& operator=(const DriverWakeDeferral&) = delete;
 
     /**
-     * @brief 请求一次 driver Wake。深度>0 时只置位 pending 并返回 true
-     *  （由最外层 guard 退出时统一兑现）；深度=0 返回 false，调用方自行
-     *  立即执行 Wake。
+     * @brief 在 guard 内记住 Wake 请求，返回 true；否则由调用方立即 Wake。
+     * 无目标为广播；同一目标合并，不同目标提升为一次广播，完成路径不分配。
      */
-    static bool Defer() noexcept;
+    static bool Defer(ProcesserId target = BBT_COROUTINE_INVALID_PROCESSER_ID) noexcept;
 
     /**
-     * 当前线程是否仍在某级 runtime 通知临界区内（deferral depth>0）。
+     * @brief 将已取得完成权的事件交给最外层 guard；无 guard 则由调用方完成。
+     */
+    static bool DeferCompletion(CoPollEvent& event) noexcept;
+    static bool DeferCompletion(WaitNode& node) noexcept;
+
+    /**
+     * 当前线程是否仍在某级 runtime 通知临界区内。
      * 用于 Unregister 在副作用前拒绝穿透 guard 的终止 Wake。
      */
-    static bool IsActive() noexcept { return _TlsDepth() > 0; }
+    static bool IsActive() noexcept { return _TlsOutermost() != nullptr; }
 
 private:
-    static int& _TlsDepth() noexcept;
-    static bool& _TlsPending() noexcept;
+    static DriverWakeDeferral*& _TlsOutermost() noexcept;
+
+    std::shared_ptr<CoPollEvent> m_first_event;
+    std::shared_ptr<CoPollEvent>* m_event_tail{&m_first_event};
+    std::shared_ptr<WaitNode> m_first_wait_node;
+    std::shared_ptr<WaitNode>* m_wait_node_tail{&m_first_wait_node};
 };
 
 }

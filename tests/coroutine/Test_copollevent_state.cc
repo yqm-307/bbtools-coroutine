@@ -11,6 +11,7 @@
 #include <limits>
 #include <mutex>
 #include <stdexcept>
+#include <string>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -22,7 +23,9 @@
 #include <bbt/coroutine/coroutine.hpp>
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
 #include <bbt/coroutine/detail/CoPoller.hpp>
+#include <bbt/coroutine/detail/DriverWakeDeferral.hpp>
 #include <bbt/coroutine/detail/GlobalConfig.hpp>
+#include <bbt/coroutine/detail/WaitNode.hpp>
 
 /**
  * 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
@@ -177,6 +180,102 @@ BOOST_AUTO_TEST_CASE(t_parked_callback_exception_does_not_escape_trigger)
     BOOST_CHECK(event->IsFinal());
     BOOST_CHECK_EQUAL(event->GetStatus(), POLLEVENT_FINAL);
     BOOST_CHECK_EQUAL(g_bbt_coroutine_config->m_unhandled_exception_count.load(), before + 1);
+}
+
+/**
+ * WaitNode 的白盒同级覆盖：早到 PENDING 由 CommitPark 消费，回调异常不得
+ * 逃逸到 Processer 原生栈；终态先发布，后续 Trigger 不再二次完成。
+ */
+BOOST_AUTO_TEST_CASE(t_waitnode_pending_callback_exception_does_not_escape_commit_park)
+{
+    const auto before = g_bbt_coroutine_config->m_unhandled_exception_count.load();
+    std::atomic_int callback_count{0};
+    auto node = WaitNode::Create(1, [&](short) {
+        callback_count.fetch_add(1);
+        throw std::runtime_error("waitnode pending callback failure");
+    });
+
+    BOOST_REQUIRE_EQUAL(node->Regist(), 0);
+    BOOST_REQUIRE_EQUAL(node->Trigger(POLL_EVENT_CUSTOM), 0);
+    BOOST_CHECK_EQUAL(callback_count.load(), 0);
+
+    bool completed_pending_node = false;
+    BOOST_CHECK_NO_THROW(completed_pending_node = node->CommitPark());
+    BOOST_CHECK(completed_pending_node);
+    BOOST_CHECK_EQUAL(callback_count.load(), 1);
+    BOOST_CHECK(node->IsFinal());
+    BOOST_CHECK_EQUAL(node->Trigger(POLL_EVENT_CUSTOM), -1);
+    BOOST_CHECK_EQUAL(callback_count.load(), 1);
+    BOOST_CHECK_EQUAL(g_bbt_coroutine_config->m_unhandled_exception_count.load(), before + 1);
+}
+
+/**
+ * 锁外 defer drain：首个节点回调抛出后，后续节点仍须完成；异常不得
+ * 从 noexcept 的 guard 析构逃逸（逃逸即 terminate）。
+ */
+BOOST_AUTO_TEST_CASE(t_waitnode_deferred_callback_exception_does_not_escape_drain)
+{
+    const auto before = g_bbt_coroutine_config->m_unhandled_exception_count.load();
+    std::atomic_int first_count{0};
+    std::atomic_int second_count{0};
+    auto first = WaitNode::Create(1, [&](short) {
+        first_count.fetch_add(1);
+        throw std::runtime_error("waitnode deferred callback failure");
+    });
+    auto second = WaitNode::Create(2, [&](short) { second_count.fetch_add(1); });
+
+    BOOST_REQUIRE_EQUAL(first->Regist(), 0);
+    BOOST_REQUIRE_EQUAL(second->Regist(), 0);
+    BOOST_CHECK_EQUAL(first->CommitPark(), false);
+    BOOST_CHECK_EQUAL(second->CommitPark(), false);
+
+    {
+        DriverWakeDeferral defer;
+        BOOST_REQUIRE_EQUAL(first->Trigger(POLL_EVENT_CUSTOM), 0);
+        BOOST_REQUIRE_EQUAL(second->Trigger(POLL_EVENT_CUSTOM), 0);
+        BOOST_CHECK_EQUAL(first_count.load(), 0);
+        BOOST_CHECK_EQUAL(second_count.load(), 0);
+    }
+
+    BOOST_CHECK_EQUAL(first_count.load(), 1);
+    BOOST_CHECK_EQUAL(second_count.load(), 1);
+    BOOST_CHECK(first->IsFinal());
+    BOOST_CHECK(second->IsFinal());
+    BOOST_CHECK_EQUAL(g_bbt_coroutine_config->m_unhandled_exception_count.load(), before + 1);
+}
+
+/**
+ * 配置异常回调与 CoPollEvent 同口径：回调消费异常文本，不再累计默认计数。
+ * 该配置只在 runtime 冻结前生效，冻结后写公共字段不会进入 RuntimeSnapshot，
+ * 故此处显式要求尚未冻结；后续用例 Start 后不再重复本场景。
+ */
+BOOST_AUTO_TEST_CASE(t_waitnode_configured_exception_callback_reports_without_default_count)
+{
+    BOOST_REQUIRE(!g_bbt_coroutine_config->IsRuntimeSetupFrozen());
+    ExceptionCallbackRestore callback_restore(*g_bbt_coroutine_config);
+    const auto before = g_bbt_coroutine_config->m_unhandled_exception_count.load();
+    std::atomic_int reports{0};
+    std::mutex report_mutex;
+    std::string report_text;
+    g_bbt_coroutine_config->m_ext_coevent_exception_callback = [&](const bbt::core::errcode::IErrcode& err) {
+        reports.fetch_add(1);
+        std::lock_guard<std::mutex> lock(report_mutex);
+        report_text = err.What();
+    };
+
+    auto node = WaitNode::Create(1, [](short) { throw std::runtime_error("waitnode configured failure"); });
+    BOOST_REQUIRE_EQUAL(node->Regist(), 0);
+    BOOST_REQUIRE_EQUAL(node->Trigger(POLL_EVENT_CUSTOM), 0);
+    bool completed_pending_node = false;
+    BOOST_CHECK_NO_THROW(completed_pending_node = node->CommitPark());
+    BOOST_CHECK(completed_pending_node);
+    BOOST_CHECK_EQUAL(reports.load(), 1);
+    {
+        std::lock_guard<std::mutex> lock(report_mutex);
+        BOOST_CHECK(report_text.find("waitnode configured failure") != std::string::npos);
+    }
+    BOOST_CHECK(node->IsFinal());
+    BOOST_CHECK_EQUAL(g_bbt_coroutine_config->m_unhandled_exception_count.load(), before);
 }
 
 BOOST_AUTO_TEST_CASE(t_regist_commit_park_then_trigger_completes_once)
@@ -617,7 +716,13 @@ BOOST_AUTO_TEST_CASE(t_multi_processer_yield_requeues_each_coroutine_once_per_it
 
     std::atomic_int duplicate_resume{0};
     std::atomic_int registration_failures{0};
-    std::atomic_int completed_count{0};
+
+    /**
+     * 计数只在这把锁内读写：析构发生在用例末尾而 worker 线程仍存活
+     * （运行时没有停机入口），谓词与「谁完成最后一次」同锁才能让最后
+     * 一次 notify 先于析构，否则 TSAN 报 destroy vs notify 竞争。
+     */
+    int completed_count{0};
     std::mutex completed_mutex;
     std::condition_variable completed_cond;
     auto& config = *g_bbt_coroutine_config;
@@ -644,8 +749,11 @@ BOOST_AUTO_TEST_CASE(t_multi_processer_yield_requeues_each_coroutine_once_per_it
                     exited[coroutine_index].fetch_add(1, std::memory_order_relaxed);
                 }
                 completed_per_coroutine[coroutine_index].fetch_add(1, std::memory_order_relaxed);
-                if (completed_count.fetch_add(1, std::memory_order_release) + 1 == kCoroutineCount)
-                    completed_cond.notify_one();
+                {
+                    std::lock_guard<std::mutex> completed_guard(completed_mutex);
+                    if (++completed_count == kCoroutineCount)
+                        completed_cond.notify_one();
+                }
             },
             registered);
         if (!registered)
@@ -654,7 +762,10 @@ BOOST_AUTO_TEST_CASE(t_multi_processer_yield_requeues_each_coroutine_once_per_it
 
     std::unique_lock<std::mutex> completed_lock(completed_mutex);
     const bool completed_result = completed_cond.wait_for(completed_lock, std::chrono::seconds(5), [&] {
-        return completed_count.load(std::memory_order_acquire) == kCoroutineCount;
+        /**
+         * 谓词总在 completed_mutex 下执行，与生产者同锁读计数
+         */
+        return completed_count == kCoroutineCount;
     });
     completed_lock.unlock();
 
@@ -955,6 +1066,177 @@ BOOST_AUTO_TEST_CASE(t_init_during_close_window_is_closed_not_admitted)
      */
     if (::fcntl(fds[0], F_GETFD) >= 0)
         ::close(fds[0]);
+}
+
+/**
+ * =================== TriggerCustom 锁外收尾（外层 guard 语义） ===================
+ * 全部主线程、无 sleep：guard 为 thread_local，嵌套与 flush 时序由作用域决定。
+ * PENDING 仍由 CommitPark 消费，既有 t_custom_trigger_before_regist_is_pending_until_commit 已覆盖。
+ */
+
+/**
+ * 嵌套 guard 结束不执行回调：完成只交给最外层 guard。
+ * 抓错：嵌套 guard 析构误 flush（回调提前、可能仍在组件锁内执行）。
+ */
+BOOST_AUTO_TEST_CASE(t_nested_guard_end_does_not_flush_completion)
+{
+    std::atomic_int callback_count{0};
+    auto event = CoPollEvent::Create(1, [&](auto, int, int) { callback_count.fetch_add(1); });
+
+    BOOST_REQUIRE_EQUAL(event->InitCustomEvent(POLL_EVENT_CUSTOM_COND, nullptr), 0);
+    BOOST_REQUIRE_EQUAL(event->Regist(), 0);
+    BOOST_CHECK_EQUAL(event->CommitPark(), false);
+
+    {
+        DriverWakeDeferral outer;
+        {
+            DriverWakeDeferral inner;
+            BOOST_CHECK_EQUAL(event->TriggerCustom(), 0);
+        }
+
+        /**
+         * inner guard 已结束：首胜已声明（TRIGGERING）但完成仍未执行
+         */
+        BOOST_CHECK_EQUAL(callback_count.load(), 0);
+        BOOST_CHECK_EQUAL(event->GetStatus(), POLLEVENT_TRIGGER);
+    }
+
+    /**
+     * 最外层 guard 结束：恰好一次完成
+     */
+    BOOST_CHECK_EQUAL(callback_count.load(), 1);
+    BOOST_CHECK(event->IsFinal());
+    BOOST_CHECK_EQUAL(event->GetStatus(), POLLEVENT_FINAL);
+}
+
+/**
+ * 外层 mock 通知锁释放后，guard 按队列顺序恰好一次 flush。
+ * 抓错：flush 顺序错乱、重复完成、回调仍在通知锁内执行。
+ * 锁观察用跨作用域 unique_lock(defer_lock)：回调只读 owns_lock()，
+ * 同线程持锁状态下观察无 UB，早误 flush 只会变成断言失败。
+ */
+BOOST_AUTO_TEST_CASE(t_deferred_completions_flush_in_order_after_mock_lock_release)
+{
+    std::mutex notify_mutex;
+    std::unique_lock<std::mutex> owned(notify_mutex, std::defer_lock);
+    std::vector<int> completion_order;
+    std::atomic_int saw_lock_released{0};
+
+    auto make_event = [&](int id) {
+        return CoPollEvent::Create(id, [&, id](auto, int, int) {
+            completion_order.push_back(id);
+
+            /**
+             * 计数含义与断言一致：锁已释放（未持锁）才计 1
+             */
+            if (!owned.owns_lock())
+                saw_lock_released.fetch_add(1);
+        });
+    };
+    auto e1 = make_event(1);
+    auto e2 = make_event(2);
+    auto e3 = make_event(3);
+    for (auto& e : {e1, e2, e3}) {
+        BOOST_REQUIRE_EQUAL(e->InitCustomEvent(POLL_EVENT_CUSTOM_COND, nullptr), 0);
+        BOOST_REQUIRE_EQUAL(e->Regist(), 0);
+        BOOST_CHECK_EQUAL(e->CommitPark(), false);
+    }
+
+    {
+        DriverWakeDeferral outer;
+
+        /**
+         * 被测窗口：通知锁持有时仅声明首胜
+         */
+        owned.lock();
+        BOOST_CHECK_EQUAL(e1->TriggerCustom(), 0);
+        BOOST_CHECK_EQUAL(e2->TriggerCustom(), 0);
+        BOOST_CHECK_EQUAL(e3->TriggerCustom(), 0);
+        owned.unlock();
+
+        /**
+         * guard 未结束：零回调、全部停在已声明态
+         */
+        BOOST_CHECK(completion_order.empty());
+        BOOST_CHECK_EQUAL(e1->GetStatus(), POLLEVENT_TRIGGER);
+        BOOST_CHECK_EQUAL(e2->GetStatus(), POLLEVENT_TRIGGER);
+        BOOST_CHECK_EQUAL(e3->GetStatus(), POLLEVENT_TRIGGER);
+    }
+
+    /**
+     * 先锁定收口数，防漏回调下的下标越界
+     */
+    BOOST_REQUIRE_EQUAL(completion_order.size(), 3u);
+    BOOST_CHECK_EQUAL(completion_order[0], 1);
+    BOOST_CHECK_EQUAL(completion_order[1], 2);
+    BOOST_CHECK_EQUAL(completion_order[2], 3);
+    BOOST_CHECK_EQUAL(saw_lock_released.load(), 3);
+    BOOST_CHECK(e1->IsFinal());
+    BOOST_CHECK(e2->IsFinal());
+    BOOST_CHECK(e3->IsFinal());
+}
+
+/**
+ * 后到 cancel/timeout 不能抢走已声明完成：TRIGGERING 后所有触发与注销拒绝。
+ * 抓错：完成权可被超时/取消/二次通知篡夺（首胜失效）。
+ */
+BOOST_AUTO_TEST_CASE(t_claimed_custom_completion_cannot_be_stolen)
+{
+    std::atomic_int callback_count{0};
+    std::atomic_int callback_flags{POLL_EVENT_DEFAULT};
+    auto event = CoPollEvent::Create(1, [&](auto, int flags, int) {
+        callback_count.fetch_add(1);
+        callback_flags.store(flags);
+    });
+
+    BOOST_REQUIRE_EQUAL(event->InitCustomEvent(POLL_EVENT_CUSTOM_COND, nullptr), 0);
+    BOOST_REQUIRE_EQUAL(event->Regist(), 0);
+    BOOST_CHECK_EQUAL(event->CommitPark(), false);
+
+    {
+        DriverWakeDeferral outer;
+        BOOST_CHECK_EQUAL(event->TriggerCustom(), 0);
+
+        BOOST_CHECK_EQUAL(event->Trigger(POLL_EVENT_TIMEOUT), -1);
+        BOOST_CHECK_EQUAL(event->TriggerCustom(), -1);
+        BOOST_CHECK_EQUAL(event->UnRegist(), -1);
+        BOOST_CHECK_EQUAL(event->GetStatus(), POLLEVENT_TRIGGER);
+    }
+
+    BOOST_CHECK_EQUAL(callback_count.load(), 1);
+    BOOST_CHECK_EQUAL(callback_flags.load(), POLL_EVENT_CUSTOM);
+    BOOST_CHECK(event->IsFinal());
+}
+
+/**
+ * guard 队列延寿排队事件：测试侧引用全释放后事件仍存活到 flush 完成。
+ * 抓错：队列只存裸指针/弱引用，flush 访问已析构事件。
+ */
+BOOST_AUTO_TEST_CASE(t_guard_queue_extends_queued_event_lifetime)
+{
+    auto counter = std::make_shared<std::atomic_int>(0);
+    std::weak_ptr<CoPollEvent> observed;
+
+    {
+        DriverWakeDeferral outer;
+        {
+            auto event = CoPollEvent::Create(1, [counter](auto, int, int) { counter->fetch_add(1); });
+            BOOST_REQUIRE_EQUAL(event->InitCustomEvent(POLL_EVENT_CUSTOM_COND, nullptr), 0);
+            BOOST_REQUIRE_EQUAL(event->Regist(), 0);
+            BOOST_CHECK_EQUAL(event->CommitPark(), false);
+            BOOST_CHECK_EQUAL(event->TriggerCustom(), 0);
+            observed = event;
+        }
+
+        /**
+         * 测试侧最后强引用已释放：队列持有寿命
+         */
+        BOOST_CHECK(!observed.expired());
+        BOOST_CHECK_EQUAL(counter->load(), 0);
+    }
+
+    BOOST_CHECK_EQUAL(counter->load(), 1);
+    BOOST_CHECK(observed.expired());
 }
 
 BOOST_AUTO_TEST_SUITE_END()

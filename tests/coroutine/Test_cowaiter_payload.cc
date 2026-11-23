@@ -56,11 +56,13 @@ bool WaitUntil(const std::function<bool()>& pred, int budget_ms = 5000)
     return true;
 }
 
-bool CoroutineSuspended(std::atomic<Coroutine*>& co)
-{
-    auto* p = co.load();
-    return p != nullptr && p->GetStatus() == bbt::coroutine::detail::CoroutineStatus::CO_SUSPEND;
-}
+struct ProbeWaiter : CoWaiter {
+    bool Ready()
+    {
+        std::lock_guard<std::mutex> lock(m_notify_mutex);
+        return m_co_event != nullptr || m_wait_node != nullptr;
+    }
+};
 
 /**
  * 与 int64 同尺寸、不同登记 ID：端到端错类型读取必须失败
@@ -81,7 +83,7 @@ BOOST_AUTO_TEST_SUITE(CoWaiterPayloadTest)
 BOOST_AUTO_TEST_CASE(t_sync_notify_in_callback_delivers_payload)
 {
     EnsureRuntime();
-    auto waiter = CoWaiter::Create();
+    auto waiter = std::make_shared<ProbeWaiter>();
     bbt::core::thread::CountDownLatch done{1};
     std::atomic_int cb_count{0};
     std::atomic<WaitStatus> st{};
@@ -119,7 +121,7 @@ BOOST_AUTO_TEST_CASE(t_callback_can_submit_when_stack_bucket_is_cold)
 {
     EnsureRuntime();
     constexpr size_t kChildStack = 192 * 1024;
-    auto waiter = CoWaiter::Create();
+    auto waiter = std::make_shared<ProbeWaiter>();
     bbt::core::thread::CountDownLatch done{1};
     std::atomic<WaitStatus> st{};
     std::atomic_bool submitted{false};
@@ -165,7 +167,7 @@ BOOST_AUTO_TEST_CASE(t_callback_can_submit_when_stack_bucket_is_cold)
 BOOST_AUTO_TEST_CASE(t_first_win_payload_locked)
 {
     EnsureRuntime();
-    auto waiter = CoWaiter::Create();
+    auto waiter = std::make_shared<ProbeWaiter>();
     bbt::core::thread::CountDownLatch done{1};
     std::atomic_int second_ret{-999};
     std::atomic<WaitStatus> st{};
@@ -200,7 +202,7 @@ BOOST_AUTO_TEST_CASE(t_first_win_payload_locked)
 BOOST_AUTO_TEST_CASE(t_timeout_first_win_has_no_payload)
 {
     EnsureRuntime();
-    auto waiter = CoWaiter::Create();
+    auto waiter = std::make_shared<ProbeWaiter>();
     bbt::core::thread::CountDownLatch done{1};
     std::atomic<WaitStatus> st{};
     std::atomic_bool has_value{true};
@@ -234,7 +236,7 @@ BOOST_AUTO_TEST_CASE(t_timeout_first_win_has_no_payload)
 BOOST_AUTO_TEST_CASE(t_plain_notify_gives_empty_payload)
 {
     EnsureRuntime();
-    auto waiter = CoWaiter::Create();
+    auto waiter = std::make_shared<ProbeWaiter>();
     bbt::core::thread::CountDownLatch done{1};
     std::atomic<WaitStatus> st{};
     std::atomic_bool has_value{true};
@@ -249,7 +251,7 @@ BOOST_AUTO_TEST_CASE(t_plain_notify_gives_empty_payload)
         done.Down();
     };
 
-    BOOST_REQUIRE(WaitUntil([&]() { return CoroutineSuspended(co_p); }));
+    BOOST_REQUIRE(WaitUntil([&]() { return waiter->Ready(); }));
     BOOST_CHECK_EQUAL(waiter->Notify(), 0);
     BOOST_REQUIRE_EQUAL(done.WaitTimeout(5000), 0);
     BOOST_CHECK(st.load() == WaitStatus::Completed);
@@ -262,7 +264,7 @@ BOOST_AUTO_TEST_CASE(t_plain_notify_gives_empty_payload)
 BOOST_AUTO_TEST_CASE(t_fresh_notify_fails_and_not_sticky)
 {
     EnsureRuntime();
-    auto waiter = CoWaiter::Create();
+    auto waiter = std::make_shared<ProbeWaiter>();
 
     BOOST_CHECK_EQUAL(waiter->Notify(CoEventValue::From(std::int64_t{1})), -1);
 
@@ -292,7 +294,7 @@ BOOST_AUTO_TEST_CASE(t_fresh_notify_fails_and_not_sticky)
 BOOST_AUTO_TEST_CASE(t_regist_fail_does_not_deliver)
 {
     EnsureRuntime();
-    auto waiter = CoWaiter::Create();
+    auto waiter = std::make_shared<ProbeWaiter>();
     bbt::core::thread::CountDownLatch done{1};
     std::atomic_int cb_count{0};
     std::atomic<WaitStatus> st{};
@@ -325,7 +327,7 @@ BOOST_AUTO_TEST_CASE(t_regist_fail_does_not_deliver)
 BOOST_AUTO_TEST_CASE(t_late_notify_does_not_pollute_next_wait)
 {
     EnsureRuntime();
-    auto waiter = CoWaiter::Create();
+    auto waiter = std::make_shared<ProbeWaiter>();
 
     bbt::core::thread::CountDownLatch first_done{1};
     std::atomic<WaitStatus> st1{};
@@ -366,7 +368,7 @@ BOOST_AUTO_TEST_CASE(t_late_notify_does_not_pollute_next_wait)
 BOOST_AUTO_TEST_CASE(t_cancel_first_win_has_no_payload)
 {
     EnsureRuntime();
-    auto waiter = CoWaiter::Create();
+    auto waiter = std::make_shared<ProbeWaiter>();
     bbt::core::thread::CountDownLatch done{1};
     std::atomic<WaitStatus> st{};
     std::atomic_bool has_value{true};
@@ -381,7 +383,7 @@ BOOST_AUTO_TEST_CASE(t_cancel_first_win_has_no_payload)
         done.Down();
     };
 
-    BOOST_REQUIRE(WaitUntil([&]() { return CoroutineSuspended(co_p); }));
+    BOOST_REQUIRE(WaitUntil([&]() { return waiter->Ready(); }));
     co_p.load()->RequestCancel();
     BOOST_REQUIRE_EQUAL(done.WaitTimeout(5000), 0);
     BOOST_CHECK(st.load() == WaitStatus::Cancelled);
@@ -394,7 +396,7 @@ BOOST_AUTO_TEST_CASE(t_cancel_first_win_has_no_payload)
 BOOST_AUTO_TEST_CASE(t_combined_wait_delivers_payload)
 {
     EnsureRuntime();
-    auto waiter = CoWaiter::Create();
+    auto waiter = std::make_shared<ProbeWaiter>();
     bbt::core::thread::CountDownLatch done{1};
     std::atomic<CombinedWaitStatus> st{};
     std::atomic<std::int64_t> got{0};
@@ -421,7 +423,7 @@ BOOST_AUTO_TEST_CASE(t_combined_wait_delivers_payload)
 BOOST_AUTO_TEST_CASE(t_wrong_type_read_rejected_after_delivery)
 {
     EnsureRuntime();
-    auto waiter = CoWaiter::Create();
+    auto waiter = std::make_shared<ProbeWaiter>();
     bbt::core::thread::CountDownLatch done{1};
     std::atomic_bool wrong_ok{false};
     std::atomic_bool out_untouched{false};
@@ -451,7 +453,7 @@ BOOST_AUTO_TEST_CASE(t_wrong_type_read_rejected_after_delivery)
 BOOST_AUTO_TEST_CASE(t_concurrent_notify_single_winner_payload)
 {
     EnsureRuntime();
-    auto waiter = CoWaiter::Create();
+    auto waiter = std::make_shared<ProbeWaiter>();
     bbt::core::thread::CountDownLatch done{1};
     std::atomic<WaitStatus> st{};
     std::atomic<std::int64_t> got{0};
@@ -471,7 +473,7 @@ BOOST_AUTO_TEST_CASE(t_concurrent_notify_single_winner_payload)
     /**
      * 等待者真正进入挂起状态（登记完成）后再并发投递，不用 sleep 猜时序
      */
-    BOOST_REQUIRE(WaitUntil([&]() { return CoroutineSuspended(co_p); }));
+    BOOST_REQUIRE(WaitUntil([&]() { return waiter->Ready(); }));
 
     constexpr int kThreads = 8;
     std::atomic_int ready{0};

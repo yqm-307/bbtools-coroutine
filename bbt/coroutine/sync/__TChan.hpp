@@ -521,8 +521,8 @@ template <class TItem, int Max> int Chan<TItem, Max>::_OnEnableRead()
 
     /**
      * CoSelect watchers：拷贝列表再逐个 Notify（忽略 -1：waiter 未挂起或已 Cancel）。
-     * 时序约束：调用方持 m_item_queue_mutex；Notify 内部只取 waiter 自身锁并把
-     * 目标协程入调度队列，不会同步 Resume、不会反向拿 chan 锁，无死锁环。
+     * 时序约束：调用方持 m_item_queue_mutex；Notify 先锁存首胜，已挂起
+     * watcher 的调度投递等调用方解锁后再执行，避免回调重入 chan 锁。
      */
     auto watchers = m_read_watchers;
     for (auto& w : watchers)

@@ -283,7 +283,7 @@ file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/Scheduler_scaling_probe.cc"
 target_sources(Test_scheduler_scaling PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/Scheduler_scaling_probe.cc")
 target_link_libraries(Test_scheduler_scaling ${MY_LIBS})
 target_link_options(Test_scheduler_scaling PRIVATE -Wl,--export-dynamic)
-set(_sc_modes boundaries noloop_loop_reaper noloop_manual_reaper driver_parked auto_busy auto_queue
+set(_sc_modes boundaries noloop_loop_reaper noloop_manual_reaper driver_parked driver_parked_waitnode auto_busy auto_queue
     tls_thread tls_noloop self_retire pin_bound pin_failed pin_detaching outstanding_limit
     concurrent_control auto_reverse admission_late admission_inflight rebalance_short_backlog)
 if(PROFILE)

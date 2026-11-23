@@ -27,6 +27,8 @@
 #include <thread>
 #include <unistd.h>
 
+#include "hook_fd_epoch_io.hpp"
+
 #include <bbt/core/thread/Lock.hpp>
 #include <bbt/coroutine/coroutine.hpp>
 #include <bbt/coroutine/detail/GlobalConfig.hpp>
@@ -83,7 +85,7 @@ BOOST_AUTO_TEST_CASE(t_multi_worker_close_reuse_returns_ebadf)
     {
         char buf[1];
         errno = 0;
-        const ssize_t r = ::read(fds[0], buf, 1);
+        const ssize_t r = FdEpochRead(fds[0], buf, 1);
         result.store(r);
         errcode.store(errno);
         done.Down();
@@ -97,7 +99,7 @@ BOOST_AUTO_TEST_CASE(t_multi_worker_close_reuse_returns_ebadf)
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     BOOST_REQUIRE(CoPollEvent::FdWaiterCount(fds[0]) > 0);
 
-    BOOST_REQUIRE_EQUAL(::close(fds[0]), 0);
+    BOOST_REQUIRE_EQUAL(FdEpochClose(fds[0]), 0);
     BOOST_REQUIRE_EQUAL(::dup2(np[0], fds[0]), fds[0]);
     const char z = 'z';
     BOOST_REQUIRE_EQUAL(::write(np[1], &z, 1), 1);
@@ -118,9 +120,9 @@ BOOST_AUTO_TEST_CASE(t_multi_worker_close_reuse_returns_ebadf)
     BOOST_CHECK_MESSAGE(got == 1 && probe == 'z',
                         "reused-fd byte was consumed by stale coroutine read (got=" << got << ")");
     if (::fcntl(fds[0], F_GETFD) >= 0)
-        ::close(fds[0]);
-    ::close(fds[1]);
-    ::close(np[1]);
+        FdEpochClose(fds[0]);
+    FdEpochClose(fds[1]);
+    FdEpochClose(np[1]);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

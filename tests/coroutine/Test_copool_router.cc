@@ -261,6 +261,8 @@ BOOST_AUTO_TEST_CASE(same_pool_dependency)
 
 /**
  * 创建前的容量/参数校验：Strict 未声明类、非法尺寸类、非法选项都在建 worker 前失败。
+ *
+ * 当前池只为实际 worker 申请栈，默认栈规格不参与路由类的准入。
  */
 BOOST_AUTO_TEST_CASE(empty_class)
 {
@@ -271,7 +273,7 @@ BOOST_AUTO_TEST_CASE(empty_class)
     const auto before = g_bbt_stackpoll->Observe();
 
     /**
-     * Strict 只声明了 12 KiB/protected：其它尺寸或保护属性不扩预算、不跨桶。
+     * Strict 只声明 12 KiB/protected worker 类：其它尺寸或保护属性不扩预算、不跨桶。
      */
     BOOST_CHECK_THROW(pool::CoPool::Create(Options({{{kLarge, true}, 1, 1}})), std::runtime_error);
     BOOST_CHECK_THROW(pool::CoPool::Create(Options({{{kSmall, false}, 1, 1}})), std::runtime_error);
