@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-23",
+  "commit": "04565438abb903f6a5ec9be889381a9ff58171d1",
+  "base": "dc338e9b0c463a3a2a156b003485c801c2fad60f",
+  "result": "pass",
+  "reviewer": "GPT-6.2 Astra（独立审查）",
+  "summary": "独立审查通过：覆盖惰性 async 操作、bbt_co_bind/await/fire、调用方迁移、测试与文档，以及格式入口变更。",
+  "checks": [
+    {
+      "id": "llm-review",
+      "kind": "attested",
+      "status": "pass",
+      "summary": "未发现阻断问题，公共 async 契约、生命周期与迁移调用路径通过审查。",
+      "evidence": {
+        "reviewer": "GPT-6.2 Astra（deleg_483ffff9；格式入口复核 deleg_a5d1f8e4）",
+        "scope": "dc338e9b0c463a3a2a156b003485c801c2fad60f..04565438abb903f6a5ec9be889381a9ff58171d1"
+      }
+    }
+  ]
+}
