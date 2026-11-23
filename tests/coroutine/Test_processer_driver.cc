@@ -1875,6 +1875,10 @@ void CaseReentrancy()
 
 /**
  * ---------- 8. steal + EVENT_WAIT 挂起迁移 ----------
+ *
+ * 确定性迁移场景：target 的 P 被真实 blocker 占住、other 空出，挂起的协程只能由
+ * other 取走。该场景承接跨 worker 恢复覆盖，并在迁移后校验运行时 TLS 指针/ID/
+ * 状态与 wait 结果。
  */
 void CaseStealMigrate()
 {
@@ -1945,16 +1949,27 @@ void CaseStealMigrate()
     auto waiter = std::make_shared<CoWaiterProbe>();
     std::atomic<ProcesserId> first_pid{0}, resume_pid{0};
     std::atomic<CoroutineId> co_id{0}, resume_co{0};
+    std::atomic<bool> tls_after_nonnull{false}, tls_same_coroutine{false};
+    std::atomic<CoroutineId> tls_after_id{0};
+    std::atomic<int> tls_after_status{-1};
+    std::atomic<int> wait_ret{-1};
     bbt::core::thread::CountDownLatch resume_done{1};
     PostOn(sche, target, [&, waiter] {
         first_pid = Processer::TryGetLocalProcesser()->GetId();
         co_id = GetLocalCoroutineId();
-        waiter->WaitWithTimeoutAndCallback(3000, [&] {
+        auto* self = g_bbt_tls_coroutine_co;
+        wait_ret.store(waiter->WaitWithTimeoutAndCallback(3000, [&] {
             registered_pid = Processer::TryGetLocalProcesser()->GetId();
             return true;
-        });
+        }));
         resume_pid = Processer::TryGetLocalProcesser()->GetId();
         resume_co = GetLocalCoroutineId();
+        tls_after_nonnull.store(g_bbt_tls_coroutine_co != nullptr);
+        tls_same_coroutine.store(g_bbt_tls_coroutine_co == self);
+        if (g_bbt_tls_coroutine_co != nullptr) {
+            tls_after_id.store(g_bbt_tls_coroutine_co->GetId());
+            tls_after_status.store(static_cast<int>(g_bbt_tls_coroutine_co->GetStatus()));
+        }
         resume_done.Down();
     });
     PD_REQUIRE(WaitUntil([&] { return committed.load(); }));
@@ -1981,6 +1996,16 @@ void CaseStealMigrate()
     BOOST_TEST(resume_pid.load() != target);
     BOOST_TEST(resume_co.load() == co_id.load());
     BOOST_TEST(resume_co.load() != 0u);
+    BOOST_TEST(wait_ret.load() == 0);
+
+    /**
+     * 迁移后运行时 TLS 必须显式指向同一协程对象，且 ID/状态可运行；
+     * 在线程内比较指针身份，再把 ID/状态发布给测试线程，避免跨线程解引用已结束的协程对象。
+     */
+    BOOST_TEST(tls_after_nonnull.load());
+    BOOST_TEST(tls_same_coroutine.load());
+    BOOST_TEST(tls_after_id.load() == co_id.load());
+    BOOST_TEST(tls_after_status.load() == static_cast<int>(CoroutineStatus::CO_RUNNING));
     target_hold.Open();
     PD_REQUIRE(LatchWait(tgt_out));
     BOOST_TEST(sche.UnregisterProcesserDriver(tok) == ProcesserDriverStatus::Ok);
