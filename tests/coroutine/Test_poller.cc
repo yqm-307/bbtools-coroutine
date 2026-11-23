@@ -195,12 +195,12 @@ const auto kBoundedWaitCeiling = std::chrono::seconds(5);
  */
 std::shared_ptr<bbt::pollevent::Event> MakeReadableEvent(CoPoller& poller, int fd, std::atomic<int>& fired)
 {
-    auto event = poller.CreateEvent(fd, bbt::pollevent::EventOpt::READABLE,
-                                    [&fired](int listen_fd, short, bbt::pollevent::EventId) {
-                                        char byte = '\0';
-                                        if (::read(listen_fd, &byte, 1) == 1 && byte == 'x')
-                                            fired.fetch_add(1);
-                                    });
+    auto event = poller.CreateEvent(
+        fd, bbt::pollevent::EventOpt::READABLE, [&fired](int listen_fd, short, bbt::pollevent::EventId) {
+            char byte = '\0';
+            if (::read(listen_fd, &byte, 1) == 1 && byte == 'x')
+                fired.fetch_add(1);
+        });
     if (event != nullptr)
         event->StartListen(0);
     return event;
@@ -208,13 +208,13 @@ std::shared_ptr<bbt::pollevent::Event> MakeReadableEvent(CoPoller& poller, int f
 
 std::shared_ptr<bbt::pollevent::Event> MakeTimerEvent(CoPoller& poller, std::atomic<int>& fired, uint64_t timeout_ms)
 {
-    auto timer = poller.CreateEvent(-1, bbt::pollevent::EventOpt::TIMEOUT,
-                                    [&fired](int, short, bbt::pollevent::EventId) { fired.fetch_add(1); });
+    auto timer = poller.CreateEvent(
+        -1, bbt::pollevent::EventOpt::TIMEOUT, [&fired](int, short, bbt::pollevent::EventId) { fired.fetch_add(1); });
     if (timer != nullptr)
         timer->StartListen(timeout_ms);
     return timer;
 }
-}
+} // namespace
 
 /**
  * 进入等待前就已就绪的 fd：必须当场派发，不能等满 deadline。

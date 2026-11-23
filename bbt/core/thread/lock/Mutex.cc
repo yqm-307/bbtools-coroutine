@@ -2,7 +2,8 @@
 
 namespace bbt::core::thread {
 
-Mutex::Mutex() : m_mutex(PTHREAD_MUTEX_INITIALIZER)
+Mutex::Mutex()
+    : m_mutex(PTHREAD_MUTEX_INITIALIZER)
 {
     /**
      * 初始化列表的 PTHREAD_MUTEX_INITIALIZER 只是占位，真正生效的是下面带递归属性的 init；
@@ -53,4 +54,4 @@ pthread_mutex_t& Mutex::getlock()
     return m_mutex;
 }
 
-}
+} // namespace bbt::core::thread

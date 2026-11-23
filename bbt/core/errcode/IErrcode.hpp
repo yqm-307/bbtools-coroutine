@@ -70,4 +70,4 @@ public:
 private:
 };
 
-}
+} // namespace bbt::core::errcode

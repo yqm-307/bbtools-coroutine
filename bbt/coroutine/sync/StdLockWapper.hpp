@@ -17,7 +17,8 @@ public:
     /**
      * @brief 包装一个已有 ICoLock，与调用方共享其所有权。
      */
-    StdLockWapper(std::shared_ptr<ICoLock> colock) : m_co_lock(colock) {};
+    StdLockWapper(std::shared_ptr<ICoLock> colock)
+        : m_co_lock(colock) {};
 
     /**
      * @brief 空析构：不解锁，锁的生命期由 shared_ptr 决定。
@@ -43,4 +44,4 @@ private:
     std::shared_ptr<ICoLock> m_co_lock{nullptr};
 };
 
-}
+} // namespace bbt::coroutine::sync

@@ -90,8 +90,8 @@ int DnsResolver::Await(const std::function<void()>& work)
     return enqueued ? 0 : -1;
 }
 
-sync::CombinedWaitStatus DnsResolver::AwaitBounded(const std::function<void()>& work,
-                                                   const sync::CombinedWaitOptions& options)
+sync::CombinedWaitStatus
+DnsResolver::AwaitBounded(const std::function<void()>& work, const sync::CombinedWaitOptions& options)
 {
     AssertWithInfo(g_bbt_tls_helper->EnableUseCo(), "DnsResolver::AwaitBounded must be in coroutine!");
     auto waiter = sync::CoWaiter::Create();
@@ -114,4 +114,4 @@ sync::CombinedWaitStatus DnsResolver::AwaitBounded(const std::function<void()>& 
     return status;
 }
 
-}
+} // namespace bbt::coroutine::detail

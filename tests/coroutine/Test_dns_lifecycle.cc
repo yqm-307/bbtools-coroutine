@@ -25,7 +25,7 @@ void EnsureRuntime()
     static std::once_flag once;
     std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
-}
+} // namespace
 
 BOOST_AUTO_TEST_SUITE(DnsLifecycle)
 
@@ -53,11 +53,13 @@ BOOST_AUTO_TEST_CASE(t_dns_resolves_after_start)
 BOOST_AUTO_TEST_CASE(t_dns_bounded_wait_keeps_worker_owned)
 {
     EnsureRuntime();
+
     struct Gate {
         std::mutex mutex;
         std::condition_variable cv;
         bool release{false};
     };
+
     auto gate = std::make_shared<Gate>();
     bbt::core::thread::CountDownLatch done{1};
     std::atomic_int status{-1};
@@ -93,8 +95,9 @@ BOOST_AUTO_TEST_CASE(t_dns_expired_deadline_does_not_enqueue)
     {
         bbt::coroutine::sync::CombinedWaitOptions options;
         options.deadline = std::chrono::steady_clock::now() - std::chrono::seconds{1};
-        status.store(static_cast<int>(
-            bbt::coroutine::detail::DnsResolver::GetInstance()->AwaitBounded([&]() { ran.store(true); }, options)));
+        status.store(
+            static_cast<int>(
+                bbt::coroutine::detail::DnsResolver::GetInstance()->AwaitBounded([&]() { ran.store(true); }, options)));
         done.Down();
     };
     BOOST_REQUIRE_EQUAL(done.WaitTimeout(2000), 0);
@@ -110,12 +113,14 @@ BOOST_AUTO_TEST_CASE(t_dns_expired_deadline_does_not_enqueue)
 BOOST_AUTO_TEST_CASE(t_dns_coroutine_cancel_while_worker_runs)
 {
     EnsureRuntime();
+
     struct Gate {
         std::mutex mutex;
         std::condition_variable cv;
         bool entered{false};
         bool release{false};
     };
+
     auto gate = std::make_shared<Gate>();
     bbt::core::thread::CountDownLatch done{1};
     std::atomic_int status{-1};
@@ -126,13 +131,14 @@ BOOST_AUTO_TEST_CASE(t_dns_coroutine_cancel_while_worker_runs)
         co_p.store(g_bbt_tls_coroutine_co);
         bbt::coroutine::sync::CombinedWaitOptions options;
         options.deadline = std::chrono::steady_clock::now() + std::chrono::seconds{30};
-        status.store(static_cast<int>(bbt::coroutine::detail::DnsResolver::GetInstance()->AwaitBounded(
-            [gate]() {
-                std::unique_lock<std::mutex> lock(gate->mutex);
-                gate->entered = true;
-                gate->cv.wait(lock, [&] { return gate->release; });
-            },
-            options)));
+        status.store(
+            static_cast<int>(bbt::coroutine::detail::DnsResolver::GetInstance()->AwaitBounded(
+                [gate]() {
+                    std::unique_lock<std::mutex> lock(gate->mutex);
+                    gate->entered = true;
+                    gate->cv.wait(lock, [&] { return gate->release; });
+                },
+                options)));
         done.Down();
     };
 
@@ -179,8 +185,9 @@ BOOST_AUTO_TEST_CASE(t_dns_pre_cancel_before_await_returns_cancelled)
         g_bbt_tls_coroutine_co->RequestCancel();
         bbt::coroutine::sync::CombinedWaitOptions options;
         options.deadline = std::chrono::steady_clock::now() + std::chrono::seconds{30};
-        status.store(static_cast<int>(
-            bbt::coroutine::detail::DnsResolver::GetInstance()->AwaitBounded([&]() { ran.store(true); }, options)));
+        status.store(
+            static_cast<int>(
+                bbt::coroutine::detail::DnsResolver::GetInstance()->AwaitBounded([&]() { ran.store(true); }, options)));
         done.Down();
     };
     BOOST_REQUIRE_EQUAL(done.WaitTimeout(5000), 0);

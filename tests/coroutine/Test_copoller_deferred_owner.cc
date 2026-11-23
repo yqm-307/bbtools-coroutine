@@ -22,7 +22,7 @@ std::shared_ptr<bbt::pollevent::Event> MakeUnarmedTimerEvent(CoPoller& poller)
     return poller.CreateEvent(-1, bbt::pollevent::EventOpt::TIMEOUT, [](int, short, int64_t) {});
 }
 
-}
+} // namespace
 
 BOOST_AUTO_TEST_SUITE(CoPollerDeferredOwnerTest)
 

@@ -11,6 +11,7 @@ __attribute__((noinline)) int CrossCallee(int value)
 {
     return LocalSame(value) + value;
 }
+
 extern "C" int LeftEntry(int value)
 {
     return LocalSame(value) + 1;

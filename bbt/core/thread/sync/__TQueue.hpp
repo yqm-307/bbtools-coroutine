@@ -8,7 +8,8 @@
 namespace bbt::core::thread {
 
 template <typename TValue, typename... Options>
-Queue<TValue, Options...>::Queue(size_t default_size) : m_queue(default_size)
+Queue<TValue, Options...>::Queue(size_t default_size)
+    : m_queue(default_size)
 {
 }
 
@@ -41,4 +42,4 @@ template <typename TValue, typename... Options> size_t Queue<TValue, Options...>
     return size < 0 ? 0 : size;
 }
 
-}
+} // namespace bbt::core::thread

@@ -31,14 +31,17 @@ namespace {
  * 防止把候选头/库仅改标签后冒充 fixed-old；实际旧 DSO 身份仍须调用方记录。
  */
 template <class T, class = void> struct HasResize : std::false_type {};
+
 template <class T>
 struct HasResize<T, std::void_t<decltype(std::declval<T&>().SetProcesserNum(size_t{}))>> : std::true_type {};
+
 static_assert(!HasResize<Scheduler>::value, "fixed-old must use old runtime headers without SetProcesserNum");
 #endif
 struct Options {
     std::string mode{"dynamic"}, output;
     size_t workers{4}, tasks{2000}, runs{3}, warmup{1}, task_us{30};
 };
+
 size_t Number(const std::string& text, bool zero_allowed = false)
 {
     if (text.empty() || text.find_first_not_of("0123456789") != std::string::npos)
@@ -49,6 +52,7 @@ size_t Number(const std::string& text, bool zero_allowed = false)
         throw std::invalid_argument("integer out of range: " + text);
     return static_cast<size_t>(value);
 }
+
 Options Parse(int argc, char** argv)
 {
     Options options;
@@ -97,9 +101,11 @@ Options Parse(int argc, char** argv)
 #endif
     return options;
 }
+
 struct Resources {
     size_t threads{0}, rss_kib{0};
 };
+
 Resources ReadResources()
 {
     Resources resources;
@@ -120,16 +126,20 @@ Resources ReadResources()
 #endif
     return resources;
 }
+
 std::string ValueOrNA(size_t value)
 {
     return value ? std::to_string(value) : "NA";
 }
+
 struct RunState {
-    explicit RunState(size_t tasks) : hits(tasks)
+    explicit RunState(size_t tasks)
+        : hits(tasks)
     {
         for (auto& hit : hits)
             hit.store(0, std::memory_order_relaxed);
     }
+
     std::vector<std::atomic_uint> hits;
     std::atomic<size_t> completed{0};
     std::atomic_bool abort{false};
@@ -227,7 +237,7 @@ void Run(const Options& options, size_t run, bool warmup, std::ostream& output)
            << '\n';
     output.flush();
 }
-}
+} // namespace
 
 int main(int argc, char** argv)
 {

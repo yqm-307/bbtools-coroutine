@@ -6,30 +6,48 @@
 
 namespace bbt::coroutine::sync {
 
-CoReadLock::CoReadLock() noexcept : m_mutex(nullptr), m_owns(false) {}
+CoReadLock::CoReadLock() noexcept
+    : m_mutex(nullptr)
+    , m_owns(false)
+{
+}
 
-CoReadLock::CoReadLock(const SPtr& m) noexcept(false) : m_mutex(m), m_owns(false)
+CoReadLock::CoReadLock(const SPtr& m) noexcept(false)
+    : m_mutex(m)
+    , m_owns(false)
 {
 
     /**
          * RLock 返回 -1 时不得静默置 owns（无锁进临界区 / 析构误归还别人的锁），按 unique_lock 惯例抛 system_error。
          */
     if (m_mutex->RLock() != 0)
-        throw std::system_error(std::make_error_code(std::errc::resource_unavailable_try_again),
-                                "CoReadLock: RLock failed");
+        throw std::system_error(
+            std::make_error_code(std::errc::resource_unavailable_try_again), "CoReadLock: RLock failed");
     m_owns = true;
 }
 
-CoReadLock::CoReadLock(const SPtr& m, std::defer_lock_t) noexcept : m_mutex(m), m_owns(false) {}
+CoReadLock::CoReadLock(const SPtr& m, std::defer_lock_t) noexcept
+    : m_mutex(m)
+    , m_owns(false)
+{
+}
 
-CoReadLock::CoReadLock(const SPtr& m, std::try_to_lock_t) noexcept : m_mutex(m), m_owns(false)
+CoReadLock::CoReadLock(const SPtr& m, std::try_to_lock_t) noexcept
+    : m_mutex(m)
+    , m_owns(false)
 {
     m_owns = (m_mutex->TryRLock() == 0);
 }
 
-CoReadLock::CoReadLock(const SPtr& m, std::adopt_lock_t) noexcept : m_mutex(m), m_owns(true) {}
+CoReadLock::CoReadLock(const SPtr& m, std::adopt_lock_t) noexcept
+    : m_mutex(m)
+    , m_owns(true)
+{
+}
 
-CoReadLock::CoReadLock(CoReadLock&& other) noexcept : m_mutex(std::move(other.m_mutex)), m_owns(other.m_owns)
+CoReadLock::CoReadLock(CoReadLock&& other) noexcept
+    : m_mutex(std::move(other.m_mutex))
+    , m_owns(other.m_owns)
 {
     other.m_owns = false;
 }
@@ -59,8 +77,8 @@ void CoReadLock::lock() noexcept(false)
          * 同构造路径——登记失败以 system_error 抛出，不置 owns。
          */
     if (m_mutex->RLock() != 0)
-        throw std::system_error(std::make_error_code(std::errc::resource_unavailable_try_again),
-                                "CoReadLock::lock(): RLock failed");
+        throw std::system_error(
+            std::make_error_code(std::errc::resource_unavailable_try_again), "CoReadLock::lock(): RLock failed");
     m_owns = true;
 }
 
@@ -111,30 +129,48 @@ CoReadLock::SPtr CoReadLock::mutex() const noexcept
     return m_mutex;
 }
 
-CoWriteLock::CoWriteLock() noexcept : m_mutex(nullptr), m_owns(false) {}
+CoWriteLock::CoWriteLock() noexcept
+    : m_mutex(nullptr)
+    , m_owns(false)
+{
+}
 
-CoWriteLock::CoWriteLock(const SPtr& m) noexcept(false) : m_mutex(m), m_owns(false)
+CoWriteLock::CoWriteLock(const SPtr& m) noexcept(false)
+    : m_mutex(m)
+    , m_owns(false)
 {
 
     /**
          * 同 CoReadLock：WLock 返回 -1 时抛 system_error，不置 owns。
          */
     if (m_mutex->WLock() != 0)
-        throw std::system_error(std::make_error_code(std::errc::resource_unavailable_try_again),
-                                "CoWriteLock: WLock failed");
+        throw std::system_error(
+            std::make_error_code(std::errc::resource_unavailable_try_again), "CoWriteLock: WLock failed");
     m_owns = true;
 }
 
-CoWriteLock::CoWriteLock(const SPtr& m, std::defer_lock_t) noexcept : m_mutex(m), m_owns(false) {}
+CoWriteLock::CoWriteLock(const SPtr& m, std::defer_lock_t) noexcept
+    : m_mutex(m)
+    , m_owns(false)
+{
+}
 
-CoWriteLock::CoWriteLock(const SPtr& m, std::try_to_lock_t) noexcept : m_mutex(m), m_owns(false)
+CoWriteLock::CoWriteLock(const SPtr& m, std::try_to_lock_t) noexcept
+    : m_mutex(m)
+    , m_owns(false)
 {
     m_owns = (m_mutex->TryWLock() == 0);
 }
 
-CoWriteLock::CoWriteLock(const SPtr& m, std::adopt_lock_t) noexcept : m_mutex(m), m_owns(true) {}
+CoWriteLock::CoWriteLock(const SPtr& m, std::adopt_lock_t) noexcept
+    : m_mutex(m)
+    , m_owns(true)
+{
+}
 
-CoWriteLock::CoWriteLock(CoWriteLock&& other) noexcept : m_mutex(std::move(other.m_mutex)), m_owns(other.m_owns)
+CoWriteLock::CoWriteLock(CoWriteLock&& other) noexcept
+    : m_mutex(std::move(other.m_mutex))
+    , m_owns(other.m_owns)
 {
     other.m_owns = false;
 }
@@ -160,8 +196,8 @@ void CoWriteLock::lock() noexcept(false)
     AssertWithInfo(m_mutex != nullptr, "CoWriteLock::lock(): no associated mutex");
     AssertWithInfo(!m_owns, "CoWriteLock::lock(): already owns the write lock");
     if (m_mutex->WLock() != 0)
-        throw std::system_error(std::make_error_code(std::errc::resource_unavailable_try_again),
-                                "CoWriteLock::lock(): WLock failed");
+        throw std::system_error(
+            std::make_error_code(std::errc::resource_unavailable_try_again), "CoWriteLock::lock(): WLock failed");
     m_owns = true;
 }
 
@@ -212,4 +248,4 @@ CoWriteLock::SPtr CoWriteLock::mutex() const noexcept
     return m_mutex;
 }
 
-}
+} // namespace bbt::coroutine::sync

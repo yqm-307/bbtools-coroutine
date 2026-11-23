@@ -9,7 +9,7 @@ namespace {
  * 平凡 TLS 观察槽不注册析构器；冷查询不触发 UPtr 的线程退出登记/分配。
  */
 thread_local LocalThread* g_local_thread{nullptr};
-}
+} // namespace
 
 LocalThread::~LocalThread() noexcept
 {
@@ -60,4 +60,4 @@ bool LocalThread::EnableUseCo()
     return m_enable_use_co;
 }
 
-}
+} // namespace bbt::coroutine::detail

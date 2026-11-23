@@ -34,4 +34,4 @@ public:
     static void RequireCoroutineContext() { bbt::coroutine::RequireCoroutineContext(); }
 };
 
-}
+} // namespace bbt::coroutine

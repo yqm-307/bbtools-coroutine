@@ -70,8 +70,13 @@ std::size_t Count(const std::string& text, const std::string& needle)
     return count;
 }
 
-ProcessResult Check(const char* mode, bbt::coroutine::RuntimeMain::Terminal terminal, int code, int main_calls,
-                    int hook_calls, int factory_calls = 1)
+ProcessResult Check(
+    const char* mode,
+    bbt::coroutine::RuntimeMain::Terminal terminal,
+    int code,
+    int main_calls,
+    int hook_calls,
+    int factory_calls = 1)
 {
     const auto result = Run(mode);
     BOOST_CHECK_EQUAL(result.exit_code, code);
@@ -86,8 +91,13 @@ ProcessResult Check(const char* mode, bbt::coroutine::RuntimeMain::Terminal term
     return result;
 }
 
-ProcessResult CheckHost(const char* mode, bbt::coroutine::RuntimeMain::Terminal terminal, int code, int main_calls,
-                        int host_calls, int callback_calls)
+ProcessResult CheckHost(
+    const char* mode,
+    bbt::coroutine::RuntimeMain::Terminal terminal,
+    int code,
+    int main_calls,
+    int host_calls,
+    int callback_calls)
 {
     const auto result = Run(mode);
     BOOST_CHECK_EQUAL(result.exit_code, code);
@@ -104,8 +114,9 @@ ProcessResult CheckHost(const char* mode, bbt::coroutine::RuntimeMain::Terminal 
         BOOST_CHECK_EQUAL(Count(result.output, " cb=" + std::to_string(callback_calls) + "\n"), 1u);
     return result;
 }
+
 using Terminal = bbt::coroutine::RuntimeMain::Terminal;
-}
+} // namespace
 
 BOOST_AUTO_TEST_SUITE(runtime_main)
 
@@ -152,8 +163,14 @@ BOOST_AUTO_TEST_CASE(options)
 
 BOOST_AUTO_TEST_CASE(invalid_options)
 {
-    for (const auto* mode : {"factory_threw", "zero_workers", "huge_workers", "zero_stack", "overflow_stack", "bounds",
-                             "invalid_budget"}) {
+    for (const auto* mode :
+         {"factory_threw",
+          "zero_workers",
+          "huge_workers",
+          "zero_stack",
+          "overflow_stack",
+          "bounds",
+          "invalid_budget"}) {
         Check(mode, Terminal::StartFailed, 1, 0, 0);
     }
 }
@@ -186,8 +203,8 @@ BOOST_AUTO_TEST_CASE(macros)
         BOOST_CHECK_EQUAL(result.exit_code, 37);
         BOOST_CHECK_EQUAL(Count(result.output, "MAIN_RETURN\n"), 1u);
         BOOST_CHECK_EQUAL(Count(result.output, "HOOK\n"), variant == 2 || variant == 4 || variant == 5 ? 1u : 0u);
-        BOOST_CHECK_EQUAL(Count(result.output, "FACTORY\n"),
-                          variant == 3 || variant == 4 || variant == 5 || variant == 7 ? 1u : 0u);
+        BOOST_CHECK_EQUAL(
+            Count(result.output, "FACTORY\n"), variant == 3 || variant == 4 || variant == 5 || variant == 7 ? 1u : 0u);
         BOOST_CHECK_EQUAL(Count(result.output, "SETUP\n"), variant == 5 || variant == 6 || variant == 7 ? 1u : 0u);
         BOOST_CHECK_EQUAL(Count(result.output, "HOST_ENTER\n"), variant == 6 || variant == 7 ? 1u : 0u);
     }

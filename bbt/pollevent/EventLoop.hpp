@@ -95,4 +95,4 @@ private:
     bool m_auto_free_base{false};
 };
 
-}
+} // namespace bbt::pollevent

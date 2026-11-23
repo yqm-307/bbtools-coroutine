@@ -73,4 +73,4 @@ size_t GetLocalCoroutineStackSize()
     return coroutine->GetStackSize();
 }
 
-}
+} // namespace bbt::coroutine

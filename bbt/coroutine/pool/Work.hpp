@@ -70,4 +70,4 @@ private:
     std::shared_ptr<std::promise<void>> m_promise{nullptr};
 };
 
-}
+} // namespace bbt::coroutine::pool

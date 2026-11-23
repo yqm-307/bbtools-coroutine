@@ -209,4 +209,4 @@ private:
     static CallbackRegistry& _Registry();
 };
 
-}
+} // namespace bbt::pollevent

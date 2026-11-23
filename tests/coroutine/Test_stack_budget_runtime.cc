@@ -45,7 +45,7 @@ void EnsureRuntime()
     static std::once_flag once;
     std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
-}
+} // namespace
 
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::detail;
@@ -84,7 +84,7 @@ __attribute__((noinline)) void AllocaThenNoInstrumentedCall(volatile char* sink)
     *sink = static_cast<char>(*sink + p[0]);
 }
 
-}
+} // namespace
 
 namespace bbt_stack_budget_test {
 void UninstrumentedBurn(volatile char* sink, int depth);
@@ -235,8 +235,10 @@ BOOST_AUTO_TEST_CASE(t_yieldwithcallback_failed_reentry_keeps_state)
 BOOST_AUTO_TEST_CASE(t_exception_unwind_snapshot_partial_with_samples)
 {
     bool dtor_ran = false;
+
     struct Guard {
         bool& flag;
+
         ~Guard() { flag = true; }
     };
 

@@ -63,10 +63,11 @@ protected:
 
 private:
     void _SysLock() { m_mutex.lock(); }
+
     void _SysUnLock() { m_mutex.unlock(); }
 
     std::queue<std::shared_ptr<CoWaiter>> m_waiter_queue;
     std::mutex m_mutex;
 };
 
-}
+} // namespace bbt::coroutine::sync

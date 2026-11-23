@@ -8,8 +8,8 @@
 namespace bbt::coroutine {
 
 template <class OptionsFactory>
-RuntimeMain::Completion RuntimeMain::RunWithOptions(int (*main_task)(), int (*native_hook)(),
-                                                    OptionsFactory&& make_options) noexcept
+RuntimeMain::Completion
+RuntimeMain::RunWithOptions(int (*main_task)(), int (*native_hook)(), OptionsFactory&& make_options) noexcept
 {
 
     /**
@@ -18,32 +18,33 @@ RuntimeMain::Completion RuntimeMain::RunWithOptions(int (*main_task)(), int (*na
     const auto evaluate = [&make_options] {
         return make_options();
     };
-    return RunWithFactory(nullptr, main_task, native_hook, nullptr, &evaluate,
-                          [](const void* factory) { return (*static_cast<decltype(evaluate)*>(factory))(); });
+    return RunWithFactory(nullptr, main_task, native_hook, nullptr, &evaluate, [](const void* factory) {
+        return (*static_cast<decltype(evaluate)*>(factory))();
+    });
 }
 
 template <class OptionsFactory>
-RuntimeMain::Completion RuntimeMain::RunWithSetupAndOptions(void (*setup_runtime)(), int (*main_task)(),
-                                                            int (*native_hook)(),
-                                                            OptionsFactory&& make_options) noexcept
+RuntimeMain::Completion RuntimeMain::RunWithSetupAndOptions(
+    void (*setup_runtime)(), int (*main_task)(), int (*native_hook)(), OptionsFactory&& make_options) noexcept
 {
     const auto evaluate = [&make_options] {
         return make_options();
     };
-    return RunWithFactory(setup_runtime, main_task, native_hook, nullptr, &evaluate,
-                          [](const void* factory) { return (*static_cast<decltype(evaluate)*>(factory))(); });
+    return RunWithFactory(setup_runtime, main_task, native_hook, nullptr, &evaluate, [](const void* factory) {
+        return (*static_cast<decltype(evaluate)*>(factory))();
+    });
 }
 
 template <class OptionsFactory>
-RuntimeMain::Completion RuntimeMain::RunWithSetupHostHookAndOptions(void (*setup_runtime)(), int (*main_task)(),
-                                                                    HostHook host_hook,
-                                                                    OptionsFactory&& make_options) noexcept
+RuntimeMain::Completion RuntimeMain::RunWithSetupHostHookAndOptions(
+    void (*setup_runtime)(), int (*main_task)(), HostHook host_hook, OptionsFactory&& make_options) noexcept
 {
     const auto evaluate = [&make_options] {
         return make_options();
     };
-    return RunWithFactory(setup_runtime, main_task, nullptr, host_hook, &evaluate,
-                          [](const void* factory) { return (*static_cast<decltype(evaluate)*>(factory))(); });
+    return RunWithFactory(setup_runtime, main_task, nullptr, host_hook, &evaluate, [](const void* factory) {
+        return (*static_cast<decltype(evaluate)*>(factory))();
+    });
 }
 
-}
+} // namespace bbt::coroutine

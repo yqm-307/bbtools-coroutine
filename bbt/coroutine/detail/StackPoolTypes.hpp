@@ -46,4 +46,4 @@ struct StackPoolSnapshot {
     size_t committed_usable_bytes{0}, pending_usable_bytes{0};
 };
 
-}
+} // namespace bbt::coroutine::detail

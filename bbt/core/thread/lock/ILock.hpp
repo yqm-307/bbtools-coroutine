@@ -39,4 +39,4 @@ public:
     virtual bool try_lock() = 0;
 };
 
-}
+} // namespace bbt::core::thread

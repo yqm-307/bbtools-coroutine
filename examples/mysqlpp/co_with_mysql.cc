@@ -60,9 +60,10 @@ void example2(std::shared_ptr<UserService> userService)
              * 2. 插入一些测试用户
              */
             std::cout << "\n插入测试用户..." << std::endl;
-            std::vector<User> testUsers = {{0, "Alice", "alice@example.com", 25},
-                                           {0, "Bob", "bob@example.com", 30},
-                                           {0, "Charlie", "charlie@example.com", 35}};
+            std::vector<User> testUsers = {
+                {0, "Alice", "alice@example.com", 25},
+                {0, "Bob", "bob@example.com", 30},
+                {0, "Charlie", "charlie@example.com", 35}};
 
             for (const auto& user : testUsers) {
                 userService->InsertUser(user);

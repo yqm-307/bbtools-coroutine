@@ -66,4 +66,4 @@ private:
     pthread_cond_t m_sem;
 };
 
-}
+} // namespace bbt::core::thread

@@ -39,7 +39,7 @@ void EnsureRuntime()
     static std::once_flag once;
     std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
-}
+} // namespace
 
 using namespace bbt::coroutine;
 
@@ -56,12 +56,14 @@ struct CoFixture {
         cfg->m_cfg_static_thread_num = 1;
         cfg->m_cfg_stack_protect = false;
     }
+
     ~CoFixture()
     {
         auto* cfg = g_bbt_coroutine_config.get();
         cfg->m_cfg_static_thread_num = m_threads;
         cfg->m_cfg_stack_protect = m_protect;
     }
+
     size_t m_threads;
     bool m_protect;
 };
@@ -78,7 +80,7 @@ size_t CountSelfThreads()
 }
 #endif
 
-}
+} // namespace
 
 /**
  * ② 线程调度模式：post 的 handler 由调度线程的 PollOnce 循环真实推进。

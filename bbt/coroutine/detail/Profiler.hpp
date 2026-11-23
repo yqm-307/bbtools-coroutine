@@ -19,6 +19,7 @@ public:
     static UPtr& GetInstance();
 
     Profiler() {}
+
     ~Profiler() {}
 
     void OnEvent_StartScheudler();
@@ -127,4 +128,4 @@ private:
     std::atomic_uint64_t m_comutex_lock_count{0};
 };
 
-}
+} // namespace bbt::coroutine::detail

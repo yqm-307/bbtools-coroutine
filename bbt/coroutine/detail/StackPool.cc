@@ -29,7 +29,8 @@ StackPool::UPtr& StackPool::GetInstance()
     return *_holder;
 }
 
-StackPool::StackPool() : m_prev_adjust_pool_ts(bbt::core::clock::now<>())
+StackPool::StackPool()
+    : m_prev_adjust_pool_ts(bbt::core::clock::now<>())
 {
 
     /**
@@ -237,8 +238,9 @@ void StackPool::OnUpdate()
                 m_prev_rtts_sample_ts
                 + bbt::core::clock::milliseconds(
                     g_bbt_coroutine_config->RuntimeSnapshot().stackpool_sample_interval))) {
-            m_co_avg = static_cast<size_t>(::floor(0.875 * static_cast<double>(m_co_avg)
-                                                   + 0.125 * static_cast<double>(m_borrowed_count + m_pending_count)));
+            m_co_avg = static_cast<size_t>(::floor(
+                0.875 * static_cast<double>(m_co_avg)
+                + 0.125 * static_cast<double>(m_borrowed_count + m_pending_count)));
 
             /**
              * 成功采样后推进采样时间，否则每个 tick 都在重采样
@@ -320,8 +322,9 @@ size_t StackPool::_Preload(size_t preload_size)
     std::vector<StackLease> created;
     created.reserve(limit);
     for (size_t i = 0; i < limit; ++i) {
-        auto lease = Acquire({g_bbt_coroutine_config->RuntimeSnapshot().stack_size,
-                              g_bbt_coroutine_config->RuntimeSnapshot().stack_protect});
+        auto lease = Acquire(
+            {g_bbt_coroutine_config->RuntimeSnapshot().stack_size,
+             g_bbt_coroutine_config->RuntimeSnapshot().stack_protect});
         if (!lease)
             break;
         created.push_back(std::move(lease));
@@ -337,4 +340,4 @@ size_t StackPool::_Preload(size_t preload_size)
     return AllocSize();
 }
 
-}
+} // namespace bbt::coroutine::detail

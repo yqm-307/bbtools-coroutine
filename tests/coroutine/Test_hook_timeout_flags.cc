@@ -35,7 +35,7 @@ void EnsureRuntime()
     static std::once_flag once;
     std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
-}
+} // namespace
 
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::detail;
@@ -55,6 +55,7 @@ struct CoFixture {
         cfg->m_cfg_stack_protect = false;
         EnsureRuntime();
     }
+
     ~CoFixture()
     {
         auto* cfg = g_bbt_coroutine_config.get();
@@ -62,6 +63,7 @@ struct CoFixture {
         cfg->m_cfg_stack_size = m_stack;
         cfg->m_cfg_stack_protect = m_protect;
     }
+
     int m_threads;
     size_t m_stack;
     bool m_protect;
@@ -118,7 +120,7 @@ void FillSocketBuffer(int fd)
     }
 }
 
-}
+} // namespace
 
 /**
  * MSG_DONTWAIT：recv 空 socketpair 立即 -1/EAGAIN，不挂起

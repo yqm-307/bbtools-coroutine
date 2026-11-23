@@ -37,4 +37,4 @@ bool StackBucket::Pop(Stack*& item) noexcept
     return true;
 }
 
-}
+} // namespace bbt::coroutine::detail

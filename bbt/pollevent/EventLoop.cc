@@ -7,14 +7,19 @@
 namespace bbt::pollevent {
 
 EventLoop::EventLoop(detail::EventBase* base, bool need_auto_free_base)
-    : m_ev_base(base), m_auto_free_base(need_auto_free_base)
+    : m_ev_base(base)
+    , m_auto_free_base(need_auto_free_base)
 {
     /**
      * 外部 base 的释放责任由 need_auto_free_base 决定；空指针不在此校验，后果在首次 StartLoop/CreateEvent 暴露。
      */
 }
 
-EventLoop::EventLoop() : m_ev_base(new detail::EventBase), m_auto_free_base(true) {}
+EventLoop::EventLoop()
+    : m_ev_base(new detail::EventBase)
+    , m_auto_free_base(true)
+{
+}
 
 EventLoop::~EventLoop()
 {
@@ -117,4 +122,4 @@ int64_t EventLoop::GetTime() const
     return (static_cast<int64_t>(tv.tv_sec) * 1000 + static_cast<int64_t>(tv.tv_usec) / 1000);
 }
 
-}
+} // namespace bbt::pollevent

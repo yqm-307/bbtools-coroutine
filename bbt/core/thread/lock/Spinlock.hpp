@@ -47,4 +47,4 @@ private:
     pthread_spinlock_t m_spin{-1};
 };
 
-}
+} // namespace bbt::core::thread

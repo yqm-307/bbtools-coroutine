@@ -38,10 +38,10 @@ using g_bbt_sys_hook_write_fn_t = ssize_t (*)(int fd, const void* buf, size_t n)
 using g_bbt_sys_hook_accept_fn_t = int (*)(int fd, __SOCKADDR_ARG addr, socklen_t* __restrict addr_len);
 using g_bbt_sys_hook_send_fn_t = ssize_t (*)(int fd, const void* buf, size_t len, int flags);
 using g_bbt_sys_hook_recv_fn_t = ssize_t (*)(int fd, void* buf, size_t len, int flags);
-using g_bbt_sys_hook_sendto_fn_t = ssize_t (*)(int fd, const void* buf, size_t len, int flags,
-                                               const struct sockaddr* dest_addr, socklen_t addrlen);
-using g_bbt_sys_hook_recvfrom_fn_t = ssize_t (*)(int fd, void* buf, size_t len, int flags, struct sockaddr* src_addr,
-                                                 socklen_t* addrlen);
+using g_bbt_sys_hook_sendto_fn_t =
+    ssize_t (*)(int fd, const void* buf, size_t len, int flags, const struct sockaddr* dest_addr, socklen_t addrlen);
+using g_bbt_sys_hook_recvfrom_fn_t =
+    ssize_t (*)(int fd, void* buf, size_t len, int flags, struct sockaddr* src_addr, socklen_t* addrlen);
 using g_bbt_sys_hook_recvmsg_fn_t = ssize_t (*)(int fd, struct msghdr* msg, int flags);
 using g_bbt_sys_hook_sendmsg_fn_t = ssize_t (*)(int fd, const struct msghdr* msg, int flags);
 using g_bbt_sys_hook_readv_fn_t = ssize_t (*)(int fd, const struct iovec* iov, int iovcnt);
@@ -57,25 +57,31 @@ using g_bbt_sys_hook_accept4_fn_t = int (*)(int fd, __SOCKADDR_ARG addr, socklen
  */
 using g_bbt_sys_hook_usleep_fn_t = int (*)(useconds_t usec);
 using g_bbt_sys_hook_nanosleep_fn_t = int (*)(const struct timespec* req, struct timespec* rem);
-using g_bbt_sys_hook_clock_nanosleep_fn_t = int (*)(clockid_t clock_id, int flags, const struct timespec* req,
-                                                    struct timespec* rem);
+using g_bbt_sys_hook_clock_nanosleep_fn_t =
+    int (*)(clockid_t clock_id, int flags, const struct timespec* req, struct timespec* rem);
 
 /**
  * 多路复用系 hook：签名与 <poll.h>/<sys/select.h> 原型一致
  */
 using g_bbt_sys_hook_poll_fn_t = int (*)(struct pollfd* fds, nfds_t nfds, int timeout_ms);
-using g_bbt_sys_hook_select_fn_t = int (*)(int nfds, fd_set* read, fd_set* write, fd_set* except,
-                                           struct timeval* timeout);
-using g_bbt_sys_hook_pselect_fn_t = int (*)(int nfds, fd_set* read, fd_set* write, fd_set* except,
-                                            const struct timespec* timeout, const sigset_t* sigmask);
+using g_bbt_sys_hook_select_fn_t =
+    int (*)(int nfds, fd_set* read, fd_set* write, fd_set* except, struct timeval* timeout);
+using g_bbt_sys_hook_pselect_fn_t = int (*)(
+    int nfds, fd_set* read, fd_set* write, fd_set* except, const struct timespec* timeout, const sigset_t* sigmask);
 
 /**
  * DNS 系 hook：签名与 <netdb.h> 原型一致（dlsym 指针去掉 __restrict）
  */
-using g_bbt_sys_hook_getaddrinfo_fn_t = int (*)(const char* node, const char* service, const struct addrinfo* req,
-                                                struct addrinfo** res);
-using g_bbt_sys_hook_getnameinfo_fn_t = int (*)(const struct sockaddr* sa, socklen_t salen, char* host,
-                                                socklen_t hostlen, char* serv, socklen_t servlen, int flags);
+using g_bbt_sys_hook_getaddrinfo_fn_t =
+    int (*)(const char* node, const char* service, const struct addrinfo* req, struct addrinfo** res);
+using g_bbt_sys_hook_getnameinfo_fn_t = int (*)(
+    const struct sockaddr* sa,
+    socklen_t salen,
+    char* host,
+    socklen_t hostlen,
+    char* serv,
+    socklen_t servlen,
+    int flags);
 using g_bbt_sys_hook_gethostbyname_fn_t = struct hostent* (*)(const char* name);
 using g_bbt_sys_hook_gethostbyaddr_fn_t = struct hostent* (*)(const void* addr, socklen_t len, int type);
 
@@ -130,8 +136,8 @@ extern ssize_t Hook_Write(int fd, const void* buf, size_t n);
 extern int Hook_Accept(int fd, struct sockaddr* addr, socklen_t* len);
 extern ssize_t Hook_Send(int fd, const void* buf, size_t len, int flags);
 extern ssize_t Hook_Recv(int fd, void* buf, size_t len, int flags);
-extern ssize_t Hook_SendTo(int fd, const void* buf, size_t len, int flags, const struct sockaddr* dest_addr,
-                           socklen_t addrlen);
+extern ssize_t
+Hook_SendTo(int fd, const void* buf, size_t len, int flags, const struct sockaddr* dest_addr, socklen_t addrlen);
 extern ssize_t Hook_RecvFrom(int fd, void* buf, size_t len, int flags, struct sockaddr* src_addr, socklen_t* addrlen);
 extern ssize_t Hook_RecvMsg(int fd, struct msghdr* msg, int flags);
 extern ssize_t Hook_SendMsg(int fd, const struct msghdr* msg, int flags);
@@ -143,16 +149,27 @@ extern int Hook_Nanosleep(const struct timespec* req, struct timespec* rem);
 extern int Hook_ClockNanosleep(clockid_t clock_id, int flags, const struct timespec* req, struct timespec* rem);
 extern int Hook_Poll(struct pollfd* fds, nfds_t nfds, int timeout_ms);
 extern int Hook_Select(int nfds, fd_set* read_fds, fd_set* write_fds, fd_set* except_fds, struct timeval* timeout);
-extern int Hook_PSelect(int nfds, fd_set* read_fds, fd_set* write_fds, fd_set* except_fds,
-                        const struct timespec* timeout, const sigset_t* sigmask);
+extern int Hook_PSelect(
+    int nfds,
+    fd_set* read_fds,
+    fd_set* write_fds,
+    fd_set* except_fds,
+    const struct timespec* timeout,
+    const sigset_t* sigmask);
 extern int Hook_GetAddrInfo(const char* node, const char* service, const struct addrinfo* req, struct addrinfo** res);
-extern int Hook_GetNameInfo(const struct sockaddr* sa, socklen_t salen, char* host, socklen_t hostlen, char* serv,
-                            socklen_t servlen, int flags);
+extern int Hook_GetNameInfo(
+    const struct sockaddr* sa,
+    socklen_t salen,
+    char* host,
+    socklen_t hostlen,
+    char* serv,
+    socklen_t servlen,
+    int flags);
 extern struct hostent* Hook_GetHostByName(const char* name);
 extern struct hostent* Hook_GetHostByAddr(const void* addr, socklen_t len, int type);
-}
+} // namespace detail
 
-}
+} // namespace bbt::coroutine
 
 /**
  * c api 接口导出声明
@@ -183,11 +200,22 @@ int nanosleep(const struct timespec* req, struct timespec* rem);
 int clock_nanosleep(clockid_t clock_id, int flags, const struct timespec* req, struct timespec* rem);
 int poll(struct pollfd* fds, nfds_t nfds, int timeout_ms);
 int select(int nfds, fd_set* read_fds, fd_set* write_fds, fd_set* except_fds, struct timeval* timeout);
-int pselect(int nfds, fd_set* read_fds, fd_set* write_fds, fd_set* except_fds, const struct timespec* timeout,
-            const sigset_t* sigmask);
+int pselect(
+    int nfds,
+    fd_set* read_fds,
+    fd_set* write_fds,
+    fd_set* except_fds,
+    const struct timespec* timeout,
+    const sigset_t* sigmask);
 int getaddrinfo(const char* node, const char* service, const struct addrinfo* req, struct addrinfo** res);
-int getnameinfo(const struct sockaddr* sa, socklen_t salen, char* host, socklen_t hostlen, char* serv,
-                socklen_t servlen, int flags);
+int getnameinfo(
+    const struct sockaddr* sa,
+    socklen_t salen,
+    char* host,
+    socklen_t hostlen,
+    char* serv,
+    socklen_t servlen,
+    int flags);
 struct hostent* gethostbyname(const char* name);
 struct hostent* gethostbyaddr(const void* addr, socklen_t len, int type);
 }

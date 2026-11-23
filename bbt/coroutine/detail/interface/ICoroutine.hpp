@@ -40,4 +40,4 @@ public:
     virtual CoroutineStatus GetStatus() const noexcept = 0;
 };
 
-}
+} // namespace bbt::coroutine::detail

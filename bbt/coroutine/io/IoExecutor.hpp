@@ -20,4 +20,4 @@ namespace bbt::coroutine::io {
  */
 boost::asio::any_io_executor GetExecutor();
 
-}
+} // namespace bbt::coroutine::io

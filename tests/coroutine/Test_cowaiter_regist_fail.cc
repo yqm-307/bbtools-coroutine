@@ -40,7 +40,7 @@ void EnsureRuntime()
     static std::once_flag once;
     std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
-}
+} // namespace
 
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::detail;
@@ -69,7 +69,7 @@ bool WaitUntil(const std::function<bool()>& pred, int budget_ms = 10000)
     return true;
 }
 
-}
+} // namespace
 
 BOOST_AUTO_TEST_SUITE(CoWaiterRegistFailTest)
 

@@ -48,7 +48,11 @@ static int CreateListenTcp(const char* ip, short port, bool noblock)
 
 class Server {
 public:
-    Server(short listen_port) : m_listen_port(listen_port) {}
+    Server(short listen_port)
+        : m_listen_port(listen_port)
+    {
+    }
+
     ~Server() {}
 
     void Start()

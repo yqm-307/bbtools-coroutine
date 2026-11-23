@@ -314,6 +314,6 @@ private:
  * @}
  */
 
-}
+} // namespace bbt::coroutine::sync
 
 #include <bbt/coroutine/sync/__TCoLockGuard.hpp>

@@ -42,7 +42,7 @@
  * @brief 标记弃用并附说明文字；调用点产生 `-Wdeprecated-declarations`，只有 `-Werror` 才编译失败
  */
 #if __glibc_has_attribute(__deprecated__) >= 0
-#define BBTATTR_FUNC_DEPRECATEDMSG(msg)    __attribute_deprecated_msg__(msg)
+#define BBTATTR_FUNC_DEPRECATEDMSG(msg) __attribute_deprecated_msg__(msg)
 #else
 #error "not exist attribute [__deprecated__]"
 #endif
@@ -51,7 +51,7 @@
  * @brief 标记弃用，不带说明文字；调用点只有一句默认的弃用告警
  */
 #if __glibc_has_attribute(__deprecated__) >= 0
-#define BBTATTR_FUNC_DEPRECATED         __attribute_deprecated__
+#define BBTATTR_FUNC_DEPRECATED __attribute_deprecated__
 #else
 #error "not exist attribute [__deprecated__]"
 #endif
@@ -60,7 +60,8 @@
  * @brief 构造函数弃用告警；只是编译期警告，不是访问控制，隐式调用（拷贝、转换）照样编译
  */
 #if __glibc_has_attribute(__deprecated__) >= 0
-#define BBTATTR_FUNC_CTOR_HIDDEN    BBTATTR_FUNC_DEPRECATEDMSG("this constructor is hidden and must not be called directly")
+#define BBTATTR_FUNC_CTOR_HIDDEN                                                                                       \
+    BBTATTR_FUNC_DEPRECATEDMSG("this constructor is hidden and must not be called directly")
 #else
 #error "not exist attribute [BBTATTR_FUNC_DEPRECATEDMSG]"
 #endif
@@ -73,7 +74,7 @@
  * @brief 标记有意不使用的变量/参数/函数，压掉 `-Wunused-*` 告警
  */
 #if __glibc_has_attribute(unused) >= 0
-#define BBTATTR_COMM_UNUSED         __attribute__((unused))
+#define BBTATTR_COMM_UNUSED __attribute__((unused))
 #else
 #error "not exist attribute [unused]"
 #endif

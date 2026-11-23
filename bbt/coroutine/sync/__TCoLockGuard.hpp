@@ -7,7 +7,9 @@
 
 namespace bbt::coroutine::sync {
 
-template <typename Mutex> CoLockGuard<Mutex>::CoLockGuard(const std::shared_ptr<Mutex>& m) noexcept(false) : m_mutex(m)
+template <typename Mutex>
+CoLockGuard<Mutex>::CoLockGuard(const std::shared_ptr<Mutex>& m) noexcept(false)
+    : m_mutex(m)
 {
     m_mutex->Lock();
 }
@@ -18,10 +20,17 @@ template <typename Mutex> CoLockGuard<Mutex>::~CoLockGuard() noexcept
         m_mutex->UnLock();
 }
 
-template <typename Mutex> CoUniqueLock<Mutex>::CoUniqueLock() noexcept : m_mutex(nullptr), m_owns(false) {}
+template <typename Mutex>
+CoUniqueLock<Mutex>::CoUniqueLock() noexcept
+    : m_mutex(nullptr)
+    , m_owns(false)
+{
+}
 
 template <typename Mutex>
-CoUniqueLock<Mutex>::CoUniqueLock(const std::shared_ptr<Mutex>& m) noexcept(false) : m_mutex(m), m_owns(false)
+CoUniqueLock<Mutex>::CoUniqueLock(const std::shared_ptr<Mutex>& m) noexcept(false)
+    : m_mutex(m)
+    , m_owns(false)
 {
     m_mutex->Lock();
     m_owns = true;
@@ -29,26 +38,30 @@ CoUniqueLock<Mutex>::CoUniqueLock(const std::shared_ptr<Mutex>& m) noexcept(fals
 
 template <typename Mutex>
 CoUniqueLock<Mutex>::CoUniqueLock(const std::shared_ptr<Mutex>& m, std::defer_lock_t) noexcept
-    : m_mutex(m), m_owns(false)
+    : m_mutex(m)
+    , m_owns(false)
 {
 }
 
 template <typename Mutex>
 CoUniqueLock<Mutex>::CoUniqueLock(const std::shared_ptr<Mutex>& m, std::try_to_lock_t) noexcept
-    : m_mutex(m), m_owns(false)
+    : m_mutex(m)
+    , m_owns(false)
 {
     m_owns = (m_mutex->TryLock() == 0);
 }
 
 template <typename Mutex>
 CoUniqueLock<Mutex>::CoUniqueLock(const std::shared_ptr<Mutex>& m, std::adopt_lock_t) noexcept
-    : m_mutex(m), m_owns(true)
+    : m_mutex(m)
+    , m_owns(true)
 {
 }
 
 template <typename Mutex>
 CoUniqueLock<Mutex>::CoUniqueLock(CoUniqueLock&& other) noexcept
-    : m_mutex(std::move(other.m_mutex)), m_owns(other.m_owns)
+    : m_mutex(std::move(other.m_mutex))
+    , m_owns(other.m_owns)
 {
     other.m_owns = false;
 }
@@ -124,4 +137,4 @@ template <typename Mutex> std::shared_ptr<Mutex> CoUniqueLock<Mutex>::mutex() co
     return m_mutex;
 }
 
-}
+} // namespace bbt::coroutine::sync

@@ -106,7 +106,7 @@ struct __PollEvent_Init {
 
 static __PollEvent_Init __detail_init_helper;
 
-}
+} // namespace bbt::pollevent
 
 /**
  * 反向兼容：让 EvThread.cc 中的 EVLOOP_NO_EXIT_ON_EMPTY 保持可用
@@ -115,32 +115,32 @@ static __PollEvent_Init __detail_init_helper;
 /**
  * @brief 可读事件位，同 EventOpt::READABLE。
  */
-#define EV_READ     0x02
+#define EV_READ 0x02
 
 /**
  * @brief 可写事件位，同 EventOpt::WRITEABLE。
  */
-#define EV_WRITE    0x04
+#define EV_WRITE 0x04
 
 /**
  * @brief 超时事件位，同 EventOpt::TIMEOUT。
  */
-#define EV_TIMEOUT  0x01
+#define EV_TIMEOUT 0x01
 
 /**
  * @brief 信号事件位，同 EventOpt::SIGNAL，当前只占位。
  */
-#define EV_SIGNAL   0x08
+#define EV_SIGNAL 0x08
 
 /**
  * @brief 持久事件位，同 EventOpt::PERSIST；当前仅 fd 就绪后重挂，不使定时器周期化。
  */
-#define EV_PERSIST  0x10
+#define EV_PERSIST 0x10
 
 /**
  * @brief 对端关闭事件位，同 EventOpt::CLOSE。
  */
-#define EV_CLOSED   0x80
+#define EV_CLOSED 0x80
 
 /**
  * @brief 终结事件位，同 EventOpt::FINALIZE，当前只占位。
@@ -152,12 +152,12 @@ static __PollEvent_Init __detail_init_helper;
 /**
  * @brief 循环选项，同 EventLoopOpt::LOOP_ONCE。
  */
-#define EVLOOP_ONCE             0x01
+#define EVLOOP_ONCE 0x01
 
 /**
  * @brief 循环选项，同 EventLoopOpt::LOOP_NONBLOCK。
  */
-#define EVLOOP_NONBLOCK         0x02
+#define EVLOOP_NONBLOCK 0x02
 
 /**
  * @brief 循环选项，同 EventLoopOpt::LOOP_NO_EXIT_ON_EMPTY。

@@ -95,7 +95,10 @@ struct ConfigGuard {
  */
 class Barrier {
 public:
-    explicit Barrier(size_t total) : m_total(total) {}
+    explicit Barrier(size_t total)
+        : m_total(total)
+    {
+    }
 
     bool Wait(int timeout_ms = 30000)
     {
@@ -118,7 +121,7 @@ private:
     size_t m_generation{0};
 };
 
-}
+} // namespace
 
 BOOST_AUTO_TEST_SUITE(Coroutine_Stack)
 
@@ -462,8 +465,8 @@ BOOST_AUTO_TEST_CASE(t_invalid_stack_size_rejected_before_alloc)
      * 旧的 signed 调用转换后（-1）也必须被范围检查拒绝，不静默变小
      */
     BOOST_CHECK_THROW(Stack(static_cast<size_t>(-1), false), std::length_error);
-    BOOST_CHECK_THROW(Stack(static_cast<size_t>(std::numeric_limits<std::ptrdiff_t>::max()) - 1, false),
-                      std::length_error);
+    BOOST_CHECK_THROW(
+        Stack(static_cast<size_t>(std::numeric_limits<std::ptrdiff_t>::max()) - 1, false), std::length_error);
 
     /**
      * 页取整加法回绕
@@ -693,8 +696,8 @@ BOOST_AUTO_TEST_CASE(t_pool_capacity_is_cross_bucket_and_atomic)
 
     StackPool pool;
     const size_t kThreads = 8;
-    const size_t kSizes[kThreads] = {8 * 1024,  12 * 1024, 16 * 1024, 20 * 1024,
-                                     24 * 1024, 28 * 1024, 32 * 1024, 40 * 1024};
+    const size_t kSizes[kThreads] = {
+        8 * 1024, 12 * 1024, 16 * 1024, 20 * 1024, 24 * 1024, 28 * 1024, 32 * 1024, 40 * 1024};
 
     Barrier start_gate(kThreads);
     Barrier hold_gate(kThreads);
@@ -1103,7 +1106,9 @@ BOOST_AUTO_TEST_CASE(t_pool_injected_failures_rollback_and_recover)
      */
     struct ThrowingCallable {
         ThrowingCallable() {}
+
         ThrowingCallable(const ThrowingCallable&) { throw std::runtime_error("copy ctor"); }
+
         void operator()() const {}
     };
 

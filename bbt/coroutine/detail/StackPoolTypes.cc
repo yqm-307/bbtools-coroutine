@@ -10,7 +10,8 @@ void StackReturner::operator()(Stack* stack) const noexcept
 }
 
 StackWaitError::StackWaitError(WaitStatus status)
-    : std::runtime_error("coroutine stack acquisition interrupted"), m_status(status)
+    : std::runtime_error("coroutine stack acquisition interrupted")
+    , m_status(status)
 {
 }
 
@@ -19,4 +20,4 @@ WaitStatus StackWaitError::Status() const noexcept
     return m_status;
 }
 
-}
+} // namespace bbt::coroutine::detail

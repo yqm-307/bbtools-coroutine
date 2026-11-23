@@ -32,4 +32,4 @@ public:
     virtual int TryLock(int ms) = 0;
 };
 
-}
+} // namespace bbt::coroutine::sync

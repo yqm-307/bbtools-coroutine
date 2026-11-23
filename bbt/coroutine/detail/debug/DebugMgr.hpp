@@ -91,4 +91,4 @@ private:
     std::mutex m_event_map_mtx;
 };
 
-}
+} // namespace bbt::coroutine::detail

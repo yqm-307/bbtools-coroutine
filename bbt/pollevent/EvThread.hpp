@@ -57,8 +57,8 @@ public:
      * @brief 在 EventLoop 上创建事件（线程安全）；只是 CreateEvent，须再调 Event::StartListen 才进入等待。
      * @param fd 用户 fd；-1 表示定时器或 Trigger() 事件；回调在 IO 线程内执行。
      */
-    std::shared_ptr<Event> RegisterEvent(evutil_socket_t fd, short events,
-                                         const bbt::pollevent::OnEventCallback& onevent_cb);
+    std::shared_ptr<Event>
+    RegisterEvent(evutil_socket_t fd, short events, const bbt::pollevent::OnEventCallback& onevent_cb);
 
     /**
      * @brief 阻塞 join，不请求停止；须持有可 join 的线程句柄，Stop 若已走清理路径销毁句柄，之后不可调用。
@@ -121,4 +121,4 @@ private:
     volatile EvThreadRunStatus m_status{EvThreadRunStatus::Default};
 };
 
-}
+} // namespace bbt::pollevent

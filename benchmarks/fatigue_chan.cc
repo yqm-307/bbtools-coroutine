@@ -75,10 +75,16 @@ int main()
     bbtco_desc("监视者")[&]()
     {
         while (true) {
-            printf("[nocache chan] read=%d write=%d write_failed=%d\n", nocache_chan_read_count.load(),
-                   nocache_chan_write_count.load(), nocache_chan_write_failed.load());
-            printf("[chan] read=%d write=%d write_failed=%d\n", read_count.load(), write_count.load(),
-                   write_failed.load());
+            printf(
+                "[nocache chan] read=%d write=%d write_failed=%d\n",
+                nocache_chan_read_count.load(),
+                nocache_chan_write_count.load(),
+                nocache_chan_write_failed.load());
+            printf(
+                "[chan] read=%d write=%d write_failed=%d\n",
+                read_count.load(),
+                write_count.load(),
+                write_failed.load());
             bbtco_sleep(1000);
         }
     };

@@ -83,7 +83,7 @@ StackBudgetState* ExchangeActiveStackBudgetState(StackBudgetState* next) noexcep
  */
 StackBudgetState* GetActiveStackBudgetState() noexcept;
 
-}
+} // namespace bbt::coroutine::detail
 
 /**
  * BBT_COROUTINE_STACK_DIAGNOSTICS

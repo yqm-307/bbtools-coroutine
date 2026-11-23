@@ -67,12 +67,17 @@ void RawSleepMs(long ms) noexcept
  */
 class EpGuard {
 public:
-    explicit EpGuard(int fd) : m_fd(fd) {}
+    explicit EpGuard(int fd)
+        : m_fd(fd)
+    {
+    }
+
     ~EpGuard()
     {
         if (m_fd >= 0)
             ::close(m_fd);
     }
+
     EpGuard(const EpGuard&) = delete;
     EpGuard& operator=(const EpGuard&) = delete;
 
@@ -100,7 +105,11 @@ void ResetConnectState(int fd) noexcept
  */
 class ErrnoGuard {
 public:
-    explicit ErrnoGuard(int sys_errno) : m_sys_errno(sys_errno) {}
+    explicit ErrnoGuard(int sys_errno)
+        : m_sys_errno(sys_errno)
+    {
+    }
+
     ~ErrnoGuard() { errno = m_sys_errno; }
 
     /**
@@ -119,7 +128,8 @@ private:
  */
 class CoIoNonblockGuard {
 public:
-    explicit CoIoNonblockGuard(int fd) : m_fd(fd)
+    explicit CoIoNonblockGuard(int fd)
+        : m_fd(fd)
     {
         m_old = ::fcntl(fd, F_GETFL, 0);
         if (m_old < 0) {
@@ -137,13 +147,16 @@ public:
         m_restore = true;
         m_ok = true;
     }
+
     ~CoIoNonblockGuard()
     {
         if (m_restore)
             ::fcntl(m_fd, F_SETFL, m_old);
     }
+
     CoIoNonblockGuard(const CoIoNonblockGuard&) = delete;
     CoIoNonblockGuard& operator=(const CoIoNonblockGuard&) = delete;
+
     bool ok() const { return m_ok; }
 
     /**
@@ -266,7 +279,7 @@ private:
     bool m_active{false};
 };
 
-}
+} // namespace
 
 /**
  * 新 socket 一律 O_NONBLOCK：阻塞 socket 上 Hook 没有挂起的机会，后续调用要靠内核立即返回
@@ -1230,8 +1243,13 @@ int Hook_Select(int nfds, fd_set* read_fds, fd_set* write_fds, fd_set* except_fd
  * ponytail: 协程路径忽略 sigmask——worker 线程 pthread_sigmask 会伤同核其它协程；
  * 要按 fd 精确屏蔽再加。timeout NULL 表示无限等待。
  */
-int Hook_PSelect(int nfds, fd_set* read_fds, fd_set* write_fds, fd_set* except_fds, const struct timespec* timeout,
-                 const sigset_t* sigmask)
+int Hook_PSelect(
+    int nfds,
+    fd_set* read_fds,
+    fd_set* write_fds,
+    fd_set* except_fds,
+    const struct timespec* timeout,
+    const sigset_t* sigmask)
 {
     (void)sigmask;
     AssertWithInfo(g_bbt_tls_coroutine_co != nullptr, "must be in coroutine context");
@@ -1376,8 +1394,8 @@ int Hook_GetAddrInfo(const char* node, const char* service, const struct addrinf
  *
  * host/serv 是调用方缓冲，挂起期间有效；入队失败返回预置 EAI_FAIL。
  */
-int Hook_GetNameInfo(const struct sockaddr* sa, socklen_t salen, char* host, socklen_t hostlen, char* serv,
-                     socklen_t servlen, int flags)
+int Hook_GetNameInfo(
+    const struct sockaddr* sa, socklen_t salen, char* host, socklen_t hostlen, char* serv, socklen_t servlen, int flags)
 {
     AssertWithInfo(g_bbt_tls_coroutine_co != nullptr, "must be in coroutine context");
     int ret = EAI_FAIL;
@@ -1476,7 +1494,7 @@ struct hostent* Hook_GetHostByAddr(const void* addr, socklen_t len, int type)
     return &tls.ent;
 }
 
-}
+} // namespace bbt::coroutine::detail
 
 int socket(int domain, int type, int protocol)
 {
@@ -1663,8 +1681,13 @@ int select(int nfds, fd_set* read_fds, fd_set* write_fds, fd_set* except_fds, st
     return bbt::coroutine::detail::Hook_Select(nfds, read_fds, write_fds, except_fds, timeout);
 }
 
-int pselect(int nfds, fd_set* read_fds, fd_set* write_fds, fd_set* except_fds, const struct timespec* timeout,
-            const sigset_t* sigmask)
+int pselect(
+    int nfds,
+    fd_set* read_fds,
+    fd_set* write_fds,
+    fd_set* except_fds,
+    const struct timespec* timeout,
+    const sigset_t* sigmask)
 {
 
     /**
@@ -1684,8 +1707,8 @@ int getaddrinfo(const char* node, const char* service, const struct addrinfo* re
     return bbt::coroutine::detail::Hook_GetAddrInfo(node, service, req, res);
 }
 
-int getnameinfo(const struct sockaddr* sa, socklen_t salen, char* host, socklen_t hostlen, char* serv,
-                socklen_t servlen, int flags)
+int getnameinfo(
+    const struct sockaddr* sa, socklen_t salen, char* host, socklen_t hostlen, char* serv, socklen_t servlen, int flags)
 {
     if (!g_bbt_tls_helper->EnableUseCo())
         return g_bbt_sys_hook_getnameinfo_func(sa, salen, host, hostlen, serv, servlen, flags);

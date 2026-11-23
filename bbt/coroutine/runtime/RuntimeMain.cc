@@ -45,7 +45,7 @@ void MainCompletion::Complete(Completion result)
         m_promise.set_value(result);
 }
 
-}
+} // namespace
 
 namespace detail {
 
@@ -139,9 +139,12 @@ private:
     std::function<void()> m_callback;
 };
 
-}
+} // namespace detail
 
-HostHookContext::HostHookContext(std::shared_ptr<detail::HostHookState> state) : m_state(std::move(state)) {}
+HostHookContext::HostHookContext(std::shared_ptr<detail::HostHookState> state)
+    : m_state(std::move(state))
+{
+}
 
 void HostHookContext::OnMainTaskDone(std::function<void()> callback) noexcept
 {
@@ -186,32 +189,39 @@ void ApplyOptions(const RuntimeOptions& options)
     config.m_cfg_stack_protect = stack.protect;
 }
 
-}
+} // namespace
 
-RuntimeMain::Completion RuntimeMain::Run(int (*main_task)(), int (*native_hook)(),
-                                         const RuntimeOptions& options) noexcept
+RuntimeMain::Completion
+RuntimeMain::Run(int (*main_task)(), int (*native_hook)(), const RuntimeOptions& options) noexcept
 {
-    return RunWithFactory(nullptr, main_task, native_hook, nullptr, &options,
-                          [](const void* value) { return *static_cast<const RuntimeOptions*>(value); });
+    return RunWithFactory(nullptr, main_task, native_hook, nullptr, &options, [](const void* value) {
+        return *static_cast<const RuntimeOptions*>(value);
+    });
 }
 
-RuntimeMain::Completion RuntimeMain::RunWithSetup(void (*setup_runtime)(), int (*main_task)(), int (*native_hook)(),
-                                                  const RuntimeOptions& options) noexcept
+RuntimeMain::Completion RuntimeMain::RunWithSetup(
+    void (*setup_runtime)(), int (*main_task)(), int (*native_hook)(), const RuntimeOptions& options) noexcept
 {
-    return RunWithFactory(setup_runtime, main_task, native_hook, nullptr, &options,
-                          [](const void* value) { return *static_cast<const RuntimeOptions*>(value); });
+    return RunWithFactory(setup_runtime, main_task, native_hook, nullptr, &options, [](const void* value) {
+        return *static_cast<const RuntimeOptions*>(value);
+    });
 }
 
-RuntimeMain::Completion RuntimeMain::RunWithSetupAndHostHook(void (*setup_runtime)(), int (*main_task)(),
-                                                             HostHook host_hook, const RuntimeOptions& options) noexcept
+RuntimeMain::Completion RuntimeMain::RunWithSetupAndHostHook(
+    void (*setup_runtime)(), int (*main_task)(), HostHook host_hook, const RuntimeOptions& options) noexcept
 {
-    return RunWithFactory(setup_runtime, main_task, nullptr, host_hook, &options,
-                          [](const void* value) { return *static_cast<const RuntimeOptions*>(value); });
+    return RunWithFactory(setup_runtime, main_task, nullptr, host_hook, &options, [](const void* value) {
+        return *static_cast<const RuntimeOptions*>(value);
+    });
 }
 
-RuntimeMain::Completion RuntimeMain::RunWithFactory(void (*setup_runtime)(), int (*main_task)(), int (*native_hook)(),
-                                                    HostHook host_hook, const void* factory,
-                                                    RuntimeOptions (*evaluate)(const void*)) noexcept
+RuntimeMain::Completion RuntimeMain::RunWithFactory(
+    void (*setup_runtime)(),
+    int (*main_task)(),
+    int (*native_hook)(),
+    HostHook host_hook,
+    const void* factory,
+    RuntimeOptions (*evaluate)(const void*)) noexcept
 {
     const Completion start_failed{Terminal::StartFailed, 1};
     if (detail::Processer::TryGetLocalProcesser() != nullptr || s_entered.exchange(true, std::memory_order_acq_rel))
@@ -302,4 +312,4 @@ RuntimeMain::Completion RuntimeMain::RunWithFactory(void (*setup_runtime)(), int
     }
 }
 
-}
+} // namespace bbt::coroutine

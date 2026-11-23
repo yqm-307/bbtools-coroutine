@@ -177,7 +177,7 @@ void InterleaveHook(Event*, Event::TestHookPoint point)
     gate->overlap = gate->cv.wait_for(lock, std::chrono::seconds(5), [gate] { return gate->completion_entered; });
 }
 
-}
+} // namespace
 
 BOOST_AUTO_TEST_SUITE(EventRoundTest)
 
@@ -191,8 +191,10 @@ BOOST_AUTO_TEST_CASE(t_restart_listen_keeps_single_round)
     auto [rfd, wfd] = MakeReadySocketPair();
 
     std::atomic<int> hits{0};
-    auto ev = std::make_shared<Event>(&base, rfd, static_cast<short>(EventOpt::READABLE | EventOpt::WRITEABLE),
-                                      [&hits](int, short, EventId) { hits.fetch_add(1); });
+    auto ev = std::make_shared<Event>(
+        &base, rfd, static_cast<short>(EventOpt::READABLE | EventOpt::WRITEABLE), [&hits](int, short, EventId) {
+            hits.fetch_add(1);
+        });
 
     BOOST_REQUIRE_EQUAL(ev->StartListen(0), 0);
 
@@ -223,21 +225,21 @@ BOOST_AUTO_TEST_CASE(t_reentrant_startlisten_does_not_duplicate_wait)
 
     std::atomic<int> hits{0};
     std::shared_ptr<Event> ev;
-    ev = std::make_shared<Event>(&base, rfd, static_cast<short>(EventOpt::READABLE | EventOpt::PERSIST),
-                                 [&hits, &ev](int fd, short, EventId) {
-                                     char byte = '\0';
+    ev = std::make_shared<Event>(
+        &base, rfd, static_cast<short>(EventOpt::READABLE | EventOpt::PERSIST), [&hits, &ev](int fd, short, EventId) {
+            char byte = '\0';
 
-                                     /**
+            /**
                                       * 先消费就绪数据，重挂时不带就绪
                                       */
-                                     (void)::read(fd, &byte, 1);
+            (void)::read(fd, &byte, 1);
 
-                                     /**
+            /**
                                       * 回调内启动新一轮
                                       */
-                                     if (hits.fetch_add(1) == 0)
-                                         ev->StartListen(0);
-                                 });
+            if (hits.fetch_add(1) == 0)
+                ev->StartListen(0);
+        });
 
     BOOST_REQUIRE_EQUAL(ev->StartListen(0), 0);
     const char byte = 'x';
@@ -271,17 +273,17 @@ BOOST_AUTO_TEST_CASE(t_release_in_callback_ignores_persist_rearm)
     std::atomic<int> hits{0};
     std::shared_ptr<Event> ev;
     std::weak_ptr<Event> weak_ev;
-    ev = std::make_shared<Event>(&base, rfd, static_cast<short>(EventOpt::READABLE | EventOpt::PERSIST),
-                                 [&hits, &ev](int fd, short, EventId) {
-                                     char byte = '\0';
-                                     (void)::read(fd, &byte, 1);
-                                     hits.fetch_add(1);
+    ev = std::make_shared<Event>(
+        &base, rfd, static_cast<short>(EventOpt::READABLE | EventOpt::PERSIST), [&hits, &ev](int fd, short, EventId) {
+            char byte = '\0';
+            (void)::read(fd, &byte, 1);
+            hits.fetch_add(1);
 
-                                     /**
+            /**
                                       * 回调内释放最后一个外部引用
                                       */
-                                     ev.reset();
-                                 });
+            ev.reset();
+        });
     weak_ev = ev;
 
     BOOST_REQUIRE_EQUAL(ev->StartListen(0), 0);
@@ -369,8 +371,10 @@ BOOST_AUTO_TEST_CASE(t_queued_completion_after_cancel_and_destroy)
     std::atomic<int> hits{0};
     const int fds_before = CountOpenFds();
     {
-        auto ev = std::make_shared<Event>(&base, rfd, static_cast<short>(EventOpt::READABLE | EventOpt::WRITEABLE),
-                                          [&hits](int, short, EventId) { hits.fetch_add(1); });
+        auto ev = std::make_shared<Event>(
+            &base, rfd, static_cast<short>(EventOpt::READABLE | EventOpt::WRITEABLE), [&hits](int, short, EventId) {
+                hits.fetch_add(1);
+            });
         BOOST_REQUIRE_EQUAL(ev->StartListen(0), 0);
         BOOST_REQUIRE_EQUAL(ev->CancelListen(), 0);
     }
@@ -401,17 +405,17 @@ BOOST_AUTO_TEST_CASE(t_persist_cancel_in_callback_does_not_resurrect)
     std::atomic<int> hits{0};
     std::shared_ptr<Event> ev;
     const size_t cb_before = Event::CallbackEntryCount();
-    ev = std::make_shared<Event>(&base, rfd, static_cast<short>(EventOpt::READABLE | EventOpt::PERSIST),
-                                 [&hits, &ev](int fd, short, EventId) {
-                                     char byte = '\0';
-                                     (void)::read(fd, &byte, 1);
-                                     hits.fetch_add(1);
+    ev = std::make_shared<Event>(
+        &base, rfd, static_cast<short>(EventOpt::READABLE | EventOpt::PERSIST), [&hits, &ev](int fd, short, EventId) {
+            char byte = '\0';
+            (void)::read(fd, &byte, 1);
+            hits.fetch_add(1);
 
-                                     /**
+            /**
                                       * 回调内重入取消
                                       */
-                                     ev->CancelListen();
-                                 });
+            ev->CancelListen();
+        });
 
     BOOST_REQUIRE_EQUAL(ev->StartListen(0), 0);
     const char byte = 'x';
@@ -625,16 +629,16 @@ BOOST_AUTO_TEST_CASE(t_startlisten_assembly_races_ready_fd)
     int start_rc = -1;
 
     {
-        auto ev = std::make_shared<Event>(&base, rfd, static_cast<short>(EventOpt::READABLE | EventOpt::TIMEOUT),
-                                          [&](int, short flag, EventId) {
-                                              seen_flag.store(flag);
-                                              hits.fetch_add(1);
-                                              {
-                                                  std::lock_guard<std::mutex> lock(gate.m);
-                                                  gate.delivered = true;
-                                              }
-                                              gate.cv.notify_all();
-                                          });
+        auto ev = std::make_shared<Event>(
+            &base, rfd, static_cast<short>(EventOpt::READABLE | EventOpt::TIMEOUT), [&](int, short flag, EventId) {
+                seen_flag.store(flag);
+                hits.fetch_add(1);
+                {
+                    std::lock_guard<std::mutex> lock(gate.m);
+                    gate.delivered = true;
+                }
+                gate.cv.notify_all();
+            });
 
         std::thread driver([&] {
             {

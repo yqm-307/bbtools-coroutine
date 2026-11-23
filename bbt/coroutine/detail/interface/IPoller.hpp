@@ -34,4 +34,4 @@ public:
     virtual int PollOnce() = 0;
 };
 
-}
+} // namespace bbt::coroutine::detail

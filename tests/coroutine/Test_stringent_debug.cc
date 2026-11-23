@@ -45,11 +45,16 @@ void EnsureRuntime()
  * 否则测试自身占用最后一引用，探针永不析构。
  */
 struct DestructionProbe {
-    explicit DestructionProbe(bbt::core::thread::CountDownLatch* l) : latch(l) {}
+    explicit DestructionProbe(bbt::core::thread::CountDownLatch* l)
+        : latch(l)
+    {
+    }
+
     ~DestructionProbe() { latch->Down(); }
+
     bbt::core::thread::CountDownLatch* latch;
 };
-}
+} // namespace
 
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::detail;
@@ -290,6 +295,7 @@ BOOST_AUTO_TEST_CASE(t_fd_rejected_registration_pairs)
 {
     struct PipeGuard {
         int fd[2]{-1, -1};
+
         ~PipeGuard()
         {
             for (int value : fd)
@@ -297,6 +303,7 @@ BOOST_AUTO_TEST_CASE(t_fd_rejected_registration_pairs)
                     ::close(value);
         }
     } pipe;
+
     BOOST_REQUIRE_EQUAL(::pipe(pipe.fd), 0);
     std::atomic_int completed{0}, flags{0};
     auto event = CoPollEvent::Create(BBT_COROUTINE_INVALID_COROUTINE_ID, [&](auto, int result, int) {
@@ -305,10 +312,13 @@ BOOST_AUTO_TEST_CASE(t_fd_rejected_registration_pairs)
     });
     BOOST_REQUIRE_EQUAL(event->InitFdEvent(pipe.fd[0], bbt::pollevent::EventOpt::READABLE, 0), 0);
     BOOST_REQUIRE(CoPollEvent::BeginFdClose(pipe.fd[0]));
+
     struct CloseClaimGuard {
         int fd;
+
         ~CloseClaimGuard() { CoPollEvent::EndFdClose(fd); }
     } claim{pipe.fd[0]};
+
     BOOST_REQUIRE_EQUAL(event->Regist(), 0);
     BOOST_REQUIRE(event->CommitPark());
     BOOST_CHECK_EQUAL(completed.load(), 1);

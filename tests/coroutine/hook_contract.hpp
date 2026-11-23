@@ -29,14 +29,20 @@ namespace hook_contract {
  */
 class FdGuard {
 public:
-    explicit FdGuard(int fd = -1) : m_fd(fd) {}
+    explicit FdGuard(int fd = -1)
+        : m_fd(fd)
+    {
+    }
+
     ~FdGuard()
     {
         if (m_fd >= 0)
             ::close(m_fd);
     }
+
     FdGuard(const FdGuard&) = delete;
     FdGuard& operator=(const FdGuard&) = delete;
+
     int Get() const { return m_fd; }
 
 private:
@@ -52,15 +58,19 @@ private:
 class SocketPair {
 public:
     SocketPair() { ::socketpair(AF_UNIX, SOCK_STREAM, 0, m_fds); }
+
     ~SocketPair()
     {
         for (int& fd : m_fds)
             if (fd >= 0)
                 ::close(fd);
     }
+
     SocketPair(const SocketPair&) = delete;
     SocketPair& operator=(const SocketPair&) = delete;
+
     int operator[](int i) const { return m_fds[i]; }
+
     bool Ok() const { return m_fds[0] >= 0 && m_fds[1] >= 0; }
 
 private:
@@ -144,11 +154,13 @@ public:
         ::sigaction(SIGALRM, &sa, &m_old);
         ::ualarm(usec, 0);
     }
+
     ~EintrArm()
     {
         ::ualarm(0, 0);
         ::sigaction(SIGALRM, &m_old, nullptr);
     }
+
     EintrArm(const EintrArm&) = delete;
     EintrArm& operator=(const EintrArm&) = delete;
 
@@ -157,4 +169,4 @@ private:
     struct sigaction m_old;
 };
 
-}
+} // namespace hook_contract

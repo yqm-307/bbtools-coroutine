@@ -79,4 +79,4 @@ auto MakeCoObject(std::string kind, std::string name, Creator&& creator) -> decl
     return GetCoObjectManager()->Create(std::move(kind), std::move(name), std::forward<Creator>(creator));
 }
 
-}
+} // namespace bbt::coroutine

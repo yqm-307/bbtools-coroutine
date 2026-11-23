@@ -40,4 +40,4 @@ bool Spinlock::try_lock()
     return pthread_spin_trylock(&m_spin) == 0;
 }
 
-}
+} // namespace bbt::core::thread

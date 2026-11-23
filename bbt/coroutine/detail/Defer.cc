@@ -2,7 +2,10 @@
 
 namespace bbt::coroutine::detail {
 
-Defer::Defer(const DeferCallback& cb) : m_defer_handler(cb) {}
+Defer::Defer(const DeferCallback& cb)
+    : m_defer_handler(cb)
+{
+}
 
 Defer::~Defer()
 {
@@ -14,4 +17,4 @@ Defer::~Defer()
         m_defer_handler();
 }
 
-}
+} // namespace bbt::coroutine::detail

@@ -19,7 +19,12 @@ namespace bbt::coroutine::detail {
  */
 class InPollGuard {
 public:
-    explicit InPollGuard(std::atomic<bool>& flag) : m_flag(flag) { m_flag.store(true, std::memory_order_release); }
+    explicit InPollGuard(std::atomic<bool>& flag)
+        : m_flag(flag)
+    {
+        m_flag.store(true, std::memory_order_release);
+    }
+
     ~InPollGuard() { m_flag.store(false, std::memory_order_release); }
 
 private:
@@ -43,8 +48,9 @@ CoPoller::CoPoller()
     /**
      * 首个 backend：bbt::pollevent::EventLoop（ASIO）。不是 epoll/timerfd。
      */
-    auto* base = new bbt::pollevent::detail::EventBase(bbt::pollevent::detail::EventBaseConfigFlag::NO_CACHE_TIME
-                                                       | bbt::pollevent::detail::EventBaseConfigFlag::PRECISE_TIMER);
+    auto* base = new bbt::pollevent::detail::EventBase(
+        bbt::pollevent::detail::EventBaseConfigFlag::NO_CACHE_TIME
+        | bbt::pollevent::detail::EventBaseConfigFlag::PRECISE_TIMER);
 
     Assert(base != nullptr);
 
@@ -54,8 +60,8 @@ CoPoller::CoPoller()
 
 CoPoller::~CoPoller() {}
 
-std::shared_ptr<bbt::pollevent::Event> CoPoller::CreateEvent(int fd, short events,
-                                                             const bbt::pollevent::OnEventCallback& onevent_cb)
+std::shared_ptr<bbt::pollevent::Event>
+CoPoller::CreateEvent(int fd, short events, const bbt::pollevent::OnEventCallback& onevent_cb)
 {
     return m_event_loop->CreateEvent(fd, events, onevent_cb);
 }
@@ -219,4 +225,4 @@ boost::asio::any_io_executor CoPoller::GetExecutor() const
     return m_event_loop->GetEventBase()->GetContext().get_executor();
 }
 
-}
+} // namespace bbt::coroutine::detail

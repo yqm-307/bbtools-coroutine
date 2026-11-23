@@ -17,6 +17,7 @@
 #include <thread>
 static thread_local bool fail_next = false;
 static thread_local int hits = 0;
+
 void* operator new(std::size_t n)
 {
     if (fail_next) {
@@ -28,28 +29,40 @@ void* operator new(std::size_t n)
         return p;
     throw std::bad_alloc();
 }
+
 void* operator new[](std::size_t n)
 {
     return ::operator new(n);
 }
+
 void operator delete(void* p) noexcept
 {
     std::free(p);
 }
+
 void operator delete[](void* p) noexcept
 {
     std::free(p);
 }
+
 void operator delete(void* p, std::size_t) noexcept
 {
     std::free(p);
 }
+
 void operator delete[](void* p, std::size_t) noexcept
 {
     std::free(p);
 }
 namespace d = bbt::coroutine::detail;
-#define CHECK(x) do { if (!(x)) { std::fprintf(stderr, "FAIL line=%d %s hits=%d\n", __LINE__, #x, hits); return 1; } } while(0)
+#define CHECK(x)                                                                                                       \
+    do {                                                                                                               \
+        if (!(x)) {                                                                                                    \
+            std::fprintf(stderr, "FAIL line=%d %s hits=%d\n", __LINE__, #x, hits);                                     \
+            return 1;                                                                                                  \
+        }                                                                                                              \
+    } while (0)
+
 int main(int argc, char** argv)
 {
     CHECK(argc == 2);

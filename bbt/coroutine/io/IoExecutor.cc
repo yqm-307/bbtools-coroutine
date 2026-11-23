@@ -16,4 +16,4 @@ boost::asio::any_io_executor GetExecutor()
     return detail::CoPoller::GetInstance()->GetExecutor();
 }
 
-}
+} // namespace bbt::coroutine::io

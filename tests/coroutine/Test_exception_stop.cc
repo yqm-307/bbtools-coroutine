@@ -34,7 +34,7 @@ void StartRuntime(ExceptionHandleCallback callback = nullptr)
     g_scheduler->Start();
     BOOST_REQUIRE(g_scheduler->IsInitialized());
 }
-}
+} // namespace
 
 BOOST_AUTO_TEST_SUITE(ExceptionContractTest)
 

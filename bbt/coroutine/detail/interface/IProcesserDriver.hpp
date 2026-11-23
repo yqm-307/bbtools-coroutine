@@ -109,6 +109,7 @@ struct ProcesserDriverToken {
     {
         return m_processer_id == rhs.m_processer_id && m_generation == rhs.m_generation;
     }
+
     bool operator!=(const ProcesserDriverToken& rhs) const noexcept { return !(*this == rhs); }
 };
 
@@ -145,4 +146,4 @@ public:
     virtual void Wake() noexcept = 0;
 };
 
-}
+} // namespace bbt::coroutine::detail

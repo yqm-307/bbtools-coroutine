@@ -74,13 +74,14 @@ bool WaitFlag(const std::atomic_bool& flag, int ms)
  */
 namespace {
 int g_exit_marker_fd = -1;
+
 void WriteExitMarker()
 {
     const char flag = 'E';
     const ssize_t n = ::write(g_exit_marker_fd, &flag, 1);
     (void)n;
 }
-}
+} // namespace
 
 /**
  * 子进程走**真实进程退出路径**：body() 返回后调用 std::exit（与从 main
@@ -142,7 +143,7 @@ template <class T> bool WaitValue(const std::atomic<T>& value, const T& expected
     return true;
 }
 
-}
+} // namespace
 
 /**
  * ① THREAD：Start 立即返回且已发布初始化；注册的协程真实执行

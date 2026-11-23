@@ -10,11 +10,12 @@ namespace bbt::coroutine::sync {
 template <class TItem, int Max> CoSelect& CoSelect::CaseRead(Chan<TItem, Max>& ch, TItem& out)
 {
     static_assert(Max > 0, "CoSelect: Chan<T, 0> has no watcher API and is not supported");
-    m_cases.push_back(Case{
-        [&ch](const CoWaiter::SPtr& w) { ch.AddReadWatcher(w); },
-        [&ch](const CoWaiter::SPtr& w) { ch.RemoveReadWatcher(w); },
-        [&ch, &out]() { return ch.TryRead(out); },
-    });
+    m_cases.push_back(
+        Case{
+            [&ch](const CoWaiter::SPtr& w) { ch.AddReadWatcher(w); },
+            [&ch](const CoWaiter::SPtr& w) { ch.RemoveReadWatcher(w); },
+            [&ch, &out]() { return ch.TryRead(out); },
+        });
     return *this;
 }
 
@@ -26,14 +27,15 @@ template <class TItem, int Max> CoSelect& CoSelect::CaseRead(std::shared_ptr<Cha
 template <class TItem, int Max> CoSelect& CoSelect::CaseWrite(Chan<TItem, Max>& ch, const TItem& val)
 {
     static_assert(Max > 0, "CoSelect: Chan<T, 0> has no watcher API and is not supported");
-    m_cases.push_back(Case{
-        [&ch](const CoWaiter::SPtr& w) { ch.AddWriteWatcher(w); },
-        [&ch](const CoWaiter::SPtr& w) { ch.RemoveWriteWatcher(w); },
-        /**
+    m_cases.push_back(
+        Case{
+            [&ch](const CoWaiter::SPtr& w) { ch.AddWriteWatcher(w); },
+            [&ch](const CoWaiter::SPtr& w) { ch.RemoveWriteWatcher(w); },
+            /**
          * val 按值捕获：调用方临时对象可能先于挂起期回调析构
          */
-        [&ch, val]() { return ch.TryWrite(val); },
-    });
+            [&ch, val]() { return ch.TryWrite(val); },
+        });
     return *this;
 }
 
@@ -115,4 +117,4 @@ inline int CoSelect::Run()
     return index;
 }
 
-}
+} // namespace bbt::coroutine::sync

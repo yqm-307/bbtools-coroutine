@@ -17,14 +17,20 @@ EvThreadId EvThread::GenerateTid()
     return ++_id;
 }
 
-EvThread::EvThread(std::shared_ptr<EventLoop> evloop) : m_eventloop(evloop), m_tid(GenerateTid())
+EvThread::EvThread(std::shared_ptr<EventLoop> evloop)
+    : m_eventloop(evloop)
+    , m_tid(GenerateTid())
 {
     /**
      * 只记引用，不建线程：Start() 之前 IsRunning() 为 false，Stop()/Join() 不成立。
      */
 }
 
-EvThread::EvThread() : m_eventloop(std::make_shared<EventLoop>()), m_tid(GenerateTid()) {}
+EvThread::EvThread()
+    : m_eventloop(std::make_shared<EventLoop>())
+    , m_tid(GenerateTid())
+{
+}
 
 EvThread::~EvThread()
 {
@@ -81,8 +87,8 @@ bool EvThread::IsRunning() const
     return (m_status == EvThreadRunStatus::Running);
 }
 
-std::shared_ptr<Event> EvThread::RegisterEvent(evutil_socket_t fd, short events,
-                                               const bbt::pollevent::OnEventCallback& onevent_cb)
+std::shared_ptr<Event>
+EvThread::RegisterEvent(evutil_socket_t fd, short events, const bbt::pollevent::OnEventCallback& onevent_cb)
 {
     /**
      * 只是 CreateEvent：不登记等待，事件在 StartListen 时才挂到 context 上。
@@ -177,4 +183,4 @@ bool EvThread::SyncWaitThreadExitWithTime(int wait_time)
     return SyncWaitThreadExitEx(wait_time);
 }
 
-}
+} // namespace bbt::pollevent

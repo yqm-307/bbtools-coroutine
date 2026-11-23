@@ -64,6 +64,6 @@ private:
     std::variant<T, E> m_value;
 };
 
-}
+} // namespace bbt::core::util
 
 #include <bbt/core/util/__TResult.hpp>

@@ -39,4 +39,4 @@ int EventBase::GetTimeOfDayCache(struct timeval* tv) const
     return 0;
 }
 
-}
+} // namespace bbt::pollevent::detail

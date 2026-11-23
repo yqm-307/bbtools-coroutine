@@ -29,14 +29,23 @@ static int g_sleep_us = 0;
 /**
  * busy-spin for us microseconds (only in coroutine context)
  */
-#define cpu_spin(us) do { \
-    if((us)>0){volatile uint64_t _s=fatigue::now_us();while(fatigue::now_us()-_s<(uint64_t)(us));} \
-} while(0)
+#define cpu_spin(us)                                                                                                   \
+    do {                                                                                                               \
+        if ((us) > 0) {                                                                                                \
+            volatile uint64_t _s = fatigue::now_us();                                                                  \
+            while (fatigue::now_us() - _s < (uint64_t)(us))                                                            \
+                ;                                                                                                      \
+        }                                                                                                              \
+    } while (0)
 
 /**
  * yield to scheduler (replaces bbtco_yield with CPU-aware version)
  */
-#define cpu_yield() do { cpu_spin(g_busy_us); bbtco_sleep(1); } while(0)
+#define cpu_yield()                                                                                                    \
+    do {                                                                                                               \
+        cpu_spin(g_busy_us);                                                                                           \
+        bbtco_sleep(1);                                                                                                \
+    } while (0)
 
 using namespace bbt::coroutine::sync;
 
@@ -74,6 +83,7 @@ void on_signal(int)
 {
     g_running = 0;
 }
+
 static void stop_all()
 {
     g_mt_comutex.stop_reporter();
@@ -381,8 +391,12 @@ int main(int argc, char** argv)
         g_bbt_coroutine_config->m_cfg_static_thread_num = (size_t)proc_threads;
     }
 
-    printf("[unified_stress] dur=%ds busy=%dus sleep=%dus threads=%zu", dur, g_busy_us, g_sleep_us,
-           g_bbt_coroutine_config->m_cfg_static_thread_num);
+    printf(
+        "[unified_stress] dur=%ds busy=%dus sleep=%dus threads=%zu",
+        dur,
+        g_busy_us,
+        g_sleep_us,
+        g_bbt_coroutine_config->m_cfg_static_thread_num);
     if (module)
         printf(" module=%s", module);
     printf("\n");
@@ -396,7 +410,9 @@ int main(int argc, char** argv)
     signal(SIGINT, on_signal);
     g_scheduler->Start();
 
-#define RUN_MOD(m) if(!module||strcmp(module,#m)==0) stress_##m()
+#define RUN_MOD(m)                                                                                                     \
+    if (!module || strcmp(module, #m) == 0)                                                                            \
+    stress_##m()
     RUN_MOD(comutex);
     RUN_MOD(corwmutex);
     RUN_MOD(cocond);

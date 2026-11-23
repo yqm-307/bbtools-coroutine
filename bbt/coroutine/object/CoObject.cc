@@ -13,7 +13,8 @@ std::atomic<CoObjectId> g_next_object_id{1};
 
 }
 
-CoObject::CoObject(std::string kind, std::string name) : MemberBase(CreateObjectInfo(std::move(kind), std::move(name)))
+CoObject::CoObject(std::string kind, std::string name)
+    : MemberBase(CreateObjectInfo(std::move(kind), std::move(name)))
 {
 }
 
@@ -48,4 +49,4 @@ CoObjectInfo CreateObjectInfo(std::string kind, std::string name)
     return CoObjectInfo{cur, std::move(kind), std::move(name)};
 }
 
-}
+} // namespace bbt::coroutine

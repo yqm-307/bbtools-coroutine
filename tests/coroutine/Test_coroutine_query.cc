@@ -47,21 +47,25 @@ struct Sample {
     size_t queried_stack{0};
     bool disabled_zero{false};
 };
-}
+} // namespace
 
 BOOST_AUTO_TEST_SUITE(query_no_create)
+
 BOOST_AUTO_TEST_CASE(id_disabled)
 {
     CheckColdQuery(false, false);
 }
+
 BOOST_AUTO_TEST_CASE(id_enabled)
 {
     CheckColdQuery(true, false);
 }
+
 BOOST_AUTO_TEST_CASE(stack_disabled)
 {
     CheckColdQuery(false, true);
 }
+
 BOOST_AUTO_TEST_CASE(stack_enabled)
 {
     CheckColdQuery(true, true);
@@ -98,6 +102,7 @@ BOOST_AUTO_TEST_CASE(existing_idle_and_creating_entry)
 BOOST_AUTO_TEST_SUITE_END()
 
 BOOST_AUTO_TEST_SUITE(query_runtime)
+
 BOOST_AUTO_TEST_CASE(current_coroutine_before_and_after_yield)
 {
     g_bbt_coroutine_config->m_cfg_static_thread_num = 2;

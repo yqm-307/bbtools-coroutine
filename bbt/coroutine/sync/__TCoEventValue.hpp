@@ -38,4 +38,4 @@ template <class T> bool CoEventValue::Get(T& out) const noexcept
     return true;
 }
 
-}
+} // namespace bbt::coroutine

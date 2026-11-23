@@ -41,7 +41,7 @@ template <class T> struct IsSharedCoOwner : std::false_type {};
 
 template <class T> struct IsSharedCoOwner<std::shared_ptr<T>> : std::true_type {};
 
-}
+} // namespace detail
 
 /**
  * @brief 被 Manager 登记的对象侧基类：持有身份、key 与注销入口。
@@ -158,6 +158,6 @@ private:
     std::shared_ptr<detail::CoObjectCounters> m_stats{std::make_shared<detail::CoObjectCounters>()};
 };
 
-}
+} // namespace bbt::coroutine
 
 #include <bbt/coroutine/object/__TManagerBase.hpp>
