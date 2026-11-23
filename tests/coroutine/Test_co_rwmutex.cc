@@ -18,21 +18,21 @@ void EnsureRuntime()
     static std::once_flag once;
     std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
-}
+} // namespace
 
 namespace bbt::coroutine::sync {
 
 class CoRWMutexTestAccess {
 public:
-    static void SetWaitCallbacks(CoRWMutex& rwlock, const std::function<void()>& writer_queued,
-                                 const std::function<void()>& reader_blocked)
+    static void SetWaitCallbacks(
+        CoRWMutex& rwlock, const std::function<void()>& writer_queued, const std::function<void()>& reader_blocked)
     {
         rwlock.m_writer_queued_callback = writer_queued;
         rwlock.m_reader_blocked_callback = reader_blocked;
     }
 };
 
-}
+} // namespace bbt::coroutine::sync
 
 BOOST_AUTO_TEST_SUITE(CoRWMutexTest)
 
@@ -59,8 +59,8 @@ BOOST_AUTO_TEST_CASE(t_rlock_block)
 
     bbtco[&]()
     {
-        auto cocond = bbt::coroutine::sync::CoCond::Create();
-        auto rwlock = bbt::coroutine::sync::CoRWMutex::Create();
+        auto cocond = bbtco_make_cocond();
+        auto rwlock = bbtco_make_corwmutex();
         bbtco[=, &succ]()
         {
             rwlock->RLock();
@@ -96,7 +96,7 @@ BOOST_AUTO_TEST_CASE(t_rlock_wlock_block)
     bbtco_desc("main co")[&]()
     {
         int n = 0, m = 0;
-        auto rwlock = bbt::coroutine::sync::CoRWMutex::Create();
+        auto rwlock = bbtco_make_corwmutex();
         bbtco[&]()
         {
             rwlock->RLock();
@@ -128,7 +128,7 @@ BOOST_AUTO_TEST_CASE(t_rwlock_multi_co)
     bbtco_desc("main")[&]()
     {
         std::atomic_bool in_writing{false};
-        auto rwlock = bbt::coroutine::sync::CoRWMutex::Create();
+        auto rwlock = bbtco_make_corwmutex();
         bbtco_desc("reader1")[&]()
         {
             while (running) {
@@ -177,7 +177,7 @@ BOOST_AUTO_TEST_CASE(t_rwlock_multi_co)
 BOOST_AUTO_TEST_CASE(t_writer_priority)
 {
     struct CaseState {
-        bbt::coroutine::sync::CoRWMutex::SPtr rwlock{bbt::coroutine::sync::CoRWMutex::Create()};
+        bbt::coroutine::sync::CoRWMutex::SPtr rwlock{bbtco_make_corwmutex()};
         bbt::core::thread::CountDownLatch completed{1};
         std::atomic_bool reader_holding{false};
         std::atomic_bool writer_queued{false};
@@ -187,6 +187,7 @@ BOOST_AUTO_TEST_CASE(t_writer_priority)
         std::atomic_bool reader_acquired_after_writer{false};
         std::atomic_int child_completed{0};
     };
+
     auto state = std::make_shared<CaseState>();
     std::weak_ptr<CaseState> weak_state{state};
     bbt::coroutine::sync::CoRWMutexTestAccess::SetWaitCallbacks(
@@ -225,8 +226,8 @@ BOOST_AUTO_TEST_CASE(t_writer_priority)
         while (!state->writer_queued.load(std::memory_order_acquire))
             bbtco_yield;
         state->rwlock->RLock();
-        state->reader_acquired_after_writer.store(state->writer_finished.load(std::memory_order_acquire),
-                                                  std::memory_order_release);
+        state->reader_acquired_after_writer.store(
+            state->writer_finished.load(std::memory_order_acquire), std::memory_order_release);
         state->rwlock->RUnLock();
         state->child_completed.fetch_add(1, std::memory_order_release);
     };
@@ -255,7 +256,7 @@ BOOST_AUTO_TEST_CASE(t_try_rlock)
 
     bbtco_desc("main")[&]()
     {
-        auto rwlock = bbt::coroutine::sync::CoRWMutex::Create();
+        auto rwlock = bbtco_make_corwmutex();
 
         BOOST_ASSERT(rwlock->TryRLock() == 0);
         rwlock->RUnLock();
@@ -279,7 +280,7 @@ BOOST_AUTO_TEST_CASE(t_try_wlock)
 
     bbtco_desc("main")[&]()
     {
-        auto rwlock = bbt::coroutine::sync::CoRWMutex::Create();
+        auto rwlock = bbtco_make_corwmutex();
 
         BOOST_ASSERT(rwlock->TryWLock() == 0);
         rwlock->WUnLock();
@@ -303,7 +304,7 @@ BOOST_AUTO_TEST_CASE(t_try_rlock_timeout)
 
     bbtco_desc("main")[&]()
     {
-        auto rwlock = bbt::coroutine::sync::CoRWMutex::Create();
+        auto rwlock = bbtco_make_corwmutex();
 
         rwlock->WLock();
         int ret = rwlock->TryRLock(50);
@@ -328,7 +329,7 @@ BOOST_AUTO_TEST_CASE(t_try_wlock_timeout)
 
     bbtco_desc("main")[&]()
     {
-        auto rwlock = bbt::coroutine::sync::CoRWMutex::Create();
+        auto rwlock = bbtco_make_corwmutex();
 
         rwlock->RLock();
         int ret = rwlock->TryWLock(50);
@@ -354,7 +355,7 @@ BOOST_AUTO_TEST_CASE(t_timeout_recovery)
 
     bbtco_desc("main")[&]()
     {
-        auto rwlock = bbt::coroutine::sync::CoRWMutex::Create();
+        auto rwlock = bbtco_make_corwmutex();
 
         rwlock->WLock();
 
@@ -397,7 +398,7 @@ BOOST_AUTO_TEST_CASE(t_try_wlock_timeout_then_wlock)
 
     bbtco_desc("main")[&]()
     {
-        auto rwlock = bbt::coroutine::sync::CoRWMutex::Create();
+        auto rwlock = bbtco_make_corwmutex();
 
         /**
          * 持有读锁
@@ -436,7 +437,7 @@ BOOST_AUTO_TEST_CASE(t_try_wlock_timeout_then_rlock)
 
     bbtco_desc("main")[&]()
     {
-        auto rwlock = bbt::coroutine::sync::CoRWMutex::Create();
+        auto rwlock = bbtco_make_corwmutex();
 
         /**
          * 持有读锁
@@ -478,7 +479,7 @@ BOOST_AUTO_TEST_CASE(t_try_wlock_multiple_timeouts)
 
     bbtco_desc("main")[&]()
     {
-        auto rwlock = bbt::coroutine::sync::CoRWMutex::Create();
+        auto rwlock = bbtco_make_corwmutex();
 
         /**
          * 持有读锁，连续多次 TryWLock 超时
@@ -522,7 +523,7 @@ BOOST_AUTO_TEST_CASE(t_rwlock_multi_co_stress)
     {
         std::atomic_int in_writing{0};
         std::atomic_int active_readers{0};
-        auto rwlock = bbt::coroutine::sync::CoRWMutex::Create();
+        auto rwlock = bbtco_make_corwmutex();
 
         for (int i = 0; i < 4; ++i) {
             bbtco[&]()

@@ -18,6 +18,7 @@
 | 文档 | 内容 |
 |------|------|
 | [docs/guides/user-guide.md](docs/guides/user-guide.md) | 使用手册：基础用法、综合示例、注意事项 |
+| [docs/guides/async-usage.md](docs/guides/async-usage.md) | async / bind / await / fire：语法糖与常见场景 |
 | [docs/guides/api-reference.md](docs/guides/api-reference.md) | API 参考：签名、返回码、挂起条件与生命周期 |
 | [docs/architecture/core-runtime-contract.md](docs/architecture/core-runtime-contract.md) | 核心运行时契约（唯一契约真源）：进程寿命、线程模型、Hook 边界、driver 分层 |
 | [docs/guides/development.md](docs/guides/development.md) | 开发与发布流程：验证阶梯、本地入口、发布 Gate |

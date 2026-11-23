@@ -5,7 +5,12 @@
 #include <bbt/coroutine/sync/CoCond.hpp>
 using namespace bbt::coroutine;
 
-#define PrintTime(flag) printf("标记点=[%s]   协程id=[%ld] 时间戳=[%ld]\n", flag, GetLocalCoroutineId(), bbt::core::clock::now<>().time_since_epoch().count());
+#define PrintTime(flag)                                                                                                \
+    printf(                                                                                                            \
+        "标记点=[%s]   协程id=[%ld] 时间戳=[%ld]\n",                                                                   \
+        flag,                                                                                                          \
+        GetLocalCoroutineId(),                                                                                         \
+        bbt::core::clock::now<>().time_since_epoch().count());
 
 void debug_notify()
 {
@@ -42,7 +47,7 @@ void debug_notify()
             /**
              * 协程休眠1s后唤醒等待中的条件变量
              */
-            ::sleep(1);
+            bbtco_sleep(1000);
             cond->Notify();
         };
 
@@ -64,7 +69,7 @@ void debug_notify()
             /**
              * 协程休眠1s后唤醒等待中的条件变量
              */
-            ::sleep(1);
+            bbtco_sleep(1000);
             cond->Notify();
         };
         Assert(cond->Wait() == 0);
@@ -122,7 +127,7 @@ void cocond()
 
     bbtco[&]()
     {
-        auto cond = sync::CoCond::Create();
+        auto cond = bbtco_make_cocond();
 
         bbtco[&]()
         {
@@ -130,7 +135,7 @@ void cocond()
             l.Down();
         };
 
-        sleep(1);
+        bbtco_sleep(1000);
         cond->NotifyOne();
         l.Wait();
 
@@ -152,7 +157,7 @@ void multi_cond_check()
         std::atomic_int wait_count{0};
         bbtco[&, i]()
         {
-            auto cond = sync::CoCond::Create();
+            auto cond = bbtco_make_cocond();
 
             for (int i = 0; i < nmax_wait_co; ++i) {
                 bbtco[&]()
@@ -181,7 +186,7 @@ void consumer_producer()
 {
     bbtco[&]()
     {
-        auto cond = sync::CoCond::Create();
+        auto cond = bbtco_make_cocond();
 
         bbtco_desc("this is consumer co!")[&]()
         {
@@ -205,7 +210,7 @@ void consumer_producer()
         };
 
         while (true)
-            sleep(1);
+            bbtco_sleep(1000);
     };
 
     while (true)
@@ -214,8 +219,8 @@ void consumer_producer()
 
 void single_cond()
 {
-    auto cond1 = sync::CoCond::Create();
-    auto cond2 = sync::CoCond::Create();
+    auto cond1 = bbtco_make_cocond();
+    auto cond2 = bbtco_make_cocond();
     bbtco[&]()
     {
         while (true) {

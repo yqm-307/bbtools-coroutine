@@ -69,7 +69,7 @@ void ExpectStack(const ClassProbe& probe, size_t expected)
     BOOST_CHECK_EQUAL(probe.last_stack.load(), expected);
 }
 
-}
+} // namespace
 
 BOOST_AUTO_TEST_SUITE(copool_router)
 
@@ -80,7 +80,7 @@ BOOST_AUTO_TEST_CASE(mixed_size)
 {
     StartRuntime();
     ClassProbe small, medium, large;
-    auto pool = pool::CoPool::Create(Options({
+    auto pool = bbtco_make_copool(Options({
         {{kSmall, true}, 1, 4},
         {{kMedium, false}, 1, 4},
         {{kLarge, true}, 1, 4},
@@ -131,7 +131,7 @@ BOOST_AUTO_TEST_CASE(mixed_size)
 BOOST_AUTO_TEST_CASE(queue_full)
 {
     StartRuntime();
-    auto pool = pool::CoPool::Create(Options({{{kSmall, true}, 1, 2}}));
+    auto pool = bbtco_make_copool(Options({{{kSmall, true}, 1, 2}}));
 
     std::atomic_bool running{false}, second_started{false}, open{false};
     std::atomic_int done{0};
@@ -171,7 +171,7 @@ BOOST_AUTO_TEST_CASE(queue_full)
 BOOST_AUTO_TEST_CASE(release_submit_race)
 {
     StartRuntime();
-    auto pool = pool::CoPool::Create(Options({{{kMedium, true}, 1, 8}}));
+    auto pool = bbtco_make_copool(Options({{{kMedium, true}, 1, 8}}));
 
     std::atomic_int executed{0}, accepted{0}, rejected{0};
     std::atomic_bool stop{false}, saw_released{false};
@@ -211,13 +211,14 @@ BOOST_AUTO_TEST_CASE(release_submit_race)
 BOOST_AUTO_TEST_CASE(exception_isolation)
 {
     StartRuntime();
-    auto pool = pool::CoPool::Create(Options({{{kSmall, true}, 2, 32}}));
+    auto pool = bbtco_make_copool(Options({{{kSmall, true}, 2, 32}}));
 
     std::atomic_int ok{0};
     for (int i = 0; i < 30; ++i) {
         if (i % 2 == 0) {
-            BOOST_CHECK(pool->Submit({kSmall, true}, [] { throw std::runtime_error("copool task"); })
-                        == pool::CoPoolSubmitStatus::Accepted);
+            BOOST_CHECK(pool->Submit({kSmall, true}, [] {
+                throw std::runtime_error("copool task");
+            }) == pool::CoPoolSubmitStatus::Accepted);
         } else {
             BOOST_CHECK(pool->Submit({kSmall, true}, [&ok] { ok.fetch_add(1); }) == pool::CoPoolSubmitStatus::Accepted);
         }
@@ -236,7 +237,7 @@ BOOST_AUTO_TEST_CASE(exception_isolation)
 BOOST_AUTO_TEST_CASE(same_pool_dependency)
 {
     StartRuntime();
-    auto pool = pool::CoPool::Create(Options({{{kSmall, true}, 1, 2}}));
+    auto pool = bbtco_make_copool(Options({{{kSmall, true}, 1, 2}}));
 
     std::atomic_bool rejected{false}, done{false};
     BOOST_CHECK(pool->Submit({kSmall, true}, [&] {
@@ -264,8 +265,8 @@ BOOST_AUTO_TEST_CASE(same_pool_dependency)
  */
 BOOST_AUTO_TEST_CASE(empty_class)
 {
-    g_bbt_stackpoll->Configure(StackConfig{StackPolicy::Strict, {{{kSmall, true}, 4}}, 0, 0},
-                               StackRequest{kSmall, true});
+    g_bbt_stackpoll->Configure(
+        StackConfig{StackPolicy::Strict, {{{kSmall, true}, 4}}, 0, 0}, StackRequest{kSmall, true});
     StartRuntime();
 
     const auto before = g_bbt_stackpoll->Observe();
@@ -292,10 +293,10 @@ BOOST_AUTO_TEST_CASE(empty_class)
     BOOST_CHECK_THROW(pool::CoPool::Create(Options({{{kSmall, true}, 0, 1}})), std::invalid_argument);
     BOOST_CHECK_THROW(pool::CoPool::Create(Options({{{kSmall, true}, 1, 0}})), std::invalid_argument);
     BOOST_CHECK_THROW(pool::CoPool::Create(Options({{{0, true}, 1, 1}})), std::invalid_argument);
-    BOOST_CHECK_THROW(pool::CoPool::Create(Options({{{kSmall, true}, 1, 1}, {{kSmall, true}, 1, 1}})),
-                      std::invalid_argument);
+    BOOST_CHECK_THROW(
+        pool::CoPool::Create(Options({{{kSmall, true}, 1, 1}, {{kSmall, true}, 1, 1}})), std::invalid_argument);
 
-    auto pool = pool::CoPool::Create(Options({{{kSmall, true}, 1, 1}}));
+    auto pool = bbtco_make_copool(Options({{{kSmall, true}, 1, 1}}));
     BOOST_CHECK(pool->Submit({kLarge, true}, [] {}) == pool::CoPoolSubmitStatus::NoExactClass);
     std::atomic_bool ran{false};
     BOOST_CHECK(pool->Submit({kSmall, true}, [&ran] { ran.store(true); }) == pool::CoPoolSubmitStatus::Accepted);
@@ -335,7 +336,7 @@ BOOST_AUTO_TEST_CASE(allocation_failure)
     /**
      * 回滚后可重新创建同一规格的池并真实执行任务。
      */
-    auto pool = pool::CoPool::Create(Options({{{kLarge, true}, 2, 1}}));
+    auto pool = bbtco_make_copool(Options({{{kLarge, true}, 2, 1}}));
     std::atomic_bool ran{false};
     BOOST_CHECK(pool->Submit({kLarge, true}, [&ran] { ran.store(true); }) == pool::CoPoolSubmitStatus::Accepted);
     BOOST_REQUIRE(Await([&] { return ran.load(); }));
@@ -348,7 +349,7 @@ BOOST_AUTO_TEST_CASE(allocation_failure)
 BOOST_AUTO_TEST_CASE(single_processer_progress)
 {
     StartRuntime();
-    auto pool = pool::CoPool::Create(Options({
+    auto pool = bbtco_make_copool(Options({
         {{kSmall, true}, 1, 1},
         {{kLarge, false}, 1, 1},
     }));

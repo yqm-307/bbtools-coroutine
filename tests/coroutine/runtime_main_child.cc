@@ -17,6 +17,7 @@
 #include <thread>
 
 using namespace bbt::coroutine;
+
 namespace {
 const char* g_mode = std::getenv("BBT_ENTRY_CASE");
 thread_local bool g_fail_new = false;
@@ -63,6 +64,7 @@ struct HostProbe {
     std::atomic_bool done{false};
     std::atomic_bool in_flight_at_hook_exit{false};
 };
+
 std::shared_ptr<HostProbe> g_host_probe;
 
 struct HookLocal {
@@ -97,7 +99,8 @@ void CheckReentry()
 {
     int factory_calls = 0;
     const auto result = RuntimeMain::RunWithOptions(
-        +[] { return 99; }, nullptr,
+        +[] { return 99; },
+        nullptr,
         [&] {
             ++factory_calls;
             return RuntimeOptions{};
@@ -108,8 +111,10 @@ void CheckReentry()
 
 bbt_co_async(int) SuspendAndReturn()
 {
-    bbtco_sleep(1);
-    return 17;
+    return bbt_co_bind([]() -> int {
+        bbtco_sleep(1);
+        return 17;
+    });
 }
 
 int RunHostMain()
@@ -221,8 +226,9 @@ int RunHostMain()
          */
         Require(probe && probe->calls.load() <= 1);
     } else if (Mode("host_callback_in_flight")) {
-        Require(probe && probe->calls.load() == 1 && probe->in_flight_at_hook_exit.load() && probe->done.load()
-                && g_hook_local_destroyed.load());
+        Require(
+            probe && probe->calls.load() == 1 && probe->in_flight_at_hook_exit.load() && probe->done.load()
+            && g_hook_local_destroyed.load());
     } else if (Mode("host_failed")) {
         Require(g_host_failed.load());
     } else if (Mode("host_threw")) {
@@ -230,7 +236,7 @@ int RunHostMain()
     }
 }
 
-}
+} // namespace
 
 /**
  * 仅测试可执行导出 interpose，不向产品库添加故障开关。
@@ -247,22 +253,27 @@ void* operator new(std::size_t size)
     }
     throw std::bad_alloc();
 }
+
 void* operator new[](std::size_t size)
 {
     return ::operator new(size);
 }
+
 void operator delete(void* ptr) noexcept
 {
     std::free(ptr);
 }
+
 void operator delete[](void* ptr) noexcept
 {
     std::free(ptr);
 }
+
 void operator delete(void* ptr, std::size_t) noexcept
 {
     std::free(ptr);
 }
+
 void operator delete[](void* ptr, std::size_t) noexcept
 {
     std::free(ptr);
@@ -327,8 +338,9 @@ int bbtco_main_thread_hook()
 {
     ++g_hook_calls;
     std::puts("HOOK");
-    Require(g_scheduler->IsInitialized() && !IsInCoroutineContext() && std::this_thread::get_id() == g_native_thread
-            && g_main_calls == 0);
+    Require(
+        g_scheduler->IsInitialized() && !IsInCoroutineContext() && std::this_thread::get_id() == g_native_thread
+        && g_main_calls == 0);
     if (Mode("hook_rejected")) {
         return 23;
     }
@@ -552,9 +564,10 @@ int bbtco_main()
     std::puts("MAIN");
     Require(IsInCoroutineContext() && g_scheduler->IsInitialized());
     if (g_setup_calls != 0)
-        Require(g_bbt_coroutine_config->m_cfg_processer_scale_up_samples == 1
-                && g_bbt_coroutine_config->IsRuntimeSetupFrozen()
-                && g_bbt_coroutine_config->RuntimeSnapshot().scan_interval_ms == 7);
+        Require(
+            g_bbt_coroutine_config->m_cfg_processer_scale_up_samples == 1
+            && g_bbt_coroutine_config->IsRuntimeSetupFrozen()
+            && g_bbt_coroutine_config->RuntimeSnapshot().scan_interval_ms == 7);
     if (g_factory_calls != 0) {
         const auto expected = detail::Stack::NormalizeSize(64 * 1024 + 1);
         Require(GetLocalCoroutineStackSize() == expected && g_scheduler->GetProcesserNum() == 1);
@@ -624,17 +637,19 @@ int main()
     }
     const bool host_mode = HostMode();
     const bool use_default = Mode("default") || Mode("record_oom") || Mode("already_started");
-    const auto result = host_mode
-                            ? RuntimeMain::RunWithSetupHostHookAndOptions(&setup_runtime, &bbtco_main,
-                                                                          &bbtco_main_host_hook, MakeOptions)
-                            : (use_default ? RuntimeMain::Run(&bbtco_main)
-                                           : RuntimeMain::RunWithOptions(Mode("null_task") ? nullptr : &bbtco_main,
-                                                                         &bbtco_main_thread_hook, MakeOptions));
+    const auto result =
+        host_mode
+            ? RuntimeMain::RunWithSetupHostHookAndOptions(
+                  &setup_runtime, &bbtco_main, &bbtco_main_host_hook, MakeOptions)
+            : (use_default ? RuntimeMain::Run(&bbtco_main)
+                           : RuntimeMain::RunWithOptions(
+                                 Mode("null_task") ? nullptr : &bbtco_main, &bbtco_main_thread_hook, MakeOptions));
     if (result.terminal == RuntimeMain::Terminal::StartFailed && !use_default && !host_mode) {
         Require(!g_scheduler->IsInitialized());
         if (!Mode("start_failed")) {
-            Require(cfg.m_cfg_static_thread_num == old_workers && cfg.m_cfg_stack_size == old_stack
-                    && cfg.m_cfg_stack_protect == old_protect);
+            Require(
+                cfg.m_cfg_static_thread_num == old_workers && cfg.m_cfg_stack_size == old_stack
+                && cfg.m_cfg_stack_protect == old_protect);
         }
     }
     if (Mode("start_failed")) {
@@ -650,10 +665,18 @@ int main()
         CheckHostOutcome();
     }
     const int callbacks = g_host_probe ? g_host_probe->calls.load() : 0;
-    std::printf("DONE terminal=%d code=%d main=%d hook=%d factory=%d new_hits=%d thread_hits=%d "
-                "host=%d cb=%d\n",
-                static_cast<int>(result.terminal), result.exit_code, g_main_calls.load(), g_hook_calls.load(),
-                g_factory_calls, g_new_hits.load(), g_thread_hits.load(), g_host_calls.load(), callbacks);
+    std::printf(
+        "DONE terminal=%d code=%d main=%d hook=%d factory=%d new_hits=%d thread_hits=%d "
+        "host=%d cb=%d\n",
+        static_cast<int>(result.terminal),
+        result.exit_code,
+        g_main_calls.load(),
+        g_hook_calls.load(),
+        g_factory_calls,
+        g_new_hits.load(),
+        g_thread_hits.load(),
+        g_host_calls.load(),
+        callbacks);
     return result.exit_code;
 }
 #endif

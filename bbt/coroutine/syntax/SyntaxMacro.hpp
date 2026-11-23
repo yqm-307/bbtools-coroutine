@@ -25,10 +25,14 @@
  *   作用域结束时执行     bbtco_defer {...};                     detail::Defer（RAII 对象）
  *   等 fd 事件（协程内） bbtco_wait_for(fd, event, ms);         Coroutine::YieldUntilFdEx
  *   事件触发后起协程     bbtco_ev_r(fd) [=](int fd, short ev){} _EventHelper + CoPoller::CreateEvent
+ *   绑定待执行操作       bbt_co_bind(callable, args...)
+ *   等待异步操作         bbt_co_await expr;
+ *   放弃等待异步操作     bbt_co_fire expr;
  *   创建同步原语         bbtco_make_comutex() / _cocond / _corwmutex / _copool(n)
  * @endverbatim
  *
  * 共同约定：
+ *  - async / bind / await / fire 的调用规则、建议写法与迁移示例见 docs/guides/async-usage.md。
  *  - 被启动的协程默认栈为 GlobalConfig::m_cfg_stack_size（当前默认 12 KiB）；
  *    协程里要放大对象、深递归或调用栈开销大的库，必须显式指定栈大小，见“已知缺口”。
  *  - 协程可能在任意 worker 线程执行、挂起后可能换线程恢复：不要把线程局部指针、
@@ -40,6 +44,7 @@
  * 已知缺口（尚无语法糖，直接用底层接口时在调用处注明原因）：
  *  - 指定栈大小启动协程：Scheduler::RegistCoroutineTask(stack_size, cb[, desc|succ])。
  *  - 指定目标 Processer 启动：Scheduler::RegistCoroutineTaskOn(target, [stack_size,] cb[, desc])。
+ *  - 保留 fd 等待状态码：Coroutine::YieldUntilFdReadable，bbtco_wait_for 是语句，不返回状态码。
  *  补语法糖时：宏只做薄封装、保持上表“意图 → 用法”的形式，并同步更新本手册和对应测试。
  */
 
@@ -59,7 +64,7 @@
  *      需要不抛异常、自己处理失败时用 bbtco_noexcept。
  * 可在协程内、worker 线程或任意已初始化运行时之后的原生线程调用。
  */
-#define bbtco bbt::coroutine::_CoHelper()-
+#define bbtco bbt::coroutine::_CoHelper() -
 
 /**
  * @brief 启动一个协程并默认引用捕获：`bbtco_ref { ... };`
@@ -67,7 +72,7 @@
  * 等价于 `bbtco [&]() { ... }`，其余与 bbtco 相同。引用捕获意味着被引用的对象必须活到
  * 协程结束；协程比当前栈帧活得久时（常见情形）不要用它，改用 `bbtco [=]` 或 shared_ptr。
  */
-#define bbtco_ref bbtco [&]()
+#define bbtco_ref bbtco[&]()
 
 /**
  * @brief 启动一个协程并取回注册结果：`bool ok; bbtco_noexcept(&ok) [=]() { ... };`
@@ -76,7 +81,7 @@
  * 转调 `RegistCoroutineTask(cb, bool&)`（noexcept）：注册成功写 true，任何异常都被吞掉并写 false。
  * 注册失败时协程没有被创建，lambda 不会执行；调用者负责处理失败（重试、释放已持有资源等）。
  */
-#define bbtco_noexcept(succ) bbt::coroutine::_CoHelper(succ)+
+#define bbtco_noexcept(succ) bbt::coroutine::_CoHelper(succ) +
 
 /**
  * @brief 启动一个带描述的协程：`bbtco_desc("name") [=]() { ... };`
@@ -84,7 +89,7 @@
  * desc 传给 `RegistCoroutineTask(cb, desc)` 并落入协程，worker 卡顿告警、诊断快照会读回它。
  * desc 必须是在协程整个生命期内有效的字符串（字面量最安全）；其余语义与 bbtco 一致。
  */
-#define bbtco_desc(desc) bbt::coroutine::_CoHelper(desc)-
+#define bbtco_desc(desc) bbt::coroutine::_CoHelper(desc) -
 
 /**
  * @brief 协程内休眠：`bbtco_sleep(ms)`
@@ -99,8 +104,8 @@
 #define __bbtco_concat(x, y) __bbtco_concat_impl(x, y)
 #define __bbtco_joint_suffix(name, suffix) __bbtco_concat(name, suffix)
 
-#define __bbtco_defer_ex \
-    bbt::coroutine::detail::Defer __bbtco_joint_suffix(bbtco_defer_, __COUNTER__) = bbt::coroutine::_DeferHelper()-
+#define __bbtco_defer_ex                                                                                               \
+    bbt::coroutine::detail::Defer __bbtco_joint_suffix(bbtco_defer_, __COUNTER__) = bbt::coroutine::_DeferHelper() -
 
 /**
  * @brief 作用域结束时执行：`bbtco_defer { ... };`
@@ -110,8 +115,7 @@
  * 这是作用域级而不是“协程结束时”：写在函数里就是函数返回时执行。
  * 已有类型的析构能表达的清理仍用 RAII 对象，不必为了用宏再包一层 lambda。
  */
-#define bbtco_defer \
-    __bbtco_defer_ex [&]()
+#define bbtco_defer __bbtco_defer_ex[&]()
 
 /**
  * @brief 让出执行权：`bbtco_yield;`
@@ -122,40 +126,40 @@
  * 展开自带 `do { ... } while(0);` 并已含结尾分号：不要写在没有花括号的
  * `if (...) bbtco_yield; else ...` 里（多出的分号会让 else 编译失败），写成 `if (...) { bbtco_yield; }`。
  */
-#define bbtco_yield \
-do \
-{ \
-    const auto bbtco_yield_worker = g_bbt_tls_processer; \
-    if (!bbtco_yield_worker) \
-        break; \
-    if (auto* bbtco_yield_co = bbtco_yield_worker->GetCurrentCoroutine()) \
-        bbtco_yield_co->YieldAndPushGCoQueue(); \
-} while(0);
+#define bbtco_yield                                                                                                    \
+    do {                                                                                                               \
+        const auto bbtco_yield_worker = g_bbt_tls_processer;                                                           \
+        if (!bbtco_yield_worker)                                                                                       \
+            break;                                                                                                     \
+        if (auto* bbtco_yield_co = bbtco_yield_worker->GetCurrentCoroutine())                                          \
+            bbtco_yield_co->YieldAndPushGCoQueue();                                                                    \
+    } while (0);
 
 /**
  * sync：创建同步原语，均返回 shared_ptr；协程内使用，等待只挂起协程不阻塞线程
  */
-#define bbtco_make_cocond()     bbt::coroutine::sync::CoCond::Create()
-#define bbtco_make_comutex()    bbt::coroutine::sync::CoMutex::Create()
-#define bbtco_make_corwmutex()  bbt::coroutine::sync::CoRWMutex::Create()
+#define bbtco_make_cocond() bbt::coroutine::sync::CoCond::Create()
+#define bbtco_make_comutex() bbt::coroutine::sync::CoMutex::Create()
+#define bbtco_make_corwmutex() bbt::coroutine::sync::CoRWMutex::Create()
 
 /**
- * copool：创建协程池，pool_max_co 为池内最大协程数；配合 bbtco_ev_*_with_copool 使用
+ * copool：用最大协程数或 `CoPoolOptions` 创建池；配合 bbtco_ev_*_with_copool 使用。
  */
 #define bbtco_make_copool(pool_max_co) bbt::coroutine::pool::CoPool::Create(pool_max_co)
 
 /**
  * 禁止直接使用
  */
-#define __bbtco_event_regist_ex(fd, event, time) (*std::make_shared<bbt::coroutine::_EventHelper>(fd, event, time))-
-#define __bbtco_event_regist_with_copool_ex(fd, event, time, copool) (*std::make_shared<bbt::coroutine::_EventHelper>(fd, event, time, copool))-
+#define __bbtco_event_regist_ex(fd, event, time) (*std::make_shared<bbt::coroutine::_EventHelper>(fd, event, time)) -
+#define __bbtco_event_regist_with_copool_ex(fd, event, time, copool)                                                   \
+    (*std::make_shared<bbt::coroutine::_EventHelper>(fd, event, time, copool)) -
 
 #define bbtco_emev_timeout bbt::pollevent::EventOpt::TIMEOUT
 #define bbtco_emev_readable bbt::pollevent::EventOpt::READABLE
 #define bbtco_emev_writeable bbt::pollevent::EventOpt::WRITEABLE
-#define bbtco_emev_close    bbt::pollevent::EventOpt::CLOSE
+#define bbtco_emev_close bbt::pollevent::EventOpt::CLOSE
 #define bbtco_emev_finalize bbt::pollevent::EventOpt::FINALIZE
-#define bbtco_emev_persist  bbt::pollevent::EventOpt::PERSIST
+#define bbtco_emev_persist bbt::pollevent::EventOpt::PERSIST
 
 /**
  * @brief 注册一次性 fd/定时器事件，触发后新建协程（或交给协程池）执行回调：
@@ -175,25 +179,36 @@ do \
  *  - 生命期：事件对象与回调由内部持有到触发后释放；fd 的所有权和关闭仍归调用者，
  *    回调里使用 fd 前自行确认它没被关闭。
  */
-#define bbtco_ev_w(fd)  __bbtco_event_regist_ex(fd, bbtco_emev_writeable, -1)
-#define bbtco_ev_r(fd)  __bbtco_event_regist_ex(fd, bbtco_emev_readable, -1)
+#define bbtco_ev_w(fd) __bbtco_event_regist_ex(fd, bbtco_emev_writeable, -1)
+#define bbtco_ev_r(fd) __bbtco_event_regist_ex(fd, bbtco_emev_readable, -1)
 #define bbtco_ev_wc(fd) __bbtco_event_regist_ex(fd, bbtco_emev_writeable | bbtco_emev_finalize, -1)
 #define bbtco_ev_rc(fd) __bbtco_event_regist_ex(fd, bbtco_emev_readable | bbtco_emev_finalize, -1)
 #define bbtco_ev_wt(fd, timeout_ms) __bbtco_event_regist_ex(fd, bbtco_emev_writeable | bbtco_emev_timeout, timeout_ms)
 #define bbtco_ev_rt(fd, timeout_ms) __bbtco_event_regist_ex(fd, bbtco_emev_readable | bbtco_emev_timeout, timeout_ms)
-#define bbtco_ev_wtc(fd, timeout_ms) __bbtco_event_regist_ex(fd, bbtco_emev_writeable | bbtco_emev_timeout | bbtco_emev_finalize, timeout_ms)
-#define bbtco_ev_rtc(fd, timeout_ms) __bbtco_event_regist_ex(fd, bbtco_emev_readable | bbtco_emev_timeout | bbtco_emev_finalize, timeout_ms)
+#define bbtco_ev_wtc(fd, timeout_ms)                                                                                   \
+    __bbtco_event_regist_ex(fd, bbtco_emev_writeable | bbtco_emev_timeout | bbtco_emev_finalize, timeout_ms)
+#define bbtco_ev_rtc(fd, timeout_ms)                                                                                   \
+    __bbtco_event_regist_ex(fd, bbtco_emev_readable | bbtco_emev_timeout | bbtco_emev_finalize, timeout_ms)
 #define bbtco_ev_t(timeout_ms) __bbtco_event_regist_ex(-1, bbtco_emev_timeout, timeout_ms)
 
-#define bbtco_ev_w_with_copool(fd, copool)  __bbtco_event_regist_with_copool_ex(fd, bbtco_emev_writeable, -1, copool)
-#define bbtco_ev_r_with_copool(fd, copool)  __bbtco_event_regist_with_copool_ex(fd, bbtco_emev_readable, -1, copool)
-#define bbtco_ev_wc_with_copool(fd, copool) __bbtco_event_regist_with_copool_ex(fd, bbtco_emev_writeable | bbtco_emev_finalize, -1, copool)
-#define bbtco_ev_rc_with_copool(fd, copool) __bbtco_event_regist_with_copool_ex(fd, bbtco_emev_readable | bbtco_emev_finalize, -1, copool)
-#define bbtco_ev_wt_with_copool(fd, timeout_ms, copool) __bbtco_event_regist_with_copool_ex(fd, bbtco_emev_writeable | bbtco_emev_timeout, timeout_ms, copool)
-#define bbtco_ev_rt_with_copool(fd, timeout_ms, copool) __bbtco_event_regist_with_copool_ex(fd, bbtco_emev_readable | bbtco_emev_timeout, timeout_ms, copool)
-#define bbtco_ev_wtc_with_copool(fd, timeout_ms, copool) __bbtco_event_regist_with_copool_ex(fd, bbtco_emev_writeable | bbtco_emev_timeout | bbtco_emev_finalize, timeout_ms, copool)
-#define bbtco_ev_rtc_with_copool(fd, timeout_ms, copool) __bbtco_event_regist_with_copool_ex(fd, bbtco_emev_readable | bbtco_emev_timeout | bbtco_emev_finalize, timeout_ms, copool)
-#define bbtco_ev_t_with_copool(timeout_ms, copool) __bbtco_event_regist_with_copool_ex(-1, bbtco_emev_timeout, timeout_ms, copool)
+#define bbtco_ev_w_with_copool(fd, copool) __bbtco_event_regist_with_copool_ex(fd, bbtco_emev_writeable, -1, copool)
+#define bbtco_ev_r_with_copool(fd, copool) __bbtco_event_regist_with_copool_ex(fd, bbtco_emev_readable, -1, copool)
+#define bbtco_ev_wc_with_copool(fd, copool)                                                                            \
+    __bbtco_event_regist_with_copool_ex(fd, bbtco_emev_writeable | bbtco_emev_finalize, -1, copool)
+#define bbtco_ev_rc_with_copool(fd, copool)                                                                            \
+    __bbtco_event_regist_with_copool_ex(fd, bbtco_emev_readable | bbtco_emev_finalize, -1, copool)
+#define bbtco_ev_wt_with_copool(fd, timeout_ms, copool)                                                                \
+    __bbtco_event_regist_with_copool_ex(fd, bbtco_emev_writeable | bbtco_emev_timeout, timeout_ms, copool)
+#define bbtco_ev_rt_with_copool(fd, timeout_ms, copool)                                                                \
+    __bbtco_event_regist_with_copool_ex(fd, bbtco_emev_readable | bbtco_emev_timeout, timeout_ms, copool)
+#define bbtco_ev_wtc_with_copool(fd, timeout_ms, copool)                                                               \
+    __bbtco_event_regist_with_copool_ex(                                                                               \
+        fd, bbtco_emev_writeable | bbtco_emev_timeout | bbtco_emev_finalize, timeout_ms, copool)
+#define bbtco_ev_rtc_with_copool(fd, timeout_ms, copool)                                                               \
+    __bbtco_event_regist_with_copool_ex(                                                                               \
+        fd, bbtco_emev_readable | bbtco_emev_timeout | bbtco_emev_finalize, timeout_ms, copool)
+#define bbtco_ev_t_with_copool(timeout_ms, copool)                                                                     \
+    __bbtco_event_regist_with_copool_ex(-1, bbtco_emev_timeout, timeout_ms, copool)
 
 /**
  * @brief 等待 fd 事件：`bbtco_wait_for(fd, bbtco_emev_readable, 100);`
@@ -208,8 +223,11 @@ do \
  * @param event 事件类型，参考 bbtco_emev_*
  * @param ms 超时时间，单位毫秒
  */
-#define bbtco_wait_for(fd, event, ms) \
-    bbt::coroutine::_WaitForHelper __bbtco_joint_suffix(_WaitForHelper_, __COUNTER__){fd, event, ms}
+#define bbtco_wait_for(fd, event, ms)                                                                                  \
+    bbt::coroutine::_WaitForHelper __bbtco_joint_suffix(_WaitForHelper_, __COUNTER__)                                  \
+    {                                                                                                                  \
+        fd, event, ms                                                                                                  \
+    }
 
 /**
  * @}

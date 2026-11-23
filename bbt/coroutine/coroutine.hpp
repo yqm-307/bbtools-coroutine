@@ -8,7 +8,8 @@
  * 从哪里读起：
  *  - 启动协程、休眠、让出、defer、等 fd 事件等写法：读 `syntax/SyntaxMacro.hpp` 文件头的
  *    速查表和每个宏的说明。同一意图优先用语法糖，不要直接调用 Scheduler / Coroutine 内部接口。
- *  - 声明和调用会挂起的函数：`bbt_co_async(T)` / `bbt_co_await`，见 `syntax/Async.hpp`。
+ *  - 声明、绑定和执行可能挂起的操作：`bbt_co_async(T)` / `bbt_co_bind` /
+ *    `bbt_co_await` / `bbt_co_fire`，见 `syntax/Async.hpp`。
  *  - 同步原语、协程池的完整签名与返回码：`docs/guides/api-reference.md`；
  *    运行时启动与生命期：`docs/guides/user-guide.md`。
  */
@@ -69,7 +70,7 @@ template <class TItem, int ItemMax> inline typename sync::Chan<TItem, ItemMax>::
     return std::make_shared<bbt::coroutine::sync::Chan<TItem, ItemMax>>();
 }
 
-}
+} // namespace coroutine
 
 namespace co = coroutine;
-}
+} // namespace bbt

@@ -1,30 +1,34 @@
 /**
  * @file Async.hpp
- * @brief `bbt_co_async` / `bbt_co_await` 的实现：返回值标记 AsyncReturn 与解包器 AwaitHelper。
+ * @brief `bbt_co_async` / `bbt_co_bind` / `bbt_co_await` / `bbt_co_fire` 的异步操作契约。
+ *
+ * async API 返回惰性的 AsyncOperation。普通调用只构造操作描述，只有 await 或 fire
+ * 入口能够执行它，避免把可能挂起的调用写成普通同步调用。
  */
 #pragma once
 
+#include <bbt/coroutine/detail/Scheduler.hpp>
+
+#include <functional>
 #include <memory>
+#include <stdexcept>
 #include <type_traits>
 #include <utility>
 
 namespace bbt::coroutine::detail {
 
+template <class T> class AsyncReturn;
 class AwaitHelper;
+class FireHelper;
 
-/**
- * @brief 仅给返回值附加类型标记；不持有任务、调度状态或额外堆内存。
- */
 template <class T> class [[nodiscard]] AsyncReturn {
     static_assert(!std::is_reference_v<T>, "async supports values and lvalue references, not rvalue references");
     friend class AwaitHelper;
 
 public:
-    /**
-     * @brief 把可转换为 T 的值移入/拷入包装；await 时整块移出，调用方拿到的是独立对象
-     */
     template <class U, std::enable_if_t<std::is_convertible_v<U&&, T>, int> = 0>
-    AsyncReturn(U&& value) noexcept(std::is_nothrow_constructible_v<T, U&&>) : m_value(std::forward<U>(value))
+    AsyncReturn(U&& value) noexcept(std::is_nothrow_constructible_v<T, U&&>)
+        : m_value(std::forward<U>(value))
     {
     }
 
@@ -32,18 +36,13 @@ private:
     T m_value;
 };
 
-/**
- * @brief 引用结果的标记：只存指针，不延长被引用对象的寿命，await 后仍是原对象。
- */
 template <class T> class [[nodiscard]] AsyncReturn<T&> {
     friend class AwaitHelper;
 
 public:
-    /**
-     * @brief 只借用类型兼容的左值，拒绝临时对象及会产生临时量的隐式转换。
-     */
     template <class U, std::enable_if_t<std::is_convertible_v<U*, T*>, int> = 0>
-    AsyncReturn(U& value) noexcept : m_value(std::addressof(value))
+    AsyncReturn(U& value) noexcept
+        : m_value(std::addressof(value))
     {
     }
 
@@ -51,76 +50,148 @@ private:
     T* m_value;
 };
 
-/**
- * @brief void 结果的标记：没有载荷，只承担 [[nodiscard]] 与类型区分。
- */
 template <> class [[nodiscard]] AsyncReturn<void> {};
 
 /**
- * @brief await 解包器：`bbt_co_await f()` 展开成 `AwaitHelper{} ->* f()`；构造即检查协程上下文
- *        （不在则抛 std::logic_error），检查先于右侧函数体求值，对象是临时量、不持有状态。
+ * @brief 延迟执行一个 async 操作。
+ *
+ * 操作体是 move-only 的类型擦除对象。它不能直接调用，必须交给 AwaitHelper 或
+ * FireHelper。Run 只能在 helper 获得操作后调用一次。
+ */
+template <class T> class [[nodiscard]] AsyncOperation {
+    struct Body {
+        virtual ~Body() = default;
+        virtual AsyncReturn<T> Run() = 0;
+    };
+
+    template <class F> struct BodyImpl final : Body {
+        explicit BodyImpl(F body)
+            : m_body(std::move(body))
+        {
+        }
+
+        AsyncReturn<T> Run() override { return m_body(); }
+
+        F m_body;
+    };
+
+    friend class AwaitHelper;
+    friend class FireHelper;
+
+public:
+    template <class F, std::enable_if_t<std::is_convertible_v<std::invoke_result_t<F&>, AsyncReturn<T>>, int> = 0>
+    explicit AsyncOperation(F&& body)
+        : m_body(std::make_unique<BodyImpl<std::decay_t<F>>>(std::forward<F>(body)))
+    {
+    }
+
+    AsyncOperation(const AsyncOperation&) = delete;
+    AsyncOperation& operator=(const AsyncOperation&) = delete;
+    AsyncOperation(AsyncOperation&&) noexcept = default;
+    AsyncOperation& operator=(AsyncOperation&&) noexcept = default;
+
+private:
+    AsyncReturn<T> Run() &&
+    {
+        if (!m_body) {
+            throw std::logic_error("async operation already consumed");
+        }
+        auto body = std::move(m_body);
+        return body->Run();
+    }
+
+    std::unique_ptr<Body> m_body;
+};
+
+template <class T, class F> AsyncOperation<T> MakeAsyncOperation(F&& body)
+{
+    return AsyncOperation<T>(std::forward<F>(body));
+}
+
+template <
+    class F,
+    class... Args,
+    class Result = std::invoke_result_t<std::decay_t<F>, std::decay_t<Args>...>,
+    class = std::enable_if_t<
+        !std::is_rvalue_reference_v<Result> && std::is_constructible_v<std::decay_t<F>, F&&>
+        && (std::is_constructible_v<std::decay_t<Args>, Args&&> && ...)
+        && std::is_move_constructible_v<std::decay_t<F>> && (std::is_move_constructible_v<std::decay_t<Args>> && ...)>>
+AsyncOperation<Result> BindAsyncOperation(F&& callable, Args&&... args);
+
+/**
+ * @brief 执行当前协程中的 async 操作并解包结果。
  */
 class AwaitHelper {
 public:
-    /**
-     * @brief 校验调用点在协程内；不在协程内抛 std::logic_error，右侧函数体因此不会执行
-     *
-     * C++17 的 ->* 运算符写法先求值左侧：环境检查先于右侧实参和函数体。
-     * 不保存 TLS/worker 指针，右侧挂起后可以恢复到另一 worker。
-     */
     AwaitHelper();
 
-    /**
-     * @brief 值结果：必须移出包装，返回指向临时包装内部的引用会悬空
-     */
     template <class T> T operator->*(AsyncReturn<T>&& result) const noexcept(std::is_nothrow_move_constructible_v<T>)
     {
-
-        /**
-         * 值必须移出包装，不能返回指向临时包装内部的引用。
-         */
         return std::move(result.m_value);
     }
 
-    /**
-     * @brief 引用结果：直接解引用包装里借来的指针，不复制对象
-     */
     template <class T> T& operator->*(AsyncReturn<T&>&& result) const noexcept { return *result.m_value; }
 
-    /**
-     * @brief void 结果：只做环境检查，没有返回值
-     */
     void operator->*(AsyncReturn<void>&&) const noexcept {}
+
+    template <class T> T operator->*(AsyncOperation<T>&& operation) const
+    {
+        if constexpr (std::is_void_v<T>) {
+            AwaitHelper{}->*std::move(operation).Run();
+        } else {
+            return AwaitHelper{}->*std::move(operation).Run();
+        }
+    }
 };
 
-}
+/**
+ * @brief 提交 async 操作到 detached 协程，不等待最终结果。
+ */
+class FireHelper {
+public:
+    template <class T> void operator->*(AsyncOperation<T>&& operation) const
+    {
+        auto shared_operation = std::make_shared<AsyncOperation<T>>(std::move(operation));
+        if (!g_scheduler || !g_scheduler->IsInitialized()) {
+            throw std::runtime_error("bbt_co_fire requires an initialized scheduler");
+        }
+        bool submitted = false;
+        g_scheduler->RegistCoroutineTask(
+            [shared_operation]() mutable { AwaitHelper{}->*std::move(*shared_operation); }, submitted);
+        if (!submitted) {
+            throw std::runtime_error("bbt_co_fire submission failed");
+        }
+    }
+};
+
+} // namespace bbt::coroutine::detail
+
+#include <bbt/coroutine/syntax/__TAsync.hpp>
 
 /**
- * 声明端标记：把返回类型包成 AsyncReturn<T>，调用方必须经 bbt_co_await 解包。
- * 可变参数保留 std::pair<A, B> 等类型中的逗号。
- * 它只改返回类型，不插入任何检查，所以下面三条靠编译器诊断兜底：
- * - 虚函数写成 `virtual bbt_co_async(T) F() = 0;`，virtual 不能丢，否则
- * 报 "initializer specified for non-virtual method"。
- * - bbt_co_async(void) 的函数必须显式 `return {};`；走到函数末尾是未定义行为，
- * 编译器默认只给 -Wreturn-type 警告，调用方构建必须开 -Werror=return-type。
- * - 漏写 bbt_co_await 时函数体仍会执行（只是结果被丢弃，且没有协程环境检查），
- * 只有 [[nodiscard]] 的 -Wunused-result 警告，调用方构建必须开
- * -Werror=unused-result。
- * 依赖本库的仓库（infra、framework 等）需在自己的 CMake 里
- * add_compile_options(-Werror=return-type -Werror=unused-result)；本库顶层
- * CMakeLists.txt 已开启。
+ * async 函数的公开返回类型；用 `bbt_co_bind` 构造返回的惰性操作。
  */
-#define bbt_co_async(...) ::bbt::coroutine::detail::AsyncReturn<__VA_ARGS__>
+#define bbt_co_async(...) ::bbt::coroutine::detail::AsyncOperation<__VA_ARGS__>
 
 /**
- * 调用端标记：`AwaitHelper{} ->*`。借 C++17 对 ->* 左操作数先于右操作数的求值
- * 顺序，让协程环境检查先于被调函数的实参与函数体；不在协程内抛 std::logic_error。
- * 它不创建协程，也不能阻止别人绕过它直接调用 bbt_co_async 函数。
- * 因为是 ->* 而不是关键字，优先级低于一元前缀运算符和强制转换：
- * - `!bbt_co_await f()`、`*bbt_co_await f()`、`(T)bbt_co_await f()` 会先作用于
- * AwaitHelper 而编译失败，写成 `!(bbt_co_await f())`。
- * - 取成员写 `(bbt_co_await f()).m`，不要写 `bbt_co_await f().m`。
- * - 不能嵌套 `bbt_co_await bbt_co_await f()`（AwaitHelper ->* AwaitHelper 无匹配）。
- * 只能用于 bbt_co_async 声明的函数，普通值不能 await。
+ * async 操作体的内部结果类型，只能在 async 操作的延迟执行体中使用。
  */
-#define bbt_co_await ::bbt::coroutine::detail::AwaitHelper{} ->*
+#define bbt_co_async_body(...) ::bbt::coroutine::detail::AsyncReturn<__VA_ARGS__>
+
+/**
+ * @brief 绑定可调用对象和实参，推导 async 结果，不立即执行：`bbt_co_bind(callable, args...)`。
+ *
+ * 绑定时按值保存可移动的对象（左值拷贝、右值移动），消费时以右值调用。`std::ref` / `std::cref`、
+ * 指针、视图和 lambda 引用捕获仍只借用；引用结果不能指向操作自身持有的数据。
+ */
+#define bbt_co_bind ::bbt::coroutine::detail::BindAsyncOperation
+
+/**
+ * 当前协程等待并取得 async 操作结果。
+ */
+#define bbt_co_await ::bbt::coroutine::detail::AwaitHelper{}->*
+
+/**
+ * 启动 detached async 操作，不等待完成结果。
+ */
+#define bbt_co_fire ::bbt::coroutine::detail::FireHelper{}->*

@@ -101,7 +101,7 @@ inline std::atomic<int> w_native_seen{0};
 /**
  * namespace（operator new/delete 必须是全局重载，不可留在匿名命名空间）
  */
-}
+} // namespace
 
 void* operator new(std::size_t n)
 {
@@ -150,22 +150,27 @@ void* operator new(std::size_t n)
         return p;
     throw std::bad_alloc();
 }
+
 void* operator new[](std::size_t n)
 {
     return ::operator new(n);
 }
+
 void operator delete(void* p) noexcept
 {
     std::free(p);
 }
+
 void operator delete[](void* p) noexcept
 {
     std::free(p);
 }
+
 void operator delete(void* p, std::size_t) noexcept
 {
     std::free(p);
 }
+
 void operator delete[](void* p, std::size_t) noexcept
 {
     std::free(p);
@@ -183,12 +188,15 @@ struct DirectOrdinalGuard {
         d_fail_on = fail_on;
         d_armed = true;
     }
+
     ~DirectOrdinalGuard() { Disarm(); }
+
     void Disarm()
     {
         d_armed = false;
         d_fail_on = 0;
     }
+
     int Seen() const { return d_seen; }
 };
 
@@ -220,7 +228,9 @@ struct WorkerOrdinalGuard {
         w_victim = g_bbt_tls_coroutine_co;
         w_armed = true;
     }
+
     ~WorkerOrdinalGuard() { Disarm(); }
+
     void Disarm()
     {
         w_armed = false;
@@ -233,6 +243,7 @@ struct WorkerOrdinalGuard {
 struct LargeCallback {
     char payload[64]{};
     int* invoked;
+
     bool operator()() const
     {
         ++*invoked;
@@ -240,7 +251,7 @@ struct LargeCallback {
     }
 };
 
-}
+} // namespace
 
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::detail;
@@ -270,46 +281,46 @@ BOOST_AUTO_TEST_CASE(t_pre_yield_log_alloc_rollback)
     /**
      * 单轮直接驱动：lambda 体与父探针同型（栈上 co 指针，非原子捕获）。
      */
-    const auto drive_once = [](int fail_on, int* outcome, int* cb_calls, int* status_running, int* await_reusable,
-                               int* last_seen) {
-        Coroutine* co = nullptr;
-        co = Coroutine::Create(
-            262144,
-            [&]() {
-                auto ev = co->RegistCustom(POLL_EVENT_CUSTOM_COND);
-                BOOST_REQUIRE(ev != nullptr);
-                CoroutineOnYieldCallback cb = LargeCallback{{}, cb_calls};
-                try {
-                    {
-                        DirectOrdinalGuard g(fail_on);
-                        co->YieldWithCallback(cb);
-                    }
-                    *outcome = 3;
-                } catch (const std::bad_alloc&) {
-                    *outcome = 1;
-                    *status_running = (co->GetStatus() == CoroutineStatus::CO_RUNNING) ? 1 : 0;
+    const auto drive_once =
+        [](int fail_on, int* outcome, int* cb_calls, int* status_running, int* await_reusable, int* last_seen) {
+            Coroutine* co = nullptr;
+            co = Coroutine::Create(
+                262144,
+                [&]() {
+                    auto ev = co->RegistCustom(POLL_EVENT_CUSTOM_COND);
+                    BOOST_REQUIRE(ev != nullptr);
+                    CoroutineOnYieldCallback cb = LargeCallback{{}, cb_calls};
+                    try {
+                        {
+                            DirectOrdinalGuard g(fail_on);
+                            co->YieldWithCallback(cb);
+                        }
+                        *outcome = 3;
+                    } catch (const std::bad_alloc&) {
+                        *outcome = 1;
+                        *status_running = (co->GetStatus() == CoroutineStatus::CO_RUNNING) ? 1 : 0;
 
-                    /**
+                        /**
                      * 唯一合法收口：bad_alloc 抛出时事务已完整回滚——await 已清，
                      * RegistCustom 必须能真实重建（返回非空）。不允许「旧 await
                      * 保留但协程仍宣称可复用」的第二态：原探针语义即
                      * await_reusable=1 ⟺ RegistCustom 成功。
                      */
-                    auto ev2 = co->RegistCustom(POLL_EVENT_CUSTOM_COND);
-                    *await_reusable = (ev2 != nullptr) ? 1 : 0;
-                } catch (...) {
-                    *outcome = 2;
-                }
+                        auto ev2 = co->RegistCustom(POLL_EVENT_CUSTOM_COND);
+                        *await_reusable = (ev2 != nullptr) ? 1 : 0;
+                    } catch (...) {
+                        *outcome = 2;
+                    }
 
-                /**
+                    /**
                  * 故障轮：guard 已析构，记录命中前计数
                  */
-                *last_seen = d_seen;
-            },
-            false);
-        co->Resume();
+                    *last_seen = d_seen;
+                },
+                false);
+            co->Resume();
 
-        /**
+            /**
          * 协程真实挂起时（计量轮 fail_on=0 回调成功）构造在协程
          * 栈上的 DirectOrdinalGuard 永不析构，TLS d_armed 保持开启——
          * 必须在 delete co 之前捕获 d_seen 并手动闭合计量窗口，否则
@@ -317,11 +328,11 @@ BOOST_AUTO_TEST_CASE(t_pre_yield_log_alloc_rollback)
          * 幽灵 ordinal。故障轮 guard 已随栈展开析构，此处重复 disarm
          * 无害（同线程 TLS，协程与驱动共用）。
          */
-        *last_seen = d_seen;
-        d_armed = false;
-        d_fail_on = 0;
-        delete co;
-    };
+            *last_seen = d_seen;
+            d_armed = false;
+            d_fail_on = 0;
+            delete co;
+        };
 
     int total = 0;
     {
@@ -379,7 +390,7 @@ BOOST_AUTO_TEST_CASE(t_pre_yield_log_alloc_rollback)
  */
 BOOST_AUTO_TEST_CASE(t_postyield_regist_map_oom_recovers)
 {
-    auto mutex = sync::CoMutex::Create();
+    auto mutex = bbtco_make_comutex();
     bbt::core::thread::CountDownLatch done{3};
     std::atomic_bool holding{false}, can_unlock{false}, victim_done{false};
     std::atomic<int> first_ret{-99}, second_ret{-99}, measure_ret{-99};
@@ -622,7 +633,7 @@ BOOST_AUTO_TEST_CASE(t_regist_pending_branch_oom_returns_fail)
 {
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
     EnsureRuntime();
-    auto mutex = sync::CoMutex::Create();
+    auto mutex = bbtco_make_comutex();
     bbt::core::thread::CountDownLatch done{3};
     std::atomic_bool holding{false}, can_unlock{false}, victim_done{false};
     std::atomic<int> lock_ret{-99}, second_ret{-99}, successor_got{0};
@@ -816,7 +827,7 @@ void FirstWinnerCancelHit()
 {
     t_first_winner->co->RequestCancel();
 }
-}
+} // namespace
 #endif
 
 BOOST_AUTO_TEST_CASE(t_cowaiter_first_winner_oom_recovers)

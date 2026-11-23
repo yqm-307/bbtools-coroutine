@@ -29,7 +29,7 @@ void EnsureRuntime()
     static std::once_flag once;
     std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
-}
+} // namespace
 
 using namespace bbt::coroutine;
 
@@ -92,26 +92,27 @@ BOOST_AUTO_TEST_SUITE(Smoke_Chan)
 
 BOOST_AUTO_TEST_CASE(smoke_chan_buffered_write_read)
 {
-    auto& sche = detail::Scheduler::GetInstance();
     EnsureRuntime();
 
     auto ch = Chan<int, 8>();
 
     std::atomic_bool done{false};
 
-    sche->RegistCoroutineTask([&]() {
+    bbtco[&]()
+    {
         int val = 42;
         int ret = ch->Write(val);
         BOOST_CHECK_EQUAL(ret, 0);
         done = true;
-    });
+    };
 
-    sche->RegistCoroutineTask([&]() {
+    bbtco[&]()
+    {
         int val = 0;
         int ret = ch->Read(val);
         BOOST_CHECK_EQUAL(ret, 0);
         BOOST_CHECK_EQUAL(val, 42);
-    });
+    };
 
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
     BOOST_CHECK(done);
@@ -119,26 +120,27 @@ BOOST_AUTO_TEST_CASE(smoke_chan_buffered_write_read)
 
 BOOST_AUTO_TEST_CASE(smoke_chan_unbuffered_write_read)
 {
-    auto& sche = detail::Scheduler::GetInstance();
     EnsureRuntime();
 
     auto ch = Chan<int, 0>();
 
     std::atomic_int result{0};
 
-    sche->RegistCoroutineTask([&]() {
+    bbtco[&]()
+    {
         int val = 0;
         int ret = ch->Read(val);
         if (ret == 0)
             result = val;
-    });
+    };
 
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
-    sche->RegistCoroutineTask([&]() {
+    bbtco[&]()
+    {
         int val = 99;
         ch->Write(val);
-    });
+    };
 
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
     BOOST_CHECK_EQUAL(result, 99);
@@ -163,24 +165,25 @@ BOOST_AUTO_TEST_SUITE(Smoke_CoMutex)
 
 BOOST_AUTO_TEST_CASE(smoke_comutex_lock_unlock)
 {
-    auto& sche = detail::Scheduler::GetInstance();
     EnsureRuntime();
 
-    auto mtx = sync::CoMutex::Create();
+    auto mtx = bbtco_make_comutex();
 
     std::atomic_int counter{0};
 
-    sche->RegistCoroutineTask([&]() {
+    bbtco[&]()
+    {
         mtx->Lock();
         counter++;
         mtx->UnLock();
-    });
+    };
 
-    sche->RegistCoroutineTask([&]() {
+    bbtco[&]()
+    {
         mtx->Lock();
         counter++;
         mtx->UnLock();
-    });
+    };
 
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
     BOOST_CHECK_EQUAL(counter, 2);
@@ -188,22 +191,22 @@ BOOST_AUTO_TEST_CASE(smoke_comutex_lock_unlock)
 
 BOOST_AUTO_TEST_CASE(smoke_comutex_trylock_immediate)
 {
-    auto& sche = detail::Scheduler::GetInstance();
     EnsureRuntime();
 
-    auto mtx = sync::CoMutex::Create();
+    auto mtx = bbtco_make_comutex();
     std::atomic_bool trylock_ok{false};
 
     /**
      * TryLock must be called from within a coroutine (has deadlock assertion)
      */
-    sche->RegistCoroutineTask([&]() {
+    bbtco[&]()
+    {
         int ret = mtx->TryLock();
         if (ret == 0) {
             trylock_ok = true;
             mtx->UnLock();
         }
-    });
+    };
 
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
     BOOST_CHECK(trylock_ok);
@@ -220,17 +223,17 @@ BOOST_AUTO_TEST_SUITE(Smoke_CoCond)
 
 BOOST_AUTO_TEST_CASE(smoke_cocond_wait_notify_one)
 {
-    auto& sche = detail::Scheduler::GetInstance();
     EnsureRuntime();
 
-    auto cond = sync::CoCond::Create();
+    auto cond = bbtco_make_cocond();
     std::atomic_bool woken{false};
 
-    sche->RegistCoroutineTask([&]() {
+    bbtco[&]()
+    {
         int ret = cond->Wait();
         if (ret == 0)
             woken = true;
-    });
+    };
 
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
@@ -251,24 +254,25 @@ BOOST_AUTO_TEST_SUITE(Smoke_CoRWMutex)
 
 BOOST_AUTO_TEST_CASE(smoke_corwmutex_read_lock_unlock)
 {
-    auto& sche = detail::Scheduler::GetInstance();
     EnsureRuntime();
 
-    auto rwmtx = sync::CoRWMutex::Create();
+    auto rwmtx = bbtco_make_corwmutex();
 
     std::atomic_int read_count{0};
 
-    sche->RegistCoroutineTask([&]() {
+    bbtco[&]()
+    {
         rwmtx->RLock();
         read_count++;
         rwmtx->RUnLock();
-    });
+    };
 
-    sche->RegistCoroutineTask([&]() {
+    bbtco[&]()
+    {
         rwmtx->RLock();
         read_count++;
         rwmtx->RUnLock();
-    });
+    };
 
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
     BOOST_CHECK_EQUAL(read_count, 2);
@@ -276,7 +280,6 @@ BOOST_AUTO_TEST_CASE(smoke_corwmutex_read_lock_unlock)
 
 BOOST_AUTO_TEST_CASE(smoke_corwmutex_write_lock_unlock)
 {
-    auto& sche = detail::Scheduler::GetInstance();
     EnsureRuntime();
 
     /**
@@ -284,12 +287,13 @@ BOOST_AUTO_TEST_CASE(smoke_corwmutex_write_lock_unlock)
      */
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
 
-    auto rwmtx = sync::CoRWMutex::Create();
+    auto rwmtx = bbtco_make_corwmutex();
     std::atomic_int shared{0};
     std::promise<void> done;
     auto fut = done.get_future();
 
-    sche->RegistCoroutineTask([&]() {
+    bbtco[&]()
+    {
         rwmtx->WLock();
         shared = 42;
         rwmtx->WUnLock();
@@ -298,7 +302,7 @@ BOOST_AUTO_TEST_CASE(smoke_corwmutex_write_lock_unlock)
         shared = shared + 1;
         rwmtx->WUnLock();
         done.set_value();
-    });
+    };
 
     /**
      * 等待协程执行完毕，最多 3 秒
@@ -321,7 +325,7 @@ BOOST_AUTO_TEST_CASE(smoke_copool_submit_and_release)
 {
     EnsureRuntime();
 
-    auto pool = pool::CoPool::Create(2);
+    auto pool = bbtco_make_copool(2);
     std::atomic_int counter{0};
 
     pool->Submit([&counter]() { counter++; });
@@ -345,18 +349,18 @@ BOOST_AUTO_TEST_SUITE(Smoke_Hook)
 
 BOOST_AUTO_TEST_CASE(smoke_hook_sleep)
 {
-    auto& sche = detail::Scheduler::GetInstance();
     EnsureRuntime();
 
     std::atomic_bool slept{false};
 
-    sche->RegistCoroutineTask([&]() {
+    bbtco[&]()
+    {
         /**
          * bbtco_sleep uses the hook mechanism to yield instead of blocking the thread
          */
         bbtco_sleep(10);
         slept = true;
-    });
+    };
 
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
     BOOST_CHECK(slept);
@@ -373,12 +377,12 @@ BOOST_AUTO_TEST_SUITE(Smoke_Defer)
 
 BOOST_AUTO_TEST_CASE(smoke_defer_execute)
 {
-    auto& sche = detail::Scheduler::GetInstance();
     EnsureRuntime();
 
     std::atomic_bool defer_executed{false};
 
-    sche->RegistCoroutineTask([&]() {
+    bbtco[&]()
+    {
         bbtco_defer
         {
             defer_executed = true;
@@ -387,7 +391,7 @@ BOOST_AUTO_TEST_CASE(smoke_defer_execute)
         /**
          * defer fires when this coroutine exits
          */
-    });
+    };
 
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
     BOOST_CHECK(defer_executed);

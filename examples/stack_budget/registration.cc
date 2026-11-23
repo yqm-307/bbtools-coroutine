@@ -14,5 +14,8 @@ void StackBudgetRegister(std::size_t usable_bytes)
 {
     using namespace bbt::coroutine::detail;
     g_scheduler->Start();
+    /**
+     * 静态分析需要显式栈大小，见 SyntaxMacro.hpp 的「已知缺口」。
+     */
     g_scheduler->RegistCoroutineTask(usable_bytes, &StackBudgetEntry, "conditional-stack-budget-example");
 }

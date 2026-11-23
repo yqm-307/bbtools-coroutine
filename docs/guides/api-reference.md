@@ -145,39 +145,45 @@
 
 头文件：`bbt/coroutine/syntax/Async.hpp`，也由 `SyntaxMacro.hpp` 和公共伞头 `coroutine.hpp` 引入；需链接 `bbt_coroutine`。
 
+实现 async API 时，公开入口返回惰性操作；命名的主体函数只返回普通结果：
+
 ```cpp
-template<class T>
-bbt_co_async(T) Echo(T value)
+static int EchoBody(int value)
 {
-    return std::move(value);
+    return value;
 }
 
-bbt_co_async(std::pair<int, int>) ReadPair()
+bbt_co_async(int) Echo(int value)
 {
-    bbtco_sleep(1);
-    return std::make_pair(1, 2);
+    return bbt_co_bind(EchoBody, value);
+}
+
+static void HandleBody()
+{
+    auto value = bbt_co_await Echo(1);
+    (void)value;
 }
 
 bbt_co_async(void) Handle()
 {
-    auto pair = bbt_co_await ReadPair();
-    auto value = bbt_co_await Echo(pair.first);
-    (void)value;
-    return {}; // 实际返回空标记对象，不能使用裸 return; 或走到函数末尾
+    return bbt_co_bind(HandleBody);
 }
 
 // Start 后，通过已有入口创建协程；async/await 自身不创建协程。
 bbtco [] { bbt_co_await Handle(); };
 ```
 
-- `bbt_co_async(T)` 展开为带 `[[nodiscard]]` 的内部 `detail::AsyncReturn<T>` 类型；可用于函数模板、成员函数和 lambda 尾置返回类型。可变参数宏支持类型中的逗号（如 `std::pair<int, int>`）。这会改变真实函数签名，不是原始 `T` 的类型别名。
+常见场景和迁移规则见 [Async 调用指南](async-usage.md)。
+
+- `bbt_co_async(T)` 是带 `[[nodiscard]]` 的惰性 `detail::AsyncOperation<T>` 类型，不是原始 `T` 的类型别名；可变参数宏支持类型中的逗号（如 `std::pair<int, int>`）。
+- `bbt_co_bind(f, args...)` 在绑定时求值实参并按值保存可调用对象和参数（左值拷贝、右值移动），不调用 `f`。消费时通过 `std::invoke` 语义以右值调用保存的对象与参数，推导值、左值引用或 `void` 结果，不支持右值引用结果。要借用外部参数可传 `std::ref` / `std::cref`；它们以及指针、视图和引用捕获都不延长对象寿命。返回的引用不能指向操作内部，因为操作在 `await` 返回前销毁。
 - `bbt_co_await f()` 展开为 `detail::AwaitHelper{} ->* f()`。C++17 运算符写法先求值左侧，helper 复用 `GetLocalCoroutineId()` 检查环境；非协程抛 `std::logic_error`，发生在右侧实参及函数体执行之前。仅初始化 runtime 或处于 worker 的非协程回调中都不满足前提。
-- 调用沿当前有栈协程同步执行，期间可通过已有 API 挂起；返回后解包。没有延迟任务、Future、额外队列/线程或新的等待状态机；不保存 worker/TLS 指针，恢复可迁移 worker，异常直接传播。
-- 普通值按值移出包装（因此类型需支持从右值构造），支持只移动值；`T&` / `const T&` 保留借用且只接受类型兼容的左值，调用方保证被引用对象寿命；不支持 `T&&` 返回类型。`void` 必须显式 `return {};`。包装本身无堆分配，但业务类型的构造/移动和错误路径可分配；正常路径仍有环境查询及可能的值移动，不承诺绝对零开销。
+- `bbt_co_await` 在当前有栈协程中执行操作，期间可通过已有 API 挂起；返回后解包。`bbt_co_fire` 将操作提交到 detached 协程，不等待最终结果。操作对象保存调用所需的参数和执行体，helper 不保存 worker/TLS 指针，恢复可迁移 worker，异常按 detached 任务契约处理。提交失败会在调用点抛出异常。
+- 普通值按值移出包装（因此类型需支持从右值构造），支持只移动值；`T&` / `const T&` 保留借用，调用方保证被引用对象寿命。操作对象的类型擦除载荷当前使用一次堆分配，业务类型的构造/移动和错误路径也可分配；正常路径仍有环境查询及可能的值移动，不承诺绝对零开销。
 - 优先级沿用 `->*`，并非原生关键字。例如取结果成员应写 `(bbt_co_await ReadPair()).first`，取反写 `!(bbt_co_await Ready())`；需要括号时括住整个 await 表达式。`decltype` 中按普通 C++ 非求值上下文处理。
-- 类型约束：未 await 的返回值不能隐式转换为 `T`，普通值不能 await；丢弃包装结果产生 `nodiscard` 警告（是否阻断由编译选项决定）。仅接受临时/右值包装，保存的包装需要显式 `std::move` 后解包。
-- 限制：`auto result = f();` 仍能绕过 await 并执行函数体，声明本身不插入环境检查；编译器也不强制调用者声明 async。此版本不含完整静态检查插件，不保证“没有 await 就不会挂起”（透明 Hook 仍保留）。建议依赖协程专用调用的业务函数也使用 async 标记。
-- 编译选项要求：`bbt_co_async(void)` 函数走到末尾不写 `return {};` 是未定义行为，漏写 `bbt_co_await` 只有 `nodiscard` 警告，二者默认都不会让编译失败。使用本库的仓库必须开启 `-Werror=return-type -Werror=unused-result`（本库顶层 `CMakeLists.txt` 已开启；infra、framework 在各自顶层 CMake 开启）。这两个选项在 GCC/Clang 下对所有本仓代码生效，同时会拦住忽略 glibc `warn_unused_result` 函数返回值（如 `write`、`read`，`-O2` 下生效）的写法。
+- 类型约束：未经 `bbt_co_await` 或 `bbt_co_fire` 消费的操作对象不能执行，普通值不能 await 或 fire；丢弃操作对象产生 `nodiscard` 诊断。仅接受临时/右值操作对象，保存后消费需要显式 `std::move`。
+- `fire` 只放弃最终完成结果，不放弃提交失败和后台错误的处理责任。存在顺序依赖时必须使用 `await`。
+- 兼容的底层操作体若返回 `bbt_co_async_body(void)`，仍需显式 `return {};`；用 `bind` 绑定普通 `void` 函数不需要这一步。使用本库的仓库须开启 `-Werror=return-type -Werror=unused-result`（本库、infra、framework 各自在顶层 CMake 开启），直接丢弃操作对象会被拒绝。
 
 ### `bbtco`
 
@@ -391,7 +397,7 @@ int idx = sync::CoSelect()
 | `uint64_t GetUnhandledExceptionCount() const noexcept` | 未被回调/future 接住的异常数 |
 | `void Release()` | 停止 `Submit`；等运行中协程退出；丢弃未执行任务；带 future 的以 `broken_promise` 兑现。可重复调用。在池自身 worker 内调用抛 `std::logic_error`（自等待） |
 
-尺寸路由池（`Create(CoPoolOptions)`）在同一头文件：每个类给出不可变 `StackRequest`、固定 `worker_num`
+尺寸路由池使用 `bbtco_make_copool(options)`，其中 `options` 为 `CoPoolOptions`。每个类给出不可变 `StackRequest`、固定 `worker_num`
 与 `queue_capacity`，只路由精确 `(U, protect)`：
 
 | 方法 | 行为 |
@@ -597,7 +603,7 @@ CoObjectStats GetCoObjectStats(std::string_view kind) noexcept;
 | `CoRWMutex` | `bbtco_make_corwmutex()` | `RLock()`, `WLock()`, `RUnLock()`, `WUnLock()`, `TryRLock()`, `TryWLock()` | 协程读写锁；RAII 用 `CoReadLock` / `CoWriteLock` |
 | `CoLockGuard<Mutex>` | `sync::CoLockGuard<CoMutex> g(lock)` | 构造加锁，析构解锁 | 通用 RAII 守卫（另有 `CoUniqueLock`） |
 | `CoCond` | `bbtco_make_cocond()` | `Wait()`, `NotifyOne()`, `NotifyAll()` | 协程条件变量 |
-| `CoPool` | `bbtco_make_copool(size)`；尺寸路由用 `CoPool::Create(CoPoolOptions)` | `Submit()`, `SubmitWithFuture()`, `Submit(StackRequest, …)`, `Release()` | 协程池（`Release` 取消式停机：等运行中退出、排空未执行；池 worker 内调用抛 `std::logic_error`） |
+| `CoPool` | `bbtco_make_copool(size)` 或 `bbtco_make_copool(options)` | `Submit()`, `SubmitWithFuture()`, `Submit(StackRequest, …)`, `Release()` | 协程池（`Release` 取消式停机：等运行中退出、排空未执行；池 worker 内调用抛 `std::logic_error`） |
 
 ### 事件等待
 

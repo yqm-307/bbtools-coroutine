@@ -45,7 +45,7 @@ thread_local size_t g_skip_matching_new = 0;
 thread_local size_t g_borrowed_at_new_failure = 0;
 thread_local bbt::coroutine::detail::StackPool* g_observed_pool = nullptr;
 
-}
+} // namespace
 
 void* operator new(std::size_t size)
 {
@@ -68,6 +68,7 @@ void operator delete(void* memory) noexcept
 {
     std::free(memory);
 }
+
 void operator delete(void* memory, std::size_t) noexcept
 {
     std::free(memory);
@@ -133,7 +134,7 @@ int RunRuntime(bool stack_protect)
         for (size_t i = 0; i < sizeof(local); ++i)
             local[i] = static_cast<unsigned char>(i * 5 + 11);
         default_seen.store(GetLocalCoroutineStackSize());
-        bbt::coroutine::detail::Hook_Sleep(30);
+        bbtco_sleep(30);
         bool intact = true;
         for (size_t i = 0; i < sizeof(local); ++i)
             if (local[i] != static_cast<unsigned char>(i * 5 + 11))
@@ -158,7 +159,7 @@ int RunRuntime(bool stack_protect)
             /**
              * 真实挂起并唤醒
              */
-            bbt::coroutine::detail::Hook_Sleep(30);
+            bbtco_sleep(30);
 
             bool intact = true;
             for (size_t i = 0; i < sizeof(local); ++i) {
@@ -212,12 +213,19 @@ int RunRuntime(bool stack_protect)
     Check(explicit_seen_after_resume.load() == kExplicitU, "explicit stack size stable across suspend/resume");
     Check(local_intact.load() == 1, "local data intact across suspend/resume");
     Check(desc_seen.load() == kDefaultStack, "desc macro keeps default size semantics");
-    Check(cfg->m_cfg_stack_size == kDefaultStack && cfg->m_cfg_stack_protect == stack_protect,
-          "global config unchanged by explicit registrations");
+    Check(
+        cfg->m_cfg_stack_size == kDefaultStack && cfg->m_cfg_stack_protect == stack_protect,
+        "global config unchanged by explicit registrations");
 
-    std::fprintf(stdout, "[multi-size-stack] default=%zu/%zu explicit=%zu/%zu desc=%zu protect=%d\n",
-                 default_seen.load(), default_after_resume.load(), explicit_seen_before_suspend.load(),
-                 explicit_seen_after_resume.load(), desc_seen.load(), static_cast<int>(stack_protect));
+    std::fprintf(
+        stdout,
+        "[multi-size-stack] default=%zu/%zu explicit=%zu/%zu desc=%zu protect=%d\n",
+        default_seen.load(),
+        default_after_resume.load(),
+        explicit_seen_before_suspend.load(),
+        explicit_seen_after_resume.load(),
+        desc_seen.load(),
+        static_cast<int>(stack_protect));
     return 0;
 }
 
@@ -227,8 +235,8 @@ void CheckProfileStackEvents(size_t allocations, size_t releases)
     std::string info;
     g_bbt_profiler->ProfileInfo(info);
     char expected[128];
-    std::snprintf(expected, sizeof(expected), "StackPool 指标, alloc_count=%zu\trelease_count=%zu\n", allocations,
-                  releases);
+    std::snprintf(
+        expected, sizeof(expected), "StackPool 指标, alloc_count=%zu\trelease_count=%zu\n", allocations, releases);
     Check(info.find(expected) != std::string::npos, "PROFILE counts every actual stack allocation and destruction");
     std::fprintf(stderr, "%s", info.c_str());
 #else
@@ -272,9 +280,10 @@ void RunDescriptionAssignFailure()
     }
     g_fail_new_size = 0;
     Check(without_desc_succeeded, "same construction without description does not consume OOM gate");
-    Check(pool->GetCurCoNum() == borrowed && pool->AllocSize() == allocated && capture.use_count() == capture_owners
-              && !callback_ran,
-          "no-description control returns its stack and callback copies");
+    Check(
+        pool->GetCurCoNum() == borrowed && pool->AllocSize() == allocated && capture.use_count() == capture_owners
+            && !callback_ran,
+        "no-description control returns its stack and callback copies");
 
     bool rejected = false;
     g_observed_pool = pool;
@@ -295,20 +304,22 @@ void RunDescriptionAssignFailure()
     g_observed_pool = nullptr;
 
     Check(rejected && consumed, "actual description allocation raises bad_alloc");
-    Check(g_borrowed_at_new_failure == borrowed + 1,
-          "description OOM occurs after the coroutine has borrowed its stack");
+    Check(
+        g_borrowed_at_new_failure == borrowed + 1, "description OOM occurs after the coroutine has borrowed its stack");
     Check(!callback_ran, "description failure does not run or publish the callback");
     Check(capture.use_count() == capture_owners, "description failure destroys callback copies");
-    Check(pool->GetCurCoNum() == borrowed && pool->AllocSize() == allocated,
-          "description failure returns the borrowed stack without leaking an object");
+    Check(
+        pool->GetCurCoNum() == borrowed && pool->AllocSize() == allocated,
+        "description failure returns the borrowed stack without leaking an object");
 
     std::unique_ptr<Coroutine> co(Coroutine::Create(64 * 1024, callback, true, desc));
     Check(co->GetStackSize() == 64 * 1024, "creation succeeds after one-shot description OOM");
     co->Resume();
     Check(callback_ran, "recovered coroutine executes normally");
     co.reset();
-    Check(pool->GetCurCoNum() == borrowed && pool->AllocSize() == allocated && capture.use_count() == capture_owners,
-          "recovered coroutine reuses and returns the same sized stack");
+    Check(
+        pool->GetCurCoNum() == borrowed && pool->AllocSize() == allocated && capture.use_count() == capture_owners,
+        "recovered coroutine reuses and returns the same sized stack");
 }
 
 void RunPreloadFailures()
@@ -429,8 +440,9 @@ int RunRejectBeforeStart()
     bool succ = true;
     g_scheduler->RegistCoroutineTask(64 * 1024, [&]() { callback_ran = true; }, succ);
     Check(!succ, "succ overload reports false without worker");
-    Check(g_bbt_stackpoll->AllocSize() == alloc_after_first,
-          "repeated failed registration reuses the returned stack (no new object)");
+    Check(
+        g_bbt_stackpoll->AllocSize() == alloc_after_first,
+        "repeated failed registration reuses the returned stack (no new object)");
     Check(g_bbt_stackpoll->GetCurCoNum() == 0, "borrowed count returns to zero");
     Check(!callback_ran, "callback still never executed");
 
@@ -441,7 +453,7 @@ int RunRejectBeforeStart()
     return 0;
 }
 
-}
+} // namespace
 
 int main(int argc, char** argv)
 {
@@ -461,7 +473,7 @@ int main(int argc, char** argv)
         return 2;
     }
 
-    std::fprintf(stdout, "[multi-size-stack] %s: %s (failures=%d)\n", argv[1], g_failures == 0 ? "PASS" : "FAIL",
-                 g_failures);
+    std::fprintf(
+        stdout, "[multi-size-stack] %s: %s (failures=%d)\n", argv[1], g_failures == 0 ? "PASS" : "FAIL", g_failures);
     return g_failures == 0 ? 0 : 1;
 }

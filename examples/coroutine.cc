@@ -24,7 +24,7 @@ void Normal()
      */
     bbtco_desc("desc")[](){};
 
-    sleep(1);
+    bbtco_sleep(1000);
 
     /**
      * 我们还可以通过协程来达到在函数执行过程中让出cpu的效果。
@@ -52,18 +52,20 @@ void Normal()
         printf("i am common coroutine %lu after yield\n", bbt::co::GetLocalCoroutineId());
     };
 
-    sleep(1);
+    bbtco_sleep(1000);
 }
 
 void Defer()
 {
     struct Obj {
         Obj() { printf("Obj created\n"); }
+
         ~Obj() { printf("Obj destroyed\n"); }
     };
 
     struct Obj2 {
         Obj2() { printf("Obj2 created\n"); }
+
         ~Obj2() { printf("Obj2 destroyed\n"); }
     };
 
@@ -130,31 +132,35 @@ void SleepHook()
     printf("SleepHook begin\n");
 
     /**
-     * bbtco_sleep可以用来在协程中挂起当前协程，
-     * 使得其他协程可以继续执行。
-     *
-     * 注意：在Processer线程中，sleep会挂起当前协程，
-     * 而不是整个线程。
+     * 特意调用 POSIX sleep 演示 Hook：被挂起的是当前协程，不是 worker 线程。
      */
     bbtco[]()
     {
-        printf("[%d] sleep before!, now=%ld\n", bbt::coroutine::GetLocalCoroutineId(),
-               bbt::core::clock::now<>().time_since_epoch().count());
+        printf(
+            "[%d] sleep before!, now=%ld\n",
+            bbt::coroutine::GetLocalCoroutineId(),
+            bbt::core::clock::now<>().time_since_epoch().count());
         sleep(1);
-        printf("[%d] sleep end!, now=%ld\n", bbt::coroutine::GetLocalCoroutineId(),
-               bbt::core::clock::now<>().time_since_epoch().count());
+        printf(
+            "[%d] sleep end!, now=%ld\n",
+            bbt::coroutine::GetLocalCoroutineId(),
+            bbt::core::clock::now<>().time_since_epoch().count());
     };
 
     bbtco[]()
     {
-        printf("[%d] sleep before!, now=%ld\n", bbt::coroutine::GetLocalCoroutineId(),
-               bbt::core::clock::now<>().time_since_epoch().count());
+        printf(
+            "[%d] sleep before!, now=%ld\n",
+            bbt::coroutine::GetLocalCoroutineId(),
+            bbt::core::clock::now<>().time_since_epoch().count());
         sleep(1);
-        printf("[%d] sleep end!, now=%ld\n", bbt::coroutine::GetLocalCoroutineId(),
-               bbt::core::clock::now<>().time_since_epoch().count());
+        printf(
+            "[%d] sleep end!, now=%ld\n",
+            bbt::coroutine::GetLocalCoroutineId(),
+            bbt::core::clock::now<>().time_since_epoch().count());
     };
 
-    sleep(2);
+    bbtco_sleep(2000);
 
     printf("SleepHook end\n");
 }
@@ -165,6 +171,13 @@ int bbtco_main()
     Normal();
     Defer();
     SleepHook();
+    const auto doubled = bbt_co_await bbt_co_bind(
+        [](int value) {
+            bbtco_sleep(1);
+            return value * 2;
+        },
+        21);
+    printf("async result: %d\n", doubled);
     return 0;
 }
 

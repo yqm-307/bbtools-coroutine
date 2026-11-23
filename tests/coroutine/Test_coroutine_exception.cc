@@ -22,7 +22,7 @@ void EnsureRuntime()
     static std::once_flag once;
     std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
-}
+} // namespace
 
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::detail;
@@ -42,7 +42,10 @@ struct ScopedExceptionHandler : std::enable_shared_from_this<ScopedExceptionHand
     mutable std::mutex guard;
     std::function<void()> notify;
 
-    explicit ScopedExceptionHandler(std::function<void()> on_notify = {}) : notify(std::move(on_notify)) {}
+    explicit ScopedExceptionHandler(std::function<void()> on_notify = {})
+        : notify(std::move(on_notify))
+    {
+    }
 
     /**
      * 设为转发目标（必须在 shared_ptr 管理后调用，for weak_ptr capture）
@@ -94,7 +97,7 @@ struct ConfigSnapshot {
 
 std::atomic_bool g_scheduler_started{false};
 
-}
+} // namespace
 
 BOOST_AUTO_TEST_SUITE(CoroutineExceptionTest)
 
@@ -137,7 +140,10 @@ BOOST_AUTO_TEST_CASE(t_coroutine_throw_without_handler)
     });
     handler->Install();
 
-    g_scheduler->RegistCoroutineTask([]() { throw std::runtime_error("co panic"); });
+    bbtco[]()
+    {
+        throw std::runtime_error("co panic");
+    };
 
     auto wait_result = status_future.wait_for(std::chrono::seconds(1));
     BOOST_REQUIRE(wait_result == std::future_status::ready);

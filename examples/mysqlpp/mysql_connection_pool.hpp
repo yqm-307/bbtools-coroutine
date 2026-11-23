@@ -124,10 +124,19 @@ public:
  */
 class MySQLConnection {
 public:
-    MySQLConnection(const std::string& host, const std::string& user, const std::string& password,
-                    const std::string& database, unsigned int port = 3306)
-        : m_host(host), m_user(user), m_password(password), m_database(database), m_port(port), m_mysql(nullptr),
-          m_connected(false)
+    MySQLConnection(
+        const std::string& host,
+        const std::string& user,
+        const std::string& password,
+        const std::string& database,
+        unsigned int port = 3306)
+        : m_host(host)
+        , m_user(user)
+        , m_password(password)
+        , m_database(database)
+        , m_port(port)
+        , m_mysql(nullptr)
+        , m_connected(false)
     {
         Connect();
     }
@@ -155,8 +164,8 @@ public:
         unsigned int timeout = 10;
         mysql_options(m_mysql, MYSQL_OPT_CONNECT_TIMEOUT, &timeout);
 
-        if (!mysql_real_connect(m_mysql, m_host.c_str(), m_user.c_str(), m_password.c_str(), m_database.c_str(), m_port,
-                                nullptr, 0)) {
+        if (!mysql_real_connect(
+                m_mysql, m_host.c_str(), m_user.c_str(), m_password.c_str(), m_database.c_str(), m_port, nullptr, 0)) {
             std::cerr << "Connection failed: " << mysql_error(m_mysql) << std::endl;
             mysql_close(m_mysql);
             m_mysql = nullptr;
@@ -302,13 +311,15 @@ public:
     using ConnectionPtr = std::shared_ptr<MySQLConnection>;
 
     explicit MySQLConnectionPool(const MySQLPoolConfig& config)
-        : m_config(config), m_shutdown(false), m_active_connections(0)
+        : m_config(config)
+        , m_shutdown(false)
+        , m_active_connections(0)
     {
 
         /**
          * 创建协程互斥锁
          */
-        m_mutex = bbt::co::sync::CoMutex::Create();
+        m_mutex = bbtco_make_comutex();
 
         /**
          * 初始化最小连接数
@@ -462,8 +473,8 @@ private:
     ConnectionPtr CreateConnection()
     {
         try {
-            return std::make_shared<MySQLConnection>(m_config.host, m_config.user, m_config.password, m_config.database,
-                                                     m_config.port);
+            return std::make_shared<MySQLConnection>(
+                m_config.host, m_config.user, m_config.password, m_config.database, m_config.port);
         } catch (const std::exception& e) {
             std::cerr << "Failed to create connection: " << e.what() << std::endl;
             return nullptr;
@@ -603,7 +614,8 @@ private:
 class MySQLConnectionGuard {
 public:
     MySQLConnectionGuard(MySQLConnectionPool& pool, int timeout_ms = 30000)
-        : m_pool(pool), m_connection(pool.GetConnection(timeout_ms))
+        : m_pool(pool)
+        , m_connection(pool.GetConnection(timeout_ms))
     {
     }
 

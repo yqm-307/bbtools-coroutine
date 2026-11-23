@@ -132,10 +132,12 @@ bool WaitForRuntimeDrain(int timeout_ms, size_t& alloc_out, size_t& cur_out)
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
     while (!IsRuntimeDrained(alloc_out, cur_out)) {
         if (std::chrono::steady_clock::now() >= deadline) {
-            std::fprintf(stderr,
-                         "BBT_MEMCHECK_FAILED runtime drain 超时：alloc=%zu cur=%zu"
-                         "（仍有借出未归还的栈，检测时点不可信）\n",
-                         alloc_out, cur_out);
+            std::fprintf(
+                stderr,
+                "BBT_MEMCHECK_FAILED runtime drain 超时：alloc=%zu cur=%zu"
+                "（仍有借出未归还的栈，检测时点不可信）\n",
+                alloc_out,
+                cur_out);
             return false;
         }
         std::this_thread::yield();
@@ -178,7 +180,7 @@ void RunNestedCoroutines()
 
 long long RunCoMutex()
 {
-    auto mutex = bbt::coroutine::sync::CoMutex::Create();
+    auto mutex = bbtco_make_comutex();
     auto counter = std::make_shared<std::atomic<long long>>(0);
     LatchSPtr latch = std::make_shared<CountDownLatch>(kMutexCoroutines);
 
@@ -202,8 +204,11 @@ long long RunCoMutex()
  * 单 channel：5 writer（缓冲满时真实阻塞挂起）+ 1 合法 reader。
  * reader 阻塞于空队列时由 writer 唤醒；这是本负载要覆盖的协作路径。
  */
-void RunOneChan(int chan_index, const std::shared_ptr<bbt::coroutine::sync::Chan<int, kChanCapacity>>& chan,
-                const LatchSPtr& writer_latch, const LatchSPtr& done_latch)
+void RunOneChan(
+    int chan_index,
+    const std::shared_ptr<bbt::coroutine::sync::Chan<int, kChanCapacity>>& chan,
+    const LatchSPtr& writer_latch,
+    const LatchSPtr& done_latch)
 {
     for (int w = 0; w < kWriterPerChan; ++w) {
         bbtco[chan, writer_latch, chan_index, w]()
@@ -231,8 +236,8 @@ void RunOneChan(int chan_index, const std::shared_ptr<bbt::coroutine::sync::Chan
                  * Close 由主线程在收齐 writer 后执行；reader 收边前见到非 0
                  * 只可能是丢消息/关闭，记失败退出，不静默吞掉。
                  */
-                std::fprintf(stderr, "[bbt-mc] chan[%d] reader failed(%d) at %d/%d\n", chan_index, r, local_read,
-                             kWritePerChan);
+                std::fprintf(
+                    stderr, "[bbt-mc] chan[%d] reader failed(%d) at %d/%d\n", chan_index, r, local_read, kWritePerChan);
                 g_failures.fetch_add(1, std::memory_order_relaxed);
                 break;
             }
@@ -264,8 +269,8 @@ void RunChanFanOut()
     }
 
     writer_latch->Wait();
-    std::fprintf(stderr, "[bbt-mc] stage3 writers done=%d readers=%lld\n", g_chan_writer_done.load(),
-                 g_chan_read.load());
+    std::fprintf(
+        stderr, "[bbt-mc] stage3 writers done=%d readers=%lld\n", g_chan_writer_done.load(), g_chan_read.load());
 
     /**
      * 主线程收边：缓冲不丢弃，reader 继续读满后正常退出
@@ -277,7 +282,7 @@ void RunChanFanOut()
     std::fprintf(stderr, "[bbt-mc] stage3 chan done read=%lld\n", g_chan_read.load());
 }
 
-}
+} // namespace
 
 int main()
 {
@@ -322,17 +327,35 @@ int main()
      * 出现多条互相冲突的标记、或任一取值与固定期望不符，全部 FAIL。
      * 期望值与 scripts/ci/run_memcheck.py 的 EXPECTED_COUNTERS 必须一致。
      */
-    std::printf("BBT_MEMCHECK_DONE inner=%d/%d lock=%lld/%lld chan_read=%lld/%d "
-                "writer_done=%d/%d failures=%d/%d runtime_drained=%d/%d "
-                "stack_pool_drained=%d/%d (released=%zu alloc=%zu cur=%zu)\n",
-                inner_done, kInnerTotal, lock_total, kLockTotal, chan_read, kTotalMessages, writer_done,
-                kChanNum * kWriterPerChan, failures, 0, static_cast<int>(runtime_drained), 1,
-                static_cast<int>(stack_pool_drained), 1, released_stacks, alloc, cur);
+    std::printf(
+        "BBT_MEMCHECK_DONE inner=%d/%d lock=%lld/%lld chan_read=%lld/%d "
+        "writer_done=%d/%d failures=%d/%d runtime_drained=%d/%d "
+        "stack_pool_drained=%d/%d (released=%zu alloc=%zu cur=%zu)\n",
+        inner_done,
+        kInnerTotal,
+        lock_total,
+        kLockTotal,
+        chan_read,
+        kTotalMessages,
+        writer_done,
+        kChanNum * kWriterPerChan,
+        failures,
+        0,
+        static_cast<int>(runtime_drained),
+        1,
+        static_cast<int>(stack_pool_drained),
+        1,
+        released_stacks,
+        alloc,
+        cur);
 
     if (!ok) {
-        std::fprintf(stderr, "BBT_MEMCHECK_FAILED 完成协议不达标（business=%d runtime=%d pool=%d）\n",
-                     static_cast<int>(business_done), static_cast<int>(runtime_drained),
-                     static_cast<int>(stack_pool_drained));
+        std::fprintf(
+            stderr,
+            "BBT_MEMCHECK_FAILED 完成协议不达标（business=%d runtime=%d pool=%d）\n",
+            static_cast<int>(business_done),
+            static_cast<int>(runtime_drained),
+            static_cast<int>(stack_pool_drained));
         return 1;
     }
 

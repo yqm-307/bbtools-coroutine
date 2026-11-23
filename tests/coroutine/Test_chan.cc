@@ -12,6 +12,7 @@
 #include <bbt/core/clock/Clock.hpp>
 #include <bbt/coroutine/coroutine.hpp>
 #include <bbt/coroutine/sync/Chan.hpp>
+
 /**
  * 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
  * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。
@@ -22,7 +23,7 @@ void EnsureRuntime()
     static std::once_flag once;
     std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
-}
+} // namespace
 
 using namespace bbt::coroutine;
 
@@ -246,7 +247,7 @@ BOOST_AUTO_TEST_CASE(t_block_write_n)
             };
         }
 
-        bbt::coroutine::detail::Hook_Sleep(100);
+        bbtco_sleep(100);
 
         int val;
         for (int i = 0; i < nwrite; ++i) {
@@ -287,7 +288,7 @@ BOOST_AUTO_TEST_CASE(t_nocache_chan_1v1)
         auto cond = sync::CoWaiter::Create();
         bbtco[&]()
         {
-            detail::Hook_Sleep(100);
+            bbtco_sleep(100);
             cond->Notify();
             chan << 1;
             flag.exchange(true);
@@ -405,6 +406,7 @@ BOOST_AUTO_TEST_CASE(t_new_basic)
                 int id;
                 double val;
             };
+
             auto c = Chan<TItem, 10>();
             TItem item{42, 3.14};
             BOOST_ASSERT(c->Write(item) == 0);
@@ -435,7 +437,7 @@ BOOST_AUTO_TEST_CASE(t_new_basic)
             auto c = Chan<int, 10>();
             bbtco[c]()
             {
-                detail::Hook_Sleep(50);
+                bbtco_sleep(50);
                 c->Write(10);
                 c->Write(20);
             };
@@ -516,7 +518,7 @@ BOOST_AUTO_TEST_CASE(t_new_trywrite)
             BOOST_ASSERT(c2->Write(1) == 0);
             bbtco[c2]()
             {
-                detail::Hook_Sleep(50);
+                bbtco_sleep(50);
                 int v;
                 c2->Read(v);
             };
@@ -568,7 +570,7 @@ BOOST_AUTO_TEST_CASE(t_new_tryread)
             auto tc = Chan<int, 10>();
             bbtco[tc]()
             {
-                detail::Hook_Sleep(50);
+                bbtco_sleep(50);
                 tc->Write(99);
             };
             int v3 = 0;
@@ -601,8 +603,8 @@ BOOST_AUTO_TEST_CASE(t_new_tryread)
             BOOST_CHECK_NE(c2->TryRead(tv, 100), 0);
             c2->Write(42);
             int ret = c2->Read(tv);
-            BOOST_TEST_MESSAGE("TryRead timeout leak: Read after TryRead(timeout) ret=" << ret
-                                                                                        << " (expect 0, !=0=leak)");
+            BOOST_TEST_MESSAGE(
+                "TryRead timeout leak: Read after TryRead(timeout) ret=" << ret << " (expect 0, !=0=leak)");
             if (ret == 0)
                 BOOST_CHECK_EQUAL(tv, 42);
         }
@@ -656,7 +658,7 @@ BOOST_AUTO_TEST_CASE(t_new_close_lifecycle)
                 read_done.store(true);
                 l2.Down();
             };
-            detail::Hook_Sleep(50);
+            bbtco_sleep(50);
             c->Close();
             l2.Down();
             l2.Wait();
@@ -678,7 +680,7 @@ BOOST_AUTO_TEST_CASE(t_new_close_lifecycle)
                 BOOST_CHECK_EQUAL(r, -1);
                 l2.Down();
             };
-            detail::Hook_Sleep(30);
+            bbtco_sleep(30);
             c->Close();
             l2.Down();
             l2.Wait();
@@ -710,7 +712,7 @@ BOOST_AUTO_TEST_CASE(t_new_close_lifecycle)
                 tw.store(true);
                 l2.Down();
             };
-            detail::Hook_Sleep(30);
+            bbtco_sleep(30);
             c->Close();
             l2.Wait();
             BOOST_CHECK(tr.load() && tw.load());
@@ -741,7 +743,7 @@ BOOST_AUTO_TEST_CASE(t_new_close_lifecycle)
                 BOOST_CHECK_EQUAL(r, 0);
                 l2.Down();
             };
-            detail::Hook_Sleep(30);
+            bbtco_sleep(30);
             c->Close();
             l2.Down();
             l2.Wait();
@@ -785,18 +787,18 @@ BOOST_AUTO_TEST_CASE(t_new_concurrency)
                 int v;
                 r1.store(c->Read(v));
             };
-            detail::Hook_Sleep(30);
+            bbtco_sleep(30);
             bbtco[c, &r2]()
             {
                 int v;
                 r2.store(c->Read(v));
             };
-            detail::Hook_Sleep(30);
+            bbtco_sleep(30);
             bbtco[c]()
             {
                 c->Write(42);
             };
-            detail::Hook_Sleep(100);
+            bbtco_sleep(100);
             l2.Down();
             l2.Wait();
             BOOST_CHECK_EQUAL(r1.load(), 0);
@@ -822,7 +824,7 @@ BOOST_AUTO_TEST_CASE(t_new_concurrency)
                 r2.store(c->TryRead(v2));
                 l2.Down();
             };
-            detail::Hook_Sleep(50);
+            bbtco_sleep(50);
             l2.Wait();
             BOOST_CHECK((r1.load() == 0 && r2.load() != 0) || (r1.load() != 0 && r2.load() == 0));
             int sv = (r1.load() == 0) ? v1 : v2;
@@ -916,9 +918,9 @@ BOOST_AUTO_TEST_CASE(t_new_operators)
             auto c = Chan<int, 0>();
             bbtco[c]()
             {
-                detail::Hook_Sleep(10);
+                bbtco_sleep(10);
                 c->Write(10);
-                detail::Hook_Sleep(10);
+                bbtco_sleep(10);
                 c->Write(20);
             };
             int v1, v2;
@@ -976,6 +978,7 @@ struct TestItem {
     int id;
     double val;
 };
+
 BOOST_AUTO_TEST_CASE(t_chan_custom_struct)
 {
     BOOST_TEST_MESSAGE("enter t_chan_custom_struct");
@@ -1030,7 +1033,7 @@ BOOST_AUTO_TEST_CASE(t_readall_block)
         auto c = Chan<int, 10>();
         bbtco[&c]()
         {
-            detail::Hook_Sleep(100);
+            bbtco_sleep(100);
             c->Write(10);
             c->Write(20);
         };
@@ -1173,7 +1176,7 @@ BOOST_AUTO_TEST_CASE(t_trywrite_timeout_success)
         BOOST_ASSERT(c->Write(1) == 0);
         bbtco[&c]()
         {
-            detail::Hook_Sleep(50);
+            bbtco_sleep(50);
             int val;
 
             /**
@@ -1277,7 +1280,7 @@ BOOST_AUTO_TEST_CASE(t_tryread_timeout_success)
         auto c = Chan<int, 10>();
         bbtco[&c]()
         {
-            detail::Hook_Sleep(50);
+            bbtco_sleep(50);
             c->Write(42);
         };
         int val = 0;
@@ -1440,7 +1443,7 @@ BOOST_AUTO_TEST_CASE(t_close_wake_read)
             BOOST_CHECK_EQUAL(ret, -1);
             l.Down();
         };
-        detail::Hook_Sleep(50);
+        bbtco_sleep(50);
 
         /**
          * Close 唤醒读端
@@ -1486,7 +1489,7 @@ BOOST_AUTO_TEST_CASE(t_close_wake_write_single)
             BOOST_CHECK_EQUAL(ret, -1);
             l.Down();
         };
-        detail::Hook_Sleep(50);
+        bbtco_sleep(50);
         c->Close();
         l.Down();
     };
@@ -1531,7 +1534,7 @@ BOOST_AUTO_TEST_CASE(t_close_wake_write_multi)
             BOOST_CHECK(ret == 0 || ret == -1);
             l.Down();
         };
-        detail::Hook_Sleep(50);
+        bbtco_sleep(50);
         c->Close();
         l.Down();
     };
@@ -1566,7 +1569,7 @@ BOOST_AUTO_TEST_CASE(t_close_wake_tryread_timeout)
             BOOST_CHECK_EQUAL(ret, -1);
             l.Down();
         };
-        detail::Hook_Sleep(50);
+        bbtco_sleep(50);
         c->Close();
         l.Down();
     };
@@ -1604,7 +1607,7 @@ BOOST_AUTO_TEST_CASE(t_close_wake_trywrite_timeout)
             BOOST_CHECK_EQUAL(ret, -1);
             l.Down();
         };
-        detail::Hook_Sleep(50);
+        bbtco_sleep(50);
         c->Close();
         l.Down();
     };
@@ -1656,7 +1659,7 @@ BOOST_AUTO_TEST_CASE(t_nocache_close_wake_write)
             BOOST_CHECK_EQUAL(ret, 0);
             l.Down();
         };
-        detail::Hook_Sleep(50);
+        bbtco_sleep(50);
         c->Close();
         l.Down();
     };
@@ -1724,7 +1727,7 @@ BOOST_AUTO_TEST_CASE(t_concurrent_read_cas)
         /**
          * 等待 Reader 1 完成 CAS
          */
-        detail::Hook_Sleep(30);
+        bbtco_sleep(30);
 
         /**
          * Reader 2: CAS 应失败，立即返回 -1
@@ -1738,12 +1741,12 @@ BOOST_AUTO_TEST_CASE(t_concurrent_read_cas)
         /**
          * 写入数据唤醒 Reader 1
          */
-        detail::Hook_Sleep(30);
+        bbtco_sleep(30);
         bbtco[&c]()
         {
             c->Write(42);
         };
-        detail::Hook_Sleep(100);
+        bbtco_sleep(100);
         l.Down();
     };
     l.Wait();
@@ -1791,7 +1794,7 @@ BOOST_AUTO_TEST_CASE(t_concurrent_tryread_cas)
         /**
          * 确保内层协程先执行，外协程不提前返回
          */
-        detail::Hook_Sleep(50);
+        bbtco_sleep(50);
     };
     l.Wait();
 
@@ -1875,7 +1878,7 @@ BOOST_AUTO_TEST_CASE(t_multi_reader_integrity)
          * 外协程等待所有元素消费完后关闭 chan
          */
         while (total_read.load() < N)
-            detail::Hook_Sleep(1);
+            bbtco_sleep(1);
 
         /**
          * 唤醒可能阻塞的读者，此时队列已空不会丢数据
@@ -1913,7 +1916,7 @@ BOOST_AUTO_TEST_CASE(t_nocache_multi_reader)
             int val;
             r2_ok.store(c->Read(val));
         };
-        detail::Hook_Sleep(50);
+        bbtco_sleep(50);
 
         /**
          * 写入一个元素后关闭，确保两个读者都能退出
@@ -1921,10 +1924,10 @@ BOOST_AUTO_TEST_CASE(t_nocache_multi_reader)
         bbtco[c]()
         {
             c->Write(1);
-            detail::Hook_Sleep(10);
+            bbtco_sleep(10);
             c->Close();
         };
-        detail::Hook_Sleep(100);
+        bbtco_sleep(100);
         BOOST_TEST_MESSAGE("Chan<0> 2 readers: r1=" << r1_ok.load() << " r2=" << r2_ok.load());
         l.Down();
     };
@@ -2048,11 +2051,11 @@ BOOST_AUTO_TEST_CASE(t_nocache_value_match)
         auto c = Chan<int, 0>();
         bbtco[&c]()
         {
-            detail::Hook_Sleep(10);
+            bbtco_sleep(10);
             c->Write(10);
-            detail::Hook_Sleep(10);
+            bbtco_sleep(10);
             c->Write(20);
-            detail::Hook_Sleep(10);
+            bbtco_sleep(10);
             c->Write(30);
         };
         int v1, v2, v3;
@@ -2136,7 +2139,7 @@ BOOST_AUTO_TEST_CASE(t_chan_trywrite_timeout_does_not_steal_wakeup)
         /**
          * 让 A 先入队，B 排在僵尸 waiter 之后
          */
-        detail::Hook_Sleep(20);
+        bbtco_sleep(20);
         bbtco[c, &lb, &bret]()
         {
             bret = c->Write(3);
@@ -2146,7 +2149,7 @@ BOOST_AUTO_TEST_CASE(t_chan_trywrite_timeout_does_not_steal_wakeup)
         /**
          * 等 A 超时（其 waiter 已被 Cancel）
          */
-        detail::Hook_Sleep(120);
+        bbtco_sleep(120);
 
         int v = 0;
         BOOST_CHECK_EQUAL(c->Read(v), 0);

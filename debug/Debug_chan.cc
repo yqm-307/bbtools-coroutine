@@ -95,12 +95,12 @@ void DebugWriteBlock()
             };
         }
 
-        bbt::coroutine::detail::Hook_Sleep(100);
+        bbtco_sleep(100);
 
         int val;
         for (int i = 0; i < nwrite; ++i) {
             while (!(chan >> val))
-                detail::Hook_Sleep(1);
+                bbtco_sleep(1);
             results.insert(val);
         }
 

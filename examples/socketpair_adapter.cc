@@ -39,7 +39,7 @@ static void fd_adapter_example()
     bbtco[fds, &got_data]()
     {
         /**
-         * 等价于 hiredis-async 的 redisAsyncHandleRead 前的等待
+         * 示例保留 fd 等待状态码来报告失败原因，见 SyntaxMacro.hpp 的「已知缺口」。
          */
         int ret = g_bbt_tls_coroutine_co->YieldUntilFdReadable(fds[0], 5000);
         if (ret == 0) {

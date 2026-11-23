@@ -12,7 +12,7 @@ void rwlock_test()
 
     bbtco[&]()
     {
-        auto rwlock = sync::CoRWMutex::Create();
+        auto rwlock = bbtco_make_corwmutex();
 
         for (int i = 0; i < nread_co; ++i) {
             bbtco[&, rwlock, i]()
@@ -53,7 +53,7 @@ void rwlock_test()
                     printf("%d\n", v);
                 }
 
-                sleep(1);
+                bbtco_sleep(1000);
             }
         };
     };

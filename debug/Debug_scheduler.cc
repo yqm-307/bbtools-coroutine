@@ -11,13 +11,14 @@ void SchedulerThread()
 
     for (int i = 0; i < 10; ++i) {
         for (int i = 0; i < 5000; ++i) {
-            g_scheduler->RegistCoroutineTask([]() {
+            bbtco[]()
+            {
                 g_count++;
 
                 /**
                  * printf("cur thread %ld %d\n", gettid(), g_count.load());
                  */
-            });
+            };
         }
         std::this_thread::sleep_for(bbt::core::clock::milliseconds(50));
     }

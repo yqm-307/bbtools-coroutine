@@ -38,11 +38,14 @@ void FixSizeChan()
         int value = 0;
         printf("co_%lu read time<%ld>\n", bbt::co::GetLocalCoroutineId(), bbt::core::clock::gettime<>());
         chan >> value;
-        printf("co_%lu read succ time<%ld>, value: %d\n", bbt::co::GetLocalCoroutineId(), bbt::core::clock::gettime<>(),
-               value);
+        printf(
+            "co_%lu read succ time<%ld>, value: %d\n",
+            bbt::co::GetLocalCoroutineId(),
+            bbt::core::clock::gettime<>(),
+            value);
     };
 
-    sleep(1);
+    bbtco_sleep(1000);
 }
 
 void MultiWrite()
@@ -69,12 +72,15 @@ void MultiWrite()
         for (int i = 0; i < 5; ++i) {
             int value = 0;
             chan >> value;
-            printf("co_%lu read succ time<%ld>, value: %d\n", bbt::co::GetLocalCoroutineId(),
-                   bbt::core::clock::gettime<>(), value);
+            printf(
+                "co_%lu read succ time<%ld>, value: %d\n",
+                bbt::co::GetLocalCoroutineId(),
+                bbt::core::clock::gettime<>(),
+                value);
         }
     };
 
-    sleep(1);
+    bbtco_sleep(1000);
 }
 
 void CloseNotify()
@@ -125,7 +131,7 @@ void CloseNotify()
         printf("co1 end %ld\n", bbt::core::clock::gettime<>());
     };
 
-    sleep(1);
+    bbtco_sleep(1000);
 }
 
 void NoCacheChan()
@@ -144,15 +150,18 @@ void NoCacheChan()
 
     bbtco_ref
     {
-        sleep(100);
+        bbtco_sleep(100000);
         int value = 0;
         printf("co_%lu read time<%ld>\n", bbt::co::GetLocalCoroutineId(), bbt::core::clock::gettime<>());
         chan >> value;
-        printf("co_%lu read succ time<%ld>, value: %d\n", bbt::co::GetLocalCoroutineId(), bbt::core::clock::gettime<>(),
-               value);
+        printf(
+            "co_%lu read succ time<%ld>, value: %d\n",
+            bbt::co::GetLocalCoroutineId(),
+            bbt::core::clock::gettime<>(),
+            value);
     };
 
-    sleep(1);
+    bbtco_sleep(1000);
 }
 
 int bbtco_main()
