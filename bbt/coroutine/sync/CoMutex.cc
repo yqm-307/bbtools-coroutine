@@ -6,6 +6,7 @@
 #include <bbt/coroutine/detail/Processer.hpp>
 #include <bbt/coroutine/detail/Profiler.hpp>
 #include <bbt/coroutine/detail/DriverWakeDeferral.hpp>
+#include <bbt/coroutine/detail/WaitNode.hpp>
 
 namespace bbt::coroutine::sync {
 
@@ -76,8 +77,7 @@ void CoMutex::UnLock()
 {
 
     /**
-     * _OnUnLocked→_NotifyOne→Trigger 的唤醒链在 m_mutex 内执行；
-     * driver Wake 推迟到 _SysUnLock 之后（本函数退出时 flush）。
+     * 所有权变更与选中 waiter 在同一临界区；恢复投递需等解锁。
      */
     detail::DriverWakeDeferral _defer;
     _SysLock();
@@ -211,8 +211,8 @@ int CoMutex::_WaitUnLockUnitlTimeout(int timeout, const detail::CoroutineOnYield
          */
         if (!cb_ran) {
             coroutine->_SetAwaitEvent(nullptr);
-            if (event != nullptr && !m_wait_event_queue.empty() && m_wait_event_queue.back() == event)
-                m_wait_event_queue.back().reset();
+            if (event != nullptr && !m_wait_event_queue.empty() && m_wait_event_queue.back() == WaitEntry{event})
+                m_wait_event_queue.back() = WaitEntry{};
             _SysUnLock();
         }
         throw;
@@ -244,12 +244,12 @@ int CoMutex::_WaitUnLock(const detail::CoroutineOnYieldCallback& cb)
      * 分配失败抛出时回调未执行、锁仍在手，释放后重抛并清 await 登记。
      */
     bool cb_ran = false;
-    std::shared_ptr<detail::CoPollEvent> event;
+    std::shared_ptr<detail::WaitNode> node;
     try {
-        event = coroutine->RegistCustom(detail::POLL_EVENT_CUSTOM_COMUTEX);
-        if (event == nullptr)
+        node = coroutine->RegistWaitNode();
+        if (node == nullptr)
             return -1;
-        m_wait_event_queue.push(event);
+        m_wait_event_queue.push(node);
         return coroutine->YieldWithCallback([coroutine, cb, &cb_ran]() {
             if (!coroutine->_RegistAwaitEvent())
                 return false;
@@ -267,9 +267,9 @@ int CoMutex::_WaitUnLock(const detail::CoroutineOnYieldCallback& cb)
          * 置 tombstone 由 _NotifyOne 跳过；pop() 会误删队首健康节点。
          */
         if (!cb_ran) {
-            coroutine->_SetAwaitEvent(nullptr);
-            if (event != nullptr && !m_wait_event_queue.empty() && m_wait_event_queue.back() == event)
-                m_wait_event_queue.back().reset();
+            coroutine->_SetWaitNode(nullptr);
+            if (node != nullptr && !m_wait_event_queue.empty() && m_wait_event_queue.back() == WaitEntry{node})
+                m_wait_event_queue.back() = WaitEntry{};
             _SysUnLock();
         }
         throw;
@@ -279,16 +279,19 @@ int CoMutex::_WaitUnLock(const detail::CoroutineOnYieldCallback& cb)
 void CoMutex::_NotifyOne()
 {
     while (!m_wait_event_queue.empty()) {
-        auto co_sptr = m_wait_event_queue.front();
+        auto waiter = std::move(m_wait_event_queue.front());
         m_wait_event_queue.pop();
 
         /**
-         * tombstone（装配失败回滚置空的本轮事件）不占唤醒名额，直接跳过
+         * 空槽和已结束的等待不占唤醒名额；两种等待按同一入队顺序竞争。
          */
-        if (co_sptr == nullptr)
-            continue;
-        if (co_sptr->Trigger(detail::POLL_EVENT_CUSTOM) == 0)
+        if (const auto* node = std::get_if<std::shared_ptr<detail::WaitNode>>(&waiter)) {
+            if (*node && (*node)->Trigger(detail::POLL_EVENT_CUSTOM) == 0)
+                break;
+        } else if (const auto& event = std::get<std::shared_ptr<detail::CoPollEvent>>(waiter);
+                   event && event->TriggerCustom() == 0) {
             break;
+        }
     }
 }
 

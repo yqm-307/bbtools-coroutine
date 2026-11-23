@@ -19,6 +19,8 @@ class CoMutex;
 
 namespace bbt::coroutine::detail {
 
+class WaitNode;
+
 enum FollowEventStatus {
     DEFAULT = 0,
     TIMEOUT = 1,
@@ -39,8 +41,9 @@ enum class CoroutineYieldDisposition {
  * @brief 一个用户任务：内嵌 Context（借来的栈）与 CFS 节点，记录运行状态和当前等待事件。
  *
  * 所有权：Create 返回裸指针（Ptr 即 Coroutine*），没有 shared_ptr。Scheduler 入队后所有权交给
- * Processer：CommitYield 报 FINAL 由 Processer delete，报 READY 重新入队，报 EVENT_WAIT 交给
- * CommitPark 完成 park。同一时刻只有一个 Processer 线程操作它；m_await_event 由 m_await_mu 保护，
+ * Processer：CommitYield 报 FINAL 由 Processer delete，报 READY 重新入队，
+ * EVENT_WAIT 交给 CommitPark 完成 park。同一时刻只有一个 Processer 线程操作它；事件槽与
+ * WaitNode 槽均由 m_await_mu 保护，
  * 所以 poller 派发和其他 worker 的 Notify 能在别的线程取到事件引用并 Trigger，运行状态只有持有者能改。
  * 状态机见 Define.hpp 的 CoroutineStatus 图。
  */
@@ -100,7 +103,7 @@ public:
      * 返回 FINAL 表示对象已到终态、可由调用方销毁；EVENT_WAIT 在这里提交 park，提交可能立即完成并唤醒协程。
      * 发布之后不得再次访问 Coroutine。
      */
-    CoroutineYieldDisposition CommitYield();
+    CoroutineYieldDisposition CommitYield(ProcesserId processer_id);
 
     /**
      * @brief 协程 id，进程内单调递增，创建后不变。
@@ -228,6 +231,7 @@ protected:
      * PENDING 由 CommitPark 所在 Processer 完成，PARKED 由 Trigger 调用线程同步完成。
      */
     void OnCoPollEvent(int event, int custom_key);
+    void OnWaitNode(short event);
 
 protected:
     /**
@@ -240,6 +244,13 @@ private:
      * 挂起后注册当前 await 事件：先做取消预检与单测注入，注册失败则清 await、回滚 disposition。
      */
     bool _RegistAwaitEvent();
+
+    CoroutinePriority _WaitResumePriority(int event) noexcept;
+    std::shared_ptr<WaitNode> RegistWaitNode();
+
+    std::shared_ptr<WaitNode> _AwaitWaitNode() const;
+    void _SetWaitNode(std::shared_ptr<WaitNode> node);
+    bool _HasAwait() const;
 
     /**
      * 锁内拷贝一份 shared_ptr：调用方拿到后即使槽被清空，事件对象仍然存活。
@@ -270,10 +281,14 @@ private:
     volatile CoroutineStatus m_run_status{CoroutineStatus::CO_DEFAULT};
 
     /**
-     * 当前等待事件：挂起前建好、挂起后注册，唤醒时被消费清空。
+     * 当前 fd/timer 事件：挂起前建好、挂起后注册，唤醒时被消费清空。
      * 由 m_await_mu 保护，所以 poller 派发和其他 worker 的 Notify 能取到引用并 Trigger。
      */
     std::shared_ptr<CoPollEvent> m_await_event{nullptr};
+    /**
+     * 当前纯 custom 等待节点，与 m_await_event 互斥，只在一次等待代次内存活。
+     */
+    std::shared_ptr<WaitNode> m_wait_node{nullptr};
     mutable std::mutex m_await_mu;
     std::atomic_bool m_cancel_requested{false};
     std::exception_ptr m_exception;
@@ -283,6 +298,12 @@ private:
      * 本次让出的去向，由 Coroutine::Yield* 写入、CommitYield 读出后交给 Processer。
      */
     CoroutineYieldDisposition m_yield_disposition{CoroutineYieldDisposition::MANUAL};
+
+    /**
+     * 挂起方在 CommitPark 发布前写入，完成方经事件状态的 acquire 读取。
+     * 只提示初始投递位置，不延长 worker 寿命，也不限制偷取和迁移。
+     */
+    ProcesserId m_wait_processer_id{BBT_COROUTINE_INVALID_PROCESSER_ID};
 
     /**
      * 最后一次导致此协程唤醒的事件（PollEventType 归一化掩码）

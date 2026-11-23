@@ -1,6 +1,7 @@
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MAIN
 #include <boost/test/included/unit_test.hpp>
+#include <atomic>
 #include <mutex>
 
 #include <bbt/coroutine/coroutine.hpp>
@@ -31,15 +32,17 @@ BOOST_AUTO_TEST_CASE(t_regist_event_timeout)
 {
     bbt::core::thread::CountDownLatch l{1};
     auto begin = bbt::core::clock::gettime();
+    std::atomic_bool ok{false};
 
     bbtco_ev_t(100)[&](int fd, short event)
     {
-        BOOST_CHECK(bbt::core::clock::gettime() - begin >= 100);
+        ok.store(bbt::core::clock::gettime() - begin >= 100, std::memory_order_release);
         l.Down();
         return false;
     };
 
     l.Wait();
+    BOOST_CHECK(ok.load(std::memory_order_acquire));
 }
 
 /**
@@ -49,25 +52,26 @@ BOOST_AUTO_TEST_CASE(t_regist_event_fd_ev_readable)
 {
     bbt::core::thread::CountDownLatch l{1};
     const char msg[] = "hello";
+    std::atomic_bool ok{false};
 
     int fds[2];
     Assert(pipe(fds) == 0);
     int rfd = fds[0];
     int wfd = fds[1];
 
-    bbtco_ev_r(fds[0])[=, &l](int fd, short event)
+    bbtco_ev_r(fds[0])[=, &l, &ok](int fd, short event)
     {
         char buf[10];
         memset(buf, '\0', sizeof(buf));
         int size = ::read(fd, buf, sizeof(buf));
-        BOOST_CHECK_EQUAL(size, strlen(msg));
-        BOOST_CHECK_EQUAL(std::string(buf), std::string(msg));
+        ok.store(size == static_cast<int>(strlen(msg)) && std::string(buf) == msg, std::memory_order_release);
         l.Down();
         return false;
     };
 
     BOOST_CHECK_EQUAL(::write(wfd, msg, strlen(msg)), strlen(msg));
     l.Wait();
+    BOOST_CHECK(ok.load(std::memory_order_acquire));
     ::close(rfd);
     ::close(wfd);
 }
@@ -80,19 +84,21 @@ BOOST_AUTO_TEST_CASE(t_regist_event_fd_ev_writeable)
     bbt::core::thread::CountDownLatch l{1};
     const char msg[] = "hello";
     char buf[10] = {'0'};
+    std::atomic<ssize_t> callback_write{-1};
 
     int fds[2];
     Assert(pipe(fds) == 0);
     int rfd = fds[0];
     int wfd = fds[1];
 
-    bbtco_ev_w(fds[1])[&](int fd, short event)
+    bbtco_ev_w(fds[1])[&, &callback_write](int fd, short event)
     {
-        BOOST_CHECK_EQUAL(::write(fd, msg, strlen(msg)), strlen(msg));
+        callback_write.store(::write(fd, msg, strlen(msg)), std::memory_order_release);
     };
 
     BOOST_CHECK_EQUAL(::read(rfd, buf, sizeof(msg)), strlen(msg));
     BOOST_CHECK(memcmp(buf, msg, strlen(msg)) == 0);
+    BOOST_CHECK_EQUAL(callback_write.load(std::memory_order_acquire), static_cast<ssize_t>(strlen(msg)));
     ::close(rfd);
     ::close(wfd);
 }
@@ -141,14 +147,16 @@ BOOST_AUTO_TEST_CASE(t_regist_event_fd_timeout)
     int rfd = fds[0];
     int wfd = fds[1];
     auto start_time = bbt::core::clock::gettime();
+    std::atomic_bool ok{false};
 
     bbtco_ev_rt(fds[1], 100)[&](int fd, short event)
     {
-        BOOST_CHECK_GE(bbt::core::clock::gettime() - 100, start_time);
+        ok.store(bbt::core::clock::gettime() - start_time >= 100, std::memory_order_release);
         l.Down();
     };
 
     l.Wait();
+    BOOST_CHECK(ok.load(std::memory_order_acquire));
     ::close(rfd);
     ::close(wfd);
 }

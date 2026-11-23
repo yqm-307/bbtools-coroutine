@@ -106,7 +106,7 @@ public:
     }
 
     std::atomic_bool fail{false};
-
+    std::atomic_int m_wakes{0};
     ProcesserDriverResult OnTick(ProcesserDriverPhase) override
     {
         if (m_gate)
@@ -124,6 +124,7 @@ public:
 
     void Wake() noexcept override
     {
+        ++m_wakes;
         {
             std::lock_guard<std::mutex> lock(m_mutex);
             m_notified = true;
@@ -367,7 +368,11 @@ void RetireAndReap(bool manual_reaper)
     BOOST_CHECK(!second->timed_out.load());
 }
 
-void DriverAndParked()
+/**
+ * 挂起协程后迁移/退役原 worker：定时版走 CoPollEvent，纯等待版走
+ * Deadline::max() 的 WaitNode，两版都必须由 survivor 精确恢复一次。
+ */
+void DriverAndParked(bool pure_wait)
 {
     Configure(1, 1, 2);
     g_scheduler->Start();
@@ -378,16 +383,21 @@ void DriverAndParked()
     auto resumed = std::make_shared<std::atomic<ProcesserId>>(0);
     auto result = std::make_shared<std::atomic<WaitStatus>>(WaitStatus::RuntimeUnavailable);
     auto destroyed = std::make_shared<std::atomic_bool>(false);
-    bbtco[waiter, registered, done, resumed, result, destroyed]
+    auto resume_count = std::make_shared<std::atomic_int>(0);
+    bbtco[waiter, registered, done, resumed, result, destroyed, resume_count, pure_wait]
     {
         tls_receipt.destroyed = destroyed;
         WaitOptions options;
-        options.deadline = Clock::now() + 5s;
+        if (pure_wait)
+            options.deadline = Deadline::max();
+        else
+            options.deadline = Clock::now() + 5s;
         *result = waiter->WaitWithCallback(options, [registered] {
             *registered = true;
             return true;
         });
         *resumed = Processer::TryGetLocalProcesser()->GetId();
+        ++*resume_count;
         done->Down();
     };
     BOOST_REQUIRE(WaitUntil([registered] { return registered->load(); }));
@@ -404,7 +414,8 @@ void DriverAndParked()
     BOOST_REQUIRE(g_scheduler->SetProcesserNum(2) == ProcesserResizeResult::Ok);
     auto ids = g_scheduler->GetWorkerProcesserIds();
     auto survivor = ids.front() == origin ? ids.back() : ids.front();
-    Binding keep(survivor, std::make_shared<Driver>());
+    auto keep_drv = std::make_shared<Driver>();
+    Binding keep(survivor, keep_drv);
     Binding pin_origin(origin, std::make_shared<Driver>());
     BOOST_REQUIRE(g_scheduler->SetProcesserAutoScale(true) == ProcesserResizeResult::Ok);
     BOOST_CHECK(g_scheduler->SetProcesserNum(1) == ProcesserResizeResult::DriverBound);
@@ -421,11 +432,14 @@ void DriverAndParked()
      * 退役未取消/展开 parked 用户栈
      */
     BOOST_CHECK(done->WaitTimeout(0) != 0);
+    const int keep_wakes_before = keep_drv->m_wakes.load();
     BOOST_CHECK_EQUAL(waiter->Notify(), 0);
     BOOST_REQUIRE_EQUAL(done->WaitTimeout(5000), 0);
     BOOST_CHECK(result->load() == WaitStatus::Completed);
     BOOST_CHECK_EQUAL(resumed->load(), survivor);
     BOOST_CHECK(resumed->load() != origin);
+    BOOST_CHECK_EQUAL(resume_count->load(), 1);
+    BOOST_REQUIRE(WaitUntil([&] { return keep_drv->m_wakes.load() > keep_wakes_before; }));
     keep.Release();
 }
 
@@ -1115,7 +1129,9 @@ BOOST_AUTO_TEST_CASE(scaling)
     else if (mode == "noloop_manual_reaper")
         RetireAndReap(true);
     else if (mode == "driver_parked")
-        DriverAndParked();
+        DriverAndParked(false);
+    else if (mode == "driver_parked_waitnode")
+        DriverAndParked(true);
     else if (mode == "auto_busy")
         AutoScale(false);
     else if (mode == "auto_queue")

@@ -66,7 +66,7 @@ struct ProbeWaiter : CoWaiter {
     bool Ready()
     {
         std::lock_guard<std::mutex> l(m_notify_mutex);
-        return m_co_event != nullptr;
+        return m_co_event != nullptr || m_wait_node != nullptr;
     }
 };
 

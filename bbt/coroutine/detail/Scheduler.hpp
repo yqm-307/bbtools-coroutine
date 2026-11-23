@@ -205,9 +205,9 @@ public:
 
     /**
      * 挂起协程就绪后回到可运行集合：先试当前 worker 的 admission（就地入队），
-     * 拒收再回全局队列并广播 active worker。
+     * 再试挂起时的 worker；拒收才回全局队列并广播 active worker。
      */
-    void OnActiveCoroutine(CoroutinePriority priority, Coroutine::Ptr coroutine);
+    void OnActiveCoroutine(CoroutinePriority priority, Coroutine::Ptr coroutine, ProcesserId wait_processer_id);
 
     /**
      * @brief 运行时是否已完成必要初始化（runtime/worker/poller）。
@@ -336,10 +336,10 @@ protected:
     Processer::SPtr _LoadBlance2Proc(CoroutinePriority priority, Coroutine::Ptr co);
 
     /**
-     * 延期广播入口：仅 DriverWakeDeferral 最外层析构调用，遍历 active
-     * 快照补发 driver Wake；不重新发布任务/latch
+     * 延期补发 driver Wake；无特定目标时广播 active，不重新发布任务/latch。
      */
-    static void _WakeProcesserDrivers();
+    static void _WakeProcesserDrivers(ProcesserId target);
+    Processer::SPtr _FindActiveProcesser(ProcesserId id);
 
     /**
      * 初始化全局实例

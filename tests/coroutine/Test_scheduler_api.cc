@@ -92,7 +92,14 @@ BOOST_AUTO_TEST_CASE(t_explicit_stack_size_registration)
     const size_t request = 64 * 1024 + 1;
     const size_t expected = request + ((page - request % page) % page);
 
+    /**
+     * 默认栈大小随构建规格变化，基准取显式注册前的实际默认，不钉具体数值
+     */
+    const size_t default_request = g_bbt_coroutine_config->m_cfg_stack_size;
+    const size_t default_expected = default_request + ((page - default_request % page) % page);
+
     std::atomic<size_t> seen{0};
+    std::atomic<size_t> default_seen{0};
     bbt::core::thread::CountDownLatch latch{3};
 
     g_scheduler->RegistCoroutineTask(
@@ -109,6 +116,7 @@ BOOST_AUTO_TEST_CASE(t_explicit_stack_size_registration)
 
     bbtco_desc("api-desc")[&]()
     {
+        default_seen.store(GetLocalCoroutineStackSize());
         latch.Down();
     };
 
@@ -116,9 +124,10 @@ BOOST_AUTO_TEST_CASE(t_explicit_stack_size_registration)
     BOOST_CHECK_EQUAL(seen.load(), expected);
 
     /**
-     * 默认值未被显式调用改写：出厂 12 KiB 仍是不传大小时的唯一来源
+     * 默认入口仍取注册前的默认大小；显式调用未改写全局默认
      */
-    BOOST_CHECK_EQUAL(g_bbt_coroutine_config->m_cfg_stack_size, 1024u * 12);
+    BOOST_CHECK_EQUAL(default_seen.load(), default_expected);
+    BOOST_CHECK_EQUAL(g_bbt_coroutine_config->m_cfg_stack_size, default_request);
 }
 
 /**

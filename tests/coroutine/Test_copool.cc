@@ -560,6 +560,141 @@ BOOST_AUTO_TEST_CASE(t_release_drains_pending_futures)
     l.Wait();
 }
 
+/**
+ * 封口顺序的线性化点：Release 先置停止位，再等 worker 退出，最后 drain。
+ *
+ * 用一个占住唯一 worker 的任务做观察点：它在任务体里反复向本池投递探针，
+ * 探针一旦被拒绝就证明停止位对 worker 可见；而此刻 worker 仍在任务体里，
+ * Release 必然还卡在「等 worker 退出」上。于是「封口 -> 拒绝提交」的先后
+ * 由任务体与 worker 退出账目直接确定，不靠超时或调度概率推断：
+ * - 停止位可见之前被接受的 future 一定还在队列里，Release 返回时必须已以
+ *   broken_promise 兑现（不遗留、不永挂），且这些任务体一个都不会执行；
+ * - 停止位可见之后的四个默认提交入口都必须立即拒绝。
+ */
+BOOST_AUTO_TEST_CASE(t_release_seal_linearizes_default_submit)
+{
+    EnsureRuntime();
+
+    constexpr int kQueuedFutures = 8;
+    constexpr int kSealPollRounds = 4000;
+
+    std::atomic_bool worker_parked{false};
+    std::atomic_bool seal_observed{false};
+    std::atomic_int executed{0};
+    std::atomic_int submitted{0};
+    std::atomic_int invalid_futures{0};
+    std::atomic_int not_ready{0};
+    std::atomic_int not_broken{0};
+    std::atomic_int late_int_accepted{0};
+    std::atomic_int late_future_accepted{0};
+
+    bbt::core::thread::CountDownLatch l{1};
+
+    bbtco[&]()
+    {
+        auto pool = bbtco_make_copool(1);
+
+        /**
+         * 唯一 worker 进入后不再取队列：它在任务体里反复投递探针，直到探针被拒绝。
+         * 封口前被接受的探针任务只会滞留在队列，由 Release 的 drain 回收。
+         */
+        pool->Submit([&]() {
+            worker_parked.store(true);
+            for (int round = 0; round != kSealPollRounds; ++round) {
+                if (pool->Submit([]() {}) == -1) {
+                    seal_observed.store(true);
+                    return;
+                }
+                bbtco_sleep(1);
+            }
+        });
+
+        /**
+         * 先确认 worker 已被占住，随后提交的 future 才确定只排队、不被执行。
+         */
+        const bool parked = WaitUntil([&]() { return worker_parked.load(); });
+
+        std::vector<std::future<void>> futures;
+        pool::CoPoolWorkCallback reused = [&]() {
+            executed.fetch_add(1);
+        };
+        if (parked) {
+            for (int i = 0; i != kQueuedFutures / 2; ++i)
+                futures.push_back(pool->SubmitWithFuture([&]() { executed.fetch_add(1); }));
+            for (int i = 0; i != kQueuedFutures / 2; ++i)
+                futures.push_back(pool->SubmitWithFuture(reused));
+            submitted.store(static_cast<int>(futures.size()));
+        }
+
+        pool->Release();
+
+        /**
+         * Release 返回即 worker 已退出、队列已排空：未执行的 future 必须以
+         * broken_promise 兑现。wait_for(0) 不是等待，而是断言返回瞬间就已完成。
+         */
+        for (auto& future : futures) {
+            if (!future.valid()) {
+                invalid_futures.fetch_add(1);
+                continue;
+            }
+            if (future.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready) {
+                not_ready.fetch_add(1);
+                continue;
+            }
+            bool broken = false;
+            try {
+                future.get();
+            } catch (const std::future_error& e) {
+                broken = (e.code() == std::make_error_code(std::future_errc::broken_promise));
+            } catch (...) {
+            }
+            if (!broken)
+                not_broken.fetch_add(1);
+        }
+
+        /**
+         * 封口之后四个默认提交入口都必须立即拒绝；即使被错误接受，池里已无 worker，
+         * 任务体也执行不到（executed 仍须为 0）。
+         */
+        pool::CoPoolWorkCallback late = [&]() {
+            executed.fetch_add(1);
+        };
+        if (pool->Submit(late) != -1)
+            late_int_accepted.fetch_add(1);
+        if (pool->Submit([]() {}) != -1)
+            late_int_accepted.fetch_add(1);
+        if (pool->SubmitWithFuture(late).valid())
+            late_future_accepted.fetch_add(1);
+        if (pool->SubmitWithFuture([]() {}).valid())
+            late_future_accepted.fetch_add(1);
+
+        l.Down();
+    };
+
+    l.Wait();
+
+    /**
+     * 观察点成立：worker 进过任务体，且在退出前看到了封口。
+     */
+    BOOST_TEST(worker_parked.load());
+    BOOST_TEST(seal_observed.load());
+
+    /**
+     * 封口前接受的 future 全部兑现为 broken_promise，任务体一个都没执行。
+     */
+    BOOST_CHECK_EQUAL(submitted.load(), kQueuedFutures);
+    BOOST_CHECK_EQUAL(invalid_futures.load(), 0);
+    BOOST_CHECK_EQUAL(not_ready.load(), 0);
+    BOOST_CHECK_EQUAL(not_broken.load(), 0);
+    BOOST_CHECK_EQUAL(executed.load(), 0);
+
+    /**
+     * 封口后四个默认入口都拒绝
+     */
+    BOOST_CHECK_EQUAL(late_int_accepted.load(), 0);
+    BOOST_CHECK_EQUAL(late_future_accepted.load(), 0);
+}
+
 BOOST_AUTO_TEST_CASE(t_end) {}
 
 BOOST_AUTO_TEST_SUITE_END()

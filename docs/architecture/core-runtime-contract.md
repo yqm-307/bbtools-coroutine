@@ -360,7 +360,7 @@ public:
 
 `setup_runtime()` 先在 native main 同步设置既有 GlobalConfig；随后 RuntimeOptions 工厂在同一 runtime 异常边界内最多求值一次，显式字段覆盖三类便捷输入。Start 前将全部 scheduler/stack pool 配置固化为 `RuntimeConfigSnapshot`，运行期组件只读取该快照；兼容保留的公开字段即使被后续代码改写，也不改变已启动 runtime 的配置。配置门冻结后固定执行 Start（单次）→ 提交前 native hook → 提交主任务 → 提交后 host hook → 等主任务与 host hook 都结束 → 返回。配置阶段构造、校验或应用失败均为非零失败，不调用 Start/hook、不提交主任务；先完整校验再应用，不留下半份可重试配置。没有 setup_runtime 的旧 `Run`/`BBTCO_MAIN*` 仍兼容，直接 Start 时由 Scheduler 完成冻结。
 
-`stacks` 有值时：Strict 要求非空、规范化键唯一、各 `max_objects > 0`，Auto 的两个字段必须为 0；Auto 要求 `strict_classes` 为空且两个上限均 > 0。校验尺寸/乘加溢出、默认栈是否为 Strict 已声明类，以及启动所需 worker/monitor 的精确规格与容量是否可接纳；不以扩大预算或跨桶分配修复非法输入。无值时的有限默认预算由实现记录，仍须通过同一校验。`initial_workers` 只覆盖既有 initial worker 数，既有 min/max/自动扩缩容校验不被绕过。
+`stacks` 有值时：Strict 要求非空、规范化键唯一、各 `max_objects > 0`，Auto 的两个字段必须为 0；Auto 要求 `strict_classes` 为空且两个上限均 > 0。校验尺寸/乘加溢出、默认栈是否为 Strict 已声明类，以及启动所需 CoPool worker 的精确规格与容量是否可接纳；不以扩大预算或跨桶分配修复非法输入。无值时的有限默认预算由实现记录，仍须通过同一校验。`initial_workers` 只覆盖既有 initial worker 数，既有 min/max/自动扩缩容校验不被绕过。
 
 非默认消费示例（仅构造值，无启动副作用）：
 
@@ -448,7 +448,7 @@ Manager 的共享对象索引只保存 `weak_ptr`；查询用一次 `if (auto ow
 
 - `StackRequest` 的值类型与 Start 前消费入口见 §12.2；`usable_bytes` 是可用容量承诺而非提示，按 `NormalizeSize` 页对齐后与 `protect` 组成唯一桶键 `(U, protect)`；0 非法。任何策略都只用请求对应的精确桶，不允许以小栈顶替大请求，也不允许跨桶兜底。
 - 策略是进程级 `StackPolicy`（`Strict` / `Auto`），由 §12.2 的 `RuntimeOptions.stacks` 在 `Start` 前一次性消费：`Strict` 只接受已配置尺寸类与各类硬容量；`Auto` 按真实 `StackRequest` 建立精确尺寸桶。`Auto` 不降低任务声明尺寸。
-- 预算：`Strict` 每类有硬 `max_objects`，全池上限为各类之和；`Auto` 同时受全池对象上限与全池可用字节预算约束。`live / borrowed / idle / pending` 与已提交字节数分别可观察；`pending` 在预留时即计入对象与字节预算，worker/monitor 栈也计入。超预算返回明确拒绝，不排队等待无界内存。
+- 预算：`Strict` 每类有硬 `max_objects`，全池上限为各类之和；`Auto` 同时受全池对象上限与全池可用字节预算约束。`live / borrowed / idle / pending` 与已提交字节数分别可观察；`pending` 在预留时即计入对象与字节预算，CoPool worker 栈也计入。超预算返回明确拒绝，不排队等待无界内存。
 - 异步交付唯一顺序：锁内预留 `pending` → 维护 lane（runtime 既有 native 维护执行流，非业务 Co worker）锁外分配 `Stack` → 提交为 `live+borrowed` 并生成 move-only `StackLease` → `Context` 接收 lease 并构造 fcontext → Coroutine 入队成功。任一步失败或取消都回滚 pending；已提交但未入队的 lease 归还池，不发布半初始化 Coroutine。业务 Co worker 上不得同步分配栈；Co 路径没有同步分配兜底，等待分配用既有 CoWaiter/awaitable 按调用方 deadline 收口。
 - `Update`/缩容只回收 idle，不触碰 borrowed/pending；`Release` 按 `Stack` 自身的 `(U, protect)` 回桶，不读当前全局默认值。
 
@@ -460,12 +460,12 @@ Manager 的共享对象索引只保存 `weak_ptr`；查询用一次 `if (auto ow
 - `StackLease` 是带池归还器的 `unique_ptr`，请求记录共享延寿但栈不共享。Context 值接收 lease，成员构造、callable、fcontext 或描述失败均由唯一 owner 回收；Scheduler 只在完全构造后锁内入队，队列拒绝或抛出由局部 `unique_ptr<Coroutine>` 锁外销毁。任何可挂起的 Acquire 均在 global/map/admission 锁外。
 - `Acquire(request, WaitOptions)` 使用既有 CoWaiter，取消/超时/事件登记失败以 `StackWaitError::Status()` 区分，实际分配故障保留原异常。未开始的取消移除队列并撤回 pending；已进入系统分配不能强制中断，保留 pending 字节到分配返回，随后销毁或归还晚到栈。维护流交付前检查绝对 deadline，不交付已经过期的分配。完成与协程取消仍遵循 Waiter 首胜仲裁。
 - `Observe()` 在同一把池锁下读取 live/borrowed/idle/pending 和 committed/pending 可用字节；归还成功从 borrowed 转 idle，字节预算只有 idle 真正回收时才释放，不把缓存伪报为已释放内存。局部池必须活过全部 lease 和在途请求；全局池保持进程寿命。
-- Scheduler 的 P worker 使用 pthread 原生栈，Start 不消耗 StackPool 栈；默认类必须至少容纳主任务一个栈。这里的 worker/monitor 计数指 CoPool 的真实 Co 栈，它们与主任务、普通 Co 使用同一 Acquire，不享有预算豁免；其尺寸和固定数量的创建前校验归 CoPool。
+- Scheduler 的 P worker 使用 pthread 原生栈，Start 不消耗 StackPool 栈；默认类必须至少容纳主任务一个栈。这里的 worker 计数指 CoPool 的真实 Co 栈，它们与主任务、普通 Co 使用同一 Acquire，不享有预算豁免；其尺寸和固定数量的创建前校验归 CoPool。
 - 比此更简单的现成路径不足以闭合责任：原 StackPool 已有精确桶与锁外分配，却是同步裸指针交付；std/Boost 的栈分配器不处理本库 pending 预算、CoWaiter 取消和 Scheduler 入队。实现只补请求记录与 move-only lease，继续复用 Stack、池锁、CoWaiter 与 native 维护流。
 
 `coroutine.stack_ownership_*` 覆盖 12 KiB/128 KiB × 两种保护属性、对象/字节预算、idle 压力回收与 borrowed 地址稳定、native/Co 分配故障、队列/Context/提交失败、pending/committed 取消、deadline 和单 worker 推进。测试先用维护流屏障证明阶段，再触发故障/取消，并核对调用次数及资源计数。CoPool 路由的要求与实现口径：
 
 - `CoPool` 是固定 worker 的尺寸路由器：创建时每个 worker 类给定不可变 `StackRequest` 与固定 worker 数；`Submit` 携带 `StackRequest`，只路由到精确匹配的类。空类、满队列、停止后提交返回明确拒绝；不跨尺寸兜底、不无界排队、不为单个任务临时建栈。
 - 活性：每类 worker 只执行本类任务，挂起任务只占用本类一个 worker，不承诺跨类借用。禁止同一 CoPool 内的等待依赖（任务 A 等待提交到同一池的任务 B）；这是使用前提，CoPool 不做死锁检测。HTTP 等模块的 writer/sequencer 必须使用独立类或独立池，不得占用 handler 类 worker。
-- `Release`：封口拒绝新提交，唤醒排队者，已排队未执行的 future 以 broken_promise 兑现，等待 worker/monitor 协程退出；只允许在本池 worker 之外的域调用，池内 worker 调用是自等待编程错误，抛 `std::logic_error`，不得等待自身。Co 域调用不得占用本池 worker。
-- 实现口径：`CoPoolClassConfig{request, worker_num, queue_capacity}` 在 `Create(CoPoolOptions)` 构造期校验（规范化键唯一、worker 数与队列容量非零），并用 `StackPool::CanAdmit` 在创建任何 worker 前核对各类 worker 栈与 monitor 默认栈的准入；不通过以 `std::runtime_error` 拒绝，创建中途失败回收已登记 worker 后才抛出，不留半成品池。`Submit(StackRequest, …)` 返回 `CoPoolSubmitStatus`，`NoExactClass` 覆盖未声明规格与未携带尺寸的提交（尺寸路由池没有默认类，旧 `Submit(callback)`/`SubmitWithFuture` 在这类池上直接拒绝）。每类队列容量固定，worker 数固定；任务异常沿用 future/回调/计数三条隔离路径。`Release` 的退出等待用 `m_created_workers`/`m_exited_workers` 账目：Co 域让出，native 域短睡，因此单 Processer 也能收口；自等待检查在封口之前。`coroutine.copool_router_*` 与 `coroutine.copool` 覆盖上述路径。
+- `Release`：封口拒绝新提交，唤醒排队者，已排队未执行的 future 以 broken_promise 兑现，等待 worker 协程退出；只允许在本池 worker 之外的域调用，池内 worker 调用是自等待编程错误，抛 `std::logic_error`，不得等待自身。Co 域调用不得占用本池 worker。
+- 实现口径：`CoPoolClassConfig{request, worker_num, queue_capacity}` 在 `Create(CoPoolOptions)` 构造期校验（规范化键唯一、worker 数与队列容量非零），并用 `StackPool::CanAdmit` 在创建任何 worker 前核对各类 worker 栈的准入；不通过以 `std::runtime_error` 拒绝，创建中途失败回收已登记 worker 后才抛出，不留半成品池。`Submit(StackRequest, …)` 返回 `CoPoolSubmitStatus`，`NoExactClass` 覆盖未声明规格与未携带尺寸的提交（尺寸路由池没有默认类，旧 `Submit(callback)`/`SubmitWithFuture` 在这类池上直接拒绝）。每类队列容量固定，worker 数固定；任务异常沿用 future/回调/计数三条隔离路径。`Release` 的退出等待用 `m_created_workers`/`m_exited_workers` 账目：Co 域让出，native 域短睡，因此单 Processer 也能收口；自等待检查在封口之前。`coroutine.copool_router_*` 与 `coroutine.copool` 覆盖上述路径。

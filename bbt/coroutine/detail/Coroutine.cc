@@ -6,6 +6,7 @@
 #include <bbt/coroutine/detail/Scheduler.hpp>
 #include <bbt/coroutine/detail/Processer.hpp>
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
+#include <bbt/coroutine/detail/WaitNode.hpp>
 #include <bbt/coroutine/detail/CoPoller.hpp>
 #include <bbt/coroutine/detail/Profiler.hpp>
 #include <bbt/coroutine/utils/DebugPrint.hpp>
@@ -189,8 +190,7 @@ int Coroutine::YieldWithCallback(const CoroutineOnYieldCallback& cb)
      * 副作用；唯一存储点的真实失败由 Context 侧收口（空槽 + NO_CHECK），
      * 下方 catch 统一完成 await/运行态回滚。
      */
-    m_yield_disposition =
-        _AwaitEvent() == nullptr ? CoroutineYieldDisposition::MANUAL : CoroutineYieldDisposition::EVENT_WAIT;
+    m_yield_disposition = _HasAwait() ? CoroutineYieldDisposition::EVENT_WAIT : CoroutineYieldDisposition::MANUAL;
     m_run_status = CoroutineStatus::CO_SUSPEND;
 #ifdef BBT_COROUTINE_STRINGENT_DEBUG
     g_bbt_dbgmgr->OnEvent_YieldCo(this);
@@ -278,6 +278,11 @@ void Coroutine::OnException(std::exception_ptr eptr) noexcept
     if (auto ev = _AwaitEvent()) {
         ev->UnRegist();
         _SetAwaitEvent(nullptr);
+        return;
+    }
+    if (auto node = _AwaitWaitNode()) {
+        node->UnRegist();
+        _SetWaitNode(nullptr);
     }
 }
 
@@ -289,8 +294,12 @@ void Coroutine::RequestCancel() noexcept
      * 取消唤醒使用独立取消位，不再借用超时位——恢复侧可凭
      * 唤醒掩码直接区分「被取消」与「真超时」。
      */
-    if (auto ev = _AwaitEvent())
+    if (auto ev = _AwaitEvent()) {
         ev->Trigger(POLL_EVENT_CANCELLED);
+        return;
+    }
+    if (auto node = _AwaitWaitNode())
+        node->Trigger(POLL_EVENT_CANCELLED);
 }
 
 bool Coroutine::IsCancelRequested() const noexcept
@@ -310,6 +319,24 @@ void Coroutine::_SetAwaitEvent(std::shared_ptr<CoPollEvent> ev)
     m_await_event = std::move(ev);
 }
 
+std::shared_ptr<WaitNode> Coroutine::_AwaitWaitNode() const
+{
+    std::lock_guard<std::mutex> lk(m_await_mu);
+    return m_wait_node;
+}
+
+void Coroutine::_SetWaitNode(std::shared_ptr<WaitNode> node)
+{
+    std::lock_guard<std::mutex> lk(m_await_mu);
+    m_wait_node = std::move(node);
+}
+
+bool Coroutine::_HasAwait() const
+{
+    std::lock_guard<std::mutex> lk(m_await_mu);
+    return m_await_event != nullptr || m_wait_node != nullptr;
+}
+
 std::exception_ptr Coroutine::GetException() const noexcept
 {
     return m_exception;
@@ -320,7 +347,7 @@ int Coroutine::YieldUntilTimeout(int ms)
     if (IsCancelRequested())
         return 1;
 
-    Assert(_AwaitEvent() == nullptr);
+    Assert(!_HasAwait());
     _SetAwaitEvent(
         CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key) { OnCoPollEvent(event, custom_key); }));
 
@@ -334,7 +361,7 @@ int Coroutine::YieldUntilTimeout(int ms)
 
 std::shared_ptr<CoPollEvent> Coroutine::RegistCustom(int key)
 {
-    if (_AwaitEvent() != nullptr)
+    if (_HasAwait())
         return nullptr;
 
     auto ev =
@@ -351,7 +378,7 @@ std::shared_ptr<CoPollEvent> Coroutine::RegistCustom(int key)
 
 std::shared_ptr<CoPollEvent> Coroutine::RegistCustom(int key, int timeout_ms)
 {
-    if (_AwaitEvent() != nullptr)
+    if (_HasAwait())
         return nullptr;
 
     auto ev =
@@ -371,11 +398,21 @@ std::shared_ptr<CoPollEvent> Coroutine::RegistCustom(int key, int timeout_ms)
     return ev;
 }
 
+std::shared_ptr<WaitNode> Coroutine::RegistWaitNode()
+{
+    if (_HasAwait())
+        return nullptr;
+
+    auto node = WaitNode::Create(GetId(), [this](short event) { OnWaitNode(event); });
+    _SetWaitNode(node);
+    return node;
+}
+
 int Coroutine::YieldUntilFdReadable(int fd)
 {
     if (IsCancelRequested())
         return 1;
-    Assert(_AwaitEvent() == nullptr);
+    Assert(!_HasAwait());
     auto ev =
         CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key) { OnCoPollEvent(event, custom_key); });
     _SetAwaitEvent(ev);
@@ -392,7 +429,7 @@ int Coroutine::YieldUntilFdReadable(int fd, int timeout_ms)
 {
     if (IsCancelRequested())
         return 1;
-    Assert(_AwaitEvent() == nullptr);
+    Assert(!_HasAwait());
 
     auto ev =
         CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key) { OnCoPollEvent(event, custom_key); });
@@ -410,7 +447,7 @@ int Coroutine::YieldUntilFdWriteable(int fd)
 {
     if (IsCancelRequested())
         return 1;
-    Assert(_AwaitEvent() == nullptr);
+    Assert(!_HasAwait());
     auto ev =
         CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key) { OnCoPollEvent(event, custom_key); });
     _SetAwaitEvent(ev);
@@ -427,7 +464,7 @@ int Coroutine::YieldUntilFdWriteable(int fd, int timeout_ms)
 {
     if (IsCancelRequested())
         return 1;
-    Assert(_AwaitEvent() == nullptr);
+    Assert(!_HasAwait());
     auto ev =
         CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key) { OnCoPollEvent(event, custom_key); });
     _SetAwaitEvent(ev);
@@ -444,7 +481,7 @@ int Coroutine::YieldUntilFdEx(int fd, short events, int timeout_ms)
 {
     if (IsCancelRequested())
         return 1;
-    Assert(_AwaitEvent() == nullptr);
+    Assert(!_HasAwait());
     auto ev =
         CoPollEvent::Create(GetId(), [this](auto, int event, int custom_key) { OnCoPollEvent(event, custom_key); });
     _SetAwaitEvent(ev);
@@ -467,6 +504,24 @@ void Coroutine::_TestFailNextAwaitRegist() noexcept
 
 bool Coroutine::_RegistAwaitEvent()
 {
+    auto await_node = _AwaitWaitNode();
+    if (await_node != nullptr) {
+        if (s_test_fail_await_regist.exchange(false, std::memory_order_acq_rel))
+            await_node->UnRegist();
+
+        if (IsCancelRequested())
+            await_node->Trigger(POLL_EVENT_CANCELLED);
+
+        if (await_node->Regist() == 0) {
+            m_parked_us = bbt::core::clock::gettime_mono<bbt::core::clock::microseconds>();
+            return true;
+        }
+
+        _SetWaitNode(nullptr);
+        m_yield_disposition = CoroutineYieldDisposition::MANUAL;
+        return false;
+    }
+
     auto await_event = _AwaitEvent();
 
     /**
@@ -506,19 +561,25 @@ int Coroutine::GetWaitInfo(CoroutineWaitInfo& out) const noexcept
      * 仅协程自身线程调用安全（同 Processer，无并发写者）；见头文件注释。
      * m_parked_us == 0 表示不在等待（唤醒时清零），此时没有可导出的现场。
      */
-    if (m_await_event == nullptr || m_parked_us == 0)
+    if (m_parked_us == 0 || (m_await_event == nullptr && m_wait_node == nullptr))
         return -1;
 
-    out.m_wait_event = m_await_event->GetEvent();
-    out.m_fd = (out.m_wait_event & (PollEventType::POLL_EVENT_READABLE | PollEventType::POLL_EVENT_WRITEABLE))
-                   ? m_await_event->GetFd()
-                   : -1;
-    out.m_timeout_ms = m_await_event->GetTimeout() > 0 ? m_await_event->GetTimeout() : 0;
+    if (m_await_event != nullptr) {
+        out.m_wait_event = m_await_event->GetEvent();
+        out.m_fd = (out.m_wait_event & (PollEventType::POLL_EVENT_READABLE | PollEventType::POLL_EVENT_WRITEABLE))
+                       ? m_await_event->GetFd()
+                       : -1;
+        out.m_timeout_ms = m_await_event->GetTimeout() > 0 ? m_await_event->GetTimeout() : 0;
+    } else {
+        out.m_wait_event = POLL_EVENT_CUSTOM;
+        out.m_fd = -1;
+        out.m_timeout_ms = 0;
+    }
     out.m_waited_us = bbt::core::clock::gettime_mono<bbt::core::clock::microseconds>() - m_parked_us;
     return 0;
 }
 
-CoroutineYieldDisposition Coroutine::CommitYield()
+CoroutineYieldDisposition Coroutine::CommitYield(ProcesserId processer_id)
 {
     if (m_run_status == CoroutineStatus::CO_FINAL) {
         m_yield_disposition = CoroutineYieldDisposition::FINAL;
@@ -539,14 +600,20 @@ CoroutineYieldDisposition Coroutine::CommitYield()
     const auto disposition = m_yield_disposition;
     if (disposition == CoroutineYieldDisposition::EVENT_WAIT) {
         auto await_event = _AwaitEvent();
-        Assert(await_event != nullptr);
-        await_event->CommitPark();
+        m_wait_processer_id = processer_id;
+        if (await_event != nullptr) {
+            await_event->CommitPark();
+        } else if (auto await_node = _AwaitWaitNode()) {
+            await_node->CommitPark();
+        } else {
+            Assert(false);
+        }
     }
 
     return disposition;
 }
 
-void Coroutine::OnCoPollEvent(int event, int custom_key)
+CoroutinePriority Coroutine::_WaitResumePriority(int event) noexcept
 {
     CoroutinePriority priority = CO_PRIORITY_NORMAL;
 
@@ -568,6 +635,16 @@ void Coroutine::OnCoPollEvent(int event, int custom_key)
         m_mlfq_demotions--;
     }
 
+    /**
+     * 超时和取消覆盖 MLFQ，恢复清理不必等待普通工作。
+     */
+    if (event & (POLL_EVENT_TIMEOUT | POLL_EVENT_CANCELLED))
+        return CO_PRIORITY_CRITICAL;
+    return priority;
+}
+
+void Coroutine::OnCoPollEvent(int event, int custom_key)
+{
     auto ev = _AwaitEvent();
     Assert(ev != nullptr);
 
@@ -578,6 +655,7 @@ void Coroutine::OnCoPollEvent(int event, int custom_key)
      * 读这份归一化掩码，不与原始 EventOpt 混比。
      */
     const int resume_event = NormalizeTriggerEvent(static_cast<short>(event));
+    const auto priority = _WaitResumePriority(resume_event);
     m_last_resume_event = resume_event;
 
     /**
@@ -595,8 +673,6 @@ void Coroutine::OnCoPollEvent(int event, int custom_key)
     m_parked_us = 0;
 
     /**
-     * 先取消事件，然后push到全局队列中
-     *
      * 日志装配不分配：本函数经 _Complete 的 callback 在 Processer 原生栈
      * 执行，to_string 拼接的 bad_alloc 会中断唤醒回调（_SetAwaitEvent 与
      * 入队被跳过）致协程悬挂。栈缓冲 snprintf 同型消除该逃逸点。
@@ -612,17 +688,25 @@ void Coroutine::OnCoPollEvent(int event, int custom_key)
     m_yield_disposition = CoroutineYieldDisposition::MANUAL;
 
     /**
-     * 超时任务优先级最高，覆盖 MLFQ 判定；取消改用独立位后，
-     * 取消唤醒必须同样获得 CRITICAL 提升，否则是静默的调度行为回归。
-     */
-    if ((resume_event & POLL_EVENT_TIMEOUT) || (resume_event & POLL_EVENT_CANCELLED))
-        priority = CO_PRIORITY_CRITICAL;
-
-    /**
      * 底层 Event 必须先析构，否则同一 FD 的下一次等待会在 ASIO 重复注册。
      */
     g_bbt_poller->FlushDeferredEvents();
-    g_scheduler->OnActiveCoroutine(priority, this);
+    g_scheduler->OnActiveCoroutine(priority, this, m_wait_processer_id);
+}
+
+void Coroutine::OnWaitNode(short event)
+{
+    const auto priority = _WaitResumePriority(event);
+
+    auto node = _AwaitWaitNode();
+    Assert(node != nullptr);
+    m_last_resume_event = event;
+    m_last_wait_fd = -1;
+    m_last_wait_epoch = 0;
+    m_parked_us = 0;
+    _SetWaitNode(nullptr);
+    m_yield_disposition = CoroutineYieldDisposition::MANUAL;
+    g_scheduler->OnActiveCoroutine(priority, this, m_wait_processer_id);
 }
 
 int Coroutine::GetLastResumeEvent() const noexcept

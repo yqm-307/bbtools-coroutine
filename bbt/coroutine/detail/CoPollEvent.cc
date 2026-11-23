@@ -12,6 +12,7 @@
 #include <bbt/core/log/DebugPrint.hpp>
 #include <bbt/coroutine/detail/CoPoller.hpp>
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
+#include <bbt/coroutine/detail/DriverWakeDeferral.hpp>
 #include <bbt/coroutine/utils/DebugPrint.hpp>
 #include <bbt/coroutine/detail/Processer.hpp>
 #include <bbt/coroutine/detail/LocalThread.hpp>
@@ -117,6 +118,16 @@ CoPollEvent::~CoPollEvent()
 
 int CoPollEvent::Trigger(short trigger_events)
 {
+    return _Trigger(trigger_events, false);
+}
+
+int CoPollEvent::TriggerCustom()
+{
+    return _Trigger(POLL_EVENT_CUSTOM, true);
+}
+
+int CoPollEvent::_Trigger(short trigger_events, bool defer_completion)
+{
     if (trigger_events == 0)
         return -1;
 
@@ -139,12 +150,9 @@ int CoPollEvent::Trigger(short trigger_events)
 
         const uint64_t triggering = PackCoPollEventState(CoPollEventPhase::TRIGGERING, trigger_events);
         if (m_state.compare_exchange_weak(state, triggering, std::memory_order_acq_rel, std::memory_order_acquire)) {
-            try {
-                return _Complete(trigger_events);
-            } catch (...) {
-                ReportCoPollEventException(m_co_id, m_event_id, std::current_exception());
-                return 0;
-            }
+            if (!defer_completion || !DriverWakeDeferral::DeferCompletion(*this))
+                _FinishTrigger(trigger_events);
+            return 0;
         }
     }
 }
@@ -633,13 +641,9 @@ bool CoPollEvent::CommitPark()
                                           std::memory_order_acq_rel, std::memory_order_acquire)) {
 
             /**
-             * pending 完成运行在 Processer 线程，不能让 callback 异常逃出。
+             * 早到首胜由提交 park 的 Processer 消费，不转交给通知线程。
              */
-            try {
-                _Complete(trigger_events);
-            } catch (...) {
-                ReportCoPollEventException(m_co_id, m_event_id, std::current_exception());
-            }
+            _FinishTrigger(trigger_events);
             return true;
         }
     }
@@ -730,6 +734,15 @@ int CoPollEvent::GetFd() const
 int64_t CoPollEvent::GetTimeout() const
 {
     return m_timeout;
+}
+
+void CoPollEvent::_FinishTrigger(short trigger_events) noexcept
+{
+    try {
+        _Complete(trigger_events);
+    } catch (...) {
+        ReportCoPollEventException(m_co_id, m_event_id, std::current_exception());
+    }
 }
 
 int CoPollEvent::_Complete(short trigger_events)

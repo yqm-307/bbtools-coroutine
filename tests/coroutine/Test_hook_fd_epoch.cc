@@ -44,6 +44,8 @@
 #include <unistd.h>
 #include <vector>
 
+#include "hook_fd_epoch_io.hpp"
+
 #include <bbt/coroutine/coroutine.hpp>
 #include <bbt/coroutine/detail/GlobalConfig.hpp>
 #include <bbt/coroutine/detail/Hook.hpp>
@@ -219,7 +221,7 @@ BOOST_AUTO_TEST_CASE(t_readable_resume_window_returns_ebadf)
         DoneOnExit signal{done};
         char buf[1];
         errno = 0;
-        const ssize_t r = ::read(fds[0], buf, 1);
+        const ssize_t r = FdEpochRead(fds[0], buf, 1);
         result.store(r);
         errcode.store(errno);
     };
@@ -254,7 +256,7 @@ BOOST_AUTO_TEST_CASE(t_readable_resume_window_returns_ebadf)
          * A 确实尚未返回，不能拿先读到 'r' 冒充窗口
          */
         BOOST_REQUIRE_EQUAL(result.load(), 12345);
-        BOOST_REQUIRE_EQUAL(::close(fds[0]), 0);
+        BOOST_REQUIRE_EQUAL(FdEpochClose(fds[0]), 0);
         BOOST_REQUIRE_EQUAL(::dup2(np[0], fds[0]), fds[0]);
         const char z = 'z';
         BOOST_REQUIRE_EQUAL(::write(np[1], &z, 1), 1);
@@ -289,10 +291,10 @@ BOOST_AUTO_TEST_CASE(t_readable_resume_window_returns_ebadf)
     BOOST_CHECK_MESSAGE(fl_after & O_NONBLOCK,
                         "reused fd lost O_NONBLOCK: stale nonblock guard wrote old flags onto new object");
     if (::fcntl(fds[0], F_GETFD) >= 0)
-        ::close(fds[0]);
-    ::close(fds[1]);
-    ::close(np[0]);
-    ::close(np[1]);
+        FdEpochClose(fds[0]);
+    FdEpochClose(fds[1]);
+    FdEpochClose(np[0]);
+    FdEpochClose(np[1]);
 }
 
 /**
@@ -334,7 +336,7 @@ BOOST_AUTO_TEST_CASE(t_concurrent_close_and_new_waiter_not_miswoken)
         DoneOnExit signal{done};
         char buf[1];
         errno = 0;
-        const ssize_t r = ::read(fds[0], buf, 1);
+        const ssize_t r = FdEpochRead(fds[0], buf, 1);
         errno_a.store(errno);
         result_a.store(r);
     };
@@ -351,7 +353,7 @@ BOOST_AUTO_TEST_CASE(t_concurrent_close_and_new_waiter_not_miswoken)
          * A 已登记
          */
         BOOST_REQUIRE(CoWaitFdWaiter(fds[0], 3000));
-        BOOST_REQUIRE_EQUAL(::close(fds[0]), 0);
+        BOOST_REQUIRE_EQUAL(FdEpochClose(fds[0]), 0);
         BOOST_REQUIRE_EQUAL(::dup2(np[0], fds[0]), fds[0]);
         fd_reused.store(true, std::memory_order_release);
 
@@ -376,7 +378,7 @@ BOOST_AUTO_TEST_CASE(t_concurrent_close_and_new_waiter_not_miswoken)
         BOOST_REQUIRE(CoWaitFlag(fd_reused, 3000));
         char buf[1] = {0};
         errno = 0;
-        const ssize_t r = ::read(fds[0], buf, 1);
+        const ssize_t r = FdEpochRead(fds[0], buf, 1);
         result_b.store(r);
         byte_b.store(buf[0]);
     };
@@ -396,10 +398,10 @@ BOOST_AUTO_TEST_CASE(t_concurrent_close_and_new_waiter_not_miswoken)
      */
     BOOST_CHECK_EQUAL(result_b.load(), 1);
     if (::fcntl(fds[0], F_GETFD) >= 0)
-        ::close(fds[0]);
-    ::close(fds[1]);
-    ::close(np[0]);
-    ::close(np[1]);
+        FdEpochClose(fds[0]);
+    FdEpochClose(fds[1]);
+    FdEpochClose(np[0]);
+    FdEpochClose(np[1]);
 }
 
 /**
@@ -450,7 +452,7 @@ BOOST_AUTO_TEST_CASE(t_concurrent_double_close_loser_ebadf_then_reuse_survives)
     {
         DoneOnExit signal{done};
         char buf[1];
-        const ssize_t r = ::read(fds[0], buf, 1);
+        const ssize_t r = FdEpochRead(fds[0], buf, 1);
         result_a.store(r);
     };
 
@@ -485,7 +487,7 @@ BOOST_AUTO_TEST_CASE(t_concurrent_double_close_loser_ebadf_then_reuse_survives)
         /**
          * BeginFdClose=false 路径
          */
-        const int r = ::close(fds[0]);
+        const int r = FdEpochClose(fds[0]);
         t2_ret.store(r);
         t2_errno.store(errno);
         t2_issued.store(true, std::memory_order_release);
@@ -494,7 +496,7 @@ BOOST_AUTO_TEST_CASE(t_concurrent_double_close_loser_ebadf_then_reuse_survives)
     /**
      * T1：claim + stall + 底层 close + EndFdClose
      */
-    BOOST_REQUIRE_EQUAL(::close(fds[0]), 0);
+    BOOST_REQUIRE_EQUAL(FdEpochClose(fds[0]), 0);
     g_bbt_fd_close_stall_for_test_ms.store(0, std::memory_order_release);
     t2.join();
     BOOST_REQUIRE(t2_issued.load());
@@ -516,10 +518,10 @@ BOOST_AUTO_TEST_CASE(t_concurrent_double_close_loser_ebadf_then_reuse_survives)
     BOOST_REQUIRE_MESSAGE(ok, "waiter coroutine did not finish after concurrent double close");
     BOOST_CHECK_EQUAL(result_a.load(), -1);
     if (::fcntl(fds[0], F_GETFD) >= 0)
-        ::close(fds[0]);
-    ::close(fds[1]);
-    ::close(np[0]);
-    ::close(np[1]);
+        FdEpochClose(fds[0]);
+    FdEpochClose(fds[1]);
+    FdEpochClose(np[0]);
+    FdEpochClose(np[1]);
 }
 
 /**
@@ -553,7 +555,7 @@ struct FillerFdGuard {
     void CloseAll()
     {
         for (const int fd : m_fds)
-            ::close(fd);
+            FdEpochClose(fd);
         m_fds.clear();
     }
     std::vector<int> m_fds;
@@ -702,8 +704,8 @@ BOOST_AUTO_TEST_CASE(t_event_construct_dup_failure_rolls_back)
      * 原 fd 未被误关
      */
     BOOST_CHECK_EQUAL(static_cast<long>(::fcntl(sp[0], F_GETFD)), 0);
-    ::close(sp[0]);
-    ::close(sp[1]);
+    FdEpochClose(sp[0]);
+    FdEpochClose(sp[1]);
 }
 
 /**
@@ -788,7 +790,7 @@ BOOST_AUTO_TEST_CASE(t_parked_write_close_reuse_returns_ebadf)
         /**
          * EAGAIN → 真 park
          */
-        const ssize_t r = ::write(fds[0], &c, 1);
+        const ssize_t r = FdEpochWrite(fds[0], &c, 1);
         result_a.store(r);
         errno_a.store(errno);
     };
@@ -807,7 +809,7 @@ BOOST_AUTO_TEST_CASE(t_parked_write_close_reuse_returns_ebadf)
          * 已拿到 worker
          */
         control_ran.store(true, std::memory_order_release);
-        BOOST_REQUIRE_EQUAL(::close(fds[0]), 0);
+        BOOST_REQUIRE_EQUAL(FdEpochClose(fds[0]), 0);
         BOOST_REQUIRE_EQUAL(::dup2(np[0], fds[0]), fds[0]);
     };
 
@@ -839,10 +841,10 @@ BOOST_AUTO_TEST_CASE(t_parked_write_close_reuse_returns_ebadf)
                         "reused fd lost O_NONBLOCK: stale nonblock guard wrote old flags onto new object");
 
     if (::fcntl(fds[0], F_GETFD) >= 0)
-        ::close(fds[0]);
-    ::close(fds[1]);
-    ::close(np[0]);
-    ::close(np[1]);
+        FdEpochClose(fds[0]);
+    FdEpochClose(fds[1]);
+    FdEpochClose(np[0]);
+    FdEpochClose(np[1]);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
