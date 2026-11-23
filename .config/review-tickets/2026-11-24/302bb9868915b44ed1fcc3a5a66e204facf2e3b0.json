@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-24",
+  "commit": "302bb9868915b44ed1fcc3a5a66e204facf2e3b0",
+  "base": "e1ab697c70d3a8ac705fb32563c10ea76d2cd376",
+  "result": "pass",
+  "reviewer": "GPT-6.2 Astra（独立审查，deleg_d7856730）",
+  "summary": "审查 Chan<T, 0>::Read 从 500ms 超时等待改为无超时等待的完整改动，确认登记后复查、WaitNode pending 唤醒、写入与关闭唤醒、取消清理、返回值契约和模板实例化无阻断问题。",
+  "checks": [
+    {
+      "id": "llm-review",
+      "kind": "attested",
+      "status": "pass",
+      "summary": "无 P0、P1、P2 或 P3 finding。Test_chan 退出码 0，git diff --check 通过，工作树干净。",
+      "evidence": {
+        "reviewer": "GPT-6.2 Astra（独立审查，deleg_d7856730）",
+        "scope": "e1ab697c70d3a8ac705fb32563c10ea76d2cd376..302bb9868915b44ed1fcc3a5a66e204facf2e3b0"
+      }
+    }
+  ]
+}
