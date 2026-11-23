@@ -16,13 +16,10 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include <bbt/core/Sanitizer.hpp>
 #include <bbt/coroutine/detail/Hook.hpp>
 
-#if defined(__SANITIZE_THREAD__) || (defined(__clang__) && __has_feature(thread_sanitizer))
-#define BBT_HOOK_FD_EPOCH_DIRECT 1
-#endif
-
-#if defined(BBT_HOOK_FD_EPOCH_DIRECT)
+#ifdef BBT_TSAN_ENABLED
 inline ssize_t FdEpochRead(int fd, void* buf, size_t n)
 {
     return bbt::coroutine::detail::Hook_Read(fd, buf, n);

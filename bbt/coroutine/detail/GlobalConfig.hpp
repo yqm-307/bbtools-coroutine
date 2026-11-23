@@ -6,6 +6,7 @@
 #include <atomic>
 #include <memory>
 #include <mutex>
+#include <bbt/core/Sanitizer.hpp>
 #include <bbt/coroutine/detail/Define.hpp>
 
 namespace bbt::coroutine::detail {
@@ -106,7 +107,7 @@ public:
     /**
      * 每个协程栈的请求字节数；按页对齐后才是可用容量
      */
-#if defined(__SANITIZE_THREAD__) || (defined(__clang__) && __has_feature(thread_sanitizer))
+#ifdef BBT_TSAN_ENABLED
     size_t m_cfg_stack_size{64 * 1024};
 #else
     size_t m_cfg_stack_size{1024 * 12};

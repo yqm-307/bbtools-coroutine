@@ -4,13 +4,10 @@
 #pragma once
 #include <functional>
 #include <boost/context/detail/fcontext.hpp>
+#include <bbt/core/Sanitizer.hpp>
 #include <bbt/core/util/Assert.hpp>
 #include <bbt/coroutine/detail/StackPool.hpp>
 #include <bbt/coroutine/detail/debug/StackBudgetDiagnostics.hpp>
-
-#if defined(__SANITIZE_THREAD__) || (defined(__clang__) && __has_feature(thread_sanitizer))
-#define BBT_COROUTINE_TSAN_FIBER 1
-#endif
 
 namespace bbt::coroutine::detail {
 
@@ -127,7 +124,7 @@ private:
     CoroutineOnYieldCallback m_onyield_callback{nullptr};
     YieldCheckStatus m_onyield_callback_result{YieldCheckStatus::NO_CHECK};
 
-#ifdef BBT_COROUTINE_TSAN_FIBER
+#ifdef BBT_TSAN_ENABLED
     void* m_tsan_fiber{nullptr};
     void* m_tsan_caller{nullptr};
 #endif

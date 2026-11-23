@@ -11,7 +11,7 @@
 #include <bbt/coroutine/detail/Profiler.hpp>
 #include <bbt/coroutine/detail/GlobalConfig.hpp>
 
-#ifdef BBT_COROUTINE_TSAN_FIBER
+#ifdef BBT_TSAN_ENABLED
 #include <sanitizer/tsan_interface.h>
 #endif
 
@@ -123,7 +123,7 @@ Context::Context(StackLease stack, const CoroutineCallback& co_func) : m_user_ma
                                                           &Context::_CoroutineMain);
     if (!m_context)
         throw std::runtime_error("make_fcontext failed");
-#ifdef BBT_COROUTINE_TSAN_FIBER
+#ifdef BBT_TSAN_ENABLED
     m_tsan_fiber = __tsan_create_fiber(0);
 #endif
 
@@ -154,7 +154,7 @@ Context::~Context()
      */
     m_onyield_callback = nullptr;
     m_user_main = nullptr;
-#ifdef BBT_COROUTINE_TSAN_FIBER
+#ifdef BBT_TSAN_ENABLED
     __tsan_destroy_fiber(m_tsan_fiber);
 #endif
     m_stack.reset();
@@ -214,12 +214,12 @@ void Context::Resume()
      * m_onyield_callback，本循环每次读到的是最新挂出的回调。
      */
     while (m_onyield_callback) {
-#ifdef BBT_COROUTINE_TSAN_FIBER
+#ifdef BBT_TSAN_ENABLED
         const auto callback_caller = __tsan_get_current_fiber();
         __tsan_switch_to_fiber(m_tsan_fiber, 0);
 #endif
         const bool check_succ = m_onyield_callback();
-#ifdef BBT_COROUTINE_TSAN_FIBER
+#ifdef BBT_TSAN_ENABLED
         __tsan_switch_to_fiber(callback_caller, 0);
 #endif
         m_onyield_callback_result =
@@ -255,7 +255,7 @@ int Context::_Yield()
     ExchangeActiveStackBudgetState(nullptr);
 #endif
 
-#ifdef BBT_COROUTINE_TSAN_FIBER
+#ifdef BBT_TSAN_ENABLED
     __tsan_switch_to_fiber(m_tsan_caller, 0);
 #endif
     transfer = boost::context::detail::jump_fcontext(GetCurThreadContext(), &m_context);
@@ -288,7 +288,7 @@ int Context::_Resume()
     StackBudgetState* prev_state = ExchangeActiveStackBudgetState(&m_stackBudgetState);
 #endif
 
-#ifdef BBT_COROUTINE_TSAN_FIBER
+#ifdef BBT_TSAN_ENABLED
     m_tsan_caller = __tsan_get_current_fiber();
     __tsan_switch_to_fiber(m_tsan_fiber, 0);
 #endif
