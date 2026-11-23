@@ -70,7 +70,7 @@ struct ProbeWaiter : CoWaiter {
     }
 };
 
-}
+} // namespace
 
 /**
  * ⑪ 普通窄接口：第一轮载荷 7 必须在第二轮（载荷 11）登记后仍可读回

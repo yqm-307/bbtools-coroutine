@@ -138,4 +138,4 @@ private:
 #endif
 };
 
-}
+} // namespace bbt::coroutine::detail

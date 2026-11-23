@@ -6,17 +6,25 @@
 
 namespace bbt::coroutine::pool {
 
-Work::Work(CoPoolWorkCallback&& workfunc) : m_callback(std::move(workfunc)) {}
+Work::Work(CoPoolWorkCallback&& workfunc)
+    : m_callback(std::move(workfunc))
+{
+}
 
-Work::Work(const CoPoolWorkCallback& workfunc) : m_callback(workfunc) {}
+Work::Work(const CoPoolWorkCallback& workfunc)
+    : m_callback(workfunc)
+{
+}
 
 Work::Work(CoPoolWorkCallback&& workfunc, std::shared_ptr<std::promise<void>> promise)
-    : m_callback(std::move(workfunc)), m_promise(std::move(promise))
+    : m_callback(std::move(workfunc))
+    , m_promise(std::move(promise))
 {
 }
 
 Work::Work(const CoPoolWorkCallback& workfunc, std::shared_ptr<std::promise<void>> promise)
-    : m_callback(workfunc), m_promise(std::move(promise))
+    : m_callback(workfunc)
+    , m_promise(std::move(promise))
 {
 }
 
@@ -44,4 +52,4 @@ void Work::SetFinished() noexcept
         m_promise->set_value();
 }
 
-}
+} // namespace bbt::coroutine::pool

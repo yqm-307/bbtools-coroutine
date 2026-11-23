@@ -35,7 +35,8 @@ public:
     /**
      * 普通 callback 构造：锁内按状态授予并 ++inflight
      */
-    DriverCallbackLease(const std::shared_ptr<ProcesserDriverBinding>& binding, bool terminal) : m_binding(binding)
+    DriverCallbackLease(const std::shared_ptr<ProcesserDriverBinding>& binding, bool terminal)
+        : m_binding(binding)
     {
         auto& b = *m_binding;
         std::lock_guard<std::mutex> lock(b.m_mutex);
@@ -59,7 +60,9 @@ public:
      * Unregister 会绕过 lease 检测等待自身。
      */
     struct AdoptReservedTag {};
-    DriverCallbackLease(const std::shared_ptr<ProcesserDriverBinding>& binding, AdoptReservedTag) : m_binding(binding)
+
+    DriverCallbackLease(const std::shared_ptr<ProcesserDriverBinding>& binding, AdoptReservedTag)
+        : m_binding(binding)
     {
         m_prev = _TlsHead();
         _TlsHead() = this;
@@ -120,8 +123,14 @@ private:
  */
 class BusyScope {
 public:
-    explicit BusyScope(std::atomic_bool& busy) : m_busy(busy) { m_busy.store(true, std::memory_order_release); }
+    explicit BusyScope(std::atomic_bool& busy)
+        : m_busy(busy)
+    {
+        m_busy.store(true, std::memory_order_release);
+    }
+
     ~BusyScope() { m_busy.store(false, std::memory_order_release); }
+
     BusyScope(const BusyScope&) = delete;
     BusyScope& operator=(const BusyScope&) = delete;
 
@@ -129,7 +138,7 @@ private:
     std::atomic_bool& m_busy;
 };
 
-}
+} // namespace
 
 Processer::SPtr Processer::Create()
 {
@@ -184,7 +193,8 @@ ProcesserId Processer::_GenProcesserId()
     return (++_generate_id);
 }
 
-Processer::Processer() : m_id(_GenProcesserId())
+Processer::Processer()
+    : m_id(_GenProcesserId())
 {
     m_run_status = ProcesserStatus::PROC_SUSPEND;
 }
@@ -242,7 +252,9 @@ bool Processer::_EnqueueAdmitted(CoroutinePriority priority, Coroutine::Ptr coro
     }
 
     const bool enqueued = m_coroutine_queue.Enqueue(
-        coroutine->m_cfs, coroutine, priority,
+        coroutine->m_cfs,
+        coroutine,
+        priority,
         g_bbt_coroutine_config->RuntimeSnapshot().processer_priority_runtime_budget_us[priority]);
     _ReleaseEnqueueSlot();
     if (!enqueued)
@@ -491,9 +503,9 @@ void Processer::_Run()
             m_running_coroutine = selected->Task();
             any_dequeued = true;
 
-            AssertWithInfo(m_running_coroutine->GetStatus() != CO_RUNNING
-                               && m_running_coroutine->GetStatus() != CO_FINAL,
-                           "bad coroutine status!");
+            AssertWithInfo(
+                m_running_coroutine->GetStatus() != CO_RUNNING && m_running_coroutine->GetStatus() != CO_FINAL,
+                "bad coroutine status!");
 
             /**
              * 执行前设置当前协程缓存（预算单位为微秒，计时必须显式 us）
@@ -539,15 +551,16 @@ void Processer::_Run()
             /**
              * MLFQ: 记录运行时长（微秒），供后续降级判断
              */
-            m_running_coroutine->SetLastRunTimeUs(bbt::core::clock::gettime_mono<bbt::core::clock::us>()
-                                                  - m_running_coroutine_begin.load());
+            m_running_coroutine->SetLastRunTimeUs(
+                bbt::core::clock::gettime_mono<bbt::core::clock::us>() - m_running_coroutine_begin.load());
 
             /**
              * elapsed monotonic us，不是线程 CPU 时间。发布 park 前先结清账目。
              */
-            m_coroutine_queue.Account(m_running_coroutine->m_cfs, m_running_coroutine->GetLastRunTimeUs(),
-                                      m_running_coroutine->m_yield_disposition
-                                          == CoroutineYieldDisposition::EVENT_WAIT);
+            m_coroutine_queue.Account(
+                m_running_coroutine->m_cfs,
+                m_running_coroutine->GetLastRunTimeUs(),
+                m_running_coroutine->m_yield_disposition == CoroutineYieldDisposition::EVENT_WAIT);
 
             /**
              * 先移交再发布：CommitYield（EVENT_WAIT 的 CommitPark）与
@@ -633,10 +646,11 @@ void Processer::_Run()
 #endif
             _WaitForWork();
 #ifdef BBT_COROUTINE_PROFILE
-            m_suspend_cost_times.fetch_add(std::chrono::duration_cast<bbt::core::clock::us>(
-                                               bbt::core::clock::now<bbt::core::clock::microseconds>() - begin)
-                                               .count(),
-                                           std::memory_order_relaxed);
+            m_suspend_cost_times.fetch_add(
+                std::chrono::duration_cast<bbt::core::clock::us>(
+                    bbt::core::clock::now<bbt::core::clock::microseconds>() - begin)
+                    .count(),
+                std::memory_order_relaxed);
 #endif
         }
     }
@@ -882,8 +896,8 @@ void Processer::_DriverOnTick(ProcesserDriverPhase phase)
         _DriverFail(binding, ProcesserDriverFailure::Tick, nullptr);
 }
 
-void Processer::_DriverFail(const std::shared_ptr<ProcesserDriverBinding>& binding, ProcesserDriverFailure source,
-                            std::exception_ptr err)
+void Processer::_DriverFail(
+    const std::shared_ptr<ProcesserDriverBinding>& binding, ProcesserDriverFailure source, std::exception_ptr err)
 {
     std::lock_guard<std::mutex> lock(binding->m_mutex);
 
@@ -930,8 +944,8 @@ void Processer::_WakeDriver()
     binding->m_driver->Wake();
 }
 
-ProcesserDriverStatus Processer::_BindDriver(const std::shared_ptr<IProcesserDriver>& driver,
-                                             ProcesserDriverToken& out_token)
+ProcesserDriverStatus
+Processer::_BindDriver(const std::shared_ptr<IProcesserDriver>& driver, ProcesserDriverToken& out_token)
 {
 
     /**
@@ -1115,4 +1129,4 @@ ProcesserDriverStatus Processer::_UnregisterDriver(uint64_t generation)
     return ProcesserDriverStatus::Ok;
 }
 
-}
+} // namespace bbt::coroutine::detail

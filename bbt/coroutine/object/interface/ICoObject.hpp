@@ -52,4 +52,4 @@ public:
     virtual CoObjectInfo GetObjectInfo() const = 0;
 };
 
-}
+} // namespace bbt::coroutine

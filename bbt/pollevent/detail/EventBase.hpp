@@ -70,4 +70,4 @@ private:
     std::atomic_int m_event_count{0};
 };
 
-}
+} // namespace bbt::pollevent::detail

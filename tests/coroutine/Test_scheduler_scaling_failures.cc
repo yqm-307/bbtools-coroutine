@@ -23,6 +23,7 @@ static thread_local long fail_after = -1;
 static thread_local int allocation_hits = 0;
 static std::atomic_int worker_hits{0};
 static thread_local bool worker_armed = false;
+
 void* operator new(std::size_t n)
 {
     if (fail_after == 0) {
@@ -38,22 +39,27 @@ void* operator new(std::size_t n)
         return p;
     throw std::bad_alloc();
 }
+
 void* operator new[](std::size_t n)
 {
     return ::operator new(n);
 }
+
 void operator delete(void* p) noexcept
 {
     std::free(p);
 }
+
 void operator delete[](void* p) noexcept
 {
     std::free(p);
 }
+
 void operator delete(void* p, std::size_t) noexcept
 {
     std::free(p);
 }
+
 void operator delete[](void* p, std::size_t) noexcept
 {
     std::free(p);
@@ -64,10 +70,12 @@ static thread_local bool count_creates = false;
 static thread_local int create_calls = 0;
 static thread_local int fail_create = 0;
 static thread_local bool fail_worker_tls = false;
+
 struct ThreadEntry {
     void* (*entry)(void*);
     void* arg;
 };
+
 static void* ArmedEntry(void* p)
 {
     const auto entry = *static_cast<ThreadEntry*>(p);
@@ -76,6 +84,7 @@ static void* ArmedEntry(void* p)
     fail_after = 0;
     return entry.entry(entry.arg);
 }
+
 extern "C" int pthread_create(pthread_t* thread, const pthread_attr_t* attr, void* (*entry)(void*), void* arg) noexcept
 {
     using Create = int (*)(pthread_t*, const pthread_attr_t*, void* (*)(void*), void*);
@@ -103,7 +112,14 @@ extern "C" int pthread_create(pthread_t* thread, const pthread_attr_t* attr, voi
 
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::detail;
-#define CHECK(x) do { if (!(x)) { std::fprintf(stderr, "FAIL line=%d %s\n", __LINE__, #x); return 1; } } while (0)
+#define CHECK(x)                                                                                                       \
+    do {                                                                                                               \
+        if (!(x)) {                                                                                                    \
+            std::fprintf(stderr, "FAIL line=%d %s\n", __LINE__, #x);                                                   \
+            return 1;                                                                                                  \
+        }                                                                                                              \
+    } while (0)
+
 static size_t ThreadCount()
 {
     size_t count = 0;
@@ -113,6 +129,7 @@ static size_t ThreadCount()
     }
     return count;
 }
+
 static int Child(const char* mode, long nth)
 {
     const bool shrink = !std::strcmp(mode, "shrink");
@@ -158,8 +175,14 @@ static int Child(const char* mode, long nth)
     CHECK(alloc ? allocation_hits == 1 : (!std::strcmp(mode, "pthread") ? create_calls == 2 : worker_hits == 1));
     std::printf(
         "RESULT mode=%s nth=%ld hits=%d result=%d active=%zu target=%zu mode_value=%d creates=%d worker_hits=%d\n",
-        mode, nth, allocation_hits, static_cast<int>(result), g_scheduler->GetProcesserNum(),
-        g_scheduler->GetProcesserTargetNum(), static_cast<int>(g_scheduler->GetProcesserScalingMode()), create_calls,
+        mode,
+        nth,
+        allocation_hits,
+        static_cast<int>(result),
+        g_scheduler->GetProcesserNum(),
+        g_scheduler->GetProcesserTargetNum(),
+        static_cast<int>(g_scheduler->GetProcesserScalingMode()),
+        create_calls,
         worker_hits.load());
 #ifdef BBT_COROUTINE_PROFILE
     std::string profile;
@@ -182,8 +205,8 @@ static int Child(const char* mode, long nth)
      * 批次取消必须物理 join，不能只隐藏新身份。
      */
     CHECK(ThreadCount() == old_threads);
-    CHECK(g_scheduler->SetProcesserNum(target)
-          == (shrink ? ProcesserResizeResult::Pending : ProcesserResizeResult::Ok));
+    CHECK(
+        g_scheduler->SetProcesserNum(target) == (shrink ? ProcesserResizeResult::Pending : ProcesserResizeResult::Ok));
     CHECK(g_scheduler->GetProcesserNum() == target);
     CHECK(g_scheduler->GetProcesserTargetNum() == target);
     CHECK(g_scheduler->GetProcesserScalingMode() == ProcesserScalingMode::Manual);
@@ -196,10 +219,11 @@ static int Child(const char* mode, long nth)
         CHECK(rows == target);
     }
 #endif
-    std::printf("INJECTED mode=%s nth=%ld creates=%d worker_hits=%d retry=ok\n", mode, nth, create_calls,
-                worker_hits.load());
+    std::printf(
+        "INJECTED mode=%s nth=%ld creates=%d worker_hits=%d retry=ok\n", mode, nth, create_calls, worker_hits.load());
     return 0;
 }
+
 int main(int argc, char** argv)
 {
 #if defined(__linux__)

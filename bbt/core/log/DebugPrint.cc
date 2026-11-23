@@ -4,7 +4,7 @@
 namespace bbt::core::log {
 
 #define LOG_LEVEL_DEBUG 1
-#define LOG_LEVEL_WARN  2
+#define LOG_LEVEL_WARN 2
 #define LOG_LEVEL_ERROR 3
 
 namespace {
@@ -21,7 +21,7 @@ std::string vformat(const char* fmt, va_list ap)
     return std::string(data);
 }
 
-}
+} // namespace
 
 /**
  * 内部辅助：头文件里没有声明，只在本编译单元使用（外部链接，链接器仍可见）。
@@ -59,4 +59,4 @@ void DebugPrint(const char* fmt, ...)
     VPrint("[DEBUG] %s", msg.c_str());
 }
 
-}
+} // namespace bbt::core::log

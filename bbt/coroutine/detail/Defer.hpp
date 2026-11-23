@@ -23,4 +23,4 @@ private:
     DeferCallback m_defer_handler{nullptr};
 };
 
-}
+} // namespace bbt::coroutine::detail

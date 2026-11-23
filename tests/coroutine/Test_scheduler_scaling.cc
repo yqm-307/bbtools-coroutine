@@ -48,6 +48,7 @@ struct Gate {
     std::condition_variable cv;
     bool entered{false}, open{false};
     std::atomic_bool timed_out{false};
+
     void Pass()
     {
         std::unique_lock<std::mutex> lock(mutex);
@@ -56,11 +57,13 @@ struct Gate {
         if (!cv.wait_for(lock, 5s, [&] { return open; }))
             timed_out = true;
     }
+
     bool WaitEntered()
     {
         std::unique_lock<std::mutex> lock(mutex);
         return cv.wait_for(lock, 5s, [&] { return entered; });
     }
+
     void Open()
     {
         {
@@ -70,8 +73,10 @@ struct Gate {
         cv.notify_all();
     }
 };
+
 struct OpenOnExit {
     std::shared_ptr<Gate> gate;
+
     ~OpenOnExit() { gate->Open(); }
 };
 
@@ -95,15 +100,21 @@ void CheckCounts(size_t active, size_t target, size_t retiring, size_t exited)
 
 class Driver final : public IProcesserDriver {
 public:
-    explicit Driver(std::shared_ptr<Gate> gate = {}) : m_gate(std::move(gate)) {}
+    explicit Driver(std::shared_ptr<Gate> gate = {})
+        : m_gate(std::move(gate))
+    {
+    }
+
     std::atomic_bool fail{false};
     std::atomic_int m_wakes{0};
+
     ProcesserDriverResult OnTick(ProcesserDriverPhase) override
     {
         if (m_gate)
             m_gate->Pass();
         return fail.load() ? ProcesserDriverResult::Failed : ProcesserDriverResult::Ok;
     }
+
     ProcesserDriverResult Wait(std::chrono::microseconds timeout) override
     {
         std::unique_lock<std::mutex> lock(m_mutex);
@@ -111,6 +122,7 @@ public:
         m_notified = false;
         return ProcesserDriverResult::Ok;
     }
+
     void Wake() noexcept override
     {
         ++m_wakes;
@@ -127,15 +139,18 @@ private:
     std::condition_variable m_cv;
     bool m_notified{false};
 };
+
 struct Binding {
     ProcesserDriverToken token{};
     bool bound{false};
+
     Binding(ProcesserId id, const std::shared_ptr<Driver>& driver)
     {
         bound = g_scheduler->RegisterProcesserDriver(id, driver, token) == ProcesserDriverStatus::Ok;
         if (!bound)
             throw std::runtime_error("scaling test driver bind failed");
     }
+
     void Release()
     {
         if (bound) {
@@ -144,6 +159,7 @@ struct Binding {
             BOOST_CHECK(rc == ProcesserDriverStatus::Ok);
         }
     }
+
     ~Binding()
     {
         if (bound)
@@ -154,6 +170,7 @@ struct Binding {
 struct TlsReceipt {
     std::shared_ptr<std::atomic_bool> destroyed;
     std::shared_ptr<Gate> gate;
+
     ~TlsReceipt()
     {
         if (gate)
@@ -162,6 +179,7 @@ struct TlsReceipt {
             destroyed->store(true);
     }
 };
+
 thread_local TlsReceipt tls_receipt;
 
 size_t ThreadCount()
@@ -222,20 +240,22 @@ void RetireAndReap(bool manual_reaper)
     auto tls_second = std::make_shared<std::atomic_bool>(false);
     auto id_first = std::make_shared<std::atomic<ProcesserId>>(0);
     auto id_second = std::make_shared<std::atomic<ProcesserId>>(0);
-    g_scheduler->RegistCoroutineTask([first, completed, tls_first, id_first] {
+    bbtco[first, completed, tls_first, id_first]
+    {
         tls_receipt.destroyed = tls_first;
         *id_first = Processer::TryGetLocalProcesser()->GetId();
         first->Pass();
         completed->Down();
-    });
+    };
     BOOST_REQUIRE(first->WaitEntered());
     BOOST_REQUIRE(g_scheduler->SetProcesserNum(2) == ProcesserResizeResult::Ok);
-    g_scheduler->RegistCoroutineTask([second, completed, tls_second, id_second] {
+    bbtco[second, completed, tls_second, id_second]
+    {
         tls_receipt.destroyed = tls_second;
         *id_second = Processer::TryGetLocalProcesser()->GetId();
         second->Pass();
         completed->Down();
-    });
+    };
     BOOST_REQUIRE(second->WaitEntered());
     BOOST_REQUIRE(id_first->load() != id_second->load());
 
@@ -246,6 +266,7 @@ void RetireAndReap(bool manual_reaper)
     BOOST_CHECK_EQUAL(ThreadCount(), before + 2);
 #endif
     constexpr size_t tasks = 256;
+
     struct Batch {
         std::vector<std::atomic<int>> hits = std::vector<std::atomic<int>>(tasks);
         std::atomic<ProcesserId> retired{0};
@@ -254,12 +275,14 @@ void RetireAndReap(bool manual_reaper)
         Gate halfway;
         std::atomic_bool producer_done{false};
         std::atomic_bool producer_failed{false};
+
         Batch()
         {
             for (auto& hit : hits)
                 hit = 0;
         }
     };
+
     auto batch = std::make_shared<Batch>();
     auto post = [batch](size_t i) {
         auto task = [batch, i] {
@@ -269,7 +292,7 @@ void RetireAndReap(bool manual_reaper)
             bbtco_yield;
             batch->done.Down();
         };
-        g_scheduler->RegistCoroutineTask(task);
+        bbtco task;
     };
     std::thread producer([batch, post] {
         try {
@@ -305,8 +328,9 @@ void RetireAndReap(bool manual_reaper)
     BOOST_CHECK(!tls_second->load());
     BOOST_CHECK_THROW(g_scheduler->RegistCoroutineTaskOn(retired, [] {}), std::invalid_argument);
     ProcesserDriverToken sentinel{123, 456};
-    BOOST_CHECK(g_scheduler->RegisterProcesserDriver(retired, std::make_shared<Driver>(), sentinel)
-                == ProcesserDriverStatus::InvalidTarget);
+    BOOST_CHECK(
+        g_scheduler->RegisterProcesserDriver(retired, std::make_shared<Driver>(), sentinel)
+        == ProcesserDriverStatus::InvalidTarget);
     BOOST_CHECK_EQUAL(sentinel.m_processer_id, 123u);
     BOOST_CHECK_EQUAL(sentinel.m_generation, 456u);
     first->Open();
@@ -361,7 +385,8 @@ void DriverAndParked(bool pure_wait)
     auto result = std::make_shared<std::atomic<WaitStatus>>(WaitStatus::RuntimeUnavailable);
     auto destroyed = std::make_shared<std::atomic_bool>(false);
     auto resume_count = std::make_shared<std::atomic_int>(0);
-    g_scheduler->RegistCoroutineTask([waiter, registered, done, resumed, result, destroyed, resume_count, pure_wait] {
+    bbtco[waiter, registered, done, resumed, result, destroyed, resume_count, pure_wait]
+    {
         tls_receipt.destroyed = destroyed;
         WaitOptions options;
         if (pure_wait)
@@ -375,14 +400,17 @@ void DriverAndParked(bool pure_wait)
         *resumed = Processer::TryGetLocalProcesser()->GetId();
         ++*resume_count;
         done->Down();
-    });
+    };
     BOOST_REQUIRE(WaitUntil([registered] { return registered->load(); }));
 
     /**
      * 单 worker 上随后任务完成，证明上一个 Resume 已完成 park disposition。
      */
     auto parked = std::make_shared<bbt::core::thread::CountDownLatch>(1);
-    g_scheduler->RegistCoroutineTask([parked] { parked->Down(); });
+    bbtco[parked]
+    {
+        parked->Down();
+    };
     BOOST_REQUIRE_EQUAL(parked->WaitTimeout(5000), 0);
     BOOST_REQUIRE(g_scheduler->SetProcesserNum(2) == ProcesserResizeResult::Ok);
     auto ids = g_scheduler->GetWorkerProcesserIds();
@@ -428,6 +456,7 @@ void Sample()
     g_scheduler->LoopOnce();
     BOOST_REQUIRE(Clock::now() - start < 20ms);
 }
+
 void AutoScale(bool queue_signal)
 {
     Configure(1, 1, 2);
@@ -448,12 +477,16 @@ void AutoScale(bool queue_signal)
             std::make_unique<Binding>(g_scheduler->GetWorkerProcesserIds().front(), std::make_shared<Driver>(gate));
         BOOST_REQUIRE(gate->WaitEntered());
         for (int i = 0; i < 64; ++i)
-            g_scheduler->RegistCoroutineTask([done] { done->Down(); });
+            bbtco[done]
+            {
+                done->Down();
+            };
     } else {
-        g_scheduler->RegistCoroutineTask([gate, done] {
+        bbtco[gate, done]
+        {
             gate->Pass();
             done->Down();
-        });
+        };
         BOOST_REQUIRE(gate->WaitEntered());
     }
     BOOST_REQUIRE(g_scheduler->SetProcesserAutoScale(true) == ProcesserResizeResult::Ok);
@@ -508,12 +541,13 @@ void TlsReaper(bool threaded)
     auto entered = std::make_shared<std::atomic_int>(0);
     auto done = std::make_shared<std::atomic_int>(0);
     for (int i = 0; i < 2; ++i)
-        g_scheduler->RegistCoroutineTask([tasks, tls, entered, done] {
+        bbtco[tasks, tls, entered, done]
+        {
             tls_receipt.gate = tls;
             ++*entered;
             tasks->Pass();
             ++*done;
-        });
+        };
     BOOST_REQUIRE(WaitUntil([entered] { return entered->load() == 2; }));
     BOOST_REQUIRE(g_scheduler->SetProcesserNum(1) == ProcesserResizeResult::Pending);
     tasks->Open();
@@ -648,14 +682,17 @@ void OutstandingLimit()
     g_scheduler->Start(SCHE_START_OPT_SCHE_NO_LOOP);
     const auto survivor = g_scheduler->GetWorkerProcesserIds().front();
     Binding keep(survivor, std::make_shared<Driver>());
+
     struct Gates {
         std::vector<std::shared_ptr<Gate>> values;
+
         ~Gates()
         {
             for (auto& gate : values)
                 gate->Open();
         }
     } gates;
+
     auto completed = std::make_shared<std::atomic_int>(0);
     auto occupy = [&](ProcesserId id) {
         auto gate = std::make_shared<Gate>();
@@ -732,11 +769,12 @@ void ConcurrentControl()
             std::this_thread::yield();
         try {
             for (int i = 0; i < count; ++i)
-                g_scheduler->RegistCoroutineTask([hits, completed, i] {
+                bbtco[hits, completed, i]
+                {
                     ++(*hits)[i];
                     bbtco_yield;
                     ++*completed;
-                });
+                };
         } catch (...) {
             ++errors;
         }
@@ -776,10 +814,11 @@ void AutoReverse()
     auto gate = std::make_shared<Gate>();
     OpenOnExit release{gate};
     auto done = std::make_shared<std::atomic_bool>(false);
-    g_scheduler->RegistCoroutineTask([gate, done] {
+    bbtco[gate, done]
+    {
         gate->Pass();
         *done = true;
-    });
+    };
     BOOST_REQUIRE(gate->WaitEntered());
     auto commit = std::make_shared<Gate>();
     OpenOnExit release_commit{commit};
@@ -841,6 +880,7 @@ std::vector<ProcesserId> ProfileIds()
     std::sort(ids.begin(), ids.end());
     return ids;
 }
+
 void ProfileCycles()
 {
     Configure(1, 1, 4);
@@ -896,12 +936,14 @@ void ProfileCycles()
 struct ProcesserAccess : Processer {
     static auto Add() { return &ProcesserAccess::AddCoroutineTask; }
 };
+
 struct AdmissionState {
     Processer::SPtr target;
     int pause_point{0};
     std::shared_ptr<Gate> pause = std::make_shared<Gate>();
     std::atomic_bool drain_entered{false}, drained{false};
 };
+
 std::atomic<AdmissionState*> admission_state{nullptr};
 thread_local bool admission_producer = false;
 
@@ -914,14 +956,18 @@ void Admission(int point)
     auto survivor_gate = std::make_shared<Gate>();
     auto victim_gate = std::make_shared<Gate>();
     OpenOnExit release_survivor{survivor_gate}, release_victim{victim_gate};
-    g_scheduler->RegistCoroutineTask([survivor_gate] { survivor_gate->Pass(); });
+    bbtco[survivor_gate]
+    {
+        survivor_gate->Pass();
+    };
     BOOST_REQUIRE(survivor_gate->WaitEntered());
     BOOST_REQUIRE(g_scheduler->SetProcesserNum(2) == ProcesserResizeResult::Ok);
     auto captured = std::make_shared<Processer::SPtr>();
-    g_scheduler->RegistCoroutineTask([captured, victim_gate] {
+    bbtco[captured, victim_gate]
+    {
         *captured = Processer::TryGetLocalProcesser();
         victim_gate->Pass();
-    });
+    };
     BOOST_REQUIRE(victim_gate->WaitEntered());
     AdmissionState state;
 
@@ -939,7 +985,8 @@ void Admission(int point)
             *ran_on = Processer::TryGetLocalProcesser()->GetId();
             ++*hits;
         },
-        false, "admission regression");
+        false,
+        "admission regression");
     admission_state = &state;
     std::atomic_bool accepted{false};
     std::thread producer([&] {
@@ -993,7 +1040,7 @@ void Admission(int point)
     BOOST_CHECK(!victim_gate->timed_out.load());
     keep.Release();
 }
-}
+} // namespace
 
 namespace {
 void RebalanceShortBacklog()
@@ -1048,7 +1095,7 @@ void RebalanceShortBacklog()
     BOOST_CHECK(g_scheduler->SetProcesserNum(1) == ProcesserResizeResult::Pending);
     ReapAll();
 }
-}
+} // namespace
 
 /**
  * CMake 的测试专用 Processer.cc 副本仅加入观察点，条件/原子序/锁均原样保留。

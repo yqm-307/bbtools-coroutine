@@ -38,7 +38,7 @@ template <typename Pred> bool WaitUntil(Pred pred, int budget_ms = 2000)
         bbtco_sleep(1);
     } while (true);
 }
-}
+} // namespace
 
 using namespace bbt::coroutine;
 

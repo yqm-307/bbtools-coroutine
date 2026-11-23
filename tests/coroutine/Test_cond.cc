@@ -11,6 +11,7 @@
 #include <bbt/core/clock/Clock.hpp>
 #include <bbt/coroutine/sync/CoWaiter.hpp>
 #include <bbt/coroutine/sync/CoCond.hpp>
+
 /**
  * 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
  * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。
@@ -51,11 +52,16 @@ void WaitCountBounded(std::atomic_int& count, int target, int timeout_ms)
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
 }
-}
+} // namespace
 
 using namespace bbt::coroutine;
 
-#define PrintTime(flag) printf("标记点=[%s]   协程id=[%ld] 时间戳=[%ld]\n", flag, GetLocalCoroutineId(), bbt::core::clock::now<>().time_since_epoch().count());
+#define PrintTime(flag)                                                                                                \
+    printf(                                                                                                            \
+        "标记点=[%s]   协程id=[%ld] 时间戳=[%ld]\n",                                                                   \
+        flag,                                                                                                          \
+        GetLocalCoroutineId(),                                                                                         \
+        bbt::core::clock::now<>().time_since_epoch().count());
 
 BOOST_AUTO_TEST_SUITE(CoCondTest)
 
@@ -136,7 +142,7 @@ BOOST_AUTO_TEST_CASE(t_cond_wait)
 
     bbtco[&]()
     {
-        auto cond = sync::CoCond::Create();
+        auto cond = bbtco_make_cocond();
 
         for (int i = 0; i < nmax_co; ++i) {
             bbtco[&]()
@@ -169,7 +175,7 @@ BOOST_AUTO_TEST_CASE(t_waitfor_timeout)
 
     bbtco[&]()
     {
-        auto cond = sync::CoCond::Create();
+        auto cond = bbtco_make_cocond();
         auto begin = bbt::core::clock::gettime_mono();
         result = cond->WaitFor(100);
         auto elapsed = bbt::core::clock::gettime_mono() - begin;
@@ -205,7 +211,7 @@ BOOST_AUTO_TEST_CASE(t_waitfor_notifyone)
 
     bbtco[&]()
     {
-        auto cond = sync::CoCond::Create();
+        auto cond = bbtco_make_cocond();
 
         bbtco[cond, &result, &l]()
         {
@@ -243,7 +249,7 @@ BOOST_AUTO_TEST_CASE(t_waitfor_notifyall)
 
     bbtco[&]()
     {
-        auto cond = sync::CoCond::Create();
+        auto cond = bbtco_make_cocond();
 
         for (int i = 0; i < n; ++i) {
             bbtco[cond, &woken, &l]()
@@ -276,7 +282,7 @@ BOOST_AUTO_TEST_CASE(t_notifyone_empty)
 
     bbtco[&]()
     {
-        auto cond = sync::CoCond::Create();
+        auto cond = bbtco_make_cocond();
         int ret = cond->NotifyOne();
 
         /**
@@ -298,7 +304,7 @@ BOOST_AUTO_TEST_CASE(t_notifyone_empty_then_use)
 
     bbtco[&]()
     {
-        auto cond = sync::CoCond::Create();
+        auto cond = bbtco_make_cocond();
 
         /**
          * 空队列 NotifyOne 应该返回 -1
@@ -333,7 +339,7 @@ BOOST_AUTO_TEST_CASE(t_wait_notifyone_single)
 
     bbtco[&]()
     {
-        auto cond = sync::CoCond::Create();
+        auto cond = bbtco_make_cocond();
 
         bbtco[cond, &woken, &l]()
         {
@@ -393,12 +399,14 @@ BOOST_AUTO_TEST_CASE(t_notify_claims_exactly_once_no_cross_wake)
         std::atomic_int ret{-999};
         std::atomic_int resumes{0};
     };
+
     struct CaseState {
         std::array<SlotState, 4> slots;
         std::atomic_int done{0};
         std::atomic_int stage_ok{0};
         std::atomic_int notify_ret{-999};
     };
+
     auto state = std::make_shared<CaseState>();
 
     for (int i = 0; i < 4; ++i) {
@@ -459,6 +467,7 @@ BOOST_AUTO_TEST_CASE(t_notifyone_before_wait_not_sticky)
         std::atomic_int settled{0};
         std::atomic_int stage_ok{0};
     };
+
     auto state = std::make_shared<CaseState>();
 
     bbtco[state]()
@@ -498,6 +507,7 @@ BOOST_AUTO_TEST_CASE(t_cancel_after_notify_claim_pairing)
         std::atomic_int settled{0};
         std::atomic_int stage_ok{0};
     };
+
     auto state = std::make_shared<CaseState>();
 
     bbtco[state]()

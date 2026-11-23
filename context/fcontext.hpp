@@ -35,9 +35,9 @@ extern "C" fcontext_t make_fcontext(void* sp, std::size_t size, void (*fn)(trans
 // based on an idea of Giovanni Derreta
 extern "C" transfer_t ontop_fcontext(fcontext_t const to, void* vp, transfer_t (*fn)(transfer_t));
 
-}
-}
-}
+} // namespace detail
+} // namespace context
+} // namespace boost
 
 #ifdef BOOST_HAS_ABI_HEADERS
 #include BOOST_ABI_SUFFIX

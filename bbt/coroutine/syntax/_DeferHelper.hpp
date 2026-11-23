@@ -19,4 +19,4 @@ public:
     detail::Defer operator-(const detail::DeferCallback& co_func) { return detail::Defer{co_func}; }
 };
 
-}
+} // namespace bbt::coroutine

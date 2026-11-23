@@ -148,7 +148,7 @@ void test()
     bbtco[&l]()
     {
         print("[client] client co=" << bbt::coroutine::GetLocalCoroutineId());
-        ::sleep(1);
+        bbtco_sleep(1000);
         sockaddr_in addr;
         addr.sin_addr.s_addr = inet_addr("127.0.0.1");
         addr.sin_port = htons(10001);
@@ -170,7 +170,7 @@ void test()
          * BOOST_CHECK_MESSAGE(ret != -1, "[write] errno=" << errno << "\tret=" << ret << "\tfd=" << fd);
          */
         Assert(ret != -1);
-        ::sleep(1);
+        bbtco_sleep(1000);
 
         print("[client] exit!");
         ::close(fd);

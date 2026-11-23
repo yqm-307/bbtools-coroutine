@@ -23,6 +23,7 @@ public:
         if (outermost == nullptr)
             outermost = this;
     }
+
     ~DriverWakeDeferral() noexcept;
 
     DriverWakeDeferral(const DriverWakeDeferral&) = delete;
@@ -55,4 +56,4 @@ private:
     std::shared_ptr<WaitNode>* m_wait_node_tail{&m_first_wait_node};
 };
 
-}
+} // namespace bbt::coroutine::detail

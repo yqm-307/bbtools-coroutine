@@ -56,7 +56,7 @@ void StartNoLoopOnce()
     });
 }
 
-}
+} // namespace
 
 BOOST_AUTO_TEST_SUITE(SchedulerNoLoopTest)
 

@@ -25,7 +25,7 @@ void EnsureRuntime()
     static std::once_flag once;
     std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
-}
+} // namespace
 
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::detail;
@@ -37,7 +37,7 @@ struct ConfigSnapshot {
     bool stack_protect{false};
     bool saved{false};
 } g_cfg;
-}
+} // namespace
 
 BOOST_AUTO_TEST_SUITE(SchedulerApiTest)
 

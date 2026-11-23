@@ -114,13 +114,18 @@ bool DebugMgr::TryRegistEvent(const std::shared_ptr<CoPollEvent>& event) noexcep
          * 不可达，出逃即 terminate。诊断清账按运行时契约的日志 + 计数口径交付，
          * 不静默丢失；登记语义由调用方按「建立失败」回收，map 无任何残留。
          */
-        std::fprintf(stderr, "[bbtco] stringent-debug regist-event alloc failed event=%llu: %.200s\n",
-                     static_cast<unsigned long long>(event->GetId()), e.what());
+        std::fprintf(
+            stderr,
+            "[bbtco] stringent-debug regist-event alloc failed event=%llu: %.200s\n",
+            static_cast<unsigned long long>(event->GetId()),
+            e.what());
         g_bbt_coroutine_config->m_unhandled_exception_count.fetch_add(1, std::memory_order_relaxed);
         return false;
     } catch (...) {
-        std::fprintf(stderr, "[bbtco] stringent-debug regist-event alloc failed event=%llu: unknown exception\n",
-                     static_cast<unsigned long long>(event->GetId()));
+        std::fprintf(
+            stderr,
+            "[bbtco] stringent-debug regist-event alloc failed event=%llu: unknown exception\n",
+            static_cast<unsigned long long>(event->GetId()));
         g_bbt_coroutine_config->m_unhandled_exception_count.fetch_add(1, std::memory_order_relaxed);
         return false;
     }
@@ -148,4 +153,4 @@ void DebugMgr::Check_Trigger(CoPollEventId id)
     Assert(m_event_map.find(id) != m_event_map.end());
 }
 
-}
+} // namespace bbt::coroutine::detail

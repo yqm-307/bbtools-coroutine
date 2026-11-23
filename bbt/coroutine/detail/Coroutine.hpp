@@ -15,7 +15,7 @@
 namespace bbt::coroutine::sync {
 class CoWaiter;
 class CoMutex;
-}
+} // namespace bbt::coroutine::sync
 
 namespace bbt::coroutine::detail {
 
@@ -69,8 +69,8 @@ public:
      * @brief 创建协程并分配 id；不启动、不入队。@p stack_size 为请求字节数，@p desc 为 nullptr 或空串都按未命名处理。
      * @return 裸指针，调用方负责入队或 delete；栈借不到、描述赋值 bad_alloc 都直接抛出。
      */
-    static Ptr Create(size_t stack_size, const CoroutineCallback& co_func, bool need_protect = true,
-                      const char* desc = nullptr);
+    static Ptr
+    Create(size_t stack_size, const CoroutineCallback& co_func, bool need_protect = true, const char* desc = nullptr);
     static Ptr Create(StackLease stack, const CoroutineCallback& co_func, const char* desc = nullptr);
 
     /**
@@ -155,6 +155,7 @@ public:
      * 现场成员无锁，跨线程统一快照由 WorkerStallInfo 承载。未处于事件等待时返回 -1。
      */
     const std::string& GetDescription() const noexcept { return m_desc; }
+
     int GetWaitInfo(CoroutineWaitInfo& out) const noexcept;
 
     /**
@@ -183,9 +184,13 @@ public:
      * MLFQ 调度支持：OnCoPollEvent 按 1ms 时间片决定唤醒优先级，超时降级（最多 3 次），时长收敛则逐次恢复。
      */
     uint64_t GetLastRunTimeUs() const noexcept { return m_last_run_us; }
+
     void SetLastRunTimeUs(uint64_t us) { m_last_run_us = us; }
+
     int GetMlfqDemotions() const noexcept { return m_mlfq_demotions; }
+
     void IncrementDemotions() { m_mlfq_demotions++; }
+
     void ResetDemotions() { m_mlfq_demotions = 0; }
 
     /**
@@ -338,4 +343,4 @@ private:
     uint64_t m_parked_us{0};
 };
 
-}
+} // namespace bbt::coroutine::detail

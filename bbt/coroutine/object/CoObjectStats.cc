@@ -8,7 +8,10 @@ namespace bbt::coroutine {
 namespace {
 
 struct KindCounters {
-    explicit KindCounters(std::string_view value) : kind(value) {}
+    explicit KindCounters(std::string_view value)
+        : kind(value)
+    {
+    }
 
     const std::string kind;
     detail::CoObjectCounters counters;
@@ -39,7 +42,7 @@ KindCounters* FindKind(std::string_view kind) noexcept
     return nullptr;
 }
 
-}
+} // namespace
 
 CoObjectStats GetCoObjectStats(std::string_view kind) noexcept
 {
@@ -93,5 +96,5 @@ CoObjectCounters& GetOrCreateCoObjectCounters(std::string_view kind)
     return bucket->counters;
 }
 
-}
-}
+} // namespace detail
+} // namespace bbt::coroutine

@@ -7,7 +7,7 @@
 | 架构简介 | `.github/skills/bbtools-coroutine/references/architecture.md` |
 | 基本用法 / 进阶用法 / 使用范式 | `.github/skills/bbtools-coroutine/references/usage.md` |
 | API 参考（仅当前事实） | `docs/guides/api-reference.md` |
-| 显式协程声明与调用（`bbt_co_async(T)` / `bbt_co_await`） | [API 参考 §2](api-reference.md#2-协程注册与调用语法) |
+| 显式协程声明、绑定与调用（`bbt_co_async(T)` / `bbt_co_bind` / `bbt_co_await`） | [Async 调用指南](async-usage.md) |
 | 坑点与禁止行为 | `.github/skills/bbtools-coroutine/references/pitfalls.md` |
 | 执行域与网络 I/O 域边界（目标架构） | `docs/architecture/core-runtime-contract.md` §11 |
 
@@ -233,7 +233,7 @@ void ProducerConsumerExample()
 
 - 避免在协程池中提交大量长时间 CPU 计算任务（会占住 worker）。
 - 合理设置 Chan 的缓冲区大小。
-- 使用引用捕获避免不必要的拷贝。
+- 同步代码可用引用捕获避免不必要的拷贝；返回 `bbt_co_async` 操作或跨越挂起点的捕获必须持有值（或明确的 `shared_ptr`），因为操作体在 `bbt_co_await` / `bbt_co_fire` 消费时才执行。
 
 ### 调试技巧
 

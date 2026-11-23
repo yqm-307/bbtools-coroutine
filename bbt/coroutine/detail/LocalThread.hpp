@@ -46,4 +46,4 @@ private:
     volatile bool m_enable_use_co{false};
 };
 
-}
+} // namespace bbt::coroutine::detail

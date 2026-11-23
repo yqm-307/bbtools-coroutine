@@ -12,20 +12,22 @@
  * @brief Debug 断言：两个构建分支都不检查、不求值 expr。
  */
 #if defined(NDEBUG)
-#define DebugAssertWithInfo(expr, info) \
-    assert( (expr) && (info) )
+#define DebugAssertWithInfo(expr, info) assert((expr) && (info))
 #else
-#define DebugAssertWithInfo(expr, info) {}
+#define DebugAssertWithInfo(expr, info)                                                                                \
+    {                                                                                                                  \
+    }
 #endif
 
 /**
  * @brief Debug 断言（无附加信息）：两个构建分支都不检查、不求值 expr。
  */
 #if defined(NDEBUG)
-#define DebugAssert(expr) \
-    assert( expr )
+#define DebugAssert(expr) assert(expr)
 #else
-#define DebugAssert(expr) {}
+#define DebugAssert(expr)                                                                                              \
+    {                                                                                                                  \
+    }
 #endif
 
 /**
@@ -33,15 +35,14 @@
  * 表达式在两种构建下都会被求值；Release 分支用 do{...}while(0) 包住，可当普通语句带分号使用。
  */
 #if defined(NDEBUG)
-#define Assert(expr) \
-    do { \
-        if (bbt_unlikely(!(expr))) { \
-            std::cerr << "Assertion failed: " << #expr << " at " << __FILE__ << ":" << __LINE__ << std::endl; \
-        } \
-    } while(0)
+#define Assert(expr)                                                                                                   \
+    do {                                                                                                               \
+        if (bbt_unlikely(!(expr))) {                                                                                   \
+            std::cerr << "Assertion failed: " << #expr << " at " << __FILE__ << ":" << __LINE__ << std::endl;          \
+        }                                                                                                              \
+    } while (0)
 #else
-#define Assert(expr) \
-    assert( expr )
+#define Assert(expr) assert(expr)
 #endif
 
 /**
@@ -49,13 +50,13 @@
  * Debug 分支把 info 放进 assert 的布尔表达式，所以它必须能隐式转成 bool——std::string 在 Debug 下编译不过。
  */
 #if defined(NDEBUG)
-#define AssertWithInfo(expr, info) \
-    do { \
-        if (bbt_unlikely(!(expr))) { \
-            std::cerr << "Assertion failed: " << #expr << " (" << info << ") at " << __FILE__ << ":" << __LINE__ << std::endl; \
-        } \
-    } while(0)
+#define AssertWithInfo(expr, info)                                                                                     \
+    do {                                                                                                               \
+        if (bbt_unlikely(!(expr))) {                                                                                   \
+            std::cerr << "Assertion failed: " << #expr << " (" << info << ") at " << __FILE__ << ":" << __LINE__       \
+                      << std::endl;                                                                                    \
+        }                                                                                                              \
+    } while (0)
 #else
-#define AssertWithInfo(expr, info) \
-    assert( (expr) && (info) )
+#define AssertWithInfo(expr, info) assert((expr) && (info))
 #endif

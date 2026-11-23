@@ -154,8 +154,8 @@ protected:
      * @param cb 协程挂起后回调
      * @return 0表示可写，-1表示失败，1表示超时
      */
-    int _WaitUntilEnableWriteOrTimeout(CoWaiter::SPtr cond, int timeout_ms,
-                                       const detail::CoroutineOnYieldCallback& cb = nullptr);
+    int _WaitUntilEnableWriteOrTimeout(
+        CoWaiter::SPtr cond, int timeout_ms, const detail::CoroutineOnYieldCallback& cb = nullptr);
 
     /**
      * 唤醒读等待者并通知读观察者；返回 Notify 的结果（0 命中，-1 无等待者）。
@@ -233,9 +233,9 @@ public:
     /**
      * 这三个接口直接沿用带缓冲版本的实现（操作的是基类队列，不是 m_item_cache_ref）。
      */
+    using BaseType::ReadAll;
     using BaseType::TryRead;
     using BaseType::TryWrite;
-    using BaseType::ReadAll;
 
     /**
      * @brief 写入一个元素；读端未就绪时挂起，0 只表示已入队或已唤醒读端，不保证已取走。
@@ -276,7 +276,10 @@ public:
     /**
      * @brief 用已有 Chan 构造写端，与调用方共享所有权。
      */
-    explicit WriteChan(std::shared_ptr<Chan<TItem, Max>> chan) : m_chan(chan) {}
+    explicit WriteChan(std::shared_ptr<Chan<TItem, Max>> chan)
+        : m_chan(chan)
+    {
+    }
 
     /**
      * @brief 转发 Chan::Write。
@@ -323,7 +326,10 @@ public:
     /**
      * @brief 用已有 Chan 构造读端，与调用方共享所有权。
      */
-    explicit ReadChan(std::shared_ptr<Chan<TItem, Max>> chan) : m_chan(chan) {}
+    explicit ReadChan(std::shared_ptr<Chan<TItem, Max>> chan)
+        : m_chan(chan)
+    {
+    }
 
     /**
      * @brief 转发 Chan::Read。
@@ -359,6 +365,6 @@ private:
     std::shared_ptr<Chan<TItem, Max>> m_chan;
 };
 
-}
+} // namespace bbt::coroutine::sync
 
 #include <bbt/coroutine/sync/__TChan.hpp>

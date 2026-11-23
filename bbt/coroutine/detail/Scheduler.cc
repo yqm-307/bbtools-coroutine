@@ -67,9 +67,10 @@ void Scheduler::_Init(const ProcesserScalingBounds& bounds)
     m_min_num = bounds.m_min_num;
     m_max_num = bounds.m_max_num;
     m_target_num.store(bounds.m_initial_num, std::memory_order_release);
-    m_scaling_mode.store(g_bbt_coroutine_config->RuntimeSnapshot().processer_auto_scale ? ProcesserScalingMode::Auto
-                                                                                        : ProcesserScalingMode::Manual,
-                         std::memory_order_release);
+    m_scaling_mode.store(
+        g_bbt_coroutine_config->RuntimeSnapshot().processer_auto_scale ? ProcesserScalingMode::Auto
+                                                                       : ProcesserScalingMode::Manual,
+        std::memory_order_release);
 
     m_scale_interval_ms = g_bbt_coroutine_config->RuntimeSnapshot().processer_scale_interval_ms;
     m_scale_up_samples = g_bbt_coroutine_config->RuntimeSnapshot().processer_scale_up_samples;
@@ -108,12 +109,12 @@ void Scheduler::RegistCoroutineTask(const CoroutineCallback& handle, const char*
 
 void Scheduler::RegistCoroutineTask(size_t stack_size, const CoroutineCallback& handle, const char* desc)
 {
-    RegistCoroutineTask(StackRequest{stack_size, g_bbt_coroutine_config->RuntimeSnapshot().stack_protect}, handle, {},
-                        desc);
+    RegistCoroutineTask(
+        StackRequest{stack_size, g_bbt_coroutine_config->RuntimeSnapshot().stack_protect}, handle, {}, desc);
 }
 
-void Scheduler::RegistCoroutineTask(StackRequest request, const CoroutineCallback& handle, const WaitOptions& wait,
-                                    const char* desc)
+void Scheduler::RegistCoroutineTask(
+    StackRequest request, const CoroutineCallback& handle, const WaitOptions& wait, const char* desc)
 {
 
     /**
@@ -145,6 +146,7 @@ void Scheduler::RegistCoroutineTask(StackRequest request, const CoroutineCallbac
 
 #ifdef BBT_COROUTINE_STACK_TESTING
 std::atomic_bool Scheduler::s_test_fail_submit{false};
+
 void Scheduler::_TestFailNextSubmit() noexcept
 {
     s_test_fail_submit.store(true);
@@ -156,8 +158,8 @@ void Scheduler::RegistCoroutineTaskOn(ProcesserId target, const CoroutineCallbac
     RegistCoroutineTaskOn(target, g_bbt_coroutine_config->RuntimeSnapshot().stack_size, handle, desc);
 }
 
-void Scheduler::RegistCoroutineTaskOn(ProcesserId target, size_t stack_size, const CoroutineCallback& handle,
-                                      const char* desc)
+void Scheduler::RegistCoroutineTaskOn(
+    ProcesserId target, size_t stack_size, const CoroutineCallback& handle, const char* desc)
 {
     if (!IsInitialized())
         throw std::logic_error{"Scheduler::RegistCoroutineTaskOn: runtime not initialized"};
@@ -215,8 +217,8 @@ std::vector<ProcesserId> Scheduler::GetWorkerProcesserIds()
     return ids;
 }
 
-ProcesserDriverStatus Scheduler::RegisterProcesserDriver(ProcesserId target, std::shared_ptr<IProcesserDriver> driver,
-                                                         ProcesserDriverToken& out_token)
+ProcesserDriverStatus Scheduler::RegisterProcesserDriver(
+    ProcesserId target, std::shared_ptr<IProcesserDriver> driver, ProcesserDriverToken& out_token)
 {
     if (!IsInitialized())
         return ProcesserDriverStatus::NotInitialized;
@@ -600,9 +602,14 @@ void Scheduler::_FixTimingScan()
             /**
              * 无回调 = stderr 告警一行
              */
-            fprintf(stderr, "[bbtco] worker stall: worker=%llu co=%llu desc='%s' running=%llums backlog=%llu\n",
-                    (unsigned long long)info.m_worker_id, (unsigned long long)info.m_co_id, info.m_desc.c_str(),
-                    (unsigned long long)(info.m_running_us / 1000), (unsigned long long)info.m_backlog);
+            fprintf(
+                stderr,
+                "[bbtco] worker stall: worker=%llu co=%llu desc='%s' running=%llums backlog=%llu\n",
+                (unsigned long long)info.m_worker_id,
+                (unsigned long long)info.m_co_id,
+                info.m_desc.c_str(),
+                (unsigned long long)(info.m_running_us / 1000),
+                (unsigned long long)info.m_backlog);
         }
     }
 }
@@ -915,8 +922,8 @@ void Scheduler::_CancelBatch(std::shared_ptr<BatchStartGate>& gate, std::vector<
     records.clear();
 }
 
-bool Scheduler::_PrepareExpansionLocked(size_t need, std::vector<Processer::SPtr>& out_new,
-                                        std::unique_lock<std::mutex>& lifecycle_lock)
+bool Scheduler::_PrepareExpansionLocked(
+    size_t need, std::vector<Processer::SPtr>& out_new, std::unique_lock<std::mutex>& lifecycle_lock)
 {
     if (need == 0)
         return true;
@@ -1011,8 +1018,8 @@ bool Scheduler::_PrepareExpansionLocked(size_t need, std::vector<Processer::SPtr
     return true;
 }
 
-ProcesserResizeResult Scheduler::_CommitShrinkLocked(size_t need, size_t target,
-                                                     std::vector<Processer::SPtr>& out_notify)
+ProcesserResizeResult
+Scheduler::_CommitShrinkLocked(size_t need, size_t target, std::vector<Processer::SPtr>& out_notify)
 {
 
     /**
@@ -1096,8 +1103,8 @@ ProcesserResizeResult Scheduler::_CommitShrinkLocked(size_t need, size_t target,
     return ProcesserResizeResult::Pending;
 }
 
-ProcesserResizeResult Scheduler::_ApplyTargetLocked(size_t target, std::vector<Processer::SPtr>& out_notify,
-                                                    std::unique_lock<std::mutex>& lifecycle_lock)
+ProcesserResizeResult Scheduler::_ApplyTargetLocked(
+    size_t target, std::vector<Processer::SPtr>& out_notify, std::unique_lock<std::mutex>& lifecycle_lock)
 {
 
     /**
@@ -1162,7 +1169,7 @@ void AdvanceHits(size_t& hits, bool hit, size_t samples)
         ++hits;
 }
 
-}
+} // namespace
 
 void Scheduler::_AutoScaleTick()
 {
@@ -1302,8 +1309,8 @@ void Scheduler::_AccumulateScalingHitsLocked(const ScalingLoad& load)
     AdvanceHits(m_scale_down_hits, down_hit, m_scale_down_samples);
 }
 
-void Scheduler::_ApplyScalingDecisionLocked(std::vector<Processer::SPtr>& out_notify,
-                                            std::unique_lock<std::mutex>& lifecycle_lock)
+void Scheduler::_ApplyScalingDecisionLocked(
+    std::vector<Processer::SPtr>& out_notify, std::unique_lock<std::mutex>& lifecycle_lock)
 {
 
     /**
@@ -1316,8 +1323,8 @@ void Scheduler::_ApplyScalingDecisionLocked(std::vector<Processer::SPtr>& out_no
         _ScaleDownOneStepLocked(out_notify, lifecycle_lock);
 }
 
-void Scheduler::_ScaleUpOneStepLocked(std::vector<Processer::SPtr>& out_notify,
-                                      std::unique_lock<std::mutex>& lifecycle_lock)
+void Scheduler::_ScaleUpOneStepLocked(
+    std::vector<Processer::SPtr>& out_notify, std::unique_lock<std::mutex>& lifecycle_lock)
 {
 
     /**
@@ -1348,8 +1355,8 @@ void Scheduler::_ScaleUpOneStepLocked(std::vector<Processer::SPtr>& out_notify,
     }
 }
 
-void Scheduler::_ScaleDownOneStepLocked(std::vector<Processer::SPtr>& out_notify,
-                                        std::unique_lock<std::mutex>& lifecycle_lock)
+void Scheduler::_ScaleDownOneStepLocked(
+    std::vector<Processer::SPtr>& out_notify, std::unique_lock<std::mutex>& lifecycle_lock)
 {
 
     /**
@@ -1543,4 +1550,4 @@ void Scheduler::_InitGlobalUniqInstance()
 #pragma optimize("", on)
 }
 
-}
+} // namespace bbt::coroutine::detail

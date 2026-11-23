@@ -44,7 +44,7 @@ struct HugeIdPayload {
     unsigned char bytes[8];
 };
 
-}
+} // namespace
 
 /**
  * 登记写在全局命名空间作用域：显式特化只能声明在包裹模板命名空间的命名空间里
@@ -335,13 +335,18 @@ BOOST_AUTO_TEST_CASE(t_pointer_depth_within_capacity)
     BOOST_CHECK_EQUAL(kCoEventValueMaxPointerDepth, 7u);
 
     const CoEventValueTypeId ids[7] = {
-        CoEventValueTraits<I1>::id, CoEventValueTraits<I2>::id, CoEventValueTraits<I3>::id, CoEventValueTraits<I4>::id,
-        CoEventValueTraits<I5>::id, CoEventValueTraits<I6>::id, CoEventValueTraits<I7>::id,
+        CoEventValueTraits<I1>::id,
+        CoEventValueTraits<I2>::id,
+        CoEventValueTraits<I3>::id,
+        CoEventValueTraits<I4>::id,
+        CoEventValueTraits<I5>::id,
+        CoEventValueTraits<I6>::id,
+        CoEventValueTraits<I7>::id,
     };
     for (int i = 0; i < 7; ++i)
         for (int j = i + 1; j < 7; ++j)
-            BOOST_CHECK_MESSAGE(ids[i] != ids[j],
-                                "pointer depth " << i + 1 << " and " << j + 1 << " share id " << ids[i]);
+            BOOST_CHECK_MESSAGE(
+                ids[i] != ids[j], "pointer depth " << i + 1 << " and " << j + 1 << " share id " << ids[i]);
 
     int level = 0;
     I7 p7 = reinterpret_cast<I7>(&level);
@@ -369,13 +374,19 @@ BOOST_AUTO_TEST_CASE(t_pointer_depth_within_capacity)
     using H6 = H5*;
     using H7 = H6*;
     const CoEventValueTypeId worst[7] = {
-        CoEventValueTraits<H1>::id, CoEventValueTraits<H2>::id, CoEventValueTraits<H3>::id, CoEventValueTraits<H4>::id,
-        CoEventValueTraits<H5>::id, CoEventValueTraits<H6>::id, CoEventValueTraits<H7>::id,
+        CoEventValueTraits<H1>::id,
+        CoEventValueTraits<H2>::id,
+        CoEventValueTraits<H3>::id,
+        CoEventValueTraits<H4>::id,
+        CoEventValueTraits<H5>::id,
+        CoEventValueTraits<H6>::id,
+        CoEventValueTraits<H7>::id,
     };
     for (int i = 1; i < 7; ++i)
-        BOOST_CHECK_MESSAGE(worst[i] > worst[i - 1], "worst-case pointer depth "
-                                                         << i + 1 << " id " << worst[i] << " did not grow past "
-                                                         << worst[i - 1] << " (uint32 overflow)");
+        BOOST_CHECK_MESSAGE(
+            worst[i] > worst[i - 1],
+            "worst-case pointer depth " << i + 1 << " id " << worst[i] << " did not grow past " << worst[i - 1]
+                                        << " (uint32 overflow)");
 
     /**
      * 每层乘 4 → 每层比内层大至少 3 倍，末层远小于 uint32 上界

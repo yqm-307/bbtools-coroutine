@@ -16,7 +16,8 @@ using namespace bbt::coroutine;
 
 class RedisClient {
 public:
-    RedisClient(const std::string& host, int port) : m_context(redisConnect(host.c_str(), port))
+    RedisClient(const std::string& host, int port)
+        : m_context(redisConnect(host.c_str(), port))
     {
         if (m_context == nullptr || m_context->err) {
             throw std::runtime_error("Could not connect to Redis server");
@@ -105,7 +106,7 @@ public:
     void Run()
     {
         while (m_is_running) {
-            sleep(1);
+            bbtco_sleep(1000);
         };
     };
 

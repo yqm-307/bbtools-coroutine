@@ -24,6 +24,7 @@ namespace bbt::coroutine::sync {
  */
 struct ChanReadGuard {
     std::atomic_bool& flag;
+
     ~ChanReadGuard() { flag.store(false, std::memory_order_release); }
 };
 
@@ -36,7 +37,10 @@ struct ChanReadGuard {
  * @{
  */
 
-template <class TItem, int Max> Chan<TItem, Max>::Chan() : m_max_size(Max), m_enable_read_cond(CoWaiter::Create())
+template <class TItem, int Max>
+Chan<TItem, Max>::Chan()
+    : m_max_size(Max)
+    , m_enable_read_cond(CoWaiter::Create())
 {
     Assert(m_max_size >= 0);
     m_run_status.store(ChanStatus::CHAN_OPEN, std::memory_order_release);
@@ -75,8 +79,8 @@ template <class TItem, int Max> int Chan<TItem, Max>::Write(const ItemType& item
          * 已满足则自 Notify 走 PENDING 早到路径，不得只入队而不复查。
          */
         int ret = _WaitUntilEnableWrite(enable_write_cond, [this, enable_write_cond]() {
-            _RegisterEnableWriteCond(enable_write_cond,
-                                     [this]() { return !IsClosed() && m_item_queue.size() >= (size_t)m_max_size; });
+            _RegisterEnableWriteCond(
+                enable_write_cond, [this]() { return !IsClosed() && m_item_queue.size() >= (size_t)m_max_size; });
             return true;
         });
         if (ret != 0) {
@@ -278,8 +282,8 @@ template <class TItem, int Max> int Chan<TItem, Max>::TryWrite(const ItemType& i
          * 并持锁复查容量/关闭，条件已满足则自唤醒（否则会假超时）。
          */
         int ret = _WaitUntilEnableWriteOrTimeout(enable_write_cond, remaining, [this, enable_write_cond]() {
-            _RegisterEnableWriteCond(enable_write_cond,
-                                     [this]() { return !IsClosed() && m_item_queue.size() >= (size_t)m_max_size; });
+            _RegisterEnableWriteCond(
+                enable_write_cond, [this]() { return !IsClosed() && m_item_queue.size() >= (size_t)m_max_size; });
             return true;
         });
 
@@ -484,8 +488,8 @@ template <class TItem, int Max> void Chan<TItem, Max>::AddWriteWatcher(const CoW
 template <class TItem, int Max> void Chan<TItem, Max>::RemoveWriteWatcher(const CoWaiter::SPtr& waiter)
 {
     std::lock_guard<std::mutex> lock(m_item_queue_mutex);
-    m_write_watchers.erase(std::remove(m_write_watchers.begin(), m_write_watchers.end(), waiter),
-                           m_write_watchers.end());
+    m_write_watchers.erase(
+        std::remove(m_write_watchers.begin(), m_write_watchers.end(), waiter), m_write_watchers.end());
 }
 
 /**
@@ -509,8 +513,8 @@ int Chan<TItem, Max>::_WaitUntilEnableWrite(CoWaiter::SPtr cond, const detail::C
 }
 
 template <class TItem, int Max>
-int Chan<TItem, Max>::_WaitUntilEnableWriteOrTimeout(CoWaiter::SPtr cond, int timeout_ms,
-                                                     const detail::CoroutineOnYieldCallback& cb)
+int Chan<TItem, Max>::_WaitUntilEnableWriteOrTimeout(
+    CoWaiter::SPtr cond, int timeout_ms, const detail::CoroutineOnYieldCallback& cb)
 {
     return cond->WaitWithTimeoutAndCallback(timeout_ms, cb);
 }
@@ -699,14 +703,14 @@ template <class TItem> int Chan<TItem, 0>::Write(const ItemType& item)
      * 消费」（is_writing_idx 已被读取时 m_read_idx > is_writing_idx）。reader
      * 的 _OnEnableWrite 与入队持同一把锁串行化，条件已满足则自唤醒。
      */
-    if (BaseType::_WaitUntilEnableWrite(enable_write_cond,
-                                        [this, is_writing_idx, enable_write_cond]() {
-                                            BaseType::_RegisterEnableWriteCond(
-                                                enable_write_cond, [this, is_writing_idx]() {
-                                                    return !IsClosed() && m_read_idx <= is_writing_idx;
-                                                });
-                                            return true;
-                                        })
+    if (BaseType::_WaitUntilEnableWrite(
+            enable_write_cond,
+            [this, is_writing_idx, enable_write_cond]() {
+                BaseType::_RegisterEnableWriteCond(enable_write_cond, [this, is_writing_idx]() {
+                    return !IsClosed() && m_read_idx <= is_writing_idx;
+                });
+                return true;
+            })
         != 0) {
         enable_write_cond->Cancel();
         return -2;
@@ -804,4 +808,4 @@ template <class TItem> bool Chan<TItem, 0>::IsClosed()
  * @}
  */
 
-}
+} // namespace bbt::coroutine::sync

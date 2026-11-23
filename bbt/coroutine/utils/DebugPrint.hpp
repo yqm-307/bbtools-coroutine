@@ -18,26 +18,23 @@ void VPrint(const char* fmt, ...);
 /**
  * @brief 格式化打印；开启调试时才展开成一次 VPrint 调用
  */
-#define __g_bbt_debug_printf(fmt, ...) \
-    bbt::coroutine::utils::VPrint(fmt, ##__VA_ARGS__)
+#define __g_bbt_debug_printf(fmt, ...) bbt::coroutine::utils::VPrint(fmt, ##__VA_ARGS__)
 
 /**
  * @brief 带 `[文件:行 函数]` 前缀的打印，用来定位调用点
  */
-#define __g_bbt_debug_printf_full(msg) \
-    __g_bbt_debug_printf("[%s:%d %s] %s\n", __FILE__, __LINE__, __FUNCTION__, msg)
+#define __g_bbt_debug_printf_full(msg) __g_bbt_debug_printf("[%s:%d %s] %s\n", __FILE__, __LINE__, __FUNCTION__, msg)
 
 /**
  * @brief 带模块名和调用点前缀的打印
  */
-#define g_bbt_dbgp(module, msg) \
+#define g_bbt_dbgp(module, msg)                                                                                        \
     __g_bbt_debug_printf("[%s:%d %s] [module:%s] %s\n", __FILE__, __LINE__, __FUNCTION__, module, msg);
 
 /**
  * @brief 同 __g_bbt_debug_printf_full
  */
-#define g_bbt_dbgp_full(msg) \
-    __g_bbt_debug_printf_full(msg)
+#define g_bbt_dbgp_full(msg) __g_bbt_debug_printf_full(msg)
 
 #else
 
@@ -54,4 +51,4 @@ void VPrint(const char* fmt, ...);
 #define g_bbt_dbgp_full(msg)
 #endif
 
-}
+} // namespace bbt::coroutine::utils

@@ -3,7 +3,8 @@
 
 namespace bbt::core::thread {
 
-CountDownLatch::CountDownLatch(int cot) : m_count(cot)
+CountDownLatch::CountDownLatch(int cot)
+    : m_count(cot)
 {
     m_sem = PTHREAD_COND_INITIALIZER;
 }
@@ -83,4 +84,4 @@ void CountDownLatch::Reset(int n)
     m_count = n;
 }
 
-}
+} // namespace bbt::core::thread

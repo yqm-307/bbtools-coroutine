@@ -11,7 +11,7 @@ void LimitCoroutineCount()
     bbtco_noexcept(&succ)[=]()
     {
         std::cout << "Coroutine 1" << std::endl;
-        sleep(1);
+        bbtco_sleep(1000);
     };
 
     if (!succ) {
@@ -22,7 +22,7 @@ void LimitCoroutineCount()
         bbtco_noexcept(&succ)[=]()
         {
             std::cout << "Coroutine " << i << std::endl;
-            sleep(1);
+            bbtco_sleep(1000);
         };
 
         if (!succ) {

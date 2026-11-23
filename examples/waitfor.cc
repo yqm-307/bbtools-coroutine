@@ -29,7 +29,7 @@ void CoReadable()
         done.store(true, std::memory_order_release);
     };
 
-    sleep(1);
+    bbtco_sleep(1000);
     printf("CoReadable: %d, now<%lu>, write a char\n", pipefd[1], bbt::core::clock::gettime<>());
     ::write(pipefd[1], "a", 1);
 
@@ -56,11 +56,11 @@ void CoTimeout()
          * 等待0.1秒超时
          */
         bbtco_wait_for(0, bbtco_emev_timeout, 100);
-        printf("CoTimeout: %lu, now<%lu>, timeout again\n", bbt::co::GetLocalCoroutineId(),
-               bbt::core::clock::gettime<>());
+        printf(
+            "CoTimeout: %lu, now<%lu>, timeout again\n", bbt::co::GetLocalCoroutineId(), bbt::core::clock::gettime<>());
     };
 
-    sleep(1);
+    bbtco_sleep(1000);
 }
 
 int bbtco_main()

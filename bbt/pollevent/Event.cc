@@ -39,7 +39,7 @@ namespace {
  */
 void (*g_test_hook)(Event*, Event::TestHookPoint) = nullptr;
 
-}
+} // namespace
 
 void Event::SetTestHook(void (*hook)(Event*, TestHookPoint))
 {
@@ -54,7 +54,10 @@ void Event::RunTestHook(Event* self, TestHookPoint point)
 #endif
 
 Event::Event(detail::EventBase* base, evutil_socket_t fd, short listen_events, const OnEventCallback& onevent_cb)
-    : m_id(GenerateId()), m_ref_base(base), m_fd(fd), m_listen_events(listen_events)
+    : m_id(GenerateId())
+    , m_ref_base(base)
+    , m_fd(fd)
+    , m_listen_events(listen_events)
 {
     Assert(base != nullptr);
 
@@ -177,8 +180,10 @@ int Event::StartListen(uint64_t timeout)
     if (!EnsureWeakSelfLocked()) {
         static std::atomic_bool reported{false};
         if (!reported.exchange(true))
-            std::fprintf(stderr, "[pollevent] StartListen requires shared_ptr ownership of Event id=%lld\n",
-                         static_cast<long long>(m_id));
+            std::fprintf(
+                stderr,
+                "[pollevent] StartListen requires shared_ptr ownership of Event id=%lld\n",
+                static_cast<long long>(m_id));
         return -1;
     }
 
@@ -386,8 +391,10 @@ int Event::Trigger(int flag)
         if (!EnsureWeakSelfLocked()) {
             static std::atomic_bool reported{false};
             if (!reported.exchange(true))
-                std::fprintf(stderr, "[pollevent] Trigger requires shared_ptr ownership of Event id=%lld\n",
-                             static_cast<long long>(m_id));
+                std::fprintf(
+                    stderr,
+                    "[pollevent] Trigger requires shared_ptr ownership of Event id=%lld\n",
+                    static_cast<long long>(m_id));
             return -1;
         }
         /**
@@ -539,4 +546,4 @@ void Event::CallEventCallback(EventId id, int fd, short events)
         cb(fd, events, id);
 }
 
-}
+} // namespace bbt::pollevent

@@ -56,10 +56,13 @@ public:
     int UnRegist();
 
     bool IsFinal() const noexcept;
+
     CoroutineId Owner() const noexcept { return m_owner; }
+
     uint64_t Generation() const noexcept { return m_generation; }
 
     void SetNotifyValue(const bbt::coroutine::CoEventValue& value) noexcept { m_notify_value = value; }
+
     bbt::coroutine::CoEventValue GetNotifyValue() const noexcept { return m_notify_value; }
 
 private:
@@ -91,4 +94,4 @@ private:
     bbt::coroutine::CoEventValue m_notify_value{};
 };
 
-}
+} // namespace bbt::coroutine::detail

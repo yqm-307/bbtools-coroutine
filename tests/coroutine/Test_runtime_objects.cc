@@ -43,8 +43,16 @@ struct Probe {
 
 class Object : public CoObject {
 public:
-    explicit Object(std::shared_ptr<Probe> probe = {}) : m_probe(std::move(probe)) {}
-    Object(std::string kind, std::string name) : CoObject(std::move(kind), std::move(name)) {}
+    explicit Object(std::shared_ptr<Probe> probe = {})
+        : m_probe(std::move(probe))
+    {
+    }
+
+    Object(std::string kind, std::string name)
+        : CoObject(std::move(kind), std::move(name))
+    {
+    }
+
     ~Object() noexcept override
     {
         if (m_probe) {
@@ -52,7 +60,9 @@ public:
             m_probe->destroyed.fetch_add(1);
         }
     }
+
     void Close() noexcept { m_closed = true; }
+
     bool IsClosed() const noexcept { return m_closed; }
 
 private:
@@ -65,7 +75,8 @@ struct OnlyObject : Object, CoRuntimeOnly {
 };
 
 struct ThrowingObject : CoObject {
-    ThrowingObject() : CoObject("objects.constructor-failure", "partial")
+    ThrowingObject()
+        : CoObject("objects.constructor-failure", "partial")
     {
         throw std::runtime_error("construction failure");
     }
@@ -76,7 +87,9 @@ public:
     struct Deleter {
         void operator()(RestrictedObject* object) const noexcept { delete object; }
     };
+
     using UPtr = std::unique_ptr<RestrictedObject, Deleter>;
+
     static UPtr Create() { return UPtr(new RestrictedObject); }
 
 private:
@@ -93,24 +106,36 @@ static_assert(std::is_nothrow_destructible_v<Object>);
 struct NativeMember : MemberBase<int, NativeMember> {};
 
 struct ThrowKey {
-    explicit ThrowKey(std::shared_ptr<int> budget) : copies_left(std::move(budget)) {}
-    ThrowKey(const ThrowKey& other) : copies_left(other.copies_left)
+    explicit ThrowKey(std::shared_ptr<int> budget)
+        : copies_left(std::move(budget))
+    {
+    }
+
+    ThrowKey(const ThrowKey& other)
+        : copies_left(other.copies_left)
     {
         if ((*copies_left)-- == 0)
             throw std::bad_alloc();
     }
+
     bool operator<(const ThrowKey&) const noexcept { return false; }
+
     std::shared_ptr<int> copies_left;
 };
 
 struct ThrowMember : MemberBase<ThrowKey, ThrowMember> {
-    explicit ThrowMember(std::shared_ptr<Probe> probe) : m_probe(std::move(probe)) {}
+    explicit ThrowMember(std::shared_ptr<Probe> probe)
+        : m_probe(std::move(probe))
+    {
+    }
+
     ~ThrowMember() noexcept { m_probe->destroyed.fetch_add(1); }
+
     std::shared_ptr<Probe> m_probe;
 };
 
-void CheckStats(CoObjectStats stats, std::uint64_t created, std::uint64_t destroyed, std::uint64_t alive,
-                std::uint64_t peak)
+void CheckStats(
+    CoObjectStats stats, std::uint64_t created, std::uint64_t destroyed, std::uint64_t alive, std::uint64_t peak)
 {
     BOOST_CHECK_EQUAL(stats.created_total, created);
     BOOST_CHECK_EQUAL(stats.destroyed_total, destroyed);
@@ -118,7 +143,7 @@ void CheckStats(CoObjectStats stats, std::uint64_t created, std::uint64_t destro
     BOOST_CHECK_EQUAL(stats.peak_alive, peak);
 }
 
-}
+} // namespace
 
 BOOST_FIXTURE_TEST_SUITE(RuntimeObjects, RuntimeFixture)
 
@@ -151,8 +176,9 @@ BOOST_AUTO_TEST_CASE(existing_identity_is_not_reallocated_or_renamed)
 {
     auto manager = std::make_shared<CoObjectManager>();
     const auto before = CreateObjectInfo("identity.probe", "before");
-    auto object = manager->Create(CoObjectId{41}, "ignored-kind", "ignored-name",
-                                  []() { return std::make_unique<Object>("objects.existing", "original"); });
+    auto object = manager->Create(CoObjectId{41}, "ignored-kind", "ignored-name", []() {
+        return std::make_unique<Object>("objects.existing", "original");
+    });
     const auto after = CreateObjectInfo("identity.probe", "after");
     const auto info = object->GetObjectInfo();
     BOOST_CHECK_EQUAL(info.id, before.id + 1);
@@ -240,25 +266,28 @@ BOOST_AUTO_TEST_CASE(creator_throw_and_empty_owner_do_not_commit)
     };
     BOOST_CHECK_THROW(manager->Create("objects.creator-failure", "throw", throwing), std::runtime_error);
     BOOST_CHECK_EQUAL(calls, 1);
-    BOOST_CHECK_THROW(manager->Create("objects.creator-failure", "empty", []() { return std::unique_ptr<Object>{}; }),
-                      std::invalid_argument);
+    BOOST_CHECK_THROW(
+        manager->Create("objects.creator-failure", "empty", []() { return std::unique_ptr<Object>{}; }),
+        std::invalid_argument);
     CheckStats(manager->GetStats(), 0, 0, 0, 0);
     CheckStats(GetCoObjectStats("objects.creator-failure"), 0, 0, 0, 0);
 
-    BOOST_CHECK_THROW(MakeCoObject<ThrowingObject>("objects.constructor-failure", "partial",
-                                                   []() { return std::make_unique<ThrowingObject>(); }),
-                      std::runtime_error);
+    BOOST_CHECK_THROW(
+        MakeCoObject<ThrowingObject>(
+            "objects.constructor-failure", "partial", []() { return std::make_unique<ThrowingObject>(); }),
+        std::runtime_error);
     CheckStats(GetCoObjectStats("objects.constructor-failure"), 0, 0, 0, 0);
 }
 
 BOOST_AUTO_TEST_CASE(exception_after_owner_delivery_counts_actual_destruction)
 {
-    BOOST_CHECK_THROW(([]() {
-                          auto object = MakeCoObject<Object>("objects.post-create-failure", "delivered",
-                                                             []() { return std::make_unique<Object>(); });
-                          throw std::runtime_error("failure after creator commit");
-                      })(),
-                      std::runtime_error);
+    BOOST_CHECK_THROW(
+        ([]() {
+            auto object = MakeCoObject<Object>(
+                "objects.post-create-failure", "delivered", []() { return std::make_unique<Object>(); });
+            throw std::runtime_error("failure after creator commit");
+        })(),
+        std::runtime_error);
     CheckStats(GetCoObjectStats("objects.post-create-failure"), 1, 1, 0, 1);
 }
 
@@ -269,12 +298,16 @@ BOOST_AUTO_TEST_CASE(duplicate_key_destroys_uncommitted_object_without_destroy_a
     auto first = manager->Create(key, "objects.duplicate", "first", []() { return std::make_shared<Object>(); });
     auto probe = std::make_shared<Probe>();
     int calls = 0;
-    BOOST_CHECK_THROW(manager->Create(key, "objects.duplicate", "second",
-                                      [probe, &calls]() {
-                                          ++calls;
-                                          return std::make_unique<Object>(probe);
-                                      }),
-                      std::logic_error);
+    BOOST_CHECK_THROW(
+        manager->Create(
+            key,
+            "objects.duplicate",
+            "second",
+            [probe, &calls]() {
+                ++calls;
+                return std::make_unique<Object>(probe);
+            }),
+        std::logic_error);
     BOOST_CHECK_EQUAL(calls, 1);
     BOOST_CHECK_EQUAL(probe->destroyed.load(), 1);
     BOOST_REQUIRE(manager->GetObjectInfo(key).has_value());
@@ -282,8 +315,8 @@ BOOST_AUTO_TEST_CASE(duplicate_key_destroys_uncommitted_object_without_destroy_a
     CheckStats(manager->GetStats(), 1, 0, 1, 1);
     CheckStats(GetCoObjectStats("objects.duplicate"), 1, 0, 1, 1);
 
-    BOOST_CHECK_THROW(manager->Create(CoObjectId{10}, "objects.duplicate", "repeat", [first]() { return first; }),
-                      std::logic_error);
+    BOOST_CHECK_THROW(
+        manager->Create(CoObjectId{10}, "objects.duplicate", "repeat", [first]() { return first; }), std::logic_error);
     BOOST_CHECK(!manager->GetObjectInfo(10).has_value());
     CheckStats(manager->GetStats(), 1, 0, 1, 1);
     first.reset();
@@ -299,9 +332,10 @@ BOOST_AUTO_TEST_CASE(index_insertion_exception_does_not_arm_member_or_commit)
      * 首次复制初始化 member key，第二次复制由 map 插入触发异常。
      */
     ThrowKey key(std::make_shared<int>(1));
-    BOOST_CHECK_THROW(manager->Create(key, "objects.index-failure", "failed",
-                                      [probe]() { return std::make_unique<ThrowMember>(probe); }),
-                      std::bad_alloc);
+    BOOST_CHECK_THROW(
+        manager->Create(
+            key, "objects.index-failure", "failed", [probe]() { return std::make_unique<ThrowMember>(probe); }),
+        std::bad_alloc);
     BOOST_CHECK_EQUAL(probe->destroyed.load(), 1);
     CheckStats(manager->GetStats(), 0, 0, 0, 0);
     CheckStats(GetCoObjectStats("objects.index-failure"), 0, 0, 0, 0);
@@ -327,8 +361,9 @@ BOOST_AUTO_TEST_CASE(co_only_gate_precedes_creator_and_destruction_is_native_saf
     auto future = done->get_future();
     g_scheduler->RegistCoroutineTask(128 * 1024, [done, probe]() {
         try {
-            done->set_value(MakeCoObject<OnlyObject>("objects.co-only", "co",
-                                                     [probe]() { return std::make_unique<OnlyObject>(probe); }));
+            done->set_value(MakeCoObject<OnlyObject>("objects.co-only", "co", [probe]() {
+                return std::make_unique<OnlyObject>(probe);
+            }));
         } catch (...) {
             done->set_exception(std::current_exception());
         }
@@ -349,6 +384,7 @@ BOOST_AUTO_TEST_CASE(concurrent_create_snapshot_and_destroy_preserve_totals_and_
     constexpr int batch = 16;
     const std::string kind = "objects.concurrent";
     auto manager = std::make_shared<CoObjectManager>();
+
     struct Barrier {
         std::mutex mutex;
         std::condition_variable cv;
@@ -363,6 +399,7 @@ BOOST_AUTO_TEST_CASE(concurrent_create_snapshot_and_destroy_preserve_totals_and_
          */
         std::atomic<int> inconsistent{0};
     };
+
     auto barrier = std::make_shared<Barrier>();
     std::vector<std::thread> workers;
     for (int thread = 0; thread < threads; ++thread) {

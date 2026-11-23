@@ -44,7 +44,7 @@ void EnsureRuntime()
     static std::once_flag once;
     std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
-}
+} // namespace
 
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::sync;
@@ -71,7 +71,7 @@ void WaitLatchWithDeadline(bbt::core::thread::CountDownLatch& latch, int timeout
     BOOST_ERROR("latch wait timed out");
 }
 
-}
+} // namespace
 
 BOOST_AUTO_TEST_SUITE(ReliabilityTraps)
 
@@ -412,7 +412,7 @@ BOOST_AUTO_TEST_CASE(t_UAF_03_raii_shared_ptr_guard)
      * 验证 CoReadLock / CoWriteLock 接受 CoRWMutex::SPtr（defer_lock 不实际加锁）
      */
     {
-        auto rwlock = CoRWMutex::Create();
+        auto rwlock = bbtco_make_corwmutex();
         {
             CoReadLock guard(rwlock, std::defer_lock);
             BOOST_TEST(!guard.owns_lock());
@@ -440,7 +440,7 @@ BOOST_AUTO_TEST_CASE(t_UAF_04_cowaiter_shared_ptr)
 {
     BOOST_TEST_MESSAGE("[UAF-04] CoCond shared_ptr<CoWaiter>: verifying no stack UAF (regression)");
 
-    auto cond = sync::CoCond::Create();
+    auto cond = bbtco_make_cocond();
     const int n_waiters = 100;
     std::atomic_int woken{0};
     bbt::core::thread::CountDownLatch ready{n_waiters};
@@ -567,8 +567,8 @@ BOOST_AUTO_TEST_CASE(t_DR_01_chan_concurrent_race)
     BOOST_TEST(total_writes.load() > 0);
     BOOST_TEST(total_reads.load() > 0);
 
-    BOOST_TEST_MESSAGE("[DR-01] writes=" << total_writes.load() << " reads=" << total_reads.load()
-                                         << " errors=" << errors.load());
+    BOOST_TEST_MESSAGE(
+        "[DR-01] writes=" << total_writes.load() << " reads=" << total_reads.load() << " errors=" << errors.load());
 }
 
 /**
@@ -674,8 +674,8 @@ BOOST_AUTO_TEST_CASE(t_DR_02_chan_cas_in_lock)
     BOOST_TEST(writes_done.load() >= 0);
     BOOST_TEST(reads_done.load() >= 0);
 
-    BOOST_TEST_MESSAGE("[DR-02] writes=" << writes_done.load() << " reads=" << reads_done.load()
-                                         << " closed=" << close_done.load());
+    BOOST_TEST_MESSAGE(
+        "[DR-02] writes=" << writes_done.load() << " reads=" << reads_done.load() << " closed=" << close_done.load());
 }
 
 /**
@@ -747,7 +747,7 @@ BOOST_AUTO_TEST_CASE(t_ML_02_copool_task_leak)
 {
     BOOST_TEST_MESSAGE("[ML-02] CoPool task leak: verifying task completion ratio");
 
-    auto pool = pool::CoPool::Create(4);
+    auto pool = bbtco_make_copool(4);
     const int n_tasks = 100;
     std::atomic_int completed{0};
     bbt::core::thread::CountDownLatch all_submitted{n_tasks};
@@ -932,8 +932,8 @@ BOOST_AUTO_TEST_CASE(t_UB_03_yieldwithcallback_lock)
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
     BOOST_TEST(callback_called.load());
-    BOOST_TEST_MESSAGE("[UB-03] callback_called=" << callback_called.load()
-                                                  << " — unlock-before-yield pattern verified");
+    BOOST_TEST_MESSAGE(
+        "[UB-03] callback_called=" << callback_called.load() << " — unlock-before-yield pattern verified");
 }
 
 /**
@@ -953,7 +953,7 @@ BOOST_AUTO_TEST_CASE(t_EX_01_cocond_exception_safety)
     std::atomic_int normal_woken{0};
     std::atomic_int exception_thrown{0};
 
-    auto cond = sync::CoCond::Create();
+    auto cond = bbtco_make_cocond();
     bbt::core::thread::CountDownLatch all_ready{n_normal + 1};
 
     /**
@@ -1001,8 +1001,8 @@ BOOST_AUTO_TEST_CASE(t_EX_01_cocond_exception_safety)
 
     BOOST_TEST(normal_woken.load() == n_normal);
     BOOST_TEST(exception_thrown.load() >= 1);
-    BOOST_TEST_MESSAGE("[EX-01] normal_woken=" << normal_woken.load() << "/" << n_normal
-                                               << " exception=" << exception_thrown.load());
+    BOOST_TEST_MESSAGE(
+        "[EX-01] normal_woken=" << normal_woken.load() << "/" << n_normal << " exception=" << exception_thrown.load());
 }
 
 /**
@@ -1033,6 +1033,7 @@ BOOST_AUTO_TEST_CASE(t_EX_02_chan_close_raii_guard)
         bbt::core::thread::CountDownLatch done{10};
         sync::Chan<int, 10> ch;
     };
+
     auto state = std::make_shared<ActorState>();
 
     for (int i = 0; i < n_writers; ++i) {
@@ -1102,8 +1103,9 @@ BOOST_AUTO_TEST_CASE(t_EX_02_chan_close_raii_guard)
     BOOST_TEST(ret == -1);
     BOOST_TEST(state->write_results.load() == state->read_results.load() + drained);
 
-    BOOST_TEST_MESSAGE("[EX-02] writes=" << state->write_results.load() << " reads=" << state->read_results.load()
-                                         << " drained=" << drained << " close_errors=" << state->close_errors.load());
+    BOOST_TEST_MESSAGE(
+        "[EX-02] writes=" << state->write_results.load() << " reads=" << state->read_results.load()
+                          << " drained=" << drained << " close_errors=" << state->close_errors.load());
 }
 
 /**

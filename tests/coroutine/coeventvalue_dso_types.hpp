@@ -15,6 +15,7 @@ struct CoroutineWakePayload {
     std::int64_t seq{0};
     std::uint32_t code{0};
 };
+
 BBT_COEVENT_VALUE_REGISTER_TYPE(CoroutineWakePayload, 0x101);
 
 /**
@@ -24,4 +25,5 @@ struct OtherWakePayload {
     std::int64_t seq{0};
     std::uint32_t code{0};
 };
+
 BBT_COEVENT_VALUE_REGISTER_TYPE(OtherWakePayload, 0x102);

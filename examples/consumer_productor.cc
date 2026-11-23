@@ -12,7 +12,11 @@ struct Task {
     int id;
     std::string data;
 
-    Task(int i, const std::string& d) : id(i), data(d) {}
+    Task(int i, const std::string& d)
+        : id(i)
+        , data(d)
+    {
+    }
 };
 
 /**
@@ -133,7 +137,7 @@ void ProducerConsumerExample()
     /**
      * 等待所有任务完成
      */
-    sleep(3);
+    bbtco_sleep(3000);
 
     /**
      * 等待协程池完成所有任务

@@ -213,8 +213,8 @@ private:
     void _WaitEnqueueQuiescent();
     std::shared_ptr<ProcesserDriverBinding> _GetDriverBinding();
     void _DriverOnTick(ProcesserDriverPhase phase);
-    void _DriverFail(const std::shared_ptr<ProcesserDriverBinding>& binding, ProcesserDriverFailure source,
-                     std::exception_ptr err);
+    void _DriverFail(
+        const std::shared_ptr<ProcesserDriverBinding>& binding, ProcesserDriverFailure source, std::exception_ptr err);
 
     static SPtr& _GetLocalProcesserStorage();
 
@@ -346,4 +346,4 @@ private:
 #endif
 };
 
-}
+} // namespace bbt::coroutine::detail

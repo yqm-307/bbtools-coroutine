@@ -25,8 +25,9 @@ int bbtco_main()
     RequireCoroutineContext();
     printf("main task stack: %zu bytes\n", GetLocalCoroutineStackSize());
 
-    auto pool = pool::CoPool::Create(
-        pool::CoPoolOptions{{{{12 * 1024, true}, 2, 4}, {{64 * 1024, true}, 1, 2}, {{128 * 1024, true}, 1, 2}}});
+    const pool::CoPoolOptions options{
+        {{{12 * 1024, true}, 2, 4}, {{64 * 1024, true}, 1, 2}, {{128 * 1024, true}, 1, 2}}};
+    auto pool = bbtco_make_copool(options);
 
     /**
      * 任务跑在类的 worker 栈上，读到的就是该类的规格。
@@ -36,16 +37,19 @@ int bbtco_main()
         const auto status = pool->Submit(request, [request]() {
             printf("task on %zu-byte stack (requested %zu)\n", GetLocalCoroutineStackSize(), request.usable_bytes);
         });
-        printf("submit %zu bytes: %s\n", request.usable_bytes,
-               status == pool::CoPoolSubmitStatus::Accepted ? "accepted" : "rejected");
+        printf(
+            "submit %zu bytes: %s\n",
+            request.usable_bytes,
+            status == pool::CoPoolSubmitStatus::Accepted ? "accepted" : "rejected");
     }
 
     /**
      * 未声明的尺寸不会借到相邻类；提交立即拿到明确拒绝而不是排队等预算。
      */
     const auto rejected = pool->Submit(StackRequest{32 * 1024, true}, []() { printf("this task must never run\n"); });
-    printf("submit undeclared 32 KiB: %s\n",
-           rejected == pool::CoPoolSubmitStatus::NoExactClass ? "no exact class" : "unexpected");
+    printf(
+        "submit undeclared 32 KiB: %s\n",
+        rejected == pool::CoPoolSubmitStatus::NoExactClass ? "no exact class" : "unexpected");
 
     /**
      * 让上面的任务先执行完，再演示关闭

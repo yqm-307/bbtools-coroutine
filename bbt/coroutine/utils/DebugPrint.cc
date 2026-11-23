@@ -23,4 +23,4 @@ void VPrint(const char* fmt, ...)
 #endif
 }
 
-}
+} // namespace bbt::coroutine::utils

@@ -104,7 +104,11 @@ struct Metrics {
     std::atomic<bool> reporter_running{false};
     std::thread reporter_thread;
 
-    explicit Metrics(const std::string& n) : name(n), start_us(now_us()) {}
+    explicit Metrics(const std::string& n)
+        : name(n)
+        , start_us(now_us())
+    {
+    }
 
     Metrics(const Metrics&) = delete;
     Metrics& operator=(const Metrics&) = delete;
@@ -116,6 +120,7 @@ struct Metrics {
         lock_latency_sum_us += lat_us;
         lock_latency_count++;
     }
+
     void record_cond_latency_us(uint64_t lat_us)
     {
         cond_latency_sum_us += lat_us;
@@ -159,42 +164,64 @@ struct Metrics {
         /**
          * fprintf 逐字段输出，避免 snprintf 转义地狱
          */
-        fprintf(stdout,
-                "FATIGUE_METRIC:{"
-                "\"ts\":%.1f,"
-                "\"name\":\"%s\","
-                "\"elapsed_s\":%.1f,"
-                "\"ops_total\":%lu,"
-                "\"errors\":%lu,"
-                "\"lock_ops\":%lu,"
-                "\"trylock_success\":%lu,"
-                "\"trylock_timeout\":%lu,"
-                "\"lock_avg_us\":%.1f,"
-                "\"lock_latency_count\":%lu,"
-                "\"rlock_ops\":%lu,"
-                "\"wlock_ops\":%lu,"
-                "\"try_rlock_timeout\":%lu,"
-                "\"try_wlock_timeout\":%lu,"
-                "\"cond_waits\":%lu,"
-                "\"cond_signals\":%lu,"
-                "\"cond_timeouts\":%lu,"
-                "\"cond_avg_us\":%.1f,"
-                "\"chan_reads\":%lu,"
-                "\"chan_writes\":%lu,"
-                "\"chan_read_blocks\":%lu,"
-                "\"chan_write_blocks\":%lu,"
-                "\"pool_tasks\":%lu,"
-                "\"pool_completed\":%lu,"
-                "\"pool_dropped\":%lu,"
-                "\"co_spawns\":%lu,"
-                "\"co_switches\":%lu"
-                "}\n",
-                elapsed, name.c_str(), elapsed, (unsigned long)ops, (unsigned long)err, (unsigned long)lo,
-                (unsigned long)ts_ok, (unsigned long)ts_to, lock_avg_us, (unsigned long)lcnt, (unsigned long)rlo,
-                (unsigned long)wlo, (unsigned long)rt_to, (unsigned long)wt_to, (unsigned long)cw, (unsigned long)cs,
-                (unsigned long)ct, cond_avg_us, (unsigned long)cr, (unsigned long)cw_ch, (unsigned long)crb,
-                (unsigned long)cwb, (unsigned long)pt, (unsigned long)pc, (unsigned long)pd, (unsigned long)cs_sp,
-                (unsigned long)cs_sw);
+        fprintf(
+            stdout,
+            "FATIGUE_METRIC:{"
+            "\"ts\":%.1f,"
+            "\"name\":\"%s\","
+            "\"elapsed_s\":%.1f,"
+            "\"ops_total\":%lu,"
+            "\"errors\":%lu,"
+            "\"lock_ops\":%lu,"
+            "\"trylock_success\":%lu,"
+            "\"trylock_timeout\":%lu,"
+            "\"lock_avg_us\":%.1f,"
+            "\"lock_latency_count\":%lu,"
+            "\"rlock_ops\":%lu,"
+            "\"wlock_ops\":%lu,"
+            "\"try_rlock_timeout\":%lu,"
+            "\"try_wlock_timeout\":%lu,"
+            "\"cond_waits\":%lu,"
+            "\"cond_signals\":%lu,"
+            "\"cond_timeouts\":%lu,"
+            "\"cond_avg_us\":%.1f,"
+            "\"chan_reads\":%lu,"
+            "\"chan_writes\":%lu,"
+            "\"chan_read_blocks\":%lu,"
+            "\"chan_write_blocks\":%lu,"
+            "\"pool_tasks\":%lu,"
+            "\"pool_completed\":%lu,"
+            "\"pool_dropped\":%lu,"
+            "\"co_spawns\":%lu,"
+            "\"co_switches\":%lu"
+            "}\n",
+            elapsed,
+            name.c_str(),
+            elapsed,
+            (unsigned long)ops,
+            (unsigned long)err,
+            (unsigned long)lo,
+            (unsigned long)ts_ok,
+            (unsigned long)ts_to,
+            lock_avg_us,
+            (unsigned long)lcnt,
+            (unsigned long)rlo,
+            (unsigned long)wlo,
+            (unsigned long)rt_to,
+            (unsigned long)wt_to,
+            (unsigned long)cw,
+            (unsigned long)cs,
+            (unsigned long)ct,
+            cond_avg_us,
+            (unsigned long)cr,
+            (unsigned long)cw_ch,
+            (unsigned long)crb,
+            (unsigned long)cwb,
+            (unsigned long)pt,
+            (unsigned long)pc,
+            (unsigned long)pd,
+            (unsigned long)cs_sp,
+            (unsigned long)cs_sw);
 
         fflush(stdout);
     }
@@ -234,4 +261,4 @@ struct Metrics {
     }
 };
 
-}
+} // namespace fatigue

@@ -17,7 +17,7 @@ void EnsureRuntime()
     static std::once_flag once;
     std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
-}
+} // namespace
 
 BOOST_AUTO_TEST_SUITE(ProfilerTest)
 

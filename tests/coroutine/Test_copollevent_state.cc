@@ -37,7 +37,7 @@ void EnsureRuntime()
     static std::once_flag once;
     std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
-}
+} // namespace
 
 using namespace bbt::coroutine::detail;
 
@@ -57,7 +57,8 @@ bool WaitForAtLeast(const std::atomic_int& value, int expected, std::chrono::ste
 class StaticProcesserCountRestore {
 public:
     explicit StaticProcesserCountRestore(GlobalConfig& config)
-        : m_config(config), m_previous_count(config.m_cfg_static_thread_num)
+        : m_config(config)
+        , m_previous_count(config.m_cfg_static_thread_num)
     {
     }
 
@@ -74,7 +75,10 @@ private:
 
 class SchedulerStopGuard {
 public:
-    explicit SchedulerStopGuard(Scheduler& scheduler) : m_scheduler(scheduler) {}
+    explicit SchedulerStopGuard(Scheduler& scheduler)
+        : m_scheduler(scheduler)
+    {
+    }
 
     ~SchedulerStopGuard() { Stop(); }
 
@@ -99,7 +103,8 @@ private:
 class ExceptionCallbackRestore {
 public:
     explicit ExceptionCallbackRestore(GlobalConfig& config)
-        : m_config(config), m_previous(config.m_ext_coevent_exception_callback)
+        : m_config(config)
+        , m_previous(config.m_ext_coevent_exception_callback)
     {
     }
 
@@ -110,7 +115,7 @@ private:
     std::function<void(const bbt::core::errcode::IErrcode&)> m_previous;
 };
 
-}
+} // namespace
 
 BOOST_AUTO_TEST_SUITE(CoPollEventStateTest)
 
@@ -951,6 +956,7 @@ BOOST_AUTO_TEST_CASE(t_init_during_close_window_is_closed_not_admitted)
     struct ThreadJoinGuard {
         std::thread& t;
         std::function<void(int)> release;
+
         ~ThreadJoinGuard()
         {
             if (!t.joinable())

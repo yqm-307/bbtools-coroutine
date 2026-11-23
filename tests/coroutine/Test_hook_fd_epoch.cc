@@ -62,7 +62,7 @@ void EnsureRuntime()
     static std::once_flag once;
     std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
-}
+} // namespace
 
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::detail;
@@ -83,6 +83,7 @@ struct CoFixture {
         cfg->m_cfg_stack_protect = false;
         EnsureRuntime();
     }
+
     ~CoFixture()
     {
         std::signal(SIGPIPE, m_old_pipe);
@@ -91,6 +92,7 @@ struct CoFixture {
         cfg->m_cfg_stack_size = m_stack;
         cfg->m_cfg_stack_protect = m_protect;
     }
+
     int m_threads;
     size_t m_stack;
     bool m_protect;
@@ -152,7 +154,7 @@ bool CoWaitFdWaiter(int fd, int max_ms)
     return false;
 }
 
-}
+} // namespace
 
 /**
  * ------------------------------------------------------------------ *
@@ -288,8 +290,8 @@ BOOST_AUTO_TEST_CASE(t_readable_resume_window_returns_ebadf)
      */
     const int fl_after = ::fcntl(fds[0], F_GETFL, 0);
     BOOST_REQUIRE(fl_after >= 0);
-    BOOST_CHECK_MESSAGE(fl_after & O_NONBLOCK,
-                        "reused fd lost O_NONBLOCK: stale nonblock guard wrote old flags onto new object");
+    BOOST_CHECK_MESSAGE(
+        fl_after & O_NONBLOCK, "reused fd lost O_NONBLOCK: stale nonblock guard wrote old flags onto new object");
     if (::fcntl(fds[0], F_GETFD) >= 0)
         FdEpochClose(fds[0]);
     FdEpochClose(fds[1]);
@@ -542,8 +544,13 @@ BOOST_AUTO_TEST_CASE(t_concurrent_double_close_loser_ebadf_then_reuse_survives)
  * ------------------------------------------------------------------
  */
 struct RlimitRestoreGuard {
-    explicit RlimitRestoreGuard(const struct rlimit& saved) : m_saved(saved) {}
+    explicit RlimitRestoreGuard(const struct rlimit& saved)
+        : m_saved(saved)
+    {
+    }
+
     ~RlimitRestoreGuard() { ::setrlimit(RLIMIT_NOFILE, &m_saved); }
+
     RlimitRestoreGuard(const RlimitRestoreGuard&) = delete;
     RlimitRestoreGuard& operator=(const RlimitRestoreGuard&) = delete;
     struct rlimit m_saved;
@@ -551,13 +558,16 @@ struct RlimitRestoreGuard {
 
 struct FillerFdGuard {
     ~FillerFdGuard() { CloseAll(); }
+
     std::vector<int>& Fds() { return m_fds; }
+
     void CloseAll()
     {
         for (const int fd : m_fds)
             FdEpochClose(fd);
         m_fds.clear();
     }
+
     std::vector<int> m_fds;
 };
 
@@ -666,8 +676,8 @@ BOOST_AUTO_TEST_CASE(t_event_construct_dup_failure_rolls_back)
      */
     std::exception_ptr eptr{nullptr};
     try {
-        auto ev = std::make_shared<bbt::pollevent::Event>(&base, sp[0], bbt::pollevent::EventOpt::READABLE,
-                                                          [](int, short, bbt::pollevent::EventId) {});
+        auto ev = std::make_shared<bbt::pollevent::Event>(
+            &base, sp[0], bbt::pollevent::EventOpt::READABLE, [](int, short, bbt::pollevent::EventId) {});
     } catch (...) {
         eptr = std::current_exception();
     }
@@ -694,11 +704,11 @@ BOOST_AUTO_TEST_CASE(t_event_construct_dup_failure_rolls_back)
     BOOST_CHECK_EQUAL(static_cast<long>(bbt::pollevent::Event::CallbackEntryCount()), cb_before);
 
     const std::vector<int> fds_after = OpenFdSnapshot();
-    BOOST_CHECK_MESSAGE(fds_after.size() == fds_before.size(),
-                        "fd count changed across failed Event ctor: before=" << fds_before.size()
-                                                                             << " after=" << fds_after.size());
-    BOOST_CHECK_MESSAGE(fds_after == fds_before,
-                        "fd set changed across failed Event ctor (rollback leak or spurious close)");
+    BOOST_CHECK_MESSAGE(
+        fds_after.size() == fds_before.size(),
+        "fd count changed across failed Event ctor: before=" << fds_before.size() << " after=" << fds_after.size());
+    BOOST_CHECK_MESSAGE(
+        fds_after == fds_before, "fd set changed across failed Event ctor (rollback leak or spurious close)");
 
     /**
      * 原 fd 未被误关
@@ -829,16 +839,17 @@ BOOST_AUTO_TEST_CASE(t_parked_write_close_reuse_returns_ebadf)
      */
     char probe = 0;
     const ssize_t got = ::recv(np[1], &probe, 1, MSG_DONTWAIT);
-    BOOST_CHECK_MESSAGE(got < 0 && (errno == EAGAIN || errno == EWOULDBLOCK),
-                        "stale write pushed a byte onto the reused peer (got=" << got << ", errno=" << errno << ")");
+    BOOST_CHECK_MESSAGE(
+        got < 0 && (errno == EAGAIN || errno == EWOULDBLOCK),
+        "stale write pushed a byte onto the reused peer (got=" << got << ", errno=" << errno << ")");
 
     /**
      * flags 判别：旧守卫 Dismiss 后新对象应保留自己的 O_NONBLOCK。
      */
     const int fl_after = ::fcntl(fds[0], F_GETFL, 0);
     BOOST_REQUIRE(fl_after >= 0);
-    BOOST_CHECK_MESSAGE(fl_after & O_NONBLOCK,
-                        "reused fd lost O_NONBLOCK: stale nonblock guard wrote old flags onto new object");
+    BOOST_CHECK_MESSAGE(
+        fl_after & O_NONBLOCK, "reused fd lost O_NONBLOCK: stale nonblock guard wrote old flags onto new object");
 
     if (::fcntl(fds[0], F_GETFD) >= 0)
         FdEpochClose(fds[0]);

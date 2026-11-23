@@ -40,7 +40,7 @@ __attribute__((noinline, no_instrument_function)) inline uintptr_t ReadHardwareS
     return sp;
 }
 
-}
+} // namespace
 
 namespace bbt::coroutine::detail {
 
@@ -57,7 +57,7 @@ __attribute__((noinline, no_instrument_function)) StackBudgetState* GetActiveSta
     return t_active_state;
 }
 
-}
+} // namespace bbt::coroutine::detail
 
 /**
  * hook 只做基本整数/指针操作：不分配、不日志、不抛异常、不取锁、
@@ -71,8 +71,8 @@ __attribute__((noinline, no_instrument_function)) StackBudgetState* GetActiveSta
  * 区间外的样本直接丢弃：说明 SP 不属于本协程栈（如调度残留），
  * 不修正、不上报。
  */
-extern "C" __attribute__((no_instrument_function)) void __cyg_profile_func_enter(void* this_fn,
-                                                                                 void* call_site) noexcept
+extern "C" __attribute__((no_instrument_function)) void
+__cyg_profile_func_enter(void* this_fn, void* call_site) noexcept
 {
     using bbt::coroutine::detail::StackBudgetState;
 

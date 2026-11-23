@@ -47,6 +47,7 @@ private:
      * 排队上限：满了拒绝入队，不丢已接纳任务
      */
     static constexpr std::size_t kMaxPendingJobs = 256;
+
     struct Job {
         std::function<void()> work;
         sync::CoWaiter::SPtr waiter;
@@ -82,4 +83,4 @@ private:
     std::unique_ptr<std::thread> m_thread;
 };
 
-}
+} // namespace bbt::coroutine::detail

@@ -114,4 +114,4 @@ const RuntimeConfigSnapshot& GlobalConfig::RuntimeSnapshot() const
     return pending;
 }
 
-}
+} // namespace bbt::coroutine::detail

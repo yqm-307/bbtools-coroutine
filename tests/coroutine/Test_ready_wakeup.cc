@@ -32,7 +32,7 @@ void RequireReady(std::future<void>& done)
     BOOST_REQUIRE(done.wait_for(std::chrono::milliseconds(500)) == std::future_status::ready);
     done.get();
 }
-}
+} // namespace
 
 #ifndef BBT_READY_PUBLIC_ONLY
 BOOST_AUTO_TEST_CASE(notification_latched_before_wait)
@@ -171,15 +171,16 @@ BOOST_AUTO_TEST_CASE(external_parked_progress)
     g_scheduler->RegistCoroutineTask(65536, [&] {
         for (int i = 0; i < 128; ++i) {
             sync::CombinedWaitOptions options;
-            if (waiter.Wait(options,
-                            [&] {
-                                {
-                                    std::lock_guard<std::mutex> lock(mutex);
-                                    registered = i;
-                                }
-                                changed.notify_one();
-                                return true;
-                            })
+            if (waiter.Wait(
+                    options,
+                    [&] {
+                        {
+                            std::lock_guard<std::mutex> lock(mutex);
+                            registered = i;
+                        }
+                        changed.notify_one();
+                        return true;
+                    })
                 != sync::CombinedWaitStatus::Completed)
                 ++failures;
         }

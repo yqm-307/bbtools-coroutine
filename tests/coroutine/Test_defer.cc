@@ -17,7 +17,7 @@ void EnsureRuntime()
     static std::once_flag once;
     std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
-}
+} // namespace
 
 namespace {
 
@@ -38,7 +38,7 @@ void WaitLatchWithDeadline(bbt::core::thread::CountDownLatch& latch, int timeout
     BOOST_ERROR("latch wait timed out");
 }
 
-}
+} // namespace
 
 BOOST_AUTO_TEST_SUITE(TestDefer)
 

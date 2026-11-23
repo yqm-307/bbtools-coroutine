@@ -66,8 +66,8 @@ public:
     /**
      * @brief 只构造底层 Event 不登记；StartListen 时才挂到底层 context。
      */
-    std::shared_ptr<bbt::pollevent::Event> CreateEvent(int fd, short events,
-                                                       const bbt::pollevent::OnEventCallback& onevent_cb);
+    std::shared_ptr<bbt::pollevent::Event>
+    CreateEvent(int fd, short events, const bbt::pollevent::OnEventCallback& onevent_cb);
 
     /**
      * 线程安全，多次调用仅第一次有效
@@ -137,4 +137,4 @@ private:
     std::atomic<uint64_t> m_drain_in_poll_cnt{0};
 };
 
-}
+} // namespace bbt::coroutine::detail

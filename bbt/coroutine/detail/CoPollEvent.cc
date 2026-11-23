@@ -40,8 +40,12 @@ namespace {
 void ReportCoPollEventException(CoroutineId co_id, CoPollEventId event_id, std::exception_ptr eptr) noexcept
 {
     const auto report = [co_id, event_id](const char* message) noexcept {
-        std::fprintf(stderr, "[bbtco] unhandled coevent exception co=%llu event=%llu: %.200s\n",
-                     static_cast<unsigned long long>(co_id), static_cast<unsigned long long>(event_id), message);
+        std::fprintf(
+            stderr,
+            "[bbtco] unhandled coevent exception co=%llu event=%llu: %.200s\n",
+            static_cast<unsigned long long>(co_id),
+            static_cast<unsigned long long>(event_id),
+            message);
         g_bbt_coroutine_config->m_unhandled_exception_count.fetch_add(1, std::memory_order_relaxed);
     };
 
@@ -69,7 +73,7 @@ void RawSleepMs(long ms) noexcept
     }
 }
 
-}
+} // namespace
 
 /**
  * EventOpt 位 → PollEventType 位；自定义事件没有对应 fd 位，单独置 POLL_EVENT_CUSTOM。
@@ -98,7 +102,9 @@ CoPollEvent::SPtr CoPollEvent::Create(CoroutineId id, const CoPollEventCallback&
 }
 
 CoPollEvent::CoPollEvent(CoroutineId id, const CoPollEventCallback& cb)
-    : m_co_id(id), m_event_id(_GenerateId()), m_onevent_callback(cb)
+    : m_co_id(id)
+    , m_event_id(_GenerateId())
+    , m_onevent_callback(cb)
 {
     Assert(m_onevent_callback != nullptr);
 }
@@ -240,12 +246,15 @@ void CoPollEvent::_UntrackWaiter()
         return;
 
     auto& vec = it->second.waiters;
-    vec.erase(std::remove_if(vec.begin(), vec.end(),
-                             [this](const std::weak_ptr<CoPollEvent>& w) {
-                                 auto p = w.lock();
-                                 return p.get() == this || p == nullptr;
-                             }),
-              vec.end());
+    vec.erase(
+        std::remove_if(
+            vec.begin(),
+            vec.end(),
+            [this](const std::weak_ptr<CoPollEvent>& w) {
+                auto p = w.lock();
+                return p.get() == this || p == nullptr;
+            }),
+        vec.end());
 
     /**
      * epoch>0 的槽位携带 close 历史不得擦除：FdEpoch 对缺席槽位返回 0，
@@ -427,20 +436,24 @@ int CoPollEvent::InitFdEvent(int fd, short events, int timeout)
      */
     for (int attempt = 0;; ++attempt) {
         try {
-            m_event = g_bbt_poller->CreateEvent(fd, events,
-                                                [weakthis](int fd, short events, bbt::pollevent::EventId eventid) {
-                                                    if (weakthis.expired())
-                                                        return;
-                                                    auto pthis = weakthis.lock();
-                                                    if (pthis == nullptr)
-                                                        return;
-                                                    pthis->Trigger(events);
-                                                });
+            m_event = g_bbt_poller->CreateEvent(
+                fd, events, [weakthis](int fd, short events, bbt::pollevent::EventId eventid) {
+                    if (weakthis.expired())
+                        return;
+                    auto pthis = weakthis.lock();
+                    if (pthis == nullptr)
+                        return;
+                    pthis->Trigger(events);
+                });
             break;
         } catch (const std::exception& e) {
             if (attempt >= 3) {
-                std::fprintf(stderr, "[bbtco] InitFdEvent give up co=%llu fd=%d: %.100s\n",
-                             static_cast<unsigned long long>(m_co_id), fd, e.what());
+                std::fprintf(
+                    stderr,
+                    "[bbtco] InitFdEvent give up co=%llu fd=%d: %.100s\n",
+                    static_cast<unsigned long long>(m_co_id),
+                    fd,
+                    e.what());
                 return -1;
             }
             RawSleepMs(1);
@@ -503,8 +516,11 @@ int CoPollEvent::Regist()
     }
 
     uint64_t expected = PackCoPollEventState(CoPollEventPhase::INITED);
-    if (!m_state.compare_exchange_strong(expected, PackCoPollEventState(CoPollEventPhase::ARMING),
-                                         std::memory_order_acq_rel, std::memory_order_acquire)) {
+    if (!m_state.compare_exchange_strong(
+            expected,
+            PackCoPollEventState(CoPollEventPhase::ARMING),
+            std::memory_order_acq_rel,
+            std::memory_order_acquire)) {
         if (GetCoPollEventPhase(expected) == CoPollEventPhase::PENDING) {
             return dbg_regist() ? 0 : -1;
         }
@@ -523,8 +539,11 @@ int CoPollEvent::Regist()
          */
         state = m_state.load(std::memory_order_acquire);
         while (GetCoPollEventPhase(state) == CoPollEventPhase::ARMING) {
-            if (m_state.compare_exchange_weak(state, PackCoPollEventState(CoPollEventPhase::CANCELLED),
-                                              std::memory_order_acq_rel, std::memory_order_acquire))
+            if (m_state.compare_exchange_weak(
+                    state,
+                    PackCoPollEventState(CoPollEventPhase::CANCELLED),
+                    std::memory_order_acq_rel,
+                    std::memory_order_acquire))
                 break;
         }
         _CannelAllFdEvent();
@@ -537,8 +556,11 @@ int CoPollEvent::Regist()
     if (regist_ret != 0) {
         state = m_state.load(std::memory_order_acquire);
         while (GetCoPollEventPhase(state) == CoPollEventPhase::ARMING) {
-            if (m_state.compare_exchange_weak(state, PackCoPollEventState(CoPollEventPhase::CANCELLED),
-                                              std::memory_order_acq_rel, std::memory_order_acquire))
+            if (m_state.compare_exchange_weak(
+                    state,
+                    PackCoPollEventState(CoPollEventPhase::CANCELLED),
+                    std::memory_order_acq_rel,
+                    std::memory_order_acquire))
                 break;
         }
         _CannelAllFdEvent();
@@ -549,8 +571,11 @@ int CoPollEvent::Regist()
     }
 
     expected = PackCoPollEventState(CoPollEventPhase::ARMING);
-    if (!m_state.compare_exchange_strong(expected, PackCoPollEventState(CoPollEventPhase::ARMED),
-                                         std::memory_order_acq_rel, std::memory_order_acquire)) {
+    if (!m_state.compare_exchange_strong(
+            expected,
+            PackCoPollEventState(CoPollEventPhase::ARMED),
+            std::memory_order_acq_rel,
+            std::memory_order_acquire)) {
         _CannelAllFdEvent();
         if (GetCoPollEventPhase(expected) == CoPollEventPhase::PENDING) {
             return dbg_regist() ? 0 : -1;
@@ -598,9 +623,14 @@ int CoPollEvent::Regist()
      * 出逃即 terminate。栈缓冲 snprintf 保持同一日志语义、消除逃逸点。
      */
     char regist_log[192];
-    std::snprintf(regist_log, sizeof(regist_log), "[CoEvent:Regist] co=%llu event=%d id=%llu customkey=%d",
-                  static_cast<unsigned long long>(m_co_id), static_cast<int>(m_listen_events),
-                  static_cast<unsigned long long>(GetId()), m_custom_key);
+    std::snprintf(
+        regist_log,
+        sizeof(regist_log),
+        "[CoEvent:Regist] co=%llu event=%d id=%llu customkey=%d",
+        static_cast<unsigned long long>(m_co_id),
+        static_cast<int>(m_listen_events),
+        static_cast<unsigned long long>(GetId()),
+        m_custom_key);
     g_bbt_dbgp_full(regist_log);
 #ifdef BBT_COROUTINE_PROFILE
     g_bbt_profiler->OnEvent_RegistCoPollEvent();
@@ -624,8 +654,11 @@ bool CoPollEvent::CommitPark()
             /**
              * 发布 PARKED 是尾操作；成功后 Processer 不得再访问关联 Coroutine。
              */
-            if (m_state.compare_exchange_weak(state, PackCoPollEventState(CoPollEventPhase::PARKED),
-                                              std::memory_order_acq_rel, std::memory_order_acquire))
+            if (m_state.compare_exchange_weak(
+                    state,
+                    PackCoPollEventState(CoPollEventPhase::PARKED),
+                    std::memory_order_acq_rel,
+                    std::memory_order_acquire))
                 return false;
             continue;
         }
@@ -637,8 +670,11 @@ bool CoPollEvent::CommitPark()
          * 提前触发的 flags 已随状态字发布，只有 CAS 胜者可以执行完成回调。
          */
         const short trigger_events = GetCoPollEventFlags(state);
-        if (m_state.compare_exchange_weak(state, PackCoPollEventState(CoPollEventPhase::TRIGGERING, trigger_events),
-                                          std::memory_order_acq_rel, std::memory_order_acquire)) {
+        if (m_state.compare_exchange_weak(
+                state,
+                PackCoPollEventState(CoPollEventPhase::TRIGGERING, trigger_events),
+                std::memory_order_acq_rel,
+                std::memory_order_acquire)) {
 
             /**
              * 早到首胜由提交 park 的 Processer 消费，不转交给通知线程。
@@ -658,8 +694,11 @@ int CoPollEvent::UnRegist()
             && phase != CoPollEventPhase::PARKED)
             return -1;
 
-        if (!m_state.compare_exchange_weak(state, PackCoPollEventState(CoPollEventPhase::CANCELLED),
-                                           std::memory_order_acq_rel, std::memory_order_acquire))
+        if (!m_state.compare_exchange_weak(
+                state,
+                PackCoPollEventState(CoPollEventPhase::CANCELLED),
+                std::memory_order_acq_rel,
+                std::memory_order_acquire))
             continue;
 
         /**
@@ -793,4 +832,4 @@ int CoPollEvent::_Complete(short trigger_events)
     return 0;
 }
 
-}
+} // namespace bbt::coroutine::detail

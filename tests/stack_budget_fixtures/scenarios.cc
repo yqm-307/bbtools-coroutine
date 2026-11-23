@@ -113,6 +113,7 @@ inline int InlineCandidate(int value)
 {
     return value * 3;
 }
+
 extern "C" int InlineEntry(int value)
 {
     return InlineCandidate(value);
@@ -122,14 +123,17 @@ __attribute__((noinline)) int Overload(int value)
 {
     return value + 1;
 }
+
 __attribute__((noinline)) long Overload(long value)
 {
     return value + 2;
 }
+
 template <typename T> __attribute__((noinline)) T TemplateUsed(T value)
 {
     return value + 4;
 }
+
 extern "C" int OverloadEntry(int value)
 {
     return Overload(value) + static_cast<int>(Overload(static_cast<long>(value))) + TemplateUsed(value);
@@ -137,6 +141,7 @@ extern "C" int OverloadEntry(int value)
 
 struct Cleanup {
     int& result;
+
     __attribute__((noinline)) ~Cleanup() { result += 1; }
 };
 

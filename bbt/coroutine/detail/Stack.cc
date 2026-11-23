@@ -37,7 +37,7 @@ size_t PointerDiffLimit()
 {
     return static_cast<size_t>(std::numeric_limits<std::ptrdiff_t>::max());
 }
-}
+} // namespace
 
 #ifdef BBT_COROUTINE_STACK_TESTING
 std::atomic_bool Stack::s_test_fail_alloc{false};
@@ -86,7 +86,8 @@ size_t Stack::NormalizeSize(size_t stack_size)
 }
 
 Stack::Stack(size_t stack_size, bool stack_protect)
-    : m_stack_protect_flag(stack_protect), m_useable_size(NormalizeSize(stack_size))
+    : m_stack_protect_flag(stack_protect)
+    , m_useable_size(NormalizeSize(stack_size))
 {
     const size_t page_size = PageSize();
 
@@ -311,4 +312,4 @@ void Stack::_DeregisterValgrindStack()
 
 #endif
 
-}
+} // namespace bbt::coroutine::detail

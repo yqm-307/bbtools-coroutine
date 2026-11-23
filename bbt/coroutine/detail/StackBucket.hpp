@@ -61,4 +61,4 @@ struct StackBucket {
     size_t pending{0};
 };
 
-}
+} // namespace bbt::coroutine::detail

@@ -25,4 +25,4 @@ void WarnPrint(const char* fmt, ...);
  */
 void DebugPrint(const char* fmt, ...);
 
-}
+} // namespace bbt::core::log

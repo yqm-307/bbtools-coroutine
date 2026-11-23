@@ -41,7 +41,7 @@ void EnsureRuntime()
     static std::once_flag once;
     std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
-}
+} // namespace
 
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::detail;
@@ -59,7 +59,7 @@ bool WaitUntil(const std::function<bool()>& pred, int budget_ms = 10000)
     return true;
 }
 
-}
+} // namespace
 
 namespace {
 
@@ -78,13 +78,16 @@ BOOST_AUTO_TEST_CASE(t_normal_tasks_complete_without_starvation)
     std::atomic_int completed{0};
 
     for (int i = 0; i < kTotal; ++i) {
-        g_scheduler->RegistCoroutineTask([&completed]() { completed.fetch_add(1); });
+        bbtco[&completed]()
+        {
+            completed.fetch_add(1);
+        };
     }
 
     BOOST_REQUIRE(WaitUntil([&]() { return completed.load() == kTotal; }));
 }
 
-}
+} // namespace
 
 namespace {
 
@@ -143,7 +146,7 @@ void ClosePipe(PipeFds& pipe)
     CloseFd(pipe.write);
 }
 
-}
+} // namespace
 
 BOOST_AUTO_TEST_SUITE(CombinedWaitTest)
 
@@ -532,8 +535,10 @@ BOOST_AUTO_TEST_CASE(t_parked_combined_wait_does_not_block_process_lifetime)
         PipeFds pipe{MakePipe()};
         std::atomic_bool registered{false};
         std::atomic_bool returned{false};
+
         ~ParkedState() { ClosePipe(pipe); }
     };
+
     auto state = std::make_shared<ParkedState>();
 
     bbtco[state]()

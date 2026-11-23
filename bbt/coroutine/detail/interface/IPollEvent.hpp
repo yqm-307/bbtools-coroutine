@@ -23,4 +23,4 @@ public:
     virtual int GetEvent() const = 0;
 };
 
-}
+} // namespace bbt::coroutine::detail

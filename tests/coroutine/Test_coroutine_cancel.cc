@@ -21,7 +21,7 @@ void EnsureRuntime()
     static std::once_flag once;
     std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
-}
+} // namespace
 
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::detail;
@@ -35,7 +35,7 @@ struct ConfigSnapshot {
 } g_cfg;
 
 std::atomic_bool g_started{false};
-}
+} // namespace
 
 BOOST_AUTO_TEST_SUITE(CoroutineCancelTest)
 
@@ -144,6 +144,7 @@ BOOST_AUTO_TEST_CASE(t_cancel_runs_raii_dtors)
 
     struct Guard {
         std::atomic_int* n;
+
         ~Guard() { n->fetch_add(1); }
     };
 

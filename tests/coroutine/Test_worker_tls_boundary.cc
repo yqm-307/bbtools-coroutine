@@ -52,7 +52,7 @@ void EnsureRuntime()
     static std::once_flag once;
     std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
-}
+} // namespace
 
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::detail;
@@ -220,7 +220,7 @@ bool RunYieldPhase(YieldStats& stats)
     return done.WaitTimeout(kYieldTimeoutMs) == 0;
 }
 
-}
+} // namespace
 
 BOOST_AUTO_TEST_SUITE(WorkerTlsBoundaryTest)
 
@@ -287,13 +287,15 @@ BOOST_AUTO_TEST_CASE(t_runtime_tls_stable_across_yields)
      * 用户 TLS 边界：同 worker 上的其他协程能看到本协程写入的值，
      * 即 thread_local 不按协程隔离。
      */
-    BOOST_CHECK_MESSAGE(stats.user_tls_cross_coroutine_share.load() > 0,
-                        "未观察到用户 thread_local 在同一 worker 的不同协程之间共享；"
-                        "若 thread_local 变成按协程隔离，用户 TLS 边界结论需要重新评估");
+    BOOST_CHECK_MESSAGE(
+        stats.user_tls_cross_coroutine_share.load() > 0,
+        "未观察到用户 thread_local 在同一 worker 的不同协程之间共享；"
+        "若 thread_local 变成按协程隔离，用户 TLS 边界结论需要重新评估");
 
-    BOOST_TEST_MESSAGE("yield 阶段：resumes=" << resumes << " workers=" << participating_workers
-                                              << " migrations=" << stats.migrations.load()
-                                              << " user_tls_shared=" << stats.user_tls_cross_coroutine_share.load());
+    BOOST_TEST_MESSAGE(
+        "yield 阶段：resumes=" << resumes << " workers=" << participating_workers
+                               << " migrations=" << stats.migrations.load()
+                               << " user_tls_shared=" << stats.user_tls_cross_coroutine_share.load());
 }
 
 /**

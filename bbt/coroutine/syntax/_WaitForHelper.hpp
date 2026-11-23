@@ -24,4 +24,4 @@ public:
     virtual ~_WaitForHelper() = default;
 };
 
-};
+}; // namespace bbt::coroutine

@@ -23,26 +23,26 @@
 /**
  * #define BBT_COROUTINE_PROFILE
  */
-#define g_scheduler                 (bbt::coroutine::detail::Scheduler::GetInstance())
+#define g_scheduler (bbt::coroutine::detail::Scheduler::GetInstance())
 
-#define g_bbt_tls_helper            (bbt::coroutine::detail::LocalThread::GetTLSInst())
+#define g_bbt_tls_helper (bbt::coroutine::detail::LocalThread::GetTLSInst())
 
-#define g_bbt_tls_processer         (g_bbt_tls_helper->GetProcesser())
+#define g_bbt_tls_processer (g_bbt_tls_helper->GetProcesser())
 
 /**
  * 当前线程正在运行的 coroutine
  */
-#define g_bbt_tls_coroutine_co      (g_bbt_tls_processer ? g_bbt_tls_processer->GetCurrentCoroutine() : nullptr)
+#define g_bbt_tls_coroutine_co (g_bbt_tls_processer ? g_bbt_tls_processer->GetCurrentCoroutine() : nullptr)
 
-#define g_bbt_poller                (bbt::coroutine::detail::CoPoller::GetInstance())
+#define g_bbt_poller (bbt::coroutine::detail::CoPoller::GetInstance())
 
-#define g_bbt_coroutine_config      (bbt::coroutine::detail::GlobalConfig::GetInstance())
+#define g_bbt_coroutine_config (bbt::coroutine::detail::GlobalConfig::GetInstance())
 
-#define g_bbt_profiler              (bbt::coroutine::detail::Profiler::GetInstance())
+#define g_bbt_profiler (bbt::coroutine::detail::Profiler::GetInstance())
 
-#define g_bbt_stackpoll             (bbt::coroutine::detail::StackPool::GetInstance())
+#define g_bbt_stackpoll (bbt::coroutine::detail::StackPool::GetInstance())
 
-#define g_bbt_dbgmgr                (bbt::coroutine::detail::DebugMgr::GetInstance())
+#define g_bbt_dbgmgr (bbt::coroutine::detail::DebugMgr::GetInstance())
 
 namespace bbt::coroutine {
 
@@ -87,7 +87,7 @@ class CoPool;
 
 typedef std::function<void()> CoPoolWorkCallback;
 
-}
+} // namespace pool
 
 namespace sync {
 
@@ -138,7 +138,7 @@ enum CoRWMutexStatus {
     CORWMUTEX_FREE = 2,
 };
 
-}
+} // namespace sync
 
 namespace detail {
 
@@ -609,6 +609,6 @@ typedef std::function<void(std::shared_ptr<CoPollEvent>, int events, int)>
 
 #undef MOODYCAMEL_CPP11_THREAD_LOCAL_SUPPORTED
 
-}
+} // namespace detail
 
-}
+} // namespace bbt::coroutine

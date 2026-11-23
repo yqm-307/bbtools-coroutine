@@ -21,7 +21,10 @@ CoWaiter::SPtr CoWaiter::Create()
     return std::make_shared<CoWaiter>();
 }
 
-CoWaiter::CoWaiter() : m_run_status(COND_FREE) {}
+CoWaiter::CoWaiter()
+    : m_run_status(COND_FREE)
+{
+}
 
 CoWaiter::~CoWaiter() {}
 
@@ -71,8 +74,8 @@ int CoWaiter::_WaitCustom(const detail::CoroutineOnYieldCallback& cb)
     }
 }
 
-WaitStatus CoWaiter::_WaitCustom(const WaitOptions& options, const detail::CoroutineOnYieldCallback& cb,
-                                 CoEventValue* value)
+WaitStatus
+CoWaiter::_WaitCustom(const WaitOptions& options, const detail::CoroutineOnYieldCallback& cb, CoEventValue* value)
 {
     if (!g_bbt_tls_helper->EnableUseCo())
         return WaitStatus::InvalidContext;
@@ -296,8 +299,8 @@ WaitStatus CoWaiter::Wait(const WaitOptions& options)
     return WaitWithCallback(options, {}, nullptr);
 }
 
-WaitStatus CoWaiter::WaitWithCallback(const WaitOptions& options, const detail::CoroutineOnYieldCallback& on_registered,
-                                      CoEventValue* value)
+WaitStatus CoWaiter::WaitWithCallback(
+    const WaitOptions& options, const detail::CoroutineOnYieldCallback& on_registered, CoEventValue* value)
 {
     if (options.deadline == Deadline::max())
         return _WaitCustom(options, on_registered, value);
@@ -471,14 +474,14 @@ CombinedWaitStatus CoWaiter::Wait(const CombinedWaitOptions& options)
     return Wait(options, {}, nullptr);
 }
 
-CombinedWaitStatus CoWaiter::Wait(const CombinedWaitOptions& options,
-                                  const detail::CoroutineOnYieldCallback& on_registered)
+CombinedWaitStatus
+CoWaiter::Wait(const CombinedWaitOptions& options, const detail::CoroutineOnYieldCallback& on_registered)
 {
     return Wait(options, on_registered, nullptr);
 }
 
-CombinedWaitStatus CoWaiter::Wait(const CombinedWaitOptions& options,
-                                  const detail::CoroutineOnYieldCallback& on_registered, CoEventValue* value)
+CombinedWaitStatus CoWaiter::Wait(
+    const CombinedWaitOptions& options, const detail::CoroutineOnYieldCallback& on_registered, CoEventValue* value)
 {
     if (!options.want_readable && !options.want_writeable && options.deadline == Deadline::max()) {
         const auto status = _WaitCustom(WaitOptions{}, on_registered, value);
@@ -732,4 +735,4 @@ int CoWaiter::Notify(const CoEventValue& value)
     return wait_node->Trigger(POLL_EVENT_CUSTOM);
 }
 
-}
+} // namespace bbt::coroutine::sync

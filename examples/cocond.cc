@@ -35,7 +35,7 @@ void NotifyOne()
         printf("[%d] after wait\n", bbt::coroutine::GetLocalCoroutineId());
     };
 
-    sleep(1);
+    bbtco_sleep(1000);
 }
 
 void NotifyAll()
@@ -75,7 +75,7 @@ void NotifyAll()
         printf("[%d] notify all\n", bbt::coroutine::GetLocalCoroutineId());
     };
 
-    sleep(1);
+    bbtco_sleep(1000);
 }
 
 int bbtco_main()

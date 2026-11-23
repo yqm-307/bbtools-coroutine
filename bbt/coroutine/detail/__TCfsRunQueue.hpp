@@ -88,4 +88,4 @@ inline size_t CfsRunQueue::Size() const
     return m_queue.size();
 }
 
-}
+} // namespace bbt::coroutine::detail

@@ -36,7 +36,7 @@ void EnsureRuntime()
     static std::once_flag once;
     std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
-}
+} // namespace
 
 using hook_contract::BindLoopbackPort0;
 using hook_contract::EintrArm;
@@ -274,8 +274,8 @@ BOOST_AUTO_TEST_CASE(t_contract_sendto_recvfrom)
         BOOST_REQUIRE(BindLoopbackPort0(server.Get(), &addr));
 
         const char msg[] = "udp-co";
-        BOOST_CHECK(::sendto(client.Get(), msg, sizeof(msg), 0, (struct sockaddr*)&addr, sizeof(addr))
-                    == (ssize_t)sizeof(msg));
+        BOOST_CHECK(
+            ::sendto(client.Get(), msg, sizeof(msg), 0, (struct sockaddr*)&addr, sizeof(addr)) == (ssize_t)sizeof(msg));
 
         /**
          * 数据已在队列：recvfrom 应就绪立即返回
@@ -291,8 +291,8 @@ BOOST_AUTO_TEST_CASE(t_contract_sendto_recvfrom)
     sockaddr_in addr;
     BOOST_REQUIRE(BindLoopbackPort0(server.Get(), &addr));
     const char msg[] = "udp-direct";
-    BOOST_CHECK(::sendto(client.Get(), msg, sizeof(msg), 0, (struct sockaddr*)&addr, sizeof(addr))
-                == (ssize_t)sizeof(msg));
+    BOOST_CHECK(
+        ::sendto(client.Get(), msg, sizeof(msg), 0, (struct sockaddr*)&addr, sizeof(addr)) == (ssize_t)sizeof(msg));
     char buf[32] = {0};
     BOOST_CHECK(::recvfrom(server.Get(), buf, sizeof(buf), 0, nullptr, nullptr) == (ssize_t)sizeof(msg));
     BOOST_TEST(std::string{buf} == std::string{msg});
@@ -1189,8 +1189,8 @@ BOOST_AUTO_TEST_CASE(t_contract_getnameinfo)
         sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
         sa.sin_port = htons(80);
         char host[64] = {0}, serv[32] = {0};
-        int ret = ::getnameinfo((struct sockaddr*)&sa, sizeof(sa), host, sizeof(host), serv, sizeof(serv),
-                                NI_NUMERICHOST | NI_NUMERICSERV);
+        int ret = ::getnameinfo(
+            (struct sockaddr*)&sa, sizeof(sa), host, sizeof(host), serv, sizeof(serv), NI_NUMERICHOST | NI_NUMERICSERV);
         BOOST_CHECK_EQUAL(ret, 0);
         BOOST_TEST(std::string{host} == "127.0.0.1");
         BOOST_TEST(std::string{serv} == "80");
@@ -1277,12 +1277,14 @@ BOOST_AUTO_TEST_CASE(t_contract_gethostbyaddr)
 BOOST_AUTO_TEST_CASE(t_contract_dns_inflight_completes_without_stop)
 {
     EnsureRuntime();
+
     struct Gate {
         std::mutex mutex;
         std::condition_variable cv;
         bool entered{false};
         bool release{false};
     };
+
     auto gate = std::make_shared<Gate>();
     bbt::core::thread::CountDownLatch await_done{1};
 

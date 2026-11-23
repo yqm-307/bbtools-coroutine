@@ -95,6 +95,7 @@ public:
      */
     static void _TestFailNextReleaseProtect() noexcept;
 #endif
+
 protected:
     void* Alloc(size_t len);
     int Free(char* start, size_t len);
@@ -154,4 +155,4 @@ private:
 #endif
 };
 
-}
+} // namespace bbt::coroutine::detail

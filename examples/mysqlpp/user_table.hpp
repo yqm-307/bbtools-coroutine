@@ -21,7 +21,10 @@ struct User {
  */
 class UserService {
 public:
-    explicit UserService(std::shared_ptr<MySQLConnectionPool> pool) : m_pool(pool) {}
+    explicit UserService(std::shared_ptr<MySQLConnectionPool> pool)
+        : m_pool(pool)
+    {
+    }
 
     /**
      * 创建用户表（如果不存在）

@@ -54,4 +54,4 @@ enum class CoPoolSubmitStatus {
     AllocationFailed,
 };
 
-}
+} // namespace bbt::coroutine::pool

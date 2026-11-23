@@ -67,4 +67,4 @@ public:
     virtual bool IsClosed() = 0;
 };
 
-}
+} // namespace bbt::coroutine::sync

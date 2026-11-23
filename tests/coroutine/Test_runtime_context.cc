@@ -26,6 +26,7 @@ struct OnlyApi : CoRuntimeOnly {
         RequireCoroutineContext();
         ++calls;
     }
+
     int calls{0};
 };
 
@@ -56,7 +57,7 @@ bool bbtco_main()
     return IsInCoroutineContext();
 }
 
-}
+} // namespace
 
 BOOST_AUTO_TEST_SUITE(context_no_create)
 

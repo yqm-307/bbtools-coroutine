@@ -15,9 +15,12 @@ namespace bbt::coroutine::detail {
 
 struct StackPool::Allocation {
     Allocation(StackPool* owner, BucketKey bucket_key)
-        : pool(owner), key(bucket_key), lease(nullptr, StackReturner{owner})
+        : pool(owner)
+        , key(bucket_key)
+        , lease(nullptr, StackReturner{owner})
     {
     }
+
     ~Allocation()
     {
 
@@ -29,6 +32,7 @@ struct StackPool::Allocation {
             pool->_RollbackLocked(key);
         }
     }
+
     StackPool* pool;
     BucketKey key;
     std::mutex mutex;
@@ -48,7 +52,7 @@ StackRequest NormalizeRequest(StackRequest request)
         throw std::length_error("coroutine stack guard page size overflow");
     return request;
 }
-}
+} // namespace
 
 StackConfig StackPool::ValidateConfig(const StackConfig& config, StackRequest default_stack)
 {
@@ -110,8 +114,13 @@ void StackPool::Configure(const StackConfig& config, StackRequest default_stack)
 StackPoolSnapshot StackPool::Observe() const
 {
     std::lock_guard<std::mutex> lock(m_mutex);
-    return {m_live_count,    m_borrowed_count, m_live_count - m_borrowed_count,
-            m_pending_count, m_committedBytes, m_pendingBytes};
+    return {
+        m_live_count,
+        m_borrowed_count,
+        m_live_count - m_borrowed_count,
+        m_pending_count,
+        m_committedBytes,
+        m_pendingBytes};
 }
 
 bool StackPool::CanAdmit(StackRequest request, size_t count) const
@@ -208,11 +217,12 @@ std::shared_ptr<StackPool::Allocation> StackPool::_Prepare(StackRequest request)
                 && m_borrowed_count + m_pending_count >= g_bbt_coroutine_config->RuntimeSnapshot().max_coroutine)
                 return nullptr;
             if (m_policy.policy == StackPolicy::Strict) {
-                const auto declared =
-                    std::find_if(m_policy.strict_classes.begin(), m_policy.strict_classes.end(),
-                                 [&key](const StackClassLimit& limit) {
-                                     return BucketKey{limit.request.usable_bytes, limit.request.protect} == key;
-                                 });
+                const auto declared = std::find_if(
+                    m_policy.strict_classes.begin(),
+                    m_policy.strict_classes.end(),
+                    [&key](const StackClassLimit& limit) {
+                        return BucketKey{limit.request.usable_bytes, limit.request.protect} == key;
+                    });
                 if (declared == m_policy.strict_classes.end())
                     return nullptr;
             }
@@ -326,8 +336,8 @@ void StackPool::_Cancel(const std::shared_ptr<Allocation>& allocation) noexcept
         returned = std::move(allocation->lease);
         if (allocation->reserved && !allocation->allocating) {
             std::lock_guard<std::mutex> pool_lock(m_mutex);
-            m_allocations.erase(std::remove(m_allocations.begin(), m_allocations.end(), allocation),
-                                m_allocations.end());
+            m_allocations.erase(
+                std::remove(m_allocations.begin(), m_allocations.end(), allocation), m_allocations.end());
             _RollbackLocked(allocation->key);
             allocation->reserved = false;
         }
@@ -412,18 +422,21 @@ void StackPool::DrainAllocations()
 std::atomic_bool StackPool::s_test_fail_post{false};
 std::atomic<void (*)()> StackPool::s_test_before_allocation{nullptr};
 std::atomic<void (*)()> StackPool::s_test_after_commit{nullptr};
+
 void StackPool::_TestFailNextPost() noexcept
 {
     s_test_fail_post.store(true);
 }
+
 void StackPool::_TestBeforeAllocation(void (*hook)()) noexcept
 {
     s_test_before_allocation.store(hook);
 }
+
 void StackPool::_TestAfterCommit(void (*hook)()) noexcept
 {
     s_test_after_commit.store(hook);
 }
 #endif
 
-}
+} // namespace bbt::coroutine::detail

@@ -73,43 +73,55 @@ inline constexpr CoEventValueTypeId kCoEventValuePointerBegin = 0x10000;
  * @tparam T 载荷类型
  */
 template <class T> struct CoEventValueTraits {
-    static_assert(!std::is_same<T, T>::value,
-                  "CoEventValue: type is not registered; register a unique ID with BBT_COEVENT_VALUE_REGISTER_TYPE");
+    static_assert(
+        !std::is_same<T, T>::value,
+        "CoEventValue: type is not registered; register a unique ID with BBT_COEVENT_VALUE_REGISTER_TYPE");
 };
 
 template <> struct CoEventValueTraits<bool> {
     static constexpr CoEventValueTypeId id = kCoEventValueBool;
 };
+
 template <> struct CoEventValueTraits<char> {
     static constexpr CoEventValueTypeId id = kCoEventValueChar;
 };
+
 template <> struct CoEventValueTraits<signed char> {
     static constexpr CoEventValueTypeId id = kCoEventValueSChar;
 };
+
 template <> struct CoEventValueTraits<unsigned char> {
     static constexpr CoEventValueTypeId id = kCoEventValueUChar;
 };
+
 template <> struct CoEventValueTraits<short> {
     static constexpr CoEventValueTypeId id = kCoEventValueShort;
 };
+
 template <> struct CoEventValueTraits<unsigned short> {
     static constexpr CoEventValueTypeId id = kCoEventValueUShort;
 };
+
 template <> struct CoEventValueTraits<int> {
     static constexpr CoEventValueTypeId id = kCoEventValueInt;
 };
+
 template <> struct CoEventValueTraits<unsigned int> {
     static constexpr CoEventValueTypeId id = kCoEventValueUInt;
 };
+
 template <> struct CoEventValueTraits<long> {
     static constexpr CoEventValueTypeId id = kCoEventValueLong;
 };
+
 template <> struct CoEventValueTraits<unsigned long> {
     static constexpr CoEventValueTypeId id = kCoEventValueULong;
 };
+
 template <> struct CoEventValueTraits<long long> {
     static constexpr CoEventValueTypeId id = kCoEventValueLongLong;
 };
+
 template <> struct CoEventValueTraits<unsigned long long> {
     static constexpr CoEventValueTypeId id = kCoEventValueULongLong;
 };
@@ -121,6 +133,7 @@ template <> struct CoEventValueTraits<unsigned long long> {
 template <> struct CoEventValueTraits<float> {
     static constexpr CoEventValueTypeId id = kCoEventValueFloat;
 };
+
 template <> struct CoEventValueTraits<double> {
     static constexpr CoEventValueTypeId id = kCoEventValueDouble;
 };
@@ -198,13 +211,12 @@ inline constexpr CoEventValueTypeId kCoEventValueUInt64 = CoEventValueTraits<std
  * @brief 登记自定义 POD 载荷类型：ID 须在自定义区间，各 DSO 用同一常量。
  *        特化须写在全局 / bbt::coroutine 命名空间，否则报 "does not enclose"；类型名用全限定 ::bbt::coroutine::...
  */
-#define BBT_COEVENT_VALUE_REGISTER_TYPE(TYPE, ID)                                        \
-    template<> struct bbt::coroutine::CoEventValueTraits<TYPE>                            \
-    {                                                                                     \
-        static constexpr ::bbt::coroutine::CoEventValueTypeId id = (ID);                  \
-        static_assert(id >= ::bbt::coroutine::kCoEventValueCustomBegin &&                 \
-                      id <  ::bbt::coroutine::kCoEventValuePointerBegin,                  \
-                      "CoEventValue: custom type ID must fall inside the custom registration range");           \
+#define BBT_COEVENT_VALUE_REGISTER_TYPE(TYPE, ID)                                                                      \
+    template <> struct bbt::coroutine::CoEventValueTraits<TYPE> {                                                      \
+        static constexpr ::bbt::coroutine::CoEventValueTypeId id = (ID);                                               \
+        static_assert(                                                                                                 \
+            id >= ::bbt::coroutine::kCoEventValueCustomBegin && id < ::bbt::coroutine::kCoEventValuePointerBegin,      \
+            "CoEventValue: custom type ID must fall inside the custom registration range");                            \
     }
 
 /**
@@ -257,6 +269,6 @@ private:
     CoEventValueTypeId m_type{kCoEventValueNone};
 };
 
-}
+} // namespace bbt::coroutine
 
 #include <bbt/coroutine/sync/__TCoEventValue.hpp>

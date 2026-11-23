@@ -17,7 +17,9 @@ template <class TKey, class TMember> CoObjectInfo MemberBase<TKey, TMember>::Get
     return m_info;
 }
 
-template <class TKey, class TMember> MemberBase<TKey, TMember>::MemberBase(CoObjectInfo info) : m_info(std::move(info))
+template <class TKey, class TMember>
+MemberBase<TKey, TMember>::MemberBase(CoObjectInfo info)
+    : m_info(std::move(info))
 {
 }
 
@@ -149,4 +151,4 @@ template <class TKey, class TMember> MemberBase<TKey, TMember>::~MemberBase() no
         manager->_OnMemberDestroy(m_entry);
 }
 
-}
+} // namespace bbt::coroutine

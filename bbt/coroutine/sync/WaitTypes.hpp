@@ -60,7 +60,7 @@ struct WaitOptions {
     Deadline deadline = Deadline::max();
 };
 
-}
+} // namespace bbt::coroutine
 
 namespace bbt::coroutine::sync {
 
@@ -132,4 +132,4 @@ struct CombinedWaitOptions {
     Deadline deadline = Deadline::max();
 };
 
-}
+} // namespace bbt::coroutine::sync

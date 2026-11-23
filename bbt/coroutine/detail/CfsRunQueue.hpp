@@ -24,8 +24,11 @@ public:
     CfsEntity() = default;
     CfsEntity(const CfsEntity&) = delete;
     CfsEntity& operator=(const CfsEntity&) = delete;
+
     uint64_t ServiceUs() const noexcept { return m_serviceUs; }
+
     Coroutine* Task() const noexcept { return m_task; }
+
     int Priority() const noexcept { return m_priority; }
 
 private:
@@ -47,6 +50,7 @@ class CfsRunQueue {
     struct Earlier {
         bool operator()(const CfsEntity& a, const CfsEntity& b) const noexcept;
     };
+
     using Queue = boost::intrusive::multiset<CfsEntity, boost::intrusive::compare<Earlier>>;
 
 public:
@@ -82,6 +86,6 @@ private:
     double m_floor{0};
 };
 
-}
+} // namespace bbt::coroutine::detail
 
 #include <bbt/coroutine/detail/__TCfsRunQueue.hpp>

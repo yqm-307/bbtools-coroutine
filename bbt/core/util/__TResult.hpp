@@ -7,9 +7,17 @@
 
 namespace bbt::core::util {
 
-template <typename T, typename E> Result<T, E>::Result(T&& value) : m_value(std::move(value)) {}
+template <typename T, typename E>
+Result<T, E>::Result(T&& value)
+    : m_value(std::move(value))
+{
+}
 
-template <typename T, typename E> Result<T, E>::Result(E&& error) : m_value(std::move(error)) {}
+template <typename T, typename E>
+Result<T, E>::Result(E&& error)
+    : m_value(std::move(error))
+{
+}
 
 template <typename T, typename E> bool Result<T, E>::IsOk() const
 {
@@ -41,4 +49,4 @@ template <typename T, typename E> const E& Result<T, E>::Err() const&
     return std::get<E>(m_value);
 }
 
-}
+} // namespace bbt::core::util

@@ -188,7 +188,7 @@ bool StallEnabled()
     return StallWarnMsArg() > 0;
 }
 
-}
+} // namespace
 
 BOOST_AUTO_TEST_SUITE(WorkerStallTest)
 

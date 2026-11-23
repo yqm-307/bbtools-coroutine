@@ -19,6 +19,7 @@
 
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::detail;
+
 namespace {
 constexpr size_t kSmall = 12 * 1024;
 constexpr size_t kLarge = 128 * 1024;
@@ -68,12 +69,14 @@ struct Gate {
     std::condition_variable cv;
     std::atomic_bool entered{false};
     bool open{false};
+
     void Block()
     {
         std::unique_lock<std::mutex> lock(mutex);
         entered.store(true);
         cv.wait(lock, [this] { return open; });
     }
+
     void Open()
     {
         {
@@ -82,9 +85,12 @@ struct Gate {
         }
         cv.notify_all();
     }
+
     ~Gate() { Open(); }
 };
+
 Gate* g_gate = nullptr;
+
 void BlockAllocation()
 {
     g_gate->Block();
@@ -155,17 +161,18 @@ void Race(bool after_commit, bool cancel, bool timeout)
     Empty(*g_bbt_stackpoll);
     g_gate = nullptr;
 }
-}
+} // namespace
 
 BOOST_AUTO_TEST_SUITE(stack_ownership)
 
 BOOST_AUTO_TEST_CASE(exact_buckets)
 {
     StackPool pool;
-    StackConfig config{StackPolicy::Strict,
-                       {{{kSmall, true}, 1}, {{kSmall, false}, 1}, {{kLarge, true}, 1}, {{kLarge, false}, 1}},
-                       0,
-                       0};
+    StackConfig config{
+        StackPolicy::Strict,
+        {{{kSmall, true}, 1}, {{kSmall, false}, 1}, {{kLarge, true}, 1}, {{kLarge, false}, 1}},
+        0,
+        0};
     pool.Configure(config, {kSmall, true});
     std::vector<StackLease> leases;
     std::vector<Stack*> addresses;
@@ -265,8 +272,8 @@ BOOST_AUTO_TEST_CASE(auto_budget)
     small.reset();
     Empty(pool);
 
-    ConfigMaxGuard restore_max{g_bbt_coroutine_config->m_cfg_max_coroutine,
-                               g_bbt_coroutine_config->m_cfg_max_coroutine};
+    ConfigMaxGuard restore_max{
+        g_bbt_coroutine_config->m_cfg_max_coroutine, g_bbt_coroutine_config->m_cfg_max_coroutine};
     g_bbt_coroutine_config->m_cfg_max_coroutine = 1;
     {
         StackPool legacy;
@@ -378,14 +385,17 @@ BOOST_AUTO_TEST_CASE(pending_cancel)
 {
     Race(false, true, false);
 }
+
 BOOST_AUTO_TEST_CASE(committed_cancel)
 {
     Race(true, true, false);
 }
+
 BOOST_AUTO_TEST_CASE(pending_deadline)
 {
     Race(false, false, true);
 }
+
 BOOST_AUTO_TEST_CASE(single_worker_progress)
 {
     Race(false, false, false);

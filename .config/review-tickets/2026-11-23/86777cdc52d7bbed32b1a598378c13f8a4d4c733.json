@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-23",
+  "commit": "86777cdc52d7bbed32b1a598378c13f8a4d4c733",
+  "base": "026ee04dfd3790e325c4d7ddeff85a57cf1e644c",
+  "result": "pass",
+  "reviewer": "GPT-6.2 Astra（独立格式复核）",
+  "summary": "按 PR 分支当前 .clang-format 对全仓 279 个 C/C++ 文件执行格式化，160 个文件更新，复查无差异。",
+  "checks": [
+    {
+      "id": "llm-review",
+      "kind": "attested",
+      "status": "pass",
+      "summary": "格式化范围与 CI 的整仓检查一致，格式检查和 git diff --check 均通过。",
+      "evidence": {
+        "reviewer": "GPT-6.2 Astra（原 PR #443 格式入口审查 deleg_a5d1f8e4）",
+        "scope": "026ee04dfd3790e325c4d7ddeff85a57cf1e644c..86777cdc52d7bbed32b1a598378c13f8a4d4c733"
+      }
+    }
+  ]
+}

@@ -18,15 +18,18 @@ void Put(CfsRunQueue& queue, CfsEntity& entity, uint64_t weight = 1)
 {
     BOOST_REQUIRE(queue.Enqueue(entity, nullptr, CO_PRIORITY_NORMAL, weight));
 }
+
 void Run(CfsRunQueue& queue, CfsEntity& entity, uint64_t service, bool waiting = false)
 {
     BOOST_REQUIRE(queue.Pick() == &entity);
     queue.Account(entity, service, waiting);
 }
+
 bool Ready(std::future<void>& future)
 {
     return future.wait_for(3s) == std::future_status::ready;
 }
+
 template <class F> bool Until(F predicate)
 {
     const auto limit = std::chrono::steady_clock::now() + 3s;
@@ -34,7 +37,7 @@ template <class F> bool Until(F predicate)
         std::this_thread::sleep_for(1ms);
     return predicate();
 }
-}
+} // namespace
 
 BOOST_AUTO_TEST_CASE(algorithm_migration_global_debt)
 {
@@ -158,30 +161,35 @@ BOOST_AUTO_TEST_CASE(single_p_external_progress_before_hot_release)
     auto registration = registered.get_future();
     auto wake_done = resumed.get_future();
     auto submit_done = submitted.get_future();
-    g_scheduler->RegistCoroutineTask([&] {
+    bbtco[&]
+    {
         sync::CombinedWaitOptions options;
         waiter.Wait(options, [&] {
             registered.set_value();
             return true;
         });
         resumed.set_value();
-    });
+    };
     BOOST_REQUIRE(Ready(registration));
     for (int n = 0; n < 4; ++n)
-        g_scheduler->RegistCoroutineTask([&] {
+        bbtco[&]
+        {
             while (!release.load()) {
                 ++turns;
                 bbtco_yield;
             }
             ++hot_done;
-        });
+        };
     BOOST_REQUIRE(Until([&] { return turns.load() >= 100; }));
     const auto before = turns.load();
 
     /**
      * 主线程是外部生产者；热点结束门保持关闭直到两条来源都获得执行。
      */
-    g_scheduler->RegistCoroutineTask([&] { submitted.set_value(); });
+    bbtco[&]
+    {
+        submitted.set_value();
+    };
     BOOST_CHECK_EQUAL(waiter.Notify(CoEventValue::From(true)), 0);
     const bool submit_progress = Ready(submit_done);
     const bool wake_progress = Ready(wake_done);

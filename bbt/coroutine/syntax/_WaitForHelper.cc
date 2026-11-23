@@ -18,4 +18,4 @@ _WaitForHelper::_WaitForHelper(int fd, short event, int ms)
         throw std::runtime_error("wait for failed!");
 }
 
-}
+} // namespace bbt::coroutine

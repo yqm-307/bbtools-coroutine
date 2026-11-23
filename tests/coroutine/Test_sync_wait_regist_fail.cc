@@ -113,19 +113,19 @@ inline thread_local uintptr_t t_native_stack_end = 0;
  * writer_queued 回调写探针：与 Test_co_rwmutex.cc 中同名类按 ODR 等价
  * 定义，经 CoRWMutex 的 friend 声明访问私有回调槽。
  */
-}
+} // namespace
 
 namespace bbt::coroutine::sync {
 class CoRWMutexTestAccess {
 public:
-    static void SetWaitCallbacks(CoRWMutex& rwlock, const std::function<void()>& writer_queued,
-                                 const std::function<void()>& reader_blocked)
+    static void SetWaitCallbacks(
+        CoRWMutex& rwlock, const std::function<void()>& writer_queued, const std::function<void()>& reader_blocked)
     {
         rwlock.m_writer_queued_callback = writer_queued;
         rwlock.m_reader_blocked_callback = reader_blocked;
     }
 };
-}
+} // namespace bbt::coroutine::sync
 
 void* operator new(std::size_t n)
 {
@@ -149,22 +149,27 @@ void* operator new(std::size_t n)
         return p;
     throw std::bad_alloc();
 }
+
 void* operator new[](std::size_t n)
 {
     return ::operator new(n);
 }
+
 void operator delete(void* p) noexcept
 {
     std::free(p);
 }
+
 void operator delete[](void* p) noexcept
 {
     std::free(p);
 }
+
 void operator delete(void* p, std::size_t) noexcept
 {
     std::free(p);
 }
+
 void operator delete[](void* p, std::size_t) noexcept
 {
     std::free(p);
@@ -198,7 +203,7 @@ BOOST_AUTO_TEST_CASE(t_begin)
  */
 BOOST_AUTO_TEST_CASE(t_comutex_lock_regist_fail)
 {
-    auto mutex = sync::CoMutex::Create();
+    auto mutex = bbtco_make_comutex();
 
     /**
      * holder→victim：已持锁
@@ -261,7 +266,7 @@ BOOST_AUTO_TEST_CASE(t_comutex_lock_regist_fail)
  */
 BOOST_AUTO_TEST_CASE(t_comutex_trylock_neg1_contended)
 {
-    auto mutex = sync::CoMutex::Create();
+    auto mutex = bbtco_make_comutex();
     std::atomic_bool holding{false}, can_unlock{false};
     bbt::core::thread::CountDownLatch done{2};
     std::atomic<int> ret{-99};
@@ -297,7 +302,7 @@ BOOST_AUTO_TEST_CASE(t_comutex_trylock_neg1_contended)
  */
 BOOST_AUTO_TEST_CASE(t_comutex_trylock_ms_regist_fail_and_reuse)
 {
-    auto mutex = sync::CoMutex::Create();
+    auto mutex = bbtco_make_comutex();
     std::atomic_bool holding{false}, can_unlock{false};
     bbt::core::thread::CountDownLatch done{2}, reuse{1};
     std::atomic<int> fail_ret{-99}, reacquired{0};
@@ -356,7 +361,7 @@ BOOST_AUTO_TEST_CASE(t_comutex_trylock_ms_regist_fail_and_reuse)
  */
 BOOST_AUTO_TEST_CASE(t_comutex_trylock_stale_mask)
 {
-    auto mutex = sync::CoMutex::Create();
+    auto mutex = bbtco_make_comutex();
     std::atomic_bool holding{false}, can_unlock{false};
     bbt::core::thread::CountDownLatch done{2};
     std::atomic<int> warm_ret{-99}, fail_ret{-99}, mask_ok{0};
@@ -431,7 +436,7 @@ BOOST_AUTO_TEST_CASE(t_comutex_trylock_stale_mask)
  */
 BOOST_AUTO_TEST_CASE(t_rwmutex_rlock_regist_fail)
 {
-    auto rw = sync::CoRWMutex::Create();
+    auto rw = bbtco_make_corwmutex();
     std::atomic_bool holding{false}, can_unlock{false};
     bbt::core::thread::CountDownLatch done{2};
     std::atomic<int> ret{-99};
@@ -468,7 +473,7 @@ BOOST_AUTO_TEST_CASE(t_rwmutex_rlock_regist_fail)
  */
 BOOST_AUTO_TEST_CASE(t_rwmutex_wlock_regist_fail)
 {
-    auto rw = sync::CoRWMutex::Create();
+    auto rw = bbtco_make_corwmutex();
     std::atomic_bool holding{false}, can_unlock{false};
     bbt::core::thread::CountDownLatch done{2}, done2{1};
     std::atomic<int> wret{-99}, rgot{0};
@@ -519,7 +524,7 @@ BOOST_AUTO_TEST_CASE(t_rwmutex_wlock_regist_fail)
  */
 BOOST_AUTO_TEST_CASE(t_rwmutex_tryrlock_ms_regist_fail)
 {
-    auto rw = sync::CoRWMutex::Create();
+    auto rw = bbtco_make_corwmutex();
     std::atomic_bool holding{false}, can_unlock{false};
     bbt::core::thread::CountDownLatch done{2}, done2{1};
     std::atomic<int> fail_ret{-99}, rgot{0};
@@ -563,7 +568,7 @@ BOOST_AUTO_TEST_CASE(t_rwmutex_tryrlock_ms_regist_fail)
  */
 BOOST_AUTO_TEST_CASE(t_rwmutex_trywlock_ms_regist_fail)
 {
-    auto rw = sync::CoRWMutex::Create();
+    auto rw = bbtco_make_corwmutex();
     std::atomic_bool holding{false}, can_unlock{false};
     bbt::core::thread::CountDownLatch done{2}, done2{1};
     std::atomic<int> fail_ret{-99}, rgot{0};
@@ -608,7 +613,7 @@ BOOST_AUTO_TEST_CASE(t_rwmutex_trywlock_ms_regist_fail)
  */
 BOOST_AUTO_TEST_CASE(t_rwmutex_try_neg1_contended)
 {
-    auto rw = sync::CoRWMutex::Create();
+    auto rw = bbtco_make_corwmutex();
     std::atomic_bool holding{false}, can_unlock{false};
     bbt::core::thread::CountDownLatch done{2};
     std::atomic<int> rret{-99}, wret{-99};
@@ -642,8 +647,8 @@ BOOST_AUTO_TEST_CASE(t_rwmutex_try_neg1_contended)
  */
 BOOST_AUTO_TEST_CASE(t_trylock_neg1_free)
 {
-    auto mutex = sync::CoMutex::Create();
-    auto rw = sync::CoRWMutex::Create();
+    auto mutex = bbtco_make_comutex();
+    auto rw = bbtco_make_corwmutex();
     bbt::core::thread::CountDownLatch done{1};
     std::atomic<int> m_ret{-99}, r_ret{-99}, w_ret{-99};
 
@@ -680,7 +685,7 @@ BOOST_AUTO_TEST_CASE(t_normal_paths_preserved)
      * 子场景 A：空闲锁 TryLock()/TryLock(ms) 立即获锁 0。
      */
     {
-        auto free_mutex = sync::CoMutex::Create();
+        auto free_mutex = bbtco_make_comutex();
         bbt::core::thread::CountDownLatch done{1};
         std::atomic<int> r0{-99}, rms{-99};
         bbtco[free_mutex, &r0, &rms, &done]()
@@ -702,7 +707,7 @@ BOOST_AUTO_TEST_CASE(t_normal_paths_preserved)
      * （can_unlock 在 TryLock 返回后才置位），覆盖 200ms 超时窗口。
      */
     {
-        auto mutex = sync::CoMutex::Create();
+        auto mutex = bbtco_make_comutex();
         std::atomic_bool holding{false}, can_unlock{false};
         bbt::core::thread::CountDownLatch done{2};
         std::atomic<int> try_timeout{-99};
@@ -741,7 +746,7 @@ BOOST_AUTO_TEST_CASE(t_normal_paths_preserved)
  */
 BOOST_AUTO_TEST_CASE(t_guard_regist_fail_observable)
 {
-    auto rw = sync::CoRWMutex::Create();
+    auto rw = bbtco_make_corwmutex();
     std::atomic_bool holding{false}, can_unlock{false};
     bbt::core::thread::CountDownLatch done{2}, reuse{1};
     std::atomic<int> r_ctor{-1}, r_lock{-1}, w_ctor{-1}, w_lock{-1};
@@ -849,7 +854,7 @@ BOOST_AUTO_TEST_CASE(t_guard_regist_fail_observable)
  */
 BOOST_AUTO_TEST_CASE(t_wlock_rewait_fail_keeps_live_writer)
 {
-    auto rw = sync::CoRWMutex::Create();
+    auto rw = bbtco_make_corwmutex();
 
     /**
      * 真实挂起次数（回调内计数）
@@ -944,7 +949,7 @@ BOOST_AUTO_TEST_CASE(t_wlock_rewait_fail_keeps_live_writer)
  */
 BOOST_AUTO_TEST_CASE(t_comutex_wait_prep_bad_alloc_releases_lock)
 {
-    auto mutex = sync::CoMutex::Create();
+    auto mutex = bbtco_make_comutex();
     std::atomic_bool holding{false}, can_unlock{false};
     bbt::core::thread::CountDownLatch done{2}, reuse{1};
     std::atomic<int> caught{0}, holder_unlocked{0}, reacquired{0};
@@ -1006,7 +1011,7 @@ BOOST_AUTO_TEST_CASE(t_comutex_wait_prep_bad_alloc_releases_lock)
  */
 BOOST_AUTO_TEST_CASE(t_rwmutex_wait_prep_bad_alloc_releases_lock)
 {
-    auto rw = sync::CoRWMutex::Create();
+    auto rw = bbtco_make_corwmutex();
     std::atomic_bool holding{false}, can_unlock{false};
     bbt::core::thread::CountDownLatch done{2}, reuse{1};
     std::atomic<int> caught{0}, writer_unlocked{0}, reacquired{0};
@@ -1106,13 +1111,16 @@ struct OrdinalGuard {
         t_alloc_victim = g_bbt_tls_coroutine_co;
         t_alloc_armed = true;
     }
+
     ~OrdinalGuard() { Disarm(); }
+
     void Disarm()
     {
         t_alloc_armed = false;
         t_alloc_fail_on = 0;
         t_alloc_victim = nullptr;
     }
+
     int Seen() const { return t_alloc_seen; }
 };
 
@@ -1147,7 +1155,7 @@ inline void CoWaitSeqBounded(const std::atomic<int>& seq, int want, int max_yiel
     for (int i = 0; i < max_yields && seq.load(std::memory_order_acquire) < want; ++i)
         bbtco_yield;
 }
-}
+} // namespace
 
 /**
  * 16-24：预热、计量、准备域序号扫描、后继进展验证。
@@ -1163,8 +1171,14 @@ namespace {
  * lock_fn/unlock_fn 由调用方给出（Mutex/RWMutex R/W 三态）。
  */
 template <typename LockFn, typename UnlockFn>
-inline void HolderRound(std::atomic<int>& held_seq, const std::atomic<int>& go_seq, const std::atomic<int>& fin_seq,
-                        int k, const std::atomic<bool>& stop_all, LockFn lock_fn, UnlockFn unlock_fn)
+inline void HolderRound(
+    std::atomic<int>& held_seq,
+    const std::atomic<int>& go_seq,
+    const std::atomic<int>& fin_seq,
+    int k,
+    const std::atomic<bool>& stop_all,
+    LockFn lock_fn,
+    UnlockFn unlock_fn)
 {
     lock_fn();
     held_seq.store(k, std::memory_order_release);
@@ -1175,7 +1189,7 @@ inline void HolderRound(std::atomic<int>& held_seq, const std::atomic<int>& go_s
     unlock_fn();
     CoWaitSeqOrStop(fin_seq, k, stop_all);
 }
-}
+} // namespace
 
 /**
  * 16. CoMutex::Lock() 无限等待：全序号扫描 + 末位回滚验证。
@@ -1183,7 +1197,7 @@ inline void HolderRound(std::atomic<int>& held_seq, const std::atomic<int>& go_s
 BOOST_AUTO_TEST_CASE(t_comutex_lock_callback_oom_last_alloc)
 {
     EnsureRuntime();
-    auto mutex = sync::CoMutex::Create();
+    auto mutex = bbtco_make_comutex();
     bbt::core::thread::CountDownLatch done{2};
     std::atomic<int> held_seq{0}, go_seq{0}, fin_seq{0};
     std::atomic<bool> stop_all{false};
@@ -1204,8 +1218,19 @@ BOOST_AUTO_TEST_CASE(t_comutex_lock_callback_oom_last_alloc)
         done.Down();
     };
 
-    bbtco[mutex, &held_seq, &go_seq, &fin_seq, &stop_all, &total, &deep_oom, &oom_count, &second_ret, &status_bad,
-          &req_bad, &done]()
+    bbtco
+        [mutex,
+         &held_seq,
+         &go_seq,
+         &fin_seq,
+         &stop_all,
+         &total,
+         &deep_oom,
+         &oom_count,
+         &second_ret,
+         &status_bad,
+         &req_bad,
+         &done]()
     {
         for (int k = 1; k <= 2; ++k) {
             if (!CoWaitSeqOrStop(held_seq, k, stop_all)) {
@@ -1300,7 +1325,7 @@ BOOST_AUTO_TEST_CASE(t_comutex_lock_callback_oom_last_alloc)
 BOOST_AUTO_TEST_CASE(t_comutex_trylock_ms_callback_oom_last_alloc)
 {
     EnsureRuntime();
-    auto mutex = sync::CoMutex::Create();
+    auto mutex = bbtco_make_comutex();
     bbt::core::thread::CountDownLatch done{2};
     std::atomic<int> held_seq{0}, go_seq{0}, fin_seq{0};
     std::atomic<bool> stop_all{false};
@@ -1321,8 +1346,19 @@ BOOST_AUTO_TEST_CASE(t_comutex_trylock_ms_callback_oom_last_alloc)
         done.Down();
     };
 
-    bbtco[mutex, &held_seq, &go_seq, &fin_seq, &stop_all, &total, &deep_oom, &oom_count, &second_ret, &status_bad,
-          &req_bad, &done]()
+    bbtco
+        [mutex,
+         &held_seq,
+         &go_seq,
+         &fin_seq,
+         &stop_all,
+         &total,
+         &deep_oom,
+         &oom_count,
+         &second_ret,
+         &status_bad,
+         &req_bad,
+         &done]()
     {
         for (int k = 1; k <= 2; ++k) {
             if (!CoWaitSeqOrStop(held_seq, k, stop_all)) {
@@ -1412,7 +1448,7 @@ BOOST_AUTO_TEST_CASE(t_comutex_trylock_ms_callback_oom_last_alloc)
 BOOST_AUTO_TEST_CASE(t_rwmutex_rlock_callback_oom_last_alloc)
 {
     EnsureRuntime();
-    auto rw = sync::CoRWMutex::Create();
+    auto rw = bbtco_make_corwmutex();
     bbt::core::thread::CountDownLatch done{2};
     std::atomic<int> held_seq{0}, go_seq{0}, fin_seq{0};
     std::atomic<int> verify_done{0};
@@ -1444,8 +1480,20 @@ BOOST_AUTO_TEST_CASE(t_rwmutex_rlock_callback_oom_last_alloc)
         done.Down();
     };
 
-    bbtco[rw, &held_seq, &go_seq, &fin_seq, &verify_done, &stop_all, &total, &deep_oom, &oom_count, &second_ret,
-          &status_bad, &req_bad, &done]()
+    bbtco
+        [rw,
+         &held_seq,
+         &go_seq,
+         &fin_seq,
+         &verify_done,
+         &stop_all,
+         &total,
+         &deep_oom,
+         &oom_count,
+         &second_ret,
+         &status_bad,
+         &req_bad,
+         &done]()
     {
         for (int k = 1; k <= 2; ++k) {
             if (!CoWaitSeqOrStop(held_seq, k, stop_all)) {
@@ -1536,7 +1584,7 @@ BOOST_AUTO_TEST_CASE(t_rwmutex_rlock_callback_oom_last_alloc)
 BOOST_AUTO_TEST_CASE(t_rwmutex_tryrlock_ms_callback_oom_last_alloc)
 {
     EnsureRuntime();
-    auto rw = sync::CoRWMutex::Create();
+    auto rw = bbtco_make_corwmutex();
     bbt::core::thread::CountDownLatch done{2};
     std::atomic<int> held_seq{0}, go_seq{0}, fin_seq{0};
     std::atomic<int> verify_done{0};
@@ -1560,8 +1608,20 @@ BOOST_AUTO_TEST_CASE(t_rwmutex_tryrlock_ms_callback_oom_last_alloc)
         done.Down();
     };
 
-    bbtco[rw, &held_seq, &go_seq, &fin_seq, &verify_done, &stop_all, &total, &deep_oom, &oom_count, &second_ret,
-          &status_bad, &req_bad, &done]()
+    bbtco
+        [rw,
+         &held_seq,
+         &go_seq,
+         &fin_seq,
+         &verify_done,
+         &stop_all,
+         &total,
+         &deep_oom,
+         &oom_count,
+         &second_ret,
+         &status_bad,
+         &req_bad,
+         &done]()
     {
         for (int k = 1; k <= 2; ++k) {
             if (!CoWaitSeqOrStop(held_seq, k, stop_all)) {
@@ -1745,8 +1805,18 @@ BOOST_AUTO_TEST_CASE(t_coroutine_yield_with_callback_oom_last_alloc)
         done.Down();
     };
 
-    bbtco[waiter, &go_notify, &total, &deep_oom, &oom_count, &precheck, &notify_ret, &status_bad, &progress_ok,
-          &req_bad, &done]()
+    bbtco
+        [waiter,
+         &go_notify,
+         &total,
+         &deep_oom,
+         &oom_count,
+         &precheck,
+         &notify_ret,
+         &status_bad,
+         &progress_ok,
+         &req_bad,
+         &done]()
     {
         auto* coroutine = g_bbt_tls_coroutine_co;
 
@@ -1867,7 +1937,7 @@ BOOST_AUTO_TEST_CASE(t_coroutine_yield_with_callback_oom_last_alloc)
 BOOST_AUTO_TEST_CASE(t_comutex_tombstone_keeps_healthy_waiters)
 {
     EnsureRuntime();
-    auto mutex = sync::CoMutex::Create();
+    auto mutex = bbtco_make_comutex();
     bbt::core::thread::CountDownLatch done{4};
     std::atomic<int> held_seq{0}, go_seq{0}, fin_seq{0};
     std::atomic<int> phase2{0}, a_queued{0}, b_done{0}, c_queued{0};
@@ -1927,8 +1997,21 @@ BOOST_AUTO_TEST_CASE(t_comutex_tombstone_keeps_healthy_waiters)
     /**
      * B：段 1 预热+计量+扫描测得 deep_oom；段 2 在 A 之后注入
      */
-    bbtco[mutex, &held_seq, &go_seq, &fin_seq, &phase2, &a_queued, &b_done, &total, &deep_oom, &b_caught, &b_status_bad,
-          &req_bad, &stop_all, &done]()
+    bbtco
+        [mutex,
+         &held_seq,
+         &go_seq,
+         &fin_seq,
+         &phase2,
+         &a_queued,
+         &b_done,
+         &total,
+         &deep_oom,
+         &b_caught,
+         &b_status_bad,
+         &req_bad,
+         &stop_all,
+         &done]()
     {
         for (int k = 1; k <= 2; ++k) {
             if (!CoWaitSeqOrStop(held_seq, k, stop_all)) {
@@ -2039,7 +2122,7 @@ BOOST_AUTO_TEST_CASE(t_comutex_tombstone_keeps_healthy_waiters)
 BOOST_AUTO_TEST_CASE(t_rwmutex_writer_tombstone_and_priority)
 {
     EnsureRuntime();
-    auto rw = sync::CoRWMutex::Create();
+    auto rw = bbtco_make_corwmutex();
     bbt::core::thread::CountDownLatch done{4};
     std::atomic<int> held_seq{0}, go_seq{0}, fin_seq{0};
     std::atomic<int> phase2{0}, a_queued{0}, b_done{0}, c_queued{0};
@@ -2085,8 +2168,21 @@ BOOST_AUTO_TEST_CASE(t_rwmutex_writer_tombstone_and_priority)
         done.Down();
     };
 
-    bbtco[rw, &held_seq, &go_seq, &fin_seq, &phase2, &a_queued, &b_done, &total, &deep_oom, &b_caught, &b_status_bad,
-          &req_bad, &stop_all, &done]()
+    bbtco
+        [rw,
+         &held_seq,
+         &go_seq,
+         &fin_seq,
+         &phase2,
+         &a_queued,
+         &b_done,
+         &total,
+         &deep_oom,
+         &b_caught,
+         &b_status_bad,
+         &req_bad,
+         &stop_all,
+         &done]()
     {
         for (int k = 1; k <= 2; ++k) {
             if (!CoWaitSeqOrStop(held_seq, k, stop_all)) {
@@ -2190,7 +2286,7 @@ BOOST_AUTO_TEST_CASE(t_rwmutex_writer_tombstone_and_priority)
 BOOST_AUTO_TEST_CASE(t_rwmutex_trywlock_ms_callback_oom_last_alloc)
 {
     EnsureRuntime();
-    auto rw = sync::CoRWMutex::Create();
+    auto rw = bbtco_make_corwmutex();
     bbt::core::thread::CountDownLatch done{2};
     std::atomic<int> held_seq{0}, go_seq{0}, fin_seq{0};
     std::atomic<int> verify_done{0};
@@ -2219,8 +2315,21 @@ BOOST_AUTO_TEST_CASE(t_rwmutex_trywlock_ms_callback_oom_last_alloc)
         done.Down();
     };
 
-    bbtco[rw, &held_seq, &go_seq, &fin_seq, &verify_done, &stop_all, &total, &deep_oom, &oom_count, &status_bad,
-          &read_after, &read_blocked, &req_bad, &done]()
+    bbtco
+        [rw,
+         &held_seq,
+         &go_seq,
+         &fin_seq,
+         &verify_done,
+         &stop_all,
+         &total,
+         &deep_oom,
+         &oom_count,
+         &status_bad,
+         &read_after,
+         &read_blocked,
+         &req_bad,
+         &done]()
     {
         for (int k = 1; k <= 2; ++k) {
             if (!CoWaitSeqOrStop(held_seq, k, stop_all)) {

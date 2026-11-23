@@ -24,8 +24,11 @@ int main()
     }
     const auto capacity = __atomic_load_n(&stack_budget_capacity_seen, __ATOMIC_RELAXED);
     const int result = __atomic_load_n(&stack_budget_result, __ATOMIC_RELAXED);
-    std::printf("conditional user_asserted model: requested U=%zu, "
-                "GetLocalCoroutineStackSize=%zu, result=%d\n",
-                bbt_stack_budget::ExampleEntry, capacity, result);
+    std::printf(
+        "conditional user_asserted model: requested U=%zu, "
+        "GetLocalCoroutineStackSize=%zu, result=%d\n",
+        bbt_stack_budget::ExampleEntry,
+        capacity,
+        result);
     return capacity == bbt_stack_budget::ExampleEntry && result == 10 ? 0 : 1;
 }

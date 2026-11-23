@@ -58,19 +58,22 @@ static std::ostream& operator<<(std::ostream& os, ProcesserDriverStatus v)
 {
     return os << static_cast<int>(v);
 }
+
 static std::ostream& operator<<(std::ostream& os, ProcesserDriverState v)
 {
     return os << static_cast<int>(v);
 }
+
 static std::ostream& operator<<(std::ostream& os, ProcesserDriverFailure v)
 {
     return os << static_cast<int>(v);
 }
+
 [[maybe_unused]] static std::ostream& operator<<(std::ostream& os, const ProcesserDriverToken& v)
 {
     return os << "{pid=" << v.m_processer_id << ",gen=" << v.m_generation << "}";
 }
-}
+} // namespace bbt::coroutine::detail
 
 namespace {
 
@@ -93,11 +96,13 @@ struct TestControl {
     std::vector<std::function<void()>> releases;
     std::vector<ProcesserDriverToken> bindings;
     std::atomic<int> tasks{0};
+
     static TestControl& Get()
     {
         static TestControl c;
         return c;
     }
+
     void Release()
     {
         std::vector<std::function<void()>> pending;
@@ -109,25 +114,35 @@ struct TestControl {
             if (f)
                 f();
     }
+
     void Cleanup();
 };
+
 int require_visits = 0;
+
 bool RequireResult(bool result)
 {
     ++require_visits;
     const char* fail = std::getenv("BBT_PD_FAIL_REQUIRE_AT");
     return result && (!fail || std::atoi(fail) != require_visits);
 }
+
 struct AssertionCleanup {
     bool failed;
+
     ~AssertionCleanup()
     {
         if (failed)
             TestControl::Get().Cleanup();
     }
 };
-#define PD_REQUIRE(expr) do { const bool ok = RequireResult(static_cast<bool>(expr)); \
-    AssertionCleanup cleanup{!ok}; BOOST_REQUIRE_MESSAGE(ok, #expr); } while (false)
+
+#define PD_REQUIRE(expr)                                                                                               \
+    do {                                                                                                               \
+        const bool ok = RequireResult(static_cast<bool>(expr));                                                        \
+        AssertionCleanup cleanup{!ok};                                                                                 \
+        BOOST_REQUIRE_MESSAGE(ok, #expr);                                                                              \
+    } while (false)
 
 /**
  * entered/open 两段握手门：回调进入时发 entered，停在 open 放行前
@@ -138,6 +153,7 @@ struct Gate {
     bool entered{false};
     bool open{false};
     size_t release_id;
+
     Gate()
     {
         auto& c = TestControl::Get();
@@ -145,6 +161,7 @@ struct Gate {
         release_id = c.releases.size();
         c.releases.push_back([this] { Open(); });
     }
+
     ~Gate()
     {
         Open();
@@ -152,6 +169,7 @@ struct Gate {
         std::lock_guard<std::mutex> l(c.m);
         c.releases[release_id] = {};
     }
+
     Gate(const Gate&) = delete;
     Gate& operator=(const Gate&) = delete;
 
@@ -160,6 +178,7 @@ struct Gate {
         std::unique_lock<std::mutex> l(m);
         cv.wait(l, [&] { return open; });
     }
+
     void PassThrough()
     {
         std::unique_lock<std::mutex> l(m);
@@ -167,11 +186,13 @@ struct Gate {
         cv.notify_all();
         cv.wait(l, [&] { return open; });
     }
+
     bool WaitEntered(int ms = 5000)
     {
         std::unique_lock<std::mutex> l(m);
         return cv.wait_for(l, std::chrono::milliseconds(ms), [&] { return entered; });
     }
+
     void Open()
     {
         {
@@ -184,6 +205,7 @@ struct Gate {
 
 struct CleanupAction {
     size_t index;
+
     explicit CleanupAction(std::function<void()> f)
     {
         auto& c = TestControl::Get();
@@ -191,6 +213,7 @@ struct CleanupAction {
         index = c.releases.size();
         c.releases.push_back(std::move(f));
     }
+
     ~CleanupAction()
     {
         auto& c = TestControl::Get();
@@ -204,6 +227,7 @@ struct CleanupAction {
  */
 struct JoiningThread : std::thread {
     using std::thread::thread;
+
     ~JoiningThread()
     {
         if (joinable()) {
@@ -212,8 +236,13 @@ struct JoiningThread : std::thread {
         }
     }
 };
+
 template <class T> struct JoiningFuture : std::future<T> {
-    explicit JoiningFuture(std::future<T>&& f) : std::future<T>(std::move(f)) {}
+    explicit JoiningFuture(std::future<T>&& f)
+        : std::future<T>(std::move(f))
+    {
+    }
+
     ~JoiningFuture()
     {
         if (this->valid()) {
@@ -222,13 +251,15 @@ template <class T> struct JoiningFuture : std::future<T> {
         }
     }
 };
+
 template <class F> auto Async(std::launch policy, F&& f)
 {
     using T = decltype(f());
     return JoiningFuture<T>(std::async(policy, std::forward<F>(f)));
 }
-ProcesserDriverStatus Register(Scheduler& s, ProcesserId p, const std::shared_ptr<IProcesserDriver>& d,
-                               ProcesserDriverToken& t)
+
+ProcesserDriverStatus
+Register(Scheduler& s, ProcesserId p, const std::shared_ptr<IProcesserDriver>& d, ProcesserDriverToken& t)
 {
     auto rc = s.RegisterProcesserDriver(p, d, t);
     if (rc == ProcesserDriverStatus::Ok) {
@@ -238,6 +269,7 @@ ProcesserDriverStatus Register(Scheduler& s, ProcesserId p, const std::shared_pt
     }
     return rc;
 }
+
 template <class F> auto TrackedTask(F f)
 {
     ++TestControl::Get().tasks;
@@ -248,14 +280,17 @@ template <class F> auto TrackedTask(F f)
         f();
     };
 }
+
 template <class F> void Post(Scheduler& s, F f)
 {
     s.RegistCoroutineTask(TrackedTask(std::move(f)));
 }
+
 template <class F> void PostOn(Scheduler& s, ProcesserId p, F f)
 {
     s.RegistCoroutineTaskOn(p, TrackedTask(std::move(f)));
 }
+
 void TestControl::Cleanup()
 {
     Release();
@@ -318,6 +353,7 @@ struct FakeResource {
      * 已关闭但未 drain
      */
     std::vector<int> closed_handles;
+
     struct Completion {
         int id;
         std::function<void()> callback;
@@ -354,6 +390,7 @@ struct FakeResource {
         if (detached || cleanup_started || (owner != std::thread::id() && owner != std::this_thread::get_id()))
             ++violations;
     }
+
     void Leave(Kind k)
     {
         std::lock_guard<std::mutex> l(m);
@@ -378,6 +415,7 @@ struct FakeResource {
             ++violations;
         return true;
     }
+
     void MarkDetached()
     {
         std::lock_guard<std::mutex> l(m);
@@ -435,6 +473,7 @@ struct FakeResource {
         seq = access_seq;
         viol = violations;
     }
+
     int AccessSeq()
     {
         std::lock_guard<std::mutex> l(m);
@@ -559,7 +598,10 @@ struct FakeState {
 
 class FakeDriver final : public IProcesserDriver {
 public:
-    explicit FakeDriver(std::shared_ptr<FakeState> st) : m_st(std::move(st)) {}
+    explicit FakeDriver(std::shared_ptr<FakeState> st)
+        : m_st(std::move(st))
+    {
+    }
 
     /**
      * callback 全程 RAII 访问计数（含异常退出），并记录 pump tid
@@ -567,19 +609,24 @@ public:
     struct ResGuard {
         std::shared_ptr<FakeResource> r;
         std::atomic<int>& counter;
+
         ResGuard(std::atomic<int>& count, const std::shared_ptr<FakeResource>& res, FakeResource::Kind kind)
-            : r(res), counter(count), k(kind)
+            : r(res)
+            , counter(count)
+            , k(kind)
         {
             ++counter;
             if (r)
                 r->Enter(k);
         }
+
         ~ResGuard()
         {
             if (r)
                 r->Leave(k);
             --counter;
         }
+
         FakeResource::Kind k;
     };
 
@@ -669,9 +716,11 @@ public:
     void Wake() noexcept override
     {
         bool was_terminal = false;
+
         struct TerminalExit {
             FakeState& st;
             bool& terminal;
+
             ~TerminalExit()
             {
                 if (!terminal)
@@ -685,6 +734,7 @@ public:
              * 最后析构：整个 callback 资源/计数先退出
              */
         } exit{*m_st, was_terminal};
+
         ResGuard guard(m_st->active_callbacks, m_st->res, FakeResource::WakeK);
         m_st->wakes++;
         if (m_st->on_wake)
@@ -740,6 +790,7 @@ struct WorkerFence {
     std::shared_ptr<FakeState> st = std::make_shared<FakeState>();
     Gate gate;
     ProcesserDriverToken token{};
+
     explicit WorkerFence(ProcesserId pid)
     {
         st->pump_gate = &gate;
@@ -750,11 +801,13 @@ struct WorkerFence {
         PD_REQUIRE(gate.WaitEntered());
         PD_REQUIRE(st->tick_pid.load() == pid);
     }
+
     void Open()
     {
         st->hold_pump = false;
         gate.Open();
     }
+
     ~WorkerFence()
     {
         Open();
@@ -776,10 +829,11 @@ struct CoWaiterProbe : sync::CoWaiter {
 
 struct ChanProbe : sync::Chan<int, 4> {
     std::shared_ptr<CoWaiterProbe> reader = std::make_shared<CoWaiterProbe>();
+
     ChanProbe() { m_enable_read_cond = reader; }
 };
 
-}
+} // namespace
 
 /**
  * 仅专用测试可执行的 Processer 副本插入两个观察点；产品库无 hook。
@@ -788,18 +842,21 @@ struct ChanProbe : sync::Chan<int, 4> {
 struct PDProbeControl {
     std::mutex m;
     std::function<void()> joiner, continued;
+
     static PDProbeControl& Get()
     {
         static auto* p = new PDProbeControl;
         return *p;
     }
 };
+
 void PDSetProbe(bool joiner, std::function<void()> callback)
 {
     auto& p = PDProbeControl::Get();
     std::lock_guard<std::mutex> l(p.m);
     (joiner ? p.joiner : p.continued) = std::move(callback);
 }
+
 void PDTestJoinerProbe()
 {
     /**
@@ -814,6 +871,7 @@ void PDTestJoinerProbe()
     if (f)
         f();
 }
+
 void PDTestContinueProbe()
 {
     auto& p = PDProbeControl::Get();
@@ -844,8 +902,9 @@ void CaseApiBoundaries()
      */
     snap.m_state = ProcesserDriverState::Bound;
     snap.m_failure = ProcesserDriverFailure::Wait;
-    BOOST_TEST(Register(sche, 1, std::make_shared<FakeDriver>(std::make_shared<FakeState>()), tok)
-               == ProcesserDriverStatus::NotInitialized);
+    BOOST_TEST(
+        Register(sche, 1, std::make_shared<FakeDriver>(std::make_shared<FakeState>()), tok)
+        == ProcesserDriverStatus::NotInitialized);
 
     /**
      * 失败不改输出 token
@@ -864,11 +923,16 @@ void CaseApiBoundaries()
     /**
      * 非法 id、主线程惰性 P、空 driver
      */
-    BOOST_TEST(Register(sche, 999999, std::make_shared<FakeDriver>(std::make_shared<FakeState>()), tok)
-               == ProcesserDriverStatus::InvalidTarget);
-    BOOST_TEST(Register(sche, Processer::GetLocalProcesser()->GetId(),
-                        std::make_shared<FakeDriver>(std::make_shared<FakeState>()), tok)
-               == ProcesserDriverStatus::InvalidTarget);
+    BOOST_TEST(
+        Register(sche, 999999, std::make_shared<FakeDriver>(std::make_shared<FakeState>()), tok)
+        == ProcesserDriverStatus::InvalidTarget);
+    BOOST_TEST(
+        Register(
+            sche,
+            Processer::GetLocalProcesser()->GetId(),
+            std::make_shared<FakeDriver>(std::make_shared<FakeState>()),
+            tok)
+        == ProcesserDriverStatus::InvalidTarget);
     BOOST_TEST(Register(sche, target, nullptr, tok) == ProcesserDriverStatus::InvalidDriver);
 
     /**
@@ -883,8 +947,9 @@ void CaseApiBoundaries()
     BOOST_TEST(tok.m_generation != 0u);
     const auto gen1 = tok.m_generation;
 
-    BOOST_TEST(Register(sche, target, std::make_shared<FakeDriver>(std::make_shared<FakeState>()), tok)
-               == ProcesserDriverStatus::Occupied);
+    BOOST_TEST(
+        Register(sche, target, std::make_shared<FakeDriver>(std::make_shared<FakeState>()), tok)
+        == ProcesserDriverStatus::Occupied);
 
     /**
      * 失败不改输出
@@ -929,8 +994,8 @@ void CaseApiBoundaries()
      * 定向注册：未登记目标抛 invalid_argument
      */
     BOOST_CHECK_THROW(sche.RegistCoroutineTaskOn(999999, [] {}), std::invalid_argument);
-    BOOST_CHECK_THROW(sche.RegistCoroutineTaskOn(Processer::GetLocalProcesser()->GetId(), [] {}),
-                      std::invalid_argument);
+    BOOST_CHECK_THROW(
+        sche.RegistCoroutineTaskOn(Processer::GetLocalProcesser()->GetId(), [] {}), std::invalid_argument);
     bbt::core::thread::CountDownLatch done{1};
     std::atomic<ProcesserId> ran_pid{0};
     PostOn(sche, target, [&] {
@@ -1004,9 +1069,12 @@ void CaseTickSequence()
     class FullDriver final : public IProcesserDriver {
     public:
         FullDriver(std::shared_ptr<FakeState> s, std::atomic<int>* out, std::atomic<int>* err)
-            : m_st(std::move(s)), m_out(out), m_err(err)
+            : m_st(std::move(s))
+            , m_out(out)
+            , m_err(err)
         {
         }
+
         ProcesserDriverResult OnTick(ProcesserDriverPhase phase) override
         {
             auto proc = Processer::TryGetLocalProcesser();
@@ -1028,6 +1096,7 @@ void CaseTickSequence()
             }
             return ProcesserDriverResult::Ok;
         }
+
         ProcesserDriverResult Wait(std::chrono::microseconds t) override
         {
             auto proc = Processer::TryGetLocalProcesser();
@@ -1045,6 +1114,7 @@ void CaseTickSequence()
             m_st->notified = false;
             return ProcesserDriverResult::Ok;
         }
+
         void Wake() noexcept override
         {
             m_st->wakes++;
@@ -1054,6 +1124,7 @@ void CaseTickSequence()
             }
             m_st->wait_cv.notify_all();
         }
+
         ProcesserId m_expected_pid{0};
 
     private:
@@ -1327,10 +1398,12 @@ void CaseSelfDetach()
         auto drv = std::make_shared<FakeDriver>(st);
         std::atomic<ProcesserDriverStatus> nested{ProcesserDriverStatus::Ok};
         std::atomic_bool observed_detaching{false};
+
         struct TokenHolder {
             ProcesserDriverToken t{};
             std::atomic_bool ready{false};
         };
+
         auto holder = std::make_shared<TokenHolder>();
 
         /**
@@ -1370,10 +1443,12 @@ void CaseSelfDetach()
     auto drv = std::make_shared<FakeDriver>(st);
     std::atomic<ProcesserDriverStatus> tick_ret{ProcesserDriverStatus::Ok};
     auto tick_once = std::make_shared<std::atomic_bool>(true);
+
     struct TokenHolder2 {
         ProcesserDriverToken t{};
         std::atomic_bool ready{false};
     };
+
     auto holder2 = std::make_shared<TokenHolder2>();
     st->on_before = [&, tick_once, holder2] {
         if (!holder2->ready.load(std::memory_order_acquire))
@@ -1457,8 +1532,9 @@ void CaseSelfDetach()
     PD_REQUIRE(captured_joiner.WaitEntered());
     terminal.Open();
     BOOST_TEST(leader.get() == ProcesserDriverStatus::Ok);
-    PD_REQUIRE(Register(sche, ids[0], std::make_shared<FakeDriver>(std::make_shared<FakeState>()), new_token)
-               == ProcesserDriverStatus::Ok);
+    PD_REQUIRE(
+        Register(sche, ids[0], std::make_shared<FakeDriver>(std::make_shared<FakeState>()), new_token)
+        == ProcesserDriverStatus::Ok);
     BOOST_TEST(static_cast<bool>(joiner.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready));
     BOOST_TEST(new_token != old_token);
     captured_joiner.Open();
@@ -1561,8 +1637,9 @@ void CaseFailure(ProcesserDriverFailure expected_source, bool is_tick, bool is_t
     BOOST_TEST(st->before.load() + st->after.load() == ticks);
     BOOST_TEST(st->waits.load() == waits);
     ProcesserDriverToken dummy{};
-    BOOST_TEST(Register(sche, target, std::make_shared<FakeDriver>(std::make_shared<FakeState>()), dummy)
-               == ProcesserDriverStatus::Occupied);
+    BOOST_TEST(
+        Register(sche, target, std::make_shared<FakeDriver>(std::make_shared<FakeState>()), dummy)
+        == ProcesserDriverStatus::Occupied);
 
     /**
      * 给失败 P 投一个 OS-gate 阻塞业务任务，确认确在目标 worker 开始
@@ -2069,8 +2146,10 @@ void CaseQueryDestructRelease()
      */
     struct ExWithPayload : std::exception {
         std::shared_ptr<int> payload;
+
         const char* what() const noexcept override { return "held"; }
     };
+
     ExWithPayload ex;
     ex.payload = payload;
     out.m_exception = std::make_exception_ptr(ex);

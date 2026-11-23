@@ -97,4 +97,4 @@ template <typename... TRet> using TupleErr = std::tuple<TRet..., ErrOpt>;
  */
 template <typename TRet> using ErrRlt = bbt::core::util::Result<TRet, Errcode>;
 
-}
+} // namespace bbt::core::errcode

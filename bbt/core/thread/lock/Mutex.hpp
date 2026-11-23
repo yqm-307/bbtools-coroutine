@@ -58,4 +58,4 @@ private:
     pthread_mutex_t m_mutex;
 };
 
-}
+} // namespace bbt::core::thread

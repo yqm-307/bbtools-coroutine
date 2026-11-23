@@ -82,7 +82,7 @@ void ReoccupyWatchedFd()
         ::syscall(SYS_close, victim);
 }
 
-}
+} // namespace
 
 void* operator new(std::size_t n)
 {
@@ -95,22 +95,27 @@ void* operator new(std::size_t n)
         return p;
     throw std::bad_alloc();
 }
+
 void* operator new[](std::size_t n)
 {
     return ::operator new(n);
 }
+
 void operator delete(void* p) noexcept
 {
     std::free(p);
 }
+
 void operator delete[](void* p) noexcept
 {
     std::free(p);
 }
+
 void operator delete(void* p, std::size_t) noexcept
 {
     std::free(p);
 }
+
 void operator delete[](void* p, std::size_t) noexcept
 {
     std::free(p);
@@ -130,10 +135,20 @@ extern "C" int close(int fd)
     return rc;
 }
 
-#define CHECK(x) do { if (!(x)) { \
-    std::fprintf(stderr, "FAIL line=%d %s closes=%d victim=%d new_hits=%d\n", \
-        __LINE__, #x, g_watched_closes.load(), g_victim_fd.load(), \
-        g_new_hits.load()); return 1; } } while (0)
+#define CHECK(x)                                                                                                       \
+    do {                                                                                                               \
+        if (!(x)) {                                                                                                    \
+            std::fprintf(                                                                                              \
+                stderr,                                                                                                \
+                "FAIL line=%d %s closes=%d victim=%d new_hits=%d\n",                                                   \
+                __LINE__,                                                                                              \
+                #x,                                                                                                    \
+                g_watched_closes.load(),                                                                               \
+                g_victim_fd.load(),                                                                                    \
+                g_new_hits.load());                                                                                    \
+            return 1;                                                                                                  \
+        }                                                                                                              \
+    } while (0)
 
 namespace {
 
@@ -213,8 +228,11 @@ int RunTimerFailRollback()
          * fd 事件 + timer：走 is_fd_event && is_timer 双分支，
          * 内部 dup → stream_descriptor adopt → timer 构造点注入失败。
          */
-        pe::Event ev(base, target, static_cast<short>(pe::EventOpt::READABLE | pe::EventOpt::TIMEOUT),
-                     [](int, short, pe::EventId) {});
+        pe::Event ev(
+            base,
+            target,
+            static_cast<short>(pe::EventOpt::READABLE | pe::EventOpt::TIMEOUT),
+            [](int, short, pe::EventId) {});
     } catch (const std::bad_alloc&) {
         threw = true;
     } catch (...) {
@@ -303,8 +321,11 @@ int RunConstructOk()
     g_watched_fd.store(watched, std::memory_order_release);
 
     {
-        pe::Event ev(base, target, static_cast<short>(pe::EventOpt::READABLE | pe::EventOpt::TIMEOUT),
-                     [](int, short, pe::EventId) {});
+        pe::Event ev(
+            base,
+            target,
+            static_cast<short>(pe::EventOpt::READABLE | pe::EventOpt::TIMEOUT),
+            [](int, short, pe::EventId) {});
 
         /**
          * 未注入：构造成功，内部 fd 已 adopt 但尚未 close
@@ -345,7 +366,7 @@ int RunConstructOk()
     return 0;
 }
 
-}
+} // namespace
 
 /**
  * EventBase 需要非空；放函数内避免静态析构顺序问题
@@ -368,7 +389,12 @@ int main(int argc, char** argv)
         std::fprintf(stderr, "FAIL unknown mode=%s\n", argv[1]);
 
     if (rc == 0)
-        std::fprintf(stderr, "PASS mode=%s closes=%d victim=%d new_hits=%d\n", argv[1], g_watched_closes.load(),
-                     g_victim_fd.load(), g_new_hits.load());
+        std::fprintf(
+            stderr,
+            "PASS mode=%s closes=%d victim=%d new_hits=%d\n",
+            argv[1],
+            g_watched_closes.load(),
+            g_victim_fd.load(),
+            g_new_hits.load());
     return rc;
 }

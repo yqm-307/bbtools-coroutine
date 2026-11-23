@@ -16,12 +16,18 @@ public:
     /**
      * @brief 记录注册结果的出口：succ 由调用者持有，operator+ 注册后写它（true 成功 / false 失败）
      */
-    _CoHelper(bool* succ = nullptr) : m_regist_succ(succ) {}
+    _CoHelper(bool* succ = nullptr)
+        : m_regist_succ(succ)
+    {
+    }
 
     /**
      * @brief bbtco_desc 携带任务描述：落库到协程，诊断现场可读回。指针只借用，不复制字符串
      */
-    explicit _CoHelper(const char* desc) : m_desc(desc) {}
+    explicit _CoHelper(const char* desc)
+        : m_desc(desc)
+    {
+    }
 
     /**
      * @brief 注册协程；注册失败（无 worker、栈申请失败等）抛异常，调用点不会留下半注册的协程
@@ -45,4 +51,4 @@ private:
     const char* m_desc{nullptr};
 };
 
-}
+} // namespace bbt::coroutine

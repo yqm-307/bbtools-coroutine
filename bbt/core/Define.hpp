@@ -26,22 +26,28 @@
 /**
  * @brief 分支预测提示：`expr` 大概率为真
  */
-#define bbt_likely(expr)    (__builtin_expect(((expr) != 0), 1))
+#define bbt_likely(expr) (__builtin_expect(((expr) != 0), 1))
 
 /**
  * @brief 分支预测提示：`expr` 大概率为假
  */
-#define bbt_unlikely(expr)  (__builtin_expect(((expr) != 0), 0))
+#define bbt_unlikely(expr) (__builtin_expect(((expr) != 0), 0))
 
 /**
  * @brief 在类体内展开成 `private: struct`；后续成员因此变成 private，要显式写回 `public:`
  */
-#define BBT_IMPL_STRUCT private:struct
+#define BBT_IMPL_STRUCT                                                                                                \
+                                                                                                                       \
+private:                                                                                                               \
+    struct
 
 /**
  * @brief 同 `BBT_IMPL_STRUCT`，展开成 `private: class`
  */
-#define BBT_IMPL_CLASS  private:class
+#define BBT_IMPL_CLASS                                                                                                 \
+                                                                                                                       \
+private:                                                                                                               \
+    class
 
 /**
  * @brief 头文件内定义常量用：`static inline constexpr uint64_t`，`inline` 避免多 TU 重复定义
@@ -72,9 +78,9 @@ namespace bbt {
 /**
  * @brief 日志与格式化缓冲区的字节数上限（4 KiB），超长内容会被截断
  */
-#define ARRAY_SIZE 1024*4
+#define ARRAY_SIZE 1024 * 4
 
-}
+} // namespace bbt
 
 /**
  * 支持范围是 C++11 到 C++17，超出就编译失败。本库按 C++17 的标准库行为编写与测试，

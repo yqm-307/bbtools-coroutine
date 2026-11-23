@@ -12,6 +12,8 @@ int main()
     }
 
     auto end = std::chrono::system_clock::now();
-    printf("插入%d个协程耗时 %ldms\n", ncount,
-           std::chrono::duration_cast<std::chrono::milliseconds>((end - begin)).count());
+    printf(
+        "插入%d个协程耗时 %ldms\n",
+        ncount,
+        std::chrono::duration_cast<std::chrono::milliseconds>((end - begin)).count());
 }

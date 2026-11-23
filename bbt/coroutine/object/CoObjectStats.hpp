@@ -92,5 +92,5 @@ private:
  */
 CoObjectCounters& GetOrCreateCoObjectCounters(std::string_view kind);
 
-}
-}
+} // namespace detail
+} // namespace bbt::coroutine

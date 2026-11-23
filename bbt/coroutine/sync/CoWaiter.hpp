@@ -99,8 +99,10 @@ public:
      * @param on_registered 挂起成功后的投递回调，可为空
      * @param value 载荷输出，可空；指向对象由调用方保活
      */
-    WaitStatus WaitWithCallback(const WaitOptions& options, const detail::CoroutineOnYieldCallback& on_registered,
-                                CoEventValue* value = nullptr);
+    WaitStatus WaitWithCallback(
+        const WaitOptions& options,
+        const detail::CoroutineOnYieldCallback& on_registered,
+        CoEventValue* value = nullptr);
 
     /**
      * @brief 等待 fd、Notify、deadline 或协程取消中的首个事件。
@@ -130,8 +132,8 @@ public:
      * @param value 首胜 Notify 的载荷输出，可为空
      * @return 命中的组合等待状态
      */
-    CombinedWaitStatus Wait(const CombinedWaitOptions& options, const detail::CoroutineOnYieldCallback& on_registered,
-                            CoEventValue* value);
+    CombinedWaitStatus Wait(
+        const CombinedWaitOptions& options, const detail::CoroutineOnYieldCallback& on_registered, CoEventValue* value);
 
     /**
      * @brief 尝试唤醒当前等待者；没有有效等待者时不保存通知状态。
@@ -180,4 +182,4 @@ protected:
      */
 };
 
-}
+} // namespace bbt::coroutine::sync

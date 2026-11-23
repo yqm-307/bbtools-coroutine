@@ -8,7 +8,13 @@ using namespace bbt::coroutine;
 
 class Client {
 public:
-    Client(int client_count, std::string ip, short port) : m_ip(ip), m_port(port), m_pending(client_count) {}
+    Client(int client_count, std::string ip, short port)
+        : m_ip(ip)
+        , m_port(port)
+        , m_pending(client_count)
+    {
+    }
+
     ~Client() {}
 
     void Start()

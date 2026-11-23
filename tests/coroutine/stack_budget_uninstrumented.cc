@@ -26,4 +26,4 @@ __attribute__((noinline)) void UninstrumentedBurn(volatile char* sink, int depth
         UninstrumentedBurn(sink, depth - 1);
 }
 
-}
+} // namespace bbt_stack_budget_test

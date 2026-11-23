@@ -7,6 +7,7 @@
 #include <bbt/coroutine/coroutine.hpp>
 #include <bbt/coroutine/sync/CoRWMutex.hpp>
 #include <bbt/coroutine/sync/CoLockGuard.hpp>
+
 /**
  * 进程寿命模型：runtime 只初始化一次，重复 Start 抛 std::logic_error。
  * 每个测试文件就是一个可执行，这里把用例内的 Start() 收敛为进程内一次初始化。
@@ -17,7 +18,7 @@ void EnsureRuntime()
     static std::once_flag once;
     std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
-}
+} // namespace
 
 using namespace bbt::coroutine::sync;
 
@@ -37,7 +38,7 @@ BOOST_AUTO_TEST_CASE(t_scheduler_start)
  */
 BOOST_AUTO_TEST_CASE(t_readlock_basic)
 {
-    auto rwlock = CoRWMutex::Create();
+    auto rwlock = bbtco_make_corwmutex();
     bbt::core::thread::CountDownLatch l{1};
 
     bbtco[rwlock, &l]()
@@ -56,7 +57,7 @@ BOOST_AUTO_TEST_CASE(t_readlock_basic)
  */
 BOOST_AUTO_TEST_CASE(t_readlock_multi_reader)
 {
-    auto rwlock = CoRWMutex::Create();
+    auto rwlock = bbtco_make_corwmutex();
     const int nreaders = 5;
     bbt::core::thread::CountDownLatch l{nreaders};
     int readers_inside = 0;
@@ -88,7 +89,7 @@ BOOST_AUTO_TEST_CASE(t_readlock_multi_reader)
  */
 BOOST_AUTO_TEST_CASE(t_readlock_releases_for_write)
 {
-    auto rwlock = CoRWMutex::Create();
+    auto rwlock = bbtco_make_corwmutex();
     bbt::core::thread::CountDownLatch l{1};
     bool write_ok = false;
 
@@ -120,7 +121,7 @@ BOOST_AUTO_TEST_CASE(t_readlock_releases_for_write)
  */
 BOOST_AUTO_TEST_CASE(t_readlock_try_to_lock)
 {
-    auto rwlock = CoRWMutex::Create();
+    auto rwlock = bbtco_make_corwmutex();
     bbt::core::thread::CountDownLatch l{1};
 
     bbtco[rwlock, &l]()
@@ -142,7 +143,7 @@ BOOST_AUTO_TEST_CASE(t_readlock_try_to_lock)
  */
 BOOST_AUTO_TEST_CASE(t_readlock_try_lock_for)
 {
-    auto rwlock = CoRWMutex::Create();
+    auto rwlock = bbtco_make_corwmutex();
     bbt::core::thread::CountDownLatch l{1};
 
     bbtco[rwlock, &l]()
@@ -162,7 +163,7 @@ BOOST_AUTO_TEST_CASE(t_readlock_try_lock_for)
  */
 BOOST_AUTO_TEST_CASE(t_readlock_defer_lock)
 {
-    auto rwlock = CoRWMutex::Create();
+    auto rwlock = bbtco_make_corwmutex();
     bbt::core::thread::CountDownLatch l{1};
 
     bbtco[rwlock, &l]()
@@ -186,7 +187,7 @@ BOOST_AUTO_TEST_CASE(t_readlock_defer_lock)
  */
 BOOST_AUTO_TEST_CASE(t_readlock_move)
 {
-    auto rwlock = CoRWMutex::Create();
+    auto rwlock = bbtco_make_corwmutex();
     bbt::core::thread::CountDownLatch l{1};
 
     bbtco[rwlock, &l]()
@@ -214,7 +215,7 @@ BOOST_AUTO_TEST_CASE(t_readlock_move)
  */
 BOOST_AUTO_TEST_CASE(t_writelock_basic)
 {
-    auto rwlock = CoRWMutex::Create();
+    auto rwlock = bbtco_make_corwmutex();
     bbt::core::thread::CountDownLatch l{1};
 
     bbtco[rwlock, &l]()
@@ -233,7 +234,7 @@ BOOST_AUTO_TEST_CASE(t_writelock_basic)
  */
 BOOST_AUTO_TEST_CASE(t_writelock_mutual_exclusion)
 {
-    auto rwlock = CoRWMutex::Create();
+    auto rwlock = bbtco_make_corwmutex();
     bbt::core::thread::CountDownLatch l{2};
     int inside = 0;
     int max_inside = 0;
@@ -280,7 +281,7 @@ BOOST_AUTO_TEST_CASE(t_writelock_mutual_exclusion)
  */
 BOOST_AUTO_TEST_CASE(t_writelock_try_to_lock)
 {
-    auto rwlock = CoRWMutex::Create();
+    auto rwlock = bbtco_make_corwmutex();
     bbt::core::thread::CountDownLatch l{1};
 
     bbtco[rwlock, &l]()
@@ -298,7 +299,7 @@ BOOST_AUTO_TEST_CASE(t_writelock_try_to_lock)
  */
 BOOST_AUTO_TEST_CASE(t_writelock_try_to_lock_conflict)
 {
-    auto rwlock = CoRWMutex::Create();
+    auto rwlock = bbtco_make_corwmutex();
     bbt::core::thread::CountDownLatch l{2};
 
     bbtco[rwlock, &l]()
@@ -328,7 +329,7 @@ BOOST_AUTO_TEST_CASE(t_writelock_try_to_lock_conflict)
  */
 BOOST_AUTO_TEST_CASE(t_writelock_try_lock_for)
 {
-    auto rwlock = CoRWMutex::Create();
+    auto rwlock = bbtco_make_corwmutex();
     bbt::core::thread::CountDownLatch l{1};
 
     bbtco[rwlock, &l]()
@@ -348,7 +349,7 @@ BOOST_AUTO_TEST_CASE(t_writelock_try_lock_for)
  */
 BOOST_AUTO_TEST_CASE(t_writelock_defer_lock)
 {
-    auto rwlock = CoRWMutex::Create();
+    auto rwlock = bbtco_make_corwmutex();
     bbt::core::thread::CountDownLatch l{1};
 
     bbtco[rwlock, &l]()
@@ -372,7 +373,7 @@ BOOST_AUTO_TEST_CASE(t_writelock_defer_lock)
  */
 BOOST_AUTO_TEST_CASE(t_read_then_write)
 {
-    auto rwlock = CoRWMutex::Create();
+    auto rwlock = bbtco_make_corwmutex();
     bbt::core::thread::CountDownLatch l{2};
     int shared = 0;
 
@@ -411,7 +412,7 @@ BOOST_AUTO_TEST_CASE(t_read_then_write)
  */
 BOOST_AUTO_TEST_CASE(t_writelock_move)
 {
-    auto rwlock = CoRWMutex::Create();
+    auto rwlock = bbtco_make_corwmutex();
     bbt::core::thread::CountDownLatch l{1};
 
     bbtco[rwlock, &l]()
@@ -434,7 +435,7 @@ BOOST_AUTO_TEST_CASE(t_writelock_move)
  */
 BOOST_AUTO_TEST_CASE(t_readlock_exception_safety)
 {
-    auto rwlock = CoRWMutex::Create();
+    auto rwlock = bbtco_make_corwmutex();
     bbt::core::thread::CountDownLatch l{2};
 
     bbtco[rwlock, &l]()
@@ -462,7 +463,7 @@ BOOST_AUTO_TEST_CASE(t_readlock_exception_safety)
  */
 BOOST_AUTO_TEST_CASE(t_writelock_exception_safety)
 {
-    auto rwlock = CoRWMutex::Create();
+    auto rwlock = bbtco_make_corwmutex();
     bbt::core::thread::CountDownLatch l{2};
 
     bbtco[rwlock, &l]()
@@ -490,7 +491,7 @@ BOOST_AUTO_TEST_CASE(t_writelock_exception_safety)
  */
 BOOST_AUTO_TEST_CASE(t_readlock_adopt_lock)
 {
-    auto rwlock = CoRWMutex::Create();
+    auto rwlock = bbtco_make_corwmutex();
     bbt::core::thread::CountDownLatch l{1};
 
     bbtco[rwlock, &l]()
@@ -508,7 +509,7 @@ BOOST_AUTO_TEST_CASE(t_readlock_adopt_lock)
 
 BOOST_AUTO_TEST_CASE(t_writelock_adopt_lock)
 {
-    auto rwlock = CoRWMutex::Create();
+    auto rwlock = bbtco_make_corwmutex();
     bbt::core::thread::CountDownLatch l{1};
 
     bbtco[rwlock, &l]()
@@ -548,7 +549,7 @@ BOOST_AUTO_TEST_CASE(t_writelock_default_ctor)
  */
 BOOST_AUTO_TEST_CASE(t_write_trylock_during_read)
 {
-    auto rwlock = CoRWMutex::Create();
+    auto rwlock = bbtco_make_corwmutex();
     bbt::core::thread::CountDownLatch l{2};
 
     bbtco[rwlock, &l]()
@@ -582,7 +583,7 @@ BOOST_AUTO_TEST_CASE(t_write_trylock_during_read)
  */
 BOOST_AUTO_TEST_CASE(t_writelock_double_lock_assert)
 {
-    auto rwlock = CoRWMutex::Create();
+    auto rwlock = bbtco_make_corwmutex();
     bbt::core::thread::CountDownLatch l{1};
 
     bbtco[rwlock, &l]()
@@ -605,7 +606,7 @@ BOOST_AUTO_TEST_CASE(t_writelock_double_lock_assert)
  */
 BOOST_AUTO_TEST_CASE(t_readlock_double_unlock_assert)
 {
-    auto rwlock = CoRWMutex::Create();
+    auto rwlock = bbtco_make_corwmutex();
     bbt::core::thread::CountDownLatch l{1};
 
     bbtco[rwlock, &l]()
@@ -630,7 +631,7 @@ BOOST_AUTO_TEST_CASE(t_readlock_double_unlock_assert)
  */
 BOOST_AUTO_TEST_CASE(t_readlock_relock)
 {
-    auto rwlock = CoRWMutex::Create();
+    auto rwlock = bbtco_make_corwmutex();
     bbt::core::thread::CountDownLatch l{1};
 
     bbtco[rwlock, &l]()
@@ -657,7 +658,7 @@ BOOST_AUTO_TEST_CASE(t_readlock_relock)
  */
 BOOST_AUTO_TEST_CASE(t_readlock_move_chain)
 {
-    auto rwlock = CoRWMutex::Create();
+    auto rwlock = bbtco_make_corwmutex();
     bbt::core::thread::CountDownLatch l{1};
 
     bbtco[rwlock, &l]()
@@ -679,7 +680,7 @@ BOOST_AUTO_TEST_CASE(t_readlock_move_chain)
  */
 BOOST_AUTO_TEST_CASE(t_readlock_try_lock_for_zero)
 {
-    auto rwlock = CoRWMutex::Create();
+    auto rwlock = bbtco_make_corwmutex();
     bbt::core::thread::CountDownLatch l{1};
 
     bbtco[rwlock, &l]()
@@ -703,7 +704,7 @@ BOOST_AUTO_TEST_CASE(t_readlock_try_lock_for_zero)
  */
 BOOST_AUTO_TEST_CASE(t_readlock_default_move_in)
 {
-    auto rwlock = CoRWMutex::Create();
+    auto rwlock = bbtco_make_corwmutex();
     bbt::core::thread::CountDownLatch l{1};
 
     bbtco[rwlock, &l]()
@@ -739,7 +740,7 @@ BOOST_AUTO_TEST_CASE(t_readlock_default_move_in)
  */
 BOOST_AUTO_TEST_CASE(t_read_trylock_during_write)
 {
-    auto rwlock = CoRWMutex::Create();
+    auto rwlock = bbtco_make_corwmutex();
     bbt::core::thread::CountDownLatch l{2};
 
     bbtco[rwlock, &l]()
@@ -769,8 +770,8 @@ BOOST_AUTO_TEST_CASE(t_read_trylock_during_write)
  */
 BOOST_AUTO_TEST_CASE(t_writelock_move_then_reuse)
 {
-    auto rwlock1 = CoRWMutex::Create();
-    auto rwlock2 = CoRWMutex::Create();
+    auto rwlock1 = bbtco_make_corwmutex();
+    auto rwlock2 = bbtco_make_corwmutex();
     bbt::core::thread::CountDownLatch l{1};
 
     bbtco[rwlock1, rwlock2, &l]()

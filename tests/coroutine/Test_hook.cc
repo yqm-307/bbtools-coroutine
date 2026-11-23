@@ -22,7 +22,7 @@ void EnsureRuntime()
     static std::once_flag once;
     std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
-}
+} // namespace
 
 /**
  * 最小本地 listen helper：替代 bbt::core::net::CreateListen。

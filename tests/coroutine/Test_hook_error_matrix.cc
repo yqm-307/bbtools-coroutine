@@ -31,7 +31,7 @@ void EnsureRuntime()
     static std::once_flag once;
     std::call_once(once, []() { bbt::coroutine::detail::Scheduler::GetInstance()->Start(); });
 }
-}
+} // namespace
 
 using namespace bbt::coroutine;
 using namespace bbt::coroutine::detail;
@@ -56,6 +56,7 @@ struct CoFixture {
         cfg->m_cfg_stack_protect = false;
         EnsureRuntime();
     }
+
     ~CoFixture()
     {
         std::signal(SIGPIPE, m_old_pipe);
@@ -64,6 +65,7 @@ struct CoFixture {
         cfg->m_cfg_stack_size = m_stack;
         cfg->m_cfg_stack_protect = m_protect;
     }
+
     int m_threads;
     size_t m_stack;
     bool m_protect;
@@ -101,7 +103,7 @@ bool WaitLatch(bbt::core::thread::CountDownLatch& latch, int ms)
     return latch.WaitTimeout(0) == 0;
 }
 
-}
+} // namespace
 
 /**
  * EOF：对端 close 后 read 返回 0（原生 EOF 语义，不转错误）

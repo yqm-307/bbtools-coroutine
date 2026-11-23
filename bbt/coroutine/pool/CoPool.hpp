@@ -261,4 +261,4 @@ private:
     std::atomic_uint64_t m_unhandled_exception_count{0};
 };
 
-};
+}; // namespace bbt::coroutine::pool

@@ -62,6 +62,6 @@ private:
     std::atomic_size_t m_count{0};
 };
 
-}
+} // namespace bbt::core::thread
 
 #include <bbt/core/thread/sync/__TQueue.hpp>

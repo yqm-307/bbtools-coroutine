@@ -112,6 +112,6 @@ private:
     bool m_has_default{false};
 };
 
-}
+} // namespace bbt::coroutine::sync
 
 #include <bbt/coroutine/sync/__TCoSelect.hpp>
