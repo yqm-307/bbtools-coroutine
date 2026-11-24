@@ -145,35 +145,7 @@
 
 头文件：`bbt/coroutine/syntax/Async.hpp`，也由 `SyntaxMacro.hpp` 和公共伞头 `coroutine.hpp` 引入；需链接 `bbt_coroutine`。
 
-实现 async API 时，公开入口返回惰性操作；命名的主体函数只返回普通结果：
-
-```cpp
-static int EchoBody(int value)
-{
-    return value;
-}
-
-bbt_co_async(int) Echo(int value)
-{
-    return bbt_co_bind(EchoBody, value);
-}
-
-static void HandleBody()
-{
-    auto value = bbt_co_await Echo(1);
-    (void)value;
-}
-
-bbt_co_async(void) Handle()
-{
-    return bbt_co_bind(HandleBody);
-}
-
-// Start 后，通过已有入口创建协程；async/await 自身不创建协程。
-bbtco [] { bbt_co_await Handle(); };
-```
-
-常见场景和迁移规则见 [Async 调用指南](async-usage.md)。
+默认用 `bbt_co_async(T)` 声明异步操作、用 `bbt_co_await` 调用。定义方式、适合使用 `bind` 的场景和迁移规则见 [Async 调用指南](async-usage.md)。
 
 - `bbt_co_async(T)` 是带 `[[nodiscard]]` 的惰性 `detail::AsyncOperation<T>` 类型，不是原始 `T` 的类型别名；可变参数宏支持类型中的逗号（如 `std::pair<int, int>`）。
 - `bbt_co_bind(f, args...)` 在绑定时求值实参并按值保存可调用对象和参数（左值拷贝、右值移动），不调用 `f`。消费时通过 `std::invoke` 语义以右值调用保存的对象与参数，推导值、左值引用或 `void` 结果，不支持右值引用结果。要借用外部参数可传 `std::ref` / `std::cref`；它们以及指针、视图和引用捕获都不延长对象寿命。返回的引用不能指向操作内部，因为操作在 `await` 返回前销毁。
