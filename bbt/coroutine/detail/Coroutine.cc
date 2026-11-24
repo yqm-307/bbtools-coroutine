@@ -340,7 +340,6 @@ void Coroutine::_SetWaitNode(std::shared_ptr<WaitNode> node)
 
 bool Coroutine::_HasAwait() const
 {
-    std::lock_guard<std::mutex> lk(m_await_mu);
     return m_await_event != nullptr || m_wait_node != nullptr;
 }
 
@@ -511,7 +510,7 @@ void Coroutine::_TestFailNextAwaitRegist() noexcept
 
 bool Coroutine::_RegistAwaitEvent()
 {
-    auto await_node = _AwaitWaitNode();
+    auto* await_node = m_wait_node.get();
     if (await_node != nullptr) {
         if (s_test_fail_await_regist.exchange(false, std::memory_order_acq_rel))
             await_node->UnRegist();
@@ -606,11 +605,14 @@ CoroutineYieldDisposition Coroutine::CommitYield(ProcesserId processer_id)
 
     const auto disposition = m_yield_disposition;
     if (disposition == CoroutineYieldDisposition::EVENT_WAIT) {
-        auto await_event = _AwaitEvent();
+        /**
+         * CommitPark 前外部触发只能锁存原因；发布后完成方即可清槽，
+         * 所以必须先在本地持有事件，且提交后不再读槽。
+         */
         m_wait_processer_id = processer_id;
-        if (await_event != nullptr) {
+        if (auto await_event = m_await_event) {
             await_event->CommitPark();
-        } else if (auto await_node = _AwaitWaitNode()) {
+        } else if (auto await_node = m_wait_node) {
             await_node->CommitPark();
         } else {
             Assert(false);
@@ -709,14 +711,15 @@ void Coroutine::OnCoPollEvent(int event, int custom_key)
 void Coroutine::OnWaitNode(short event)
 {
     const auto priority = _WaitResumePriority(event);
-
-    auto node = _AwaitWaitNode();
-    Assert(node != nullptr);
     m_last_resume_event = event;
     m_last_wait_fd = -1;
     m_last_wait_epoch = 0;
     m_parked_us = 0;
-    _SetWaitNode(nullptr);
+    {
+        std::lock_guard<std::mutex> lk(m_await_mu);
+        Assert(m_wait_node != nullptr);
+        m_wait_node.reset();
+    }
     m_yield_disposition = CoroutineYieldDisposition::MANUAL;
     g_scheduler->OnActiveCoroutine(priority, this, m_wait_processer_id);
 }
