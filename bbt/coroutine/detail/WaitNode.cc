@@ -76,7 +76,7 @@ int WaitNode::Trigger(short trigger_events)
     auto state = m_state.load(std::memory_order_acquire);
     for (;;) {
         const auto phase = _Phase(state);
-        if (phase == Phase::INITED || phase == Phase::ARMING || phase == Phase::ARMED) {
+        if (phase == Phase::INITED || phase == Phase::ARMED) {
             if (m_state.compare_exchange_weak(
                     state, _Pack(Phase::PENDING, trigger_events), std::memory_order_acq_rel, std::memory_order_acquire))
                 return 0;
@@ -100,20 +100,14 @@ int WaitNode::Trigger(short trigger_events)
 
 int WaitNode::Regist()
 {
-    auto state = m_state.load(std::memory_order_acquire);
-    if (_Phase(state) == Phase::PENDING)
-        return 0;
-
+    /**
+     * 纯等待不向 poller 登记，中间没有需要保留的半登记状态。
+     */
     uint64_t expected = _Pack(Phase::INITED, 0);
-    if (!m_state.compare_exchange_strong(
-            expected, _Pack(Phase::ARMING, 0), std::memory_order_acq_rel, std::memory_order_acquire)) {
-        return _Phase(expected) == Phase::PENDING ? 0 : -1;
-    }
-
-    expected = _Pack(Phase::ARMING, 0);
     if (m_state.compare_exchange_strong(
-            expected, _Pack(Phase::ARMED, 0), std::memory_order_acq_rel, std::memory_order_acquire))
+            expected, _Pack(Phase::ARMED, 0), std::memory_order_acq_rel, std::memory_order_acquire)) {
         return 0;
+    }
 
     return _Phase(expected) == Phase::PENDING ? 0 : -1;
 }
@@ -150,7 +144,7 @@ int WaitNode::UnRegist()
     auto state = m_state.load(std::memory_order_acquire);
     for (;;) {
         const auto phase = _Phase(state);
-        if (phase != Phase::INITED && phase != Phase::ARMING && phase != Phase::ARMED && phase != Phase::PARKED)
+        if (phase != Phase::INITED && phase != Phase::ARMED && phase != Phase::PARKED)
             return -1;
 
         if (m_state.compare_exchange_weak(

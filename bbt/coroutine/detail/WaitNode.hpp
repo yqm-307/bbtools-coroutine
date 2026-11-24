@@ -70,7 +70,6 @@ private:
 
     enum class Phase : uint8_t {
         INITED,
-        ARMING,
         ARMED,
         PARKED,
         PENDING,
