@@ -82,7 +82,7 @@ else()
 endif()
 
 # bbt_co_async/bbt_co_await/bbt_co_fire 的误用必须由确定性机制拒绝：
-#   - return-type：async 操作体必须返回 bbt_co_async_body(T)；
+#   - return-type：惰性 async 操作体必须返回 bbt_co_async_body(T)；顺序 async 函数体用 bbt_co_return；
 #   - unused-result：丢弃 AsyncOperation 必须触发 [[nodiscard]] 诊断；
 #   - 类型匹配：普通值没有 AwaitHelper/FireHelper 重载，不能伪装成 async 操作。
 # 依赖本库的仓库（infra、framework 等）需在自己的 CMake 中同样开启，详见

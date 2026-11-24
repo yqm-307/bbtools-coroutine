@@ -1,159 +1,23 @@
-# 用法
+# 调用方式索引
 
-签名与返回码见 `docs/guides/api-reference.md`。对照可编译示例：`examples/`。
+调用 `bbtools-coroutine` 的统一主指南是 [`docs/guides/user-guide.md`](../../../../docs/guides/user-guide.md)。它按场景说明入口、协程、等待、Hook I/O、同步原语、协程池、async、资源清理和常见错误。
 
-入口：`#include <bbt/coroutine/coroutine.hpp>`。Linux，C++17。
+按任务继续阅读：
 
----
+- 完整签名、返回码和前置条件，读 [`docs/guides/api-reference.md`](../../../../docs/guides/api-reference.md)。
+- `bbt_co_async`、`bbt_co_bind`、`bbt_co_await` 和 `bbt_co_fire`，读 [`docs/guides/async-usage.md`](../../../../docs/guides/async-usage.md)。
+- 运行时、进程寿命、worker 迁移和网络执行域，读 [`docs/architecture/core-runtime-contract.md`](../../../../docs/architecture/core-runtime-contract.md)。
+- 宏的展开边界和语法细节，读 `bbt/coroutine/syntax/SyntaxMacro.hpp`。
+- 常见禁止行为，读本目录的 [`pitfalls.md`](pitfalls.md)。
 
-## 基本用法
+## Agent 编码规则
 
-### 启动、注册与进程退出
-
-```cpp
-#include <bbt/coroutine/coroutine.hpp>
-using namespace bbt::coroutine;
-
-int bbtco_main()
-{
-    bbtco [](){
-        printf("co %lu\n", GetLocalCoroutineId());
-        bbtco_sleep(50);
-        bbtco_yield;
-    };
-
-    bbtco_sleep(1000);   // 主协程让出等待，不阻塞调度线程
-    return 0;            // process-lifetime：无业务停机入口，返回即进程退出
-}
-
-BBTCO_MAIN()
-```
-
-对照：`examples/coroutine.cc`。
-
-- 应用只写 `bbtco_main`；native `main` 由 `BBTCO_MAIN*` 生成，runtime 负责启动、hook 与只等主任务。不要自己调用 `g_scheduler->Start()`。
-- `bbtco` 是 detached，注册后不保证执行顺序。
-- 主协程内用协程等待（`bbtco_sleep`、`Chan`、`CoCond`）等业务收齐；原生条件变量、`future::wait/get`、`join` 会占住 Processer，不是协程等待。
-- 运行时一次初始化：重复 `Start()` 抛 `std::logic_error`；`IsInitialized()` 初始化后恒真。
-- 给关键协程起名：`bbtco_desc("worker") [](){};`
-
-### 让出与睡眠
-
-- `bbtco_sleep(ms)`：协程内挂起指定毫秒，不占死 worker。
-- `bbtco_yield`：立刻让出，重新入就绪队列。
-- `GetLocalCoroutineId()`：非协程上下文返回 `0`。
-
-### 注册失败
-
-未初始化（未 `Start`）时：`bbtco` 抛 `std::runtime_error`。需要不抛：
-
-```cpp
-bool succ = false;
-bbtco_noexcept(&succ) [](){};
-```
-
----
-
-## 进阶用法
-
-### Chan
-
-```cpp
-auto chan = sync::Chan<int, 8>{};
-chan << 1;          // Write，满则挂起
-int v = 0;
-chan >> v;          // Read，空则挂起
-chan.Close();
-```
-
-- `N>0` 有缓冲；`N=0` 无缓冲（写等到读端取走）。
-- `Write`/`Read` 返回 `0` / `-1`（关闭）/ `-2`（错误）。`<<`/`>>` 只表示是否成功。
-- 带超时：`TryRead(item, ms)` / `TryWrite(item, ms)`，超时返回 `1`。
-
-对照：`examples/chan.cc`。
-
-### 锁与条件变量
-
-```cpp
-auto mu = bbtco_make_comutex();
-sync::CoLockGuard<sync::CoMutex> g(mu);   // 构造加锁，析构解锁
-```
-
-读写锁：`bbtco_make_corwmutex()`，RAII 用 `CoReadLock` / `CoWriteLock`。写优先：有等待写者时新读者会挂起。
-
-```cpp
-auto cv = bbtco_make_cocond();
-cv->Wait();         // 必须在协程内
-cv->NotifyOne();
-```
-
-### CoSelect
-
-```cpp
-int idx = sync::CoSelect()
-    .CaseRead(ch1, out)
-    .CaseWrite(ch2, val)
-    .CaseTimeout(100)
-    .Run();
-```
-
-`idx` 是命中的 Case 下标；`-1` 为超时、`Default` 或竞争失败。只支持有缓冲 Chan。必须在协程内 `Run()`。
-
-### 事件等待
-
-```cpp
-bbtco_wait_for(fd, bbtco_emev_readable, 1000);
-```
-
-必须在协程内。失败抛 `std::runtime_error`。纯超时可用 `bbtco_emev_timeout`。对照：`examples/waitfor.cc`。
-
-`bbtco_ev_r(fd)` 等：事件就绪后再注册一个协程处理。见 `SyntaxMacro.hpp`。
-
-### Hook IO
-
-协程里直接 `read`/`write`/`connect`/`poll`/`sleep`/`getaddrinfo` 等，由库转成等待。不要为此改 FD flags。非协程线程走原生实现。
-
-### Defer
-
-```cpp
-bbtco_defer { cleanup(); };
-```
-
-后声明的先执行，与 C++ 析构顺序一致。
-
-### 配置
-
-`g_bbt_coroutine_config` 在 **`Start` 之前**改。常用：`m_cfg_stack_size`（默认 12 KiB）、`m_cfg_static_thread_num`（构造默认取 `hardware_concurrency()`，不可用时 `1`；显式设 `0` 非法，`Start` 校验失败抛 `std::invalid_argument`，完整边界见 API 参考的 `ResolveProcesserScalingBounds`）、`m_cfg_stack_protect`、`m_ext_coevent_exception_callback`、`m_cfg_worker_stall_warn_ms`。
-
----
-
-## 使用范式
-
-### 生产 / 消费
-
-一个（或一组）协程 `Write`，另一组 `Read`，结束时 `Close()`，读端以失败返回退出。对照：`examples/consumer_productor.cc`、`examples/chan.cc`。
-
-### 锁 + 条件变量
-
-改共享状态时持 `CoLockGuard`；等待方循环检查谓词并 `Wait()`；修改方改完后 `NotifyOne`/`NotifyAll`。不要用 `Lock()` 的返回值。
-
-### CoPool
-
-固定数量的池协程消费任务队列：
-
-```cpp
-auto pool = bbtco_make_copool(4);
-pool->Submit([](){ /* 协程内 */ });
-auto fut = pool->SubmitWithFuture([](){});
-pool->Release();   // 停止接任务；等运行中的退出；丢掉未执行的
-if (fut.valid()) {
-    try { fut.get(); }
-    catch (const std::future_error&) {}
-}
-```
-
-任务里长时间 `sleep`/IO 会占住那条池协程。对照：`examples/copool.cc`。
-
-### 事件驱动 IO
-
-协程内 `accept`/`read` 即可；或 `bbtco_wait_for` 明确等 fd。需要「事件到了再起协程」时用 `bbtco_ev_*`。对照：`examples/echoserver/`、`examples/waitfor.cc`。
+- 入口优先使用 `BBTCO_MAIN*`，常规应用不自行调用 `g_scheduler->Start()`。
+- `bbtco` 是 detached 注册，注册顺序、开始时间和 worker 都不保证。引用捕获的对象必须活到协程结束。
+- `Chan`、`CoCond`、等待型 `CoMutex` / `CoRWMutex`、`bbtco_wait_for` 和 `CoSelect::Run` 必须在受管协程中调用。
+- 协程挂起后可能迁移 worker，不要把线程局部状态、worker 指针或 native 线程锁带过挂起点。
+- 主任务返回前收口业务资源。runtime 没有业务 `Stop()`，也不会替应用等待 detached 协程。
+- 顺序 async 流程使用 `bbt_co_async(T)`、`bbt_co_await` 和 `bbt_co_return`。需要保存 callable 与参数并延迟执行时使用 `bbt_co_bind`。
+- `bbt_co_fire` 只用于明确放弃最终结果的惰性 detached 操作。顺序 async 函数体不能依赖 `fire` 推迟执行。
+- 不要用 native `future::wait/get`、`condition_variable` 或 `join` 代替协程等待。
+- 任务包含长时间 CPU 计算时主动拆分并 `bbtco_yield`，或使用合适的执行池。

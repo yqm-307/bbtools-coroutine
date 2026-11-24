@@ -34,7 +34,7 @@ description: >
 | 进阶用法 | Chan、锁、CoSelect、事件、Hook IO、配置 |
 | 使用范式 | 生产消费、锁+条件变量、CoPool、事件驱动 |
 
-正文：`references/usage.md`
+正文：`docs/guides/user-guide.md`；Agent 规则索引：`references/usage.md`
 
 async / await / fire 的写法：`docs/guides/async-usage.md`
 
@@ -68,9 +68,9 @@ async / await / fire 的写法：`docs/guides/async-usage.md`
 
 写或迁移 async API 前必须读 `docs/guides/async-usage.md`。执行以下规则：
 
-- 默认用 `bbt_co_async` 声明惰性操作，在当前协程用 `bbt_co_await` 调用。需要把 callable 和参数保存成惰性操作时再用 `bbt_co_bind`。
+- 顺序流程用 `bbt_co_async` 声明函数返回类型，在函数体内用 `bbt_co_await` 等待，并用 `bbt_co_return(value)` 或 `bbt_co_return_void` 返回。需要把 callable 和参数保存成惰性操作时用 `bbt_co_bind`。
 - `bbt_co_fire` 只用于明确放弃最终结果的 detached 副作用。
-- 普通调用只构造惰性操作对象。操作必须通过 `await` 或 `fire` 消费。
+- `bbt_co_bind` 构造的操作必须通过 `await` 或 `fire` 消费。顺序 async 函数体从调用开始执行，不能依赖 `fire` 推迟函数体。
 - 不把可能挂起的业务流程藏在普通返回类型的命名函数里；定义方式以指南为准。
-- 迁移实现时保留现有调用方的 `await` / `fire` 形式，不把 async 返回值改成普通值。
-- 跨越延迟执行点的数据必须有所有权。检查 `std::string_view`、引用捕获和调用方栈变量。
+- 迁移前检查保存操作和 `fire` 的调用点；调用方依赖延迟执行时保留惰性入口，不要只保留原签名却改变执行时机。
+- 跨越延迟执行点的数据必须有所有权。检查 `std::string_view`、引用捕获和调用方栈变量；顺序 async 函数体的局部值也必须满足跨越挂起点的生命周期要求。

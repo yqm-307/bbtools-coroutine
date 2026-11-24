@@ -26,6 +26,7 @@
  *   等 fd 事件（协程内） bbtco_wait_for(fd, event, ms);         Coroutine::YieldUntilFdEx
  *   事件触发后起协程     bbtco_ev_r(fd) [=](int fd, short ev){} _EventHelper + CoPoller::CreateEvent
  *   绑定待执行操作       bbt_co_bind(callable, args...)
+ *   返回顺序 async 值    bbt_co_return(value); / bbt_co_return_void;
  *   等待异步操作         bbt_co_await expr;
  *   放弃等待异步操作     bbt_co_fire expr;
  *   创建同步原语         bbtco_make_comutex() / _cocond / _corwmutex / _copool(n)
