@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-24",
+  "commit": "4a4c14a14bf073d010e08daf17dbe8a320f30977",
+  "base": "02af91e6e0e419be10064737e3d34a46e3c46f2f",
+  "result": "pass",
+  "reviewer": "gpt-6.2-astra independent reviewer",
+  "summary": "Reviewed the complete base..commit diff for #446. Confirmed the eager sequential async body, lazy bbt_co_bind compatibility, functional return macros, C++17 operator precedence, pre-consumption side effects, real suspension, move-only return, reference lifetime, and declared return type behavior.",
+  "checks": [
+    {
+      "id": "llm-review",
+      "kind": "attested",
+      "status": "pass",
+      "summary": "No blocking defect found in the independent review.",
+      "evidence": {
+        "reviewer": "gpt-6.2-astra independent reviewer",
+        "scope": "Full base..4a4c14a14bf073d010e08daf17dbe8a320f30977 diff, with focus on bbt/coroutine/syntax/Async.hpp, tests/coroutine/Test_async_syntax.cc, docs/guides/api-reference.md, and docs/guides/async-usage.md"
+      }
+    }
+  ]
+}
