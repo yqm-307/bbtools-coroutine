@@ -2,8 +2,8 @@
  * @file Async.hpp
  * @brief `bbt_co_async` / `bbt_co_bind` / `bbt_co_await` / `bbt_co_fire` 的异步操作契约。
  *
- * async API 返回惰性的 AsyncOperation。普通调用只构造操作描述，只有 await 或 fire
- * 入口能够执行它，避免把可能挂起的调用写成普通同步调用。
+ * async API 同时支持两种入口。`bbt_co_bind` 返回惰性的 AsyncOperation，顺序 async
+ * 函数体则在函数调用时执行，并在 `bbt_co_return` 处包装最终结果。
  */
 #pragma once
 
@@ -108,6 +108,23 @@ template <class T, class F> AsyncOperation<T> MakeAsyncOperation(F&& body)
     return AsyncOperation<T>(std::forward<F>(body));
 }
 
+template <class T> AsyncOperation<std::decay_t<T>> MakeReadyAsync(T&& value)
+{
+    using Result = std::decay_t<T>;
+    return MakeAsyncOperation<Result>(
+        [value = std::forward<T>(value)]() mutable -> AsyncReturn<Result> { return std::move(value); });
+}
+
+template <class T> AsyncOperation<T&> MakeReadyAsyncRef(T& value)
+{
+    return MakeAsyncOperation<T&>([&value]() -> AsyncReturn<T&> { return value; });
+}
+
+inline AsyncOperation<void> MakeReadyAsyncVoid()
+{
+    return MakeAsyncOperation<void>([]() -> AsyncReturn<void> { return {}; });
+}
+
 template <
     class F,
     class... Args,
@@ -169,7 +186,8 @@ public:
 #include <bbt/coroutine/syntax/__TAsync.hpp>
 
 /**
- * async 函数的公开返回类型；用 `bbt_co_bind` 构造返回的惰性操作。
+ * async 函数的公开返回类型。顺序 async 函数体用 `bbt_co_return` 返回值，
+ * 惰性操作用 `bbt_co_bind` 构造。
  */
 #define bbt_co_async(...) ::bbt::coroutine::detail::AsyncOperation<__VA_ARGS__>
 
@@ -177,6 +195,23 @@ public:
  * async 操作体的内部结果类型，只能在 async 操作的延迟执行体中使用。
  */
 #define bbt_co_async_body(...) ::bbt::coroutine::detail::AsyncReturn<__VA_ARGS__>
+
+/**
+ * @brief 按值返回顺序 async 函数的结果：`bbt_co_return(value + 1);`。
+ *
+ * 函数体在调用时执行，只有返回值被包装为已完成的 AsyncOperation。
+ */
+#define bbt_co_return(...) return ::bbt::coroutine::detail::MakeReadyAsync((__VA_ARGS__))
+
+/**
+ * @brief 返回顺序 async 函数体的 void 结果：`bbt_co_return_void;`。
+ */
+#define bbt_co_return_void return ::bbt::coroutine::detail::MakeReadyAsyncVoid()
+
+/**
+ * @brief 返回借用的左值：`bbt_co_return_ref(value);`。对象须活到调用方最后一次使用引用。
+ */
+#define bbt_co_return_ref(...) return ::bbt::coroutine::detail::MakeReadyAsyncRef((__VA_ARGS__))
 
 /**
  * @brief 绑定可调用对象和实参，推导 async 结果，不立即执行：`bbt_co_bind(callable, args...)`。

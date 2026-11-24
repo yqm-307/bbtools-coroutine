@@ -17,7 +17,7 @@
 
 | 文档 | 内容 |
 |------|------|
-| [docs/guides/user-guide.md](docs/guides/user-guide.md) | 使用手册：基础用法、综合示例、注意事项 |
+| [docs/guides/user-guide.md](docs/guides/user-guide.md) | 使用指南：入口选择、场景用法、生命周期、性能与常见错误 |
 | [docs/guides/async-usage.md](docs/guides/async-usage.md) | async / bind / await / fire：语法糖与常见场景 |
 | [docs/guides/api-reference.md](docs/guides/api-reference.md) | API 参考：签名、返回码、挂起条件与生命周期 |
 | [docs/architecture/core-runtime-contract.md](docs/architecture/core-runtime-contract.md) | 核心运行时契约（唯一契约真源）：进程寿命、线程模型、Hook 边界、driver 分层 |
@@ -67,36 +67,28 @@ CMake 常用开关（布尔项默认全部 `OFF`，完整选项以 `CMakeLists.t
 
 ## 基础使用
 
-以后台线程模式启动调度器，注册协程并运行：
+常规应用定义 `bbtco_main`，由 `BBTCO_MAIN()` 生成 native `main`：
 
 ```cpp
+#include <cstdio>
 #include <bbt/coroutine/coroutine.hpp>
 using namespace bbt::coroutine;
 
-int main()
+int bbtco_main()
 {
-    // 启动调度器
-    g_scheduler->Start();
-
-    // 创建协程 - 基础语法
-    bbtco [](){
+    bbtco []() {
         printf("i am coroutine %lu\n", GetLocalCoroutineId());
-        bbtco_yield;  // 让出CPU控制权
-        printf("i am coroutine %lu after yield\n", GetLocalCoroutineId());
+        bbtco_yield;
     };
 
-    // 创建协程 - 带描述
-    bbtco_desc("worker") [](){
-        bbtco_sleep(100);  // 协程睡眠100ms
-    };
-
-    sleep(1);
-    // 无停机入口：进程寿命模型下调度器随进程退出，不需要 Stop
+    bbtco_sleep(100);
     return 0;
 }
+
+BBTCO_MAIN()
 ```
 
-Chan、CoCond、CoMutex、CoPool、CoSelect、CoRWMutex、WaitFor、defer、Hook 等完整示例见[使用手册](docs/guides/user-guide.md)；完整签名与返回码见 [API 参考](docs/guides/api-reference.md)。
+Chan、CoCond、CoMutex、CoPool、CoSelect、CoRWMutex、WaitFor、defer、Hook 和 async 的推荐用法见[使用指南](docs/guides/user-guide.md)；完整签名与返回码见 [API 参考](docs/guides/api-reference.md)。
 
 进程寿命与生命周期契约（`Scheduler::Stop` 已删除、运行时为进程寿命对象、worker 扩缩容、静态退出期不析构等）与线程模型 / 网络 I/O 域边界，以[核心运行时契约](docs/architecture/core-runtime-contract.md) §6、§11 为唯一真源，README 不再复述。
 

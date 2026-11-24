@@ -63,9 +63,10 @@
 
 ## async / bind / await / fire
 
-- `bbt_co_async(T)` 返回惰性 `AsyncOperation<T>`。裸调用只构造操作，不执行操作体。
+- 顺序 async 函数用 `bbt_co_async(T)` 声明返回类型，在函数体内用 `bbt_co_await`，并用 `bbt_co_return(value)` 或 `bbt_co_return_void` 返回。函数体从调用开始执行。
+- `bbt_co_bind` 返回惰性 `AsyncOperation<T>`，裸调用只构造操作，不执行绑定的操作体。
 - 当前协程需要最终结果、错误或完成顺序时用 `bbt_co_await`。
-- 明确放弃最终结果的 detached 副作用才用 `bbt_co_fire`。有顺序依赖时不能用 `fire`。
+- 明确放弃最终结果的惰性 detached 副作用才用 `bbt_co_fire`。顺序 async 函数体不能依赖 `fire` 推迟执行，有顺序依赖时不能用 `fire`。
 - 普通函数或短 lambda 用 `bbt_co_bind` 构造操作，不要手写 `detail::MakeAsyncOperation`。长操作绑定命名函数，不把整段逻辑塞进 lambda。
 - 保存的操作要用 `std::move` 消费，操作只能消费一次。
 - 不要让操作体借用调用方的栈变量、引用或 `std::string_view` 指向的临时存储。

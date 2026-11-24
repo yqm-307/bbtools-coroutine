@@ -1,6 +1,6 @@
 # bbtools-coroutine API 参考
 
-当前用户可调用行为。签名以头文件为准；本文与头文件冲突时改本文。
+当前用户可调用行为。签名以头文件为准，本文补充调用场景、返回码和前置条件；发生冲突时以头文件和测试体现的当前行为为准，并修正文档。
 
 时间单位未另写时为**毫秒**。返回码未另写时：**`0` 成功、`-1` 失败、`1` 超时**。
 
@@ -147,13 +147,14 @@
 
 默认用 `bbt_co_async(T)` 声明异步操作、用 `bbt_co_await` 调用。定义方式、适合使用 `bind` 的场景和迁移规则见 [Async 调用指南](async-usage.md)。
 
-- `bbt_co_async(T)` 是带 `[[nodiscard]]` 的惰性 `detail::AsyncOperation<T>` 类型，不是原始 `T` 的类型别名；可变参数宏支持类型中的逗号（如 `std::pair<int, int>`）。
+- `bbt_co_async(T)` 是带 `[[nodiscard]]` 的 `detail::AsyncOperation<T>` 返回类型，不是原始 `T` 的类型别名；顺序 async 函数体在调用时开始执行，惰性操作由 `bbt_co_bind` 构造；可变参数宏支持类型中的逗号（如 `std::pair<int, int>`）。
+- `bbt_co_return(expr)` 按表达式推导值类型，衰减后须与声明的 `T` 一致；例如返回 `std::string` 时写 `bbt_co_return(std::string("ok"));`。`void` 用 `bbt_co_return_void;`。借用左值用 `bbt_co_return_ref(value);`；不要返回局部变量，所指对象须活到调用方最后一次使用引用。
 - `bbt_co_bind(f, args...)` 在绑定时求值实参并按值保存可调用对象和参数（左值拷贝、右值移动），不调用 `f`。消费时通过 `std::invoke` 语义以右值调用保存的对象与参数，推导值、左值引用或 `void` 结果，不支持右值引用结果。要借用外部参数可传 `std::ref` / `std::cref`；它们以及指针、视图和引用捕获都不延长对象寿命。返回的引用不能指向操作内部，因为操作在 `await` 返回前销毁。
-- `bbt_co_await f()` 展开为 `detail::AwaitHelper{} ->* f()`。C++17 运算符写法先求值左侧，helper 复用 `GetLocalCoroutineId()` 检查环境；非协程抛 `std::logic_error`，发生在右侧实参及函数体执行之前。仅初始化 runtime 或处于 worker 的非协程回调中都不满足前提。
+- `bbt_co_await f()` 展开为 `detail::AwaitHelper{} ->* f()`。C++17 先求值左侧：即使 `f` 是顺序 async 函数，非协程调用也会在求值 `f` 的实参或进入函数体前抛出 `std::logic_error`。若裸写 `auto op = f();`，则没有这层入口检查，函数体立即执行；其中的 `await` 在执行到该处时才检查环境。
 - `bbt_co_await` 在当前有栈协程中执行操作，期间可通过已有 API 挂起；返回后解包。`bbt_co_fire` 将操作提交到 detached 协程，不等待最终结果。操作对象保存调用所需的参数和执行体，helper 不保存 worker/TLS 指针，恢复可迁移 worker，异常按 detached 任务契约处理。提交失败会在调用点抛出异常。
 - 普通值按值移出包装（因此类型需支持从右值构造），支持只移动值；`T&` / `const T&` 保留借用，调用方保证被引用对象寿命。操作对象的类型擦除载荷当前使用一次堆分配，业务类型的构造/移动和错误路径也可分配；正常路径仍有环境查询及可能的值移动，不承诺绝对零开销。
 - 优先级沿用 `->*`，并非原生关键字。例如取结果成员应写 `(bbt_co_await ReadPair()).first`，取反写 `!(bbt_co_await Ready())`；需要括号时括住整个 await 表达式。`decltype` 中按普通 C++ 非求值上下文处理。
-- 类型约束：未经 `bbt_co_await` 或 `bbt_co_fire` 消费的操作对象不能执行，普通值不能 await 或 fire；丢弃操作对象产生 `nodiscard` 诊断。仅接受临时/右值操作对象，保存后消费需要显式 `std::move`。
+- 类型约束：惰性操作未经 `bbt_co_await` 或 `bbt_co_fire` 消费不能执行，普通值不能 await 或 fire；顺序 async 函数返回的已完成操作仍需通过 `bbt_co_await` 解包，丢弃操作对象产生 `nodiscard` 诊断。仅接受临时/右值操作对象，保存后消费需要显式 `std::move`。
 - `fire` 只放弃最终完成结果，不放弃提交失败和后台错误的处理责任。存在顺序依赖时必须使用 `await`。
 - 兼容的底层操作体若返回 `bbt_co_async_body(void)`，仍需显式 `return {};`；用 `bind` 绑定普通 `void` 函数不需要这一步。使用本库的仓库须开启 `-Werror=return-type -Werror=unused-result`（本库、infra、framework 各自在顶层 CMake 开启），直接丢弃操作对象会被拒绝。
 
