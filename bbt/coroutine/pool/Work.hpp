@@ -15,6 +15,12 @@ namespace bbt::coroutine::pool {
  */
 class Work {
 public:
+    Work() = default;
+    Work(const Work&) = default;
+    Work& operator=(const Work&) = default;
+    Work(Work&&) noexcept = default;
+    Work& operator=(Work&&) noexcept = default;
+
     /**
      * @brief 移动回调构造；异常走池级策略（回调或计数），不产生 future
      */

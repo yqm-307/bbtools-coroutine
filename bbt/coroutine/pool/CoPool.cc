@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <chrono>
 #include <limits>
+#include <optional>
 #include <thread>
 #include <utility>
 
@@ -35,6 +36,8 @@ struct CoPool::WaitSignal {
     std::mutex mutex;
     std::deque<sync::CoWaiter::SPtr> waiters;
     std::atomic_uint64_t sequence{0};
+    /** 实验保留外层布局，仅验证队列按值存储的收益。 */
+    std::optional<moodycamel::ConcurrentQueue<Work>> default_queue;
 };
 
 /**
@@ -65,6 +68,7 @@ CoPool::CoPool(int max)
     , m_work_signal(std::make_unique<WaitSignal>())
 {
     Assert(m_max_co_num > 0);
+    m_work_signal->default_queue.emplace();
     _Start();
 }
 
@@ -96,17 +100,8 @@ int CoPool::Submit(const CoPoolWorkCallback& workfunc)
     if (!m_classes.empty())
         return -1;
 
-    /**
-     * Work 由这里分配，入队后所有权归消费者（worker 或 Release 的 drain）；失败分支各自 delete。
-     */
-    auto* work = new (std::nothrow) Work(workfunc);
-    if (work == nullptr)
+    if (!_EnqueueDefault(Work(workfunc)))
         return -1;
-
-    if (!_EnqueueDefault(work)) {
-        delete work;
-        return -1;
-    }
 
     _NotifyOne(*m_work_signal);
     return 0;
@@ -117,14 +112,8 @@ int CoPool::Submit(CoPoolWorkCallback&& workfunc)
     if (!m_classes.empty())
         return -1;
 
-    auto* work = new (std::nothrow) Work(std::move(workfunc));
-    if (work == nullptr)
+    if (!_EnqueueDefault(Work(std::move(workfunc))))
         return -1;
-
-    if (!_EnqueueDefault(work)) {
-        delete work;
-        return -1;
-    }
 
     _NotifyOne(*m_work_signal);
     return 0;
@@ -182,19 +171,13 @@ std::future<void> CoPool::SubmitWithFuture(const CoPoolWorkCallback& workfunc)
         return {};
 
     /**
-     * promise 随 Work 释放：未执行的任务由 delete Work 兑现 broken_promise，失败分支不必 set_exception。
+     * 未执行的任务随 Work 析构兑现 broken_promise，失败分支不必 set_exception。
      */
     auto promise = std::make_shared<std::promise<void>>();
     auto future = promise->get_future();
 
-    auto* work = new (std::nothrow) Work(workfunc, std::move(promise));
-    if (work == nullptr)
+    if (!_EnqueueDefault(Work(workfunc, std::move(promise))))
         return {};
-
-    if (!_EnqueueDefault(work)) {
-        delete work;
-        return {};
-    }
 
     _NotifyOne(*m_work_signal);
     return future;
@@ -208,14 +191,8 @@ std::future<void> CoPool::SubmitWithFuture(CoPoolWorkCallback&& workfunc)
     auto promise = std::make_shared<std::promise<void>>();
     auto future = promise->get_future();
 
-    auto* work = new (std::nothrow) Work(std::move(workfunc), std::move(promise));
-    if (work == nullptr)
+    if (!_EnqueueDefault(Work(std::move(workfunc), std::move(promise))))
         return {};
-
-    if (!_EnqueueDefault(work)) {
-        delete work;
-        return {};
-    }
 
     _NotifyOne(*m_work_signal);
     return future;
@@ -364,9 +341,13 @@ void CoPool::_DrainQueues() noexcept
     /**
      * _Seal 已与默认入队串行化，不会再有新任务；释放 Work 可能析构用户捕获，不能持队列锁。
      */
-    Work* item = nullptr;
-    while (m_works_queue.try_dequeue(item))
-        delete item;
+    if (auto& queue = m_work_signal->default_queue) {
+        for (;;) {
+            Work work;
+            if (!queue->try_dequeue(work))
+                break;
+        }
+    }
 
     for (auto& state : m_classes) {
         for (;;) {
@@ -426,10 +407,10 @@ CoPool::ClassState* CoPool::_FindClass(StackRequest request) const
     return nullptr;
 }
 
-bool CoPool::_EnqueueDefault(Work* work)
+bool CoPool::_EnqueueDefault(Work&& work)
 {
     std::lock_guard<std::mutex> lock(m_work_queue_mutex);
-    return m_is_running.load(std::memory_order_acquire) && m_works_queue.enqueue(work);
+    return m_is_running.load(std::memory_order_acquire) && m_work_signal->default_queue->enqueue(std::move(work));
 }
 
 CoPoolSubmitStatus CoPool::_Enqueue(ClassState& state, Work* work)
@@ -639,14 +620,13 @@ void CoPool::_WorkCo()
 {
     while (m_is_running.load(std::memory_order_acquire)) {
         const auto observed_sequence = m_work_signal->sequence.load(std::memory_order_acquire);
-        Work* work = nullptr;
-        if (!m_works_queue.try_dequeue(work)) {
+        Work work;
+        if (!m_work_signal->default_queue->try_dequeue(work)) {
             _WaitForWork(*m_work_signal, observed_sequence);
             continue;
         }
 
-        _RunWork(work);
-        delete work;
+        _RunWork(&work);
     }
 }
 

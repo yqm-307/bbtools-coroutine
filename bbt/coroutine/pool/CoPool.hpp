@@ -185,7 +185,7 @@ private:
     bool _IsInPoolWorker() const;
     void _RecordWorkerId();
     ClassState* _FindClass(StackRequest request) const;
-    bool _EnqueueDefault(class Work* work);
+    bool _EnqueueDefault(class Work&& work);
     CoPoolSubmitStatus _Enqueue(ClassState& state, class Work* work);
 
     /**
