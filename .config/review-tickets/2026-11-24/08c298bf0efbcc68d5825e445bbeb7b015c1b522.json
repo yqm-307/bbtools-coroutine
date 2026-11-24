@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-24",
+  "commit": "08c298bf0efbcc68d5825e445bbeb7b015c1b522",
+  "base": "439f25fb2aeb02ee0d3fcd8c1b16f2c22abaff77",
+  "result": "pass",
+  "reviewer": "GPT-6.2 Astra（独立审查，deleg_cfe21020）",
+  "summary": "核对三份文档与 Async.hpp，确认 async/await 的默认用法、bind 的使用范围及 C++17 惰性操作语义一致，无阻断问题。",
+  "checks": [
+    {
+      "id": "llm-review",
+      "kind": "attested",
+      "status": "pass",
+      "summary": "无缺陷发现。文档与示例检查由作者执行，审查未重复运行。",
+      "evidence": {
+        "reviewer": "GPT-6.2 Astra（独立审查，deleg_cfe21020）",
+        "scope": "439f25fb2aeb02ee0d3fcd8c1b16f2c22abaff77..08c298bf0efbcc68d5825e445bbeb7b015c1b522"
+      }
+    }
+  ]
+}
