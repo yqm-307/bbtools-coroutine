@@ -1,31 +1,31 @@
 # Async 调用指南
 
-本文介绍如何用 `bbt_co_async`、`bbt_co_bind`、`bbt_co_await` 和 `bbt_co_fire` 声明、构造和执行异步操作。完整契约见 [API 参考](api-reference.md#2-协程注册与调用语法)。
+常规用法是用 `bbt_co_async(T)` 显式声明可能挂起的操作，在受管协程里用 `bbt_co_await` 调用。完整契约见 [API 参考](api-reference.md#2-协程注册与调用语法)。
 
 ## 先记住这条规则
 
-可能挂起的操作必须通过明确的 async 操作类型表达，并通过匹配的语法糖执行。
+像 Python 的 `async` / `await` 一样，在定义处标出异步边界，在调用处标出等待点。不要把带 `bbt_co_await` 的业务流程提取成返回普通值的命名函数，再交给外层 `bind`；这样从签名看不出它可能挂起。
 
 | 意图 | 写法 | 执行位置 | 是否等待最终结果 |
 | --- | --- | --- | --- |
-| 声明一个可能挂起的操作 | `bbt_co_async(T) Function(...)` | 不执行函数体 | 不适用 |
-| 把普通函数或 lambda 绑定为待执行操作 | `bbt_co_bind(f, args...)` | 不调用 `f` | 不适用 |
-| 当前协程等待操作 | `bbt_co_await Function(...)` | 当前协程 | 是 |
+| 声明一个可能挂起的操作 | `bbt_co_async(T) Function(...)` | 声明本身不执行 | 不适用 |
+| 当前协程等待操作（默认） | `bbt_co_await Function(...)` | 当前协程 | 是 |
 | 显式提交 detached 操作 | `bbt_co_fire Function(...)` | 新 detached 协程 | 否 |
+| 将已有函数或闭包连同参数打包，留待执行 | `bbt_co_bind(f, args...)` | 不调用 `f` | 不适用 |
 
-`bbt_co_await` 和 `bbt_co_fire` 是调用入口。普通函数调用只构造惰性操作对象，不执行操作体。
+`bbt_co_await` 和 `bbt_co_fire` 是执行入口。直接调用异步函数只构造惰性操作对象，不执行其中的操作体。
 
 ```cpp
-bbt_co_async(int) ReadValue()
-{
-    return bbt_co_bind([] { return 42; });
-}
+bbt_co_async(int) ReadValue();
 
-bbtco [] {
-    const auto v1 = bbt_co_await ReadValue();
-    const auto value = bbt_co_await bbt_co_bind([](int x) { return x; }, v1);
-    (void)value;
-};
+// 在 runtime 启动后注册协程。
+void StartRead()
+{
+    bbtco [] {
+        const auto value = bbt_co_await ReadValue();
+        (void)value;
+    };
+}
 ```
 
 普通值没有匹配的 helper。下面两种写法都应在编译期失败：
@@ -44,43 +44,25 @@ auto operation = ReadValue(); // 只构造操作描述
 operation();                  // 错误：AsyncOperation 没有业务调用运算符
 ```
 
-## 推荐的实现结构
+## 定义异步操作
 
-短操作直接用 lambda。较长的操作用一个普通的命名函数写主体，async 入口只绑定函数和参数，不再重复写操作体返回类型。
+与 Python 不同，C++17 的 `bbt_co_async(T)` 只是返回类型，不会自动延迟 C++ 函数体。定义必须返回一个惰性操作；需要用 `bbt_co_bind` 构造它时，把挂起逻辑留在标有 `bbt_co_async` 的函数定义内，用局部闭包作为执行体。只做计算或数据转换、不挂起的辅助函数，可以照常返回普通值。
 
 ```cpp
-static result<Response> SendBody(
-    std::shared_ptr<http::Client> http,
-    std::string target,
-    std::string body)
+bbt_co_async(int) ReadValue();
+
+bbt_co_async(int) ReadNextValue()
 {
-    http::RequestOptions options;
-    options.headers.emplace_back("Accept", "application/json");
-
-    auto request = http->BuildRequest("POST", target, options);
-    if (!request) {
-        return result<Response>::err(std::move(request.error()));
-    }
-    request.value().body = std::move(body);
-
-    return bbt_co_await http->Send(request.value());
-}
-
-bbt_co_async(result<Response>) Send(std::string target, std::string body) const
-{
-    return bbt_co_bind(SendBody, http, std::move(target), std::move(body));
+    return bbt_co_bind([] {
+        const auto value = bbt_co_await ReadValue();
+        return value + 1;
+    });
 }
 ```
 
-这样做有三个目的：
+这里的 `bind` 只负责构造操作；调用方仍然写 `bbt_co_await ReadNextValue()`。
 
-- `Send` 的公开返回类型仍是 `AsyncOperation<T>`，所以 `await` 和 `fire` 的调用边界不变。
-- 参数在操作对象里取得所有权：入口在调用点复制或移动参数，操作体执行时看到的是当时的快照，不借用调用方的栈，也不读取调用方之后修改的对象；需要共享寿命时捕获明确的 `shared_ptr`。
-- 请求准备、错误处理和 `bbt_co_await` 保持左到右的普通函数体结构，阅读业务逻辑时不需要先穿过一整层 lambda。
-
-已返回 `bbt_co_async(T)` 的函数直接 `await` 或 `fire`，不再套 `bind`。`MakeAsyncOperation` 和 `bbt_co_async_body` 保留给已有底层写法；新代码不用直接写它们。
-
-从旧版迁移时，原先直接返回 `T` 的 `bbt_co_async(T)` 定义需要改写：公开入口改为返回 `bbt_co_bind(...)`，原来的函数体搬到被绑定的普通函数或 lambda 中。已有 `bbt_co_await Function(...)` 调用不需要改写；直接调用现在只构造操作，不再同步执行主体。
+从旧版迁移时，保留原有的 `async` 签名和 `await` / `fire` 调用点。原先直接返回 `T` 的定义需要显式构造惰性操作，把原来应该在消费时执行的逻辑放进执行体，而不是在构造操作时提前做。`MakeAsyncOperation` 和 `bbt_co_async_body` 是兼容底层写法，新代码不用直接写它们。
 
 ## 常见调用场景
 
@@ -119,18 +101,20 @@ bbtco [] {
 
 操作是 move-only 且只能消费一次。保存操作不会执行它。
 
-### `void` 操作使用普通 `void` 函数体
+### 确实需要打包函数或闭包时使用 `bind`
+
+例如框架需要接收一个待执行的操作，而手头只有回调和参数。用 `bbt_co_bind` 把它们包装成操作对象；对已经返回 `bbt_co_async(T)` 的函数，直接取得其操作，不要再绑一层。
 
 ```cpp
-bbt_co_async(void) Flush()
+void PublishValue(int value);
+
+bbt_co_async(void) MakePublishOperation(int value)
 {
-    return bbt_co_bind([] {
-        bbtco_sleep(1);
-    });
+    return bbt_co_bind(PublishValue, value);
 }
 ```
 
-`bind` 推导出 `void`，lambda 不必返回任何标记。
+这里假定 `PublishValue(int)` 是已有的普通 `void` 回调。`bind` 在构造时保存参数，不调用回调；回调在 `await` 或 `fire` 消费时才执行。
 
 ## 不建议的写法
 
@@ -147,18 +131,6 @@ bbt_co_await StartRequest();
 // 或
 bbt_co_fire StartRequest();
 ```
-
-### 不要把整段业务逻辑塞进长 lambda
-
-```cpp
-bbt_co_async(result<Response>) Send(...) {
-    return bbt_co_bind([/* 明确的捕获 */]() -> result<Response> {
-        // 很长的请求准备、校验、重试和资源收口逻辑
-    });
-}
-```
-
-这种写法会把延迟机制和业务逻辑混在一起，也容易隐藏引用捕获和参数所有权问题。保留薄入口，把主体放到命名的 `Body` 函数中。
 
 ### 不要用引用捕获跨越未知的执行寿命
 
@@ -191,11 +163,11 @@ bbt_co_await NotifyRecordSaved();
 
 ## 写调用代码前的检查顺序
 
-1. 已经返回 `bbt_co_async(T)` 的函数直接调用；要把普通函数或 lambda 变成惰性操作时使用 `bbt_co_bind`。
-2. 判断当前操作是否需要结果、错误或完成时序。需要就用 `bbt_co_await`，明确放弃最终结果才用 `bbt_co_fire`。
+1. 常规调用写 `bbt_co_await Function(...)`，其中 `Function` 声明为 `bbt_co_async(T)`。确实需要把已有普通函数或 lambda 包装成惰性操作时才用 `bbt_co_bind`。
+2. 仅在明确放弃最终结果且没有完成顺序依赖时，用 `bbt_co_fire` 代替 `await`。
 3. 确认调用发生在受管协程上下文中。普通线程或 native callback 不能直接使用 `bbt_co_await`。
 4. 检查操作体跨越延迟点保存的数据，避免借用调用方栈和 `std::string_view` 指向的临时内容。
-5. 保持现有调用方的 `await` / `fire` 形式。迁移实现时优先收窄 async 入口，不要把 async API 改回普通返回值。
+5. 迁移时保留 async 签名和现有调用方的 `await` / `fire` 形式，不要把可能挂起的函数改成普通返回值。
 
 ## 语法细节
 

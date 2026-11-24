@@ -68,10 +68,9 @@ async / await / fire 的写法：`docs/guides/async-usage.md`
 
 写或迁移 async API 前必须读 `docs/guides/async-usage.md`。执行以下规则：
 
-- 用 `bbt_co_async` 声明惰性操作；用 `bbt_co_bind` 把普通函数或 lambda 和参数绑成待执行操作。
-- `bbt_co_await` 用于当前协程需要结果、错误或完成顺序的场景。
+- 默认用 `bbt_co_async` 声明惰性操作，在当前协程用 `bbt_co_await` 调用。需要把 callable 和参数保存成惰性操作时再用 `bbt_co_bind`。
 - `bbt_co_fire` 只用于明确放弃最终结果的 detached 副作用。
 - 普通调用只构造惰性操作对象。操作必须通过 `await` 或 `fire` 消费。
-- async 公开入口保持薄转发；长操作将普通业务逻辑放在命名函数中，由 `bbt_co_bind` 延迟调用。
+- 不把可能挂起的业务流程藏在普通返回类型的命名函数里；定义方式以指南为准。
 - 迁移实现时保留现有调用方的 `await` / `fire` 形式，不把 async 返回值改成普通值。
 - 跨越延迟执行点的数据必须有所有权。检查 `std::string_view`、引用捕获和调用方栈变量。
