@@ -196,8 +196,7 @@
 ### `bbtco_sleep(ms)`
 
 - 映射：`detail::Hook_Sleep(ms)`
-- 协程内：挂起指定毫秒后唤醒。
-- 非协程：原生睡眠。应在协程内使用。
+- 仅限受管协程；`ms <= 0` 返回 `-1`，不睡眠。原生线程不得调用此宏。
 
 ### `GetLocalCoroutineId`
 
@@ -246,7 +245,7 @@ public:
 - 头文件：`bbt/coroutine/detail/Coroutine.hpp`
 - 签名：`void RequestCancel() noexcept;` / `bool IsCancelRequested() const noexcept;`
 - 当前协程：`g_bbt_tls_coroutine_co`（`Define.hpp`）。非协程为 `nullptr`。
-- 不强杀。运行中代码在检查点或等待返回后自行退出，RAII 照常。
+- `RequestCancel()` 置位并尝试以取消原因触发当前等待；不强杀协程。运行中代码在检查点或等待返回后自行退出，RAII 照常。
 
 ### 诊断
 
@@ -274,7 +273,7 @@ public:
 | `int TryRead(T&)` | 否 | 同上 |
 | `int TryWrite(const T&, int timeout)` | 最多 `timeout` ms | 另加 `1` 超时 |
 | `int TryRead(T&, int timeout)` | 最多 `timeout` ms | 另加 `1` 超时 |
-| `void Close()` | 否 | 关闭后读失败 |
+| `void Close()` | 否 | 唤醒等待者；缓冲 Chan 的 `Read()` 可继续取完已入队数据 |
 | `bool IsClosed()` | 否 | |
 | `size_t size() const` | 否 | 当前缓冲数量 |
 | `size_t capacity() const` | 否 | `Max` |
@@ -283,6 +282,7 @@ public:
 - 析构：未关闭则 `Close()`。
 - `Add*Watcher`：供 `CoSelect` 使用。
 - 会挂起的读写必须在协程内。
+- 缓冲 Chan 的 `TryRead()` 和 `TryRead(out, timeout)` 遇到已经关闭的通道会直接返回 `-1`，不能替代 `Read()` 排空已关闭的通道。
 
 ---
 
@@ -298,11 +298,11 @@ int idx = sync::CoSelect()
     .Run();
 ```
 
-- `Run()` 必须在协程内。返回命中 Case 的注册下标；`-1` = timeout / `Default` / 唤醒后全未就绪。
+- `Run()` 必须在协程内。返回命中 Case 的注册下标：读写成功或 Chan 已关闭都算命中；关闭时不会写入 `out`。`-1` 表示没有命中，可能是超时、`Default()` 或唤醒后仍未就绪。
 - `CaseTimeout(ms)` 与 `Default()` 同时出现时 Default 优先（不挂起）。
 - `Default()`：全部未就绪立即 `-1`。
 - 仅 `Max > 0`。`Chan<T,0>` 为 `static_assert`。
-- 引用重载：Chan 与 `out` 活到 `Run()` 返回。`SPtr` 重载在该表达式内保活；跨语句需自行持有。
+- 引用与 `SPtr` 重载都只在 case 中借用 Chan；调用方保证 Chan 和 `out` 活到 `Run()` 返回。
 
 ---
 
@@ -344,7 +344,7 @@ int idx = sync::CoSelect()
 
 - 头文件：`bbt/coroutine/sync/CoCond.hpp`
 - 创建：`bbtco_make_cocond()` → `SPtr`
-- `Wait` 必须在协程内。
+- `Wait` / `WaitFor` 必须在协程内；它们不释放外部业务锁。`Notify*` 只通知当前等待者，不记住早到的通知。
 
 | 方法 | 返回 |
 |------|------|

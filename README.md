@@ -13,6 +13,10 @@
 7. 按已获得服务量排序的 P 本地 CFS 队列，保留跨 worker 迁移账目
 8. 支持协程间的 defer 语义和异常处理
 
+## 从示例开始
+
+先看 [可运行示例](examples/README.md)：从启动一个协程并等待它完成开始，再按任务选 async、通道、锁、协程池或 I/O 示例。索引提供构建命令和预期输出。
+
 ## 文档地图
 
 | 文档 | 内容 |
@@ -64,31 +68,6 @@ CMake 常用开关（布尔项默认全部 `OFF`，完整选项以 `CMakeLists.t
 | `PROFILE=ON` | 启用 Profiler |
 | `DEBUG_INFO=ON` | 输出库 debug 信息 |
 | `STRINGENT_DEBUG=ON` | 严格 debug 模式，性能开销极大 |
-
-## 基础使用
-
-常规应用定义 `bbtco_main`，由 `BBTCO_MAIN()` 生成 native `main`：
-
-```cpp
-#include <cstdio>
-#include <bbt/coroutine/coroutine.hpp>
-using namespace bbt::coroutine;
-
-int bbtco_main()
-{
-    bbtco []() {
-        printf("i am coroutine %lu\n", GetLocalCoroutineId());
-        bbtco_yield;
-    };
-
-    bbtco_sleep(100);
-    return 0;
-}
-
-BBTCO_MAIN()
-```
-
-Chan、CoCond、CoMutex、CoPool、CoSelect、CoRWMutex、WaitFor、defer、Hook 和 async 的推荐用法见[使用指南](docs/guides/user-guide.md)；完整签名与返回码见 [API 参考](docs/guides/api-reference.md)。
 
 进程寿命与生命周期契约（`Scheduler::Stop` 已删除、运行时为进程寿命对象、worker 扩缩容、静态退出期不析构等）与线程模型 / 网络 I/O 域边界，以[核心运行时契约](docs/architecture/core-runtime-contract.md) §6、§11 为唯一真源，README 不再复述。
 

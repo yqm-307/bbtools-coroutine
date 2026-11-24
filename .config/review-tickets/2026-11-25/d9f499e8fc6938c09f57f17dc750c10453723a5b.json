@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-25",
+  "commit": "d9f499e8fc6938c09f57f17dc750c10453723a5b",
+  "base": "82ae91a849da5f2a184291685e960b9f2cc5eb39",
+  "result": "pass",
+  "reviewer": "GPT-6.2 Astra (independent reviewer)",
+  "summary": "Independent review of 52 changed paths found no blocking defects in the examples and usage documentation. Live MySQL success was not assessed.",
+  "checks": [
+    {
+      "id": "llm-review",
+      "kind": "attested",
+      "status": "pass",
+      "summary": "No findings. Checked example behavior and lifecycle, build and documentation references, and the six follow-up documentation corrections.",
+      "evidence": {
+        "reviewer": "GPT-6.2 Astra (independent reviewer)",
+        "scope": "52 paths in 82ae91a849da5f2a184291685e960b9f2cc5eb39..2dac27859aca1a1db2ef977ce860a4a0942f7b4e. The reviewed snapshot and d9f499e8fc6938c09f57f17dc750c10453723a5b share the same parent and tree (3e7944055344719a0d04734ae45e58f35b64a81d), so the submitted diff is identical. Static review; no live MySQL success-path validation."
+      }
+    }
+  ]
+}

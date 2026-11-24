@@ -1,601 +1,152 @@
 # bbtools-coroutine 使用指南
 
-本文面向调用 `bbtools-coroutine` 的应用、adapter 和其他仓库维护者。目标是帮助你按场景选对入口，并避开协程库最容易出现的生命周期、线程和等待错误。
-
-本文描述当前实现的推荐用法。完整签名、返回码和前置条件以 [API 参考](api-reference.md) 和对应头文件为准。运行时进程寿命、线程模型、Hook 边界和网络执行域以[核心运行时契约](../architecture/core-runtime-contract.md)为准。
-
-## 先记住 8 条规则
-
-1. 应用入口优先使用 `BBTCO_MAIN*`，不要在常规应用中自行启动调度器线程。
-2. `bbtco` 注册的是 detached 协程，不保证注册顺序，也不提供 `join`。
-3. 协程只能在受管协程上下文中使用会挂起的 API，例如 `Chan` 阻塞读写、`CoMutex::Lock`、`CoCond::Wait` 和 `bbtco_wait_for`。
-4. 协程挂起后可能换到其他 worker 恢复。不要把 worker 线程、线程局部对象或线程内锁的归属带过挂起点。
-5. 跨越协程生命周期或延迟执行边界的数据必须有明确所有权。无法证明外部对象活得足够久时，使用值捕获、移动或 `shared_ptr`。
-6. 协程内的 `sleep`、Hook I/O 和同步原语只挂起当前协程，不应改写成 native 线程等待。
-7. 顺序 async 函数用 `bbt_co_await` 组合操作，用 `bbt_co_return` 包装最终结果。需要延迟执行的操作使用 `bbt_co_bind`。
-8. 业务完成必须在主任务返回前收口。runtime 是进程寿命对象，没有业务停机入口，也不会替应用等待 detached 协程完成。
+先从 [可运行示例](../../examples/README.md) 找和任务最接近的程序，再来这里查怎么选 API、哪些条件不能省。签名和返回码查 [API 参考](api-reference.md)；运行时语义查 [核心运行时契约](../architecture/core-runtime-contract.md)。
 
 ## 1. 入口、依赖和最小程序
 
 ### 1.1 环境
 
-- Linux。
-- C++17。
-- Boost 1.90 或更高版本，CMake 需要 `boost.context`。
-- 公共入口是 `#include <bbt/coroutine/coroutine.hpp>`。
-- 应用需要链接 `bbt_coroutine`。
-
-公共伞头已经包含 runtime、语法宏、Hook、同步原语、协程池和协程对象的常用入口。只在需要缩小依赖或阅读具体接口时直接包含子模块头文件。
+Linux、C++17、Boost ≥ 1.90（`boost.context`）。包含 `<bbt/coroutine/coroutine.hpp>` 并链接 `bbt_coroutine`。构建命令见 [示例索引](../../examples/README.md)。
 
 ### 1.2 推荐的最小入口
 
-常规应用定义 `int bbtco_main()`，由 `BBTCO_MAIN()` 生成 native `main`。主任务本身运行在受管协程中，runtime 会等待主任务完成并返回其退出结果。
-
-```cpp
-#include <bbt/coroutine/coroutine.hpp>
-
-using namespace bbt::coroutine;
-
-int bbtco_main()
-{
-    bbtco_desc("worker") []() {
-        bbtco_sleep(10);
-    };
-
-    bbtco_sleep(20);
-    return 0;
-}
-
-BBTCO_MAIN()
-```
-
-`bbtco_desc` 只用于给诊断现场增加可读名称。协程注册成功后，执行时间和 worker 都不固定。
-
-常规应用不要自行调用 `g_scheduler->Start()`、自建 runtime runner 线程或在主线程 sleep 等待任务。需要调整 worker 数、默认栈或栈预算时，使用 `BBTCO_MAIN_WITH_OPTIONS(...)`。需要在 `Start` 前修改完整 `GlobalConfig` 时，使用 `BBTCO_MAIN_WITH_SETUP()`。入口宏的完整集合见 `bbt/coroutine/syntax/RuntimeMacros.hpp`。
+从 [启动并等待一个协程](../../examples/coroutine/main.cc) 开始。常规应用定义 `int bbtco_main()`，由 `BBTCO_MAIN()` 生成原生 `main`。不要自己启动 scheduler 或创建 runtime runner 线程。
 
 ### 1.3 入口宏怎么选
 
-| 需求 | 推荐入口 |
-|---|---|
-| 默认配置启动应用 | `BBTCO_MAIN()` |
-| 启动前设置 worker 数、默认栈或栈预算 | `BBTCO_MAIN_WITH_OPTIONS(options_expr)` |
-| 启动前执行 `setup_runtime()` 修改全局配置 | `BBTCO_MAIN_WITH_SETUP()` |
-| 同时需要 setup 和 `RuntimeOptions` | `BBTCO_MAIN_WITH_SETUP_AND_OPTIONS(options_expr)` |
-| 需要提交前 native hook | 对应的 `*_WITH_HOOK` 入口 |
-| 主任务提交后需要一次 native host hook | `BBTCO_MAIN_WITH_SETUP_AND_HOST_HOOK*` |
+| 需要 | 入口 |
+| --- | --- |
+| 默认配置 | `BBTCO_MAIN()` |
+| 设定初始 worker 数、默认栈或栈预算 | `BBTCO_MAIN_WITH_OPTIONS(...)` |
+| 启动前配置完整 `GlobalConfig` | `BBTCO_MAIN_WITH_SETUP()`，在 `setup_runtime()` 中配置 |
+| 启动后、提交主任务前运行原生代码 | `BBTCO_MAIN_WITH_HOOK()`，如 [MySQL 启动探针](../../examples/mysqlpp/README.md) |
+| 提交主任务后在原生主线程进入宿主阻塞入口 | `BBTCO_MAIN_WITH_SETUP_AND_HOST_HOOK()` |
 
-`RuntimeOptions` 只覆盖 `initial_workers`、`default_stack` 和 `stacks`。所有配置必须在 runtime 启动前确定，启动后不要修改底层 `GlobalConfig`。
+组合入口和 hook 签名见 [RuntimeMacros.hpp](../../bbt/coroutine/syntax/RuntimeMacros.hpp)。`RuntimeOptions` 不是完整 `GlobalConfig` 的替代；启动后不要改全局启动配置。
 
 ### 1.4 主任务完成和进程退出
 
-`RuntimeMain` 等待 `bbtco_main` 返回。它不会停止 scheduler，也不会排空其他 detached 协程。需要保证任务完成时，在主任务内使用协程原语收齐工作，再返回。
-
-适合收口的方式包括：
-
-- 使用 `Chan` 发送每个 worker 的完成结果。
-- 使用 `CoCond` 配合共享计数和谓词。
-- 使用 `CoPool::Release()` 等待池内任务退出。
-- 使用应用自己的协程友好计数器或 latch。
-
-不要用 native `std::condition_variable`、`std::future::wait()`、`std::future::get()` 或线程 `join()` 代替协程等待。它们会占住执行它们的 worker 或 native 线程。
+runtime 只等待 `bbtco_main()` 返回，不替应用排空 detached 协程，也没有业务 `Stop()`。用缓冲 `Chan` 收齐结果后再返回，不用固定时长的睡眠猜任务是否结束。池任务需要先收结果再 `Release()`；只释放池可能丢弃队列里的任务。
 
 ## 2. 执行模型
 
-bbtools-coroutine 是有栈协程库。scheduler 管理多个 Processer，Processer 通常对应一个 worker 线程，协程代码运行在独立栈上。
+协程有自己的栈，多个 worker 可以并行执行不同协程。同一协程同一时刻只在一个 worker 上运行，但挂起后可换别的 worker 恢复。不要把线程 ID 当协程 ID，也不要把 TLS 引用、worker 指针或持有的 `std::mutex` 带过挂起点。
 
-```text
-应用代码
-  ├─ bbtco 注册任务
-  ├─ Chan / CoMutex / CoCond 等等待
-  └─ 协程内 Hook I/O
-          │
-          ▼
-      Scheduler
-          │
-          ▼
-   Processer × N
-          │
-          ▼
-  Coroutine 独立栈
-          │ 挂起
-          ▼
-  Poller / waiter / timer
-          │ 唤醒
-          └────重新进入就绪队列
-```
-
-需要据此理解几个行为：
-
-- 多个 worker 可以并行执行不同协程。
-- 同一协程同一时刻只在一个 worker 上运行。
-- 协程挂起后允许在另一个 worker 上恢复。
-- runtime 是协作式调度。没有抢占，用户态死循环或长时间 CPU 计算会占住当前 worker。
-- 取消是协作式的。协程对象的 `RequestCancel()` 只设置标志，业务代码在检查点或等待返回后自行退出。
-- 没有业务 `Stop()`。进程退出时，等待中的协程不会做栈展开式收口。
+调度是协作式的，不抢占执行中的协程。会挂起的 API（如 `Chan::Read()`、`CoMutex::Lock()`、`CoCond::Wait()`）在受管协程内调用。在协程中不要用原生 latch、`future.wait/get`、`condition_variable` 或 `join()` 等待，否则会占住整个 worker。
 
 ## 3. 创建协程、让出和延时
 
 ### 3.1 注册 detached 协程
 
-```cpp
-bbtco []() {
-    // 运行在受管协程中
-};
+`bbtco` 注册后不提供 `join`，不保证开始时间、注册顺序或执行线程。`bbtco_desc("name")` 只是加诊断名称；用生命周期足够长的名字，例如字符串字面量。
 
-bbtco_desc("read-loop") [=]() {
-    // 带描述名称的协程
-};
-```
-
-lambda 会被保存到协程对象中，协程结束后释放。引用捕获仍然只是借用外部对象，不能因为 lambda 被保存就延长引用对象的寿命。
-
-优先使用值捕获或移动捕获保存跨越调用边界的数据：
-
-```cpp
-std::string request = BuildRequest();
-auto owner = std::make_shared<State>();
-
-bbtco [request = std::move(request), owner]() {
-    Send(request, owner);
-};
-```
-
-`bbtco_ref { ... };` 等价于引用捕获块，只在外部对象明确活过整个协程时使用。常见的安全场景是协程不会逃出当前受控生命周期，且调用方有明确的收口顺序。无法证明时不要使用它。
-
-注册失败默认在注册点抛异常。需要显式处理失败时使用：
-
-```cpp
-bool accepted = false;
-bbtco_noexcept(&accepted) [=]() {
-    // 只有 accepted 为 true 时才会被注册并执行
-};
-```
+优先按值捕获，需要共享寿命时捕获 `shared_ptr`。引用捕获（包括 `bbtco_ref`）不会延寿。注册失败默认抛异常；要显式检查失败，用 `bbtco_noexcept(&ok)` 并处理 `ok == false`，见 [Echo 服务端](../../examples/echoserver/server.cc) 关闭未能交给协程的连接。
 
 ### 3.2 `bbtco_yield`
 
-`bbtco_yield` 立即把当前协程放回就绪队列，之后可能在其他 worker 恢复。
-
-```cpp
-bbtco []() {
-    UpdateSmallStep();
-    bbtco_yield;
-    ContinueSmallStep();
-};
-```
-
-它适合把长的协作式计算拆成小步。它不提供顺序保证，也不能修复无界 CPU 循环。宏自带语句结束符，在单行 `if` 中使用时写花括号。
+让出当前协程并把它放回就绪队列，不是等待另一个任务完成。把 CPU 工作拆成小步时可以主动让出；不要假设下一步在哪个 worker 恢复。单行 `if` 使用本宏时加花括号。
 
 ### 3.3 `bbtco_sleep(ms)`
 
-协程内的 `bbtco_sleep(ms)` 挂起当前协程指定毫秒，不占住 worker。`ms <= 0` 不产生有效等待。
-
-```cpp
-bbtco []() {
-    while (Running()) {
-        PollApplicationState();
-        bbtco_sleep(100);
-    }
-};
-```
-
-协程外调用会走 native sleep 分支。业务代码应保持调用域清晰，在协程内使用协程等待，在 native 控制面使用普通线程 API。
+只在受管协程里使用；它挂起当前协程而不是 worker。`ms <= 0` 不睡眠。原生线程用 `std::this_thread::sleep_for`；被 Hook 的 POSIX `sleep` 在原生线程走原生分支，**不等于** `bbtco_sleep` 可以在协程外用。
 
 ### 3.4 查询执行上下文
 
-```cpp
-const auto id = GetLocalCoroutineId();
-const auto stack_size = GetLocalCoroutineStackSize();
-const bool in_coroutine = IsInCoroutineContext();
-```
-
-非协程上下文分别返回 `0`、`0` 和 `false`。这些查询不创建 runtime，也不惰性启动 worker。只有确实要求协程上下文的入口才使用 `RequireCoroutineContext()`。
+`IsInCoroutineContext()` 查询当前上下文。`GetLocalCoroutineId()` 和 `GetLocalCoroutineStackSize()` 分别给出协程 ID 和可用栈字节数，协程外均为 `0`。只在确实要求协程上下文的业务入口用 `RequireCoroutineContext()` 做前置检查。
 
 ## 4. 等待和事件
 
 ### 4.1 等待文件描述符
 
-```cpp
-bbtco []() {
-    bbtco_wait_for(fd, bbtco_emev_readable, 1000);
-    ReadAvailableBytes(fd);
-};
-```
-
-`bbtco_wait_for` 是语句，不返回状态码。当前协程会等待可读、可写、关闭或超时事件。等待失败抛出 `std::runtime_error`，需要在业务边界统一捕获。
-
-可用事件包括：
-
-- `bbtco_emev_readable`
-- `bbtco_emev_writeable`
-- `bbtco_emev_close`
-- `bbtco_emev_timeout`
-
-纯定时器使用 `bbtco_wait_for(0, bbtco_emev_timeout, ms)`。需要「事件触发后再创建协程」时使用 `bbtco_ev_r`、`bbtco_ev_w`、`bbtco_ev_t` 及其 timeout / close 组合。事件回调签名是 `void(int fd, short event)`，回调在新协程中执行。
-
-事件注册是一次性的。fd 的所有权仍由调用方负责，回调执行前必须保证 fd 仍然有效。
+- `bbtco_wait_for(fd, event, ms)` 等待后继续当前协程。正常返回不区分 fd 就绪和超时；登记失败或取消会抛异常。
+- `bbtco_ev_*` 登记一次性事件，触发后另起协程执行回调；调用方保有 fd 并保证在回调使用前未关闭。见 [定时器示例](../../examples/waitfor/README.md) 对两种写法的对照。
+- 需要区分就绪、超时、取消或自定义通知时，用 `CoWaiter` 的状态接口；见 [fd 和回调适配](../../examples/socketpair_adapter/README.md)。启动可能同步完成的外部操作时，先登记等待，再在 `on_registered` 中投递。
 
 ### 4.2 Hook I/O
 
-协程内可以直接调用常见 POSIX I/O。Hook 会把阻塞路径转换为当前协程等待，避免占住 worker。当前覆盖范围包括 socket、connect、accept、send、recv、read、write、poll、select、sleep 和常见 DNS 函数。
+[本地 TCP Echo](../../examples/echoserver/README.md) 使用 `accept`、`recv` 和 `send`，每个连接由一个协程持有，处理 TCP 短写和 EOF。不要为启用 Hook 而手动切换 fd 的 `O_NONBLOCK`；`MSG_DONTWAIT` 仍表示立即返回。不要在多个线程并发对同一个 fd 执行 Hook I/O。
 
-推荐写法是直接使用已有系统调用：
-
-```cpp
-bbtco []() {
-    const auto accepted = accept(listener, nullptr, nullptr);
-    if (accepted < 0)
-        return;
-
-    bbtco_defer { close(accepted); };
-    char buffer[4096];
-    const auto size = read(accepted, buffer, sizeof(buffer));
-    if (size > 0)
-        write(accepted, buffer, static_cast<size_t>(size));
-};
-```
-
-注意以下边界：
-
-- 不要为了接入协程 Hook 手动把 fd 改成 `O_NONBLOCK`。库会在协程 I/O 期间临时处理 blocking fd，并在返回时恢复 flags。
-- `MSG_DONTWAIT` 仍保持立即返回语义。
-- 同一个 fd 不要由多个线程并发执行 Hook 路径 I/O。
-- 等待中的 fd 被关闭时，等待协程会被唤醒，系统调用通常以 `EBADF` 返回。
-- 第三方客户端是否安全，取决于它是否遵守 fd、线程和回调的自身约束。协程 Hook 只改变等待方式，不改变第三方库的线程安全契约。
+Hook 只改变支持的系统调用如何等待，不保证第三方库线程安全，也不会替你处理第三方库自己的锁或线程局部状态。看 [hiredis 示例](../../examples/redis/README.md) 的独占连接，以及 [MySQL 示例](../../examples/mysqlpp/README.md) 把同步探针留在原生线程的做法。
 
 ## 5. 同步原语怎么选
 
-| 场景 | 推荐能力 | 关键语义 |
-|---|---|---|
-| 传递任务或结果 | `Chan<T, N>` | 空读或满写时挂起协程 |
-| 同时等待多个通道 | `CoSelect` | 只支持 `N > 0` 的缓冲 Chan |
-| 保护短临界区 | `CoMutex` + `CoLockGuard` | 等待锁时挂起协程 |
-| 读多写少 | `CoRWMutex` + `CoReadLock` / `CoWriteLock` | 写者优先 |
-| 等待共享状态变化 | `CoCond` + `CoMutex` | Notify 不携带谓词，等待方必须复查 |
-| 固定并发度执行任务 | `CoPool` | 固定数量池协程，任务队列与池生命周期分离 |
-
-等待型 API 必须在受管协程内调用。锁和条件变量的对象必须比所有等待者活得久，销毁前先保证没有等待者。
+| 场景 | 推荐能力 |
+| --- | --- |
+| 传递任务、结果或完成信号 | 缓冲 `Chan<T, N>`，需要当面交接时用 `Chan<T, 0>` |
+| 等多个缓冲通道 | `CoSelect` |
+| 保护共享状态 | `CoMutex` + `CoLockGuard` |
+| 读多写少 | `CoRWMutex` + `CoReadLock` / `CoWriteLock` |
+| 唤醒已登记的等待者，不保存通知 | `CoCond` |
+| 固定并发数执行任务 | `CoPool` |
 
 ### 5.1 Chan 生产者消费者
 
-`Chan<T, N>` 的元素按值入队。`N > 0` 是有缓冲 Chan，`N == 0` 是无缓冲特化。读写端可以使用显式函数获得返回码，也可以使用 `>>` / `<<` 做简洁调用。
+[Chan 示例](../../examples/chan/main.cc) 用同一段代码演示有缓冲和无缓冲交接。元素按值传递；普通 `Read` / `Write` 成功返回 `0`。需要区分关闭与失败时，不要用只返回 `bool` 的 `>>` / `<<`。
 
-```cpp
-using namespace bbt::coroutine;
-
-auto tasks = Chan<Task, 16>();
-
-bbtco [tasks]() {
-    for (int i = 0; i < 100; ++i) {
-        if (tasks->Write(Task{i}) != 0)
-            return;
-    }
-    tasks->Close();
-};
-
-bbtco [tasks]() {
-    Task task;
-    while (tasks->Read(task) == 0)
-        Process(task);
-};
-```
-
-常用返回码如下：
-
-- `0` 表示成功。
-- `1` 表示带超时操作超时。
-- `-1` 表示关闭或关闭后无数据，具体取决于调用的读写 API。
-- `-2` 表示当前操作未完成或等待失败，具体取决于 API。
-
-`Close()` 会唤醒等待者。有缓冲 Chan 会保留已入队数据，读者可以继续读完。生产者完成后关闭 Chan，消费者根据返回码退出，是最简单的完成传播方式。
-
-不要用 `Chan<T, 0>` 配合 `CoSelect`。`CoSelect` 只支持缓冲 Chan。
+生产者都不会再写以后才能关闭通道。缓冲 Chan 的 `Read()` 在关闭后仍可取完已入队的数据，读空后返回 `-1`。不要用 `TryRead()` 来做这个收尾：它遇到已经关闭的 Chan 会直接返回 `-1`。其他失败及带超时的返回码见 [Chan API](api-reference.md#4-chan)。
 
 ### 5.2 CoSelect 多路等待
 
-```cpp
-using namespace bbt::coroutine;
+[CoSelect 示例](../../examples/select/main.cc) 保持通道打开。命中下标不一定代表读写成功：关闭也算就绪，而且不会填充读出变量。`-1` 只代表没选中，也可能是竞争失败，不等同于超时。需要区分来源结束时，可以先用打开的通道传递显式结束消息，再由调用方收口。
 
-auto left_channel = Chan<int, 4>();
-auto right_channel = Chan<int, 4>();
-int left = 0;
-int right = 0;
-const int selected = sync::CoSelect()
-                         .CaseRead(left_channel, left)
-                         .CaseRead(right_channel, right)
-                         .CaseTimeout(1000)
-                         .Run();
-
-if (selected == 0) {
-    Handle(left);
-} else if (selected == 1) {
-    Handle(right);
-} else {
-    HandleTimeout();
-}
-```
-
-返回值是 case 注册顺序下标。`-1` 表示超时、命中 `Default()`，或唤醒后数据已经被其他 reader / writer 抢走。竞争失败是合法结果，持续等待时在外层循环重新构造 `CoSelect`。
-
-`CaseRead` 的输出对象和引用形式的 Chan 必须活到 `Run()` 返回。`CaseWrite` 在注册时按值保存待写入值。
+引用和 `shared_ptr` 重载都不持有 Chan。调用方要保留 Chan 和读出变量，直到 `Run()` 返回；`CaseWrite` 按值保存待写值。只支持有缓冲的 Chan，见 [CoSelect API](api-reference.md#5-coselect)。
 
 ### 5.3 CoMutex
 
-```cpp
-#include <bbt/coroutine/sync/CoLockGuard.hpp>
-
-auto mutex = bbtco_make_comutex();
-
-bbtco [mutex]() {
-    sync::CoLockGuard<sync::CoMutex> guard(mutex);
-    UpdateSharedState();
-};
-```
-
-`Lock()` 成功返回 `void`，不要把它写成 `auto locked = mutex->Lock()`。优先使用 RAII guard，避免异常和提前 return 遗漏解锁。同一个协程重复 `Lock()` 会触发死锁断言。
-
-立即尝试使用 `TryLock()`，带超时尝试使用 `TryLock(ms)`。等待型版本必须在协程内。
+`Lock()` 返回 `void`，不是成功状态。优先用 RAII guard 自动解锁；同一协程不能重复获取同一把 `CoMutex`。需要立即尝试或限时等待时，用 `TryLock()` 或 `TryLock(ms)`，并检查返回值。见 [锁示例](../../examples/comutex/README.md)。
 
 ### 5.4 CoCond
 
-条件变量只负责唤醒，不保存业务谓词。等待方必须在循环中复查共享状态，并用同一把协程锁保护状态和谓词。
+`Wait()` / `WaitFor()` 不会替你释放业务锁。持锁等会挡住需要同一把锁的通知者；先解锁再等又可能错过通知。不要把它当成 `std::condition_variable::wait(lock, pred)`；任务完成和状态变化优先用能保存消息的缓冲 Chan。
 
-使用 `CoCond` 时推荐的结构是：
-
-1. 获取 `CoMutex`。
-2. 检查谓词。
-3. 谓词不满足时调用 `Wait()` 或 `WaitFor(ms)`。
-4. 被唤醒后重新获取锁并复查谓词。
-5. 修改谓词后调用 `NotifyOne()` 或 `NotifyAll()`。
-
-`Notify` 不携带状态，也不保证业务条件已经满足。条件变量销毁前必须保证没有等待者。
+[CoCond 示例](../../examples/cocond/README.md) 在一个 worker 上演示先登记、再通知；多 worker 时不能用注册顺序或固定延时保证这个先后。条件对象必须活过等待者，返回码见 [CoCond API](api-reference.md#7-cocond)。
 
 ### 5.5 CoRWMutex
 
-`CoRWMutex` 适合读多写少的共享状态。它是写者优先，有写者排队时新读者会等待。不能在持有读锁时升级为写锁，否则会形成互等。
-
-```cpp
-#include <bbt/coroutine/sync/CoLockGuard.hpp>
-
-auto rwmutex = bbtco_make_corwmutex();
-
-auto Read = [rwmutex]() {
-    sync::CoReadLock guard(rwmutex);
-    ReadSharedState();
-};
-
-auto Write = [rwmutex]() {
-    sync::CoWriteLock guard(rwmutex);
-    WriteSharedState();
-};
-```
+有写者排队时，新读者等待。用 `CoReadLock` / `CoWriteLock` 缩小临界区；不能持有读锁时再申请写锁。见 [锁示例](../../examples/comutex/main.cc)。
 
 ## 6. 协程池和固定并发
 
 ### 6.1 默认协程池
 
-`CoPool::Create(max_co)` 创建固定数量的池协程。`Submit` 只入队，不等待调用方。`Release` 停止接收新任务，等待正在执行的池协程退出，并丢弃队列中尚未执行的任务。
+[协程池示例](../../examples/copool/main.cc) 检查 `Submit()`，从缓冲 Chan 收齐结果，再在池外 `Release()`。结果通道容量等于提交数；即使主协程因提交失败提前退出，已开始的任务也不会卡在发送结果上。业务任务可能失败时，也要向接收方交付失败结果。
 
-```cpp
-auto pool = bbtco_make_copool(4);
-
-for (int i = 0; i < 100; ++i) {
-    pool->Submit([i]() {
-        ProcessJob(i);
-    });
-}
-
-bbtco_sleep(100);
-pool->Release();
-```
-
-池必须活过全部 worker 和在途任务。不要在池自己的 worker 协程里调用 `Release()`，这会形成自等待并抛出 `std::logic_error`。
+`Release()` 拒绝新任务、等待在途 worker 退出、丢弃未开始的队列任务。它不是「做完所有排队任务」；不能从本池 worker 内调用，否则抛 `std::logic_error`。
 
 ### 6.2 需要结果时使用 `SubmitWithFuture`
 
-```cpp
-auto future = pool->SubmitWithFuture([]() {
-    ProduceResult();
-});
-
-if (future.valid()) {
-    try {
-        future.get();
-    } catch (const std::exception& error) {
-        Report(error);
-    }
-}
-```
-
-`future.get()` 会阻塞执行它的线程。它适合 native 控制面或已经明确不会占用 runtime worker 的场景。协程内需要等待任务结果时，优先使用 `Chan` 或其他协程友好的完成通知。
-
-池任务抛出的异常不会直接穿透到 runtime。可以使用 `SetExceptionCallback` 交付异常，也可以使用 `SubmitWithFuture` 让异常在 `future.get()` 中重新抛出。没有处理的异常可通过 `GetUnhandledExceptionCount()` 观察。
+该 API 返回 `std::future<void>`，交付完成或异常，不带业务值。先检查 `valid()`；`get()` 可能阻塞，只在原生线程使用。协程内要等结果用 Chan。池异常的回调和计数见 [CoPool API](api-reference.md#8-copool)。
 
 ### 6.3 长任务和池容量
 
-池中每个 worker 同时只能执行一个任务。任务在 I/O 或 sleep 上挂起时，会占用这条池协程，导致可用并发度下降。任务包含长时间 CPU 计算时也会占住池协程和 worker。
-
-需要按栈大小隔离任务时使用 `CoPoolOptions` 和 `Submit(StackRequest, ...)`。每个尺寸类的栈规格、worker 数和队列容量在池创建时固定，提交必须精确匹配已声明的 `(usable_bytes, protect)`。
+池协程挂起在 I/O 上仍占一个池名额；CPU 重任务还会占住执行它的 worker。尺寸路由池的栈规格、并发和队列容量在创建时固定；`Submit(StackRequest, ...)` 必须精确匹配已声明的 `(usable_bytes, protect)`，不借用其他规格的 worker。见 [尺寸路由示例](../../examples/copool/main.cc)。
 
 ## 7. async 操作
 
-async API 有两种明确的语义，调用前先判断你的场景。
+[async 示例](../../examples/async/main.cc) 演示两步顺序等待、提前返回、只移动结果和 detached 投递。
 
-| 场景 | 定义方式 | 函数体何时执行 |
-|---|---|---|
-| 顺序组合多个 async 操作 | `bbt_co_async(T)` + `bbt_co_await` + `bbt_co_return` | 调用时开始 |
-| 延迟执行并保存 callable / 参数 | `bbt_co_bind(...)` | 只有 `bbt_co_await` 或 `bbt_co_fire` 消费时 |
+- 顺序 `bbt_co_async(T)` 从调用时执行，在受管协程中用 `bbt_co_await` 调用；`bbt_co_return(value)` 包装最终结果，不改变执行时机。
+- `bbt_co_bind` 按值保存 callable 和参数，消费时才执行。保存后的操作用 `std::move` 交给 `bbt_co_await` 或 `bbt_co_fire`，只能消费一次。
+- `bbt_co_fire` 只用于惰性操作，且不返回最终结果。需要等待它的业务副作用时，应另设完成通知；不能靠 `fire` 推迟顺序函数体。
 
-推荐把 HTTP、RPC、Redis 等多步业务流程写成顺序 async 函数。每一步用 `bbt_co_await`，业务错误在当前位置处理，最终用 `bbt_co_return` 返回。
-
-```cpp
-bbt_co_async(result<int>) LoadAndTransform(Key key)
-{
-    const auto raw = bbt_co_await Load(key);
-    if (!raw)
-        bbt_co_return(result<int>::err(raw.error()));
-
-    const auto normalized = bbt_co_await Normalize(raw.value());
-    if (!normalized)
-        bbt_co_return(result<int>::err(normalized.error()));
-
-    bbt_co_return(Transform(normalized.value()));
-}
-```
-
-`bbt_co_return_void` 用于 `void`，`bbt_co_return_ref(value)` 用于借用寿命足够长的左值。顺序函数直接在调用方执行；在受管协程中用 `bbt_co_await` 调用，不要靠 `bbt_co_fire` 推迟函数体。
-
-需要把普通函数、lambda 和参数先保存，再交给 `await` 或 `fire` 时使用：
-
-```cpp
-auto operation = bbt_co_bind(
-    [](std::string value) {
-        return Parse(value);
-    },
-    std::string(input));
-
-const auto parsed = bbt_co_await std::move(operation);
-```
-
-`bbt_co_bind` 绑定时按值保存参数。左值会拷贝，右值可以移动。`std::string_view`、引用捕获、指针和 `std::ref` 都只是借用，不会延长对象寿命。跨等待点的字符串和只移动对象要显式复制或移动。
-
-完整语法、返回类型约束、异常和生命周期规则见 [Async 调用指南](async-usage.md)。
+复制 `std::string_view`、裸指针或 `std::ref` 不会延长被借用对象的寿命。类型、引用返回和异常细节见 [Async 调用指南](async-usage.md)。
 
 ## 8. 资源清理、异常和取消
 
 ### 8.1 `bbtco_defer`
 
-`bbtco_defer` 在所在 C++ 作用域退出时执行，包括 return 和异常展开。它是 RAII 对象的语法糖，不是 runtime 关闭回调。
-
-```cpp
-bbtco []() {
-    const int fd = open(path, O_RDONLY);
-    if (fd < 0)
-        return;
-
-    bbtco_defer { close(fd); };
-    ReadFile(fd);
-};
-```
-
-多个 defer 按后声明先执行。已有类型析构已经能表达清理时，优先使用普通 RAII。defer 默认引用捕获，资源和引用对象必须活到作用域退出。
+在所在作用域退出时执行，包括提前返回和异常展开；后声明的先执行。已有 RAII 类型时优先用类型自身析构。宏默认引用捕获，不要引用更早失效的对象。见 [fd 关闭示例](../../examples/echoserver/client.cc)。
 
 ### 8.2 异常
 
-受管协程中的异常不会传播到创建它的 native 调用栈。detached 协程的异常由 runtime 或 `CoPool` 按各自契约记录、计数或交给异常回调。需要把业务错误交还给调用方时，优先使用 `result<T>`、返回码、`Chan` 或 `SubmitWithFuture`，不要依赖 detached 异常穿透线程边界。
-
-应用需要统一观察未处理异常时，配置 `m_ext_coevent_exception_callback` 或为 `CoPool` 设置异常回调。异常回调本身也必须短小且不得阻塞整个 worker。
+detached 协程的异常不会回到提交者的调用栈。要把业务失败交给调用方，用返回码、结果类型或 Chan。运行时和 CoPool 的异常回调要短小，不要在回调里阻塞 worker。
 
 ### 8.3 协作式取消
 
-取消不会强杀协程。业务代码应在循环、I/O 返回和其他自然检查点检查取消状态，然后通过普通 return 释放 RAII 资源。不要假设一个正在运行的 native 阻塞调用会被强制打断。
+`RequestCancel()` 置位并尝试唤醒当前等待。它不会强杀协程，也不保证能打断任意原生阻塞调用。业务代码在检查点或等待返回后自行退出，正常走析构；能区分取消与超时的接口见 [API 参考](api-reference.md#取消)。
 
 ## 9. 栈、性能和线程边界
 
-### 9.1 栈大小
+默认协程栈为 12 KiB，创建后不扩栈。大缓冲优先放在堆上；第三方库或深调用链需要测栈预算，必要时用 `RuntimeOptions::default_stack` 或尺寸路由池。专用 [栈预算工具](stack-budget.md) 的入口不能当作应用模板。
 
-默认协程栈当前为 12 KiB。栈大小创建后固定，不支持扩栈或换栈。深递归、大的局部数组、重型日志和第三方库调用需要显式提高栈预算。
-
-推荐顺序如下：
-
-1. 先用 `GetLocalCoroutineStackSize()` 观察实际执行协程的可用栈。
-2. 用 `RuntimeOptions::default_stack` 或显式注册入口调整默认栈。
-3. 任务栈需求差异明显时使用尺寸路由 `CoPool`。
-4. 使用 `examples/stack_budget/` 做专门的栈预算分析。
-
-不要把大对象放在小协程栈上。把大缓存、可变长数据和长期状态放到堆上，并使用明确的 owner。
-
-### 9.2 worker 不是业务线程
-
-协程可能迁移 worker，所以以下做法不安全：
-
-- 把 `std::thread::id` 当成协程身份。
-- 把 worker 线程的 TLS 指针保存到跨等待状态。
-- 持有 `std::mutex` 或其他线程锁后挂起协程。
-- 假设一次 `bbtco_yield` 后仍回到同一个 worker。
-- 让一个 native 线程长期阻塞等待 runtime worker。
-
-需要跨挂起点保护业务状态时使用 `CoMutex`、`CoRWMutex`、`Chan` 或明确的消息传递。
-
-### 9.3 CPU 任务
-
-调度是协作式的。纯 CPU 任务要主动拆分并使用 `bbtco_yield`，或者投递到合适的执行池。不要在协程里运行无界循环，也不要把长时间 CPU 计算伪装成异步 I/O。
-
-worker 卡顿告警可通过 `m_cfg_worker_stall_warn_ms` 观察。性能优化前先按 [性能指南](performance.md) 的口径测量，不凭单次耗时判断调度器行为。
-
-## 10. 常见场景配方
-
-### 10.1 顺序调用多个 I/O 操作
-
-下一步依赖上一步的结果时，用顺序 async 函数；不要把其中一步改成 `fire`。见[顺序组合示例](#7-async-操作)。
-
-### 10.2 延迟提交副作用
-
-需要先构造操作，稍后由当前协程等待或 detached 提交时使用 `bbt_co_bind`。只有明确放弃最终结果时才用 `bbt_co_fire`。
-
-```cpp
-auto audit = bbt_co_bind(
-    [](std::string message) {
-        WriteAuditLog(message);
-    },
-    std::string(message));
-
-bbt_co_fire std::move(audit);
-```
-
-提交动作本身可能因 scheduler 未初始化或提交失败在调用点抛异常。业务仍需处理提交边界。
-
-### 10.3 生产者消费者
-
-使用 `Chan` 传递任务，以 `Close()` 表示不会再有新任务。消费者读到关闭且无残留数据时退出。生产者和消费者之间不共享临时栈引用。
-
-### 10.4 共享状态通知
-
-使用 `CoMutex` 保护状态，`CoCond` 负责唤醒。等待方循环检查谓词，通知方先修改状态再通知。不要把 Notify 次数当成业务状态。
-
-### 10.5 多来源事件
-
-多个缓冲 `Chan` 同时等待时使用 `CoSelect`。`Run()` 返回 `-1` 时重新检查关闭、超时和竞争状态，不能把 `-1` 直接解释成单一原因。
-
-### 10.6 有界并发
-
-使用 `CoPool` 固定 worker 数。提交失败必须检查返回码，释放池前停止提交新任务。需要等待所有任务完成时，让任务通过 `Chan` 或 future 报告结果，再由池外的控制协程调用 `Release()`。
-
-### 10.7 事件驱动的 fd 服务
-
-监听协程使用 Hook 版 `accept` / `read` / `write`，或使用 `bbtco_wait_for` 明确等待事件。每个连接的 fd 生命周期用 RAII 或 `bbtco_defer` 管理。需要一次性事件回调时使用 `bbtco_ev_*`。
-
-## 11. 常见错误对照表
-
-| 错误写法 | 结果 | 改法 |
-|---|---|---|
-| `bbtco` 中 `[&]` 捕获局部变量后立即返回 | 协程执行时引用可能悬空 | 值捕获、移动捕获或 `shared_ptr` |
-| 在 native 线程调用 `Chan::Read`、`Lock`、`Wait` | 不满足协程等待前提 | 把调用放入 `bbtco` 或使用 native 同步 API |
-| 用 `std::mutex` 持锁后调用可能挂起的 API | 阻塞其他线程或形成锁顺序问题 | 使用 `CoMutex`，或在挂起前释放 native 锁 |
-| 把 `future.wait/get` 放进 runtime worker | worker 被 native 阻塞 | 用 `Chan` / `CoCond` / 协程 async 组合 |
-| 假设 detached 协程按注册顺序执行 | 执行顺序未定义 | 用 Chan、条件变量或显式状态同步 |
-| 把进程返回当作任务收口 | detached 任务可能尚未完成 | 主任务内等待完成，再返回 |
-| 在 `CoPool` worker 内调用 `Release()` | 自等待，抛 `std::logic_error` | 由池外控制协程或 native 控制面释放 |
-| `CoSelect` 使用 `Chan<T, 0>` | 编译期拒绝 | 使用缓冲 Chan |
-| 顺序 async 函数依赖 `bbt_co_fire` 延迟执行 | 函数体已经在调用时开始执行 | 需要延迟时改用 `bbt_co_bind` |
-| `bbt_co_bind` 捕获 `string_view` 指向临时字符串 | 消费时可能访问悬空内存 | 按值保存 `std::string` |
-| 在协程中无限 CPU 循环 | 占住 worker，不会自动让出 | 拆分工作并 `bbtco_yield`，或使用合适的池 |
-| 为了使用 Hook 手动修改 fd flags | 破坏调用方和库的 flags 约定 | 保持 fd 配置，让 Hook 管理协程 I/O |
-
-## 12. 文档和示例地图
-
-| 需求 | 入口 |
-|---|---|
-| 第一次使用和场景选择 | 本文 |
-| async、bind、await、fire | [Async 调用指南](async-usage.md) |
-| 完整签名、返回码和挂起条件 | [API 参考](api-reference.md) |
-| 运行时、生命周期和网络执行域 | [核心运行时契约](../architecture/core-runtime-contract.md) |
-| 测试分层和本地验证 | [测试指南](testing.md) |
-| 性能测量和回归 | [性能指南](performance.md) |
-| 栈预算分析 | [栈预算指南](stack-budget.md) |
-| CI、发布和真实客户端验收 | [CI 指南](ci.md)、[真实客户端验收](real-client-acceptance.md) |
-| 宏速查和每个宏的底层语义 | `bbt/coroutine/syntax/SyntaxMacro.hpp` |
-| 运行时入口宏 | `bbt/coroutine/syntax/RuntimeMacros.hpp` |
-| 可编译示例 | `examples/` |
-| 调用方 Agent 规则 | `.github/skills/bbtools-coroutine/SKILL.md` |
-
-推荐先运行 `examples/` 中与目标场景相近的示例，再读取 API 参考核对返回码和生命周期。示例只展示调用方式，公共行为的断言和回归覆盖在 `tests/` 中。
+把长 CPU 工作拆成小步骤主动让出，或交给合适的执行池。遇到 worker 卡顿可先看 `m_cfg_worker_stall_warn_ms` 诊断，再按 [性能指南](performance.md) 测量，不凭示例的一次耗时判断性能。

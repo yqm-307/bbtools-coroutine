@@ -25,7 +25,7 @@
 - `Chan` 的阻塞 `Read`/`Write`
 - `CoSelect::Run`
 
-`bbtco_sleep` 在非协程走 Hook 的原生睡眠分支；应在协程内使用。
+`bbtco_sleep` 只能在受管协程中调用；原生线程使用普通睡眠 API。见 [睡眠说明](../../../../docs/guides/user-guide.md#33-bbtco_sleepms)。
 
 ## 同步原语
 
@@ -33,8 +33,8 @@
 - 同协程对同一 `CoMutex` 重入：底层 assert。
 - `CoRWMutex` 不允许持读锁再拿写锁（assert）。有写者排队时新读者会等。
 - `CoSelect` 不支持 `Chan<T,0>`，编译期 `static_assert`。
-- `CoSelect` 的 Chan 与输出变量必须活到 `Run()` 返回。
-- `CoCond` 析构时若仍有等待者，会打调试日志；先唤醒或保证等待者已退出。
+- `CoSelect` 不持有传入的 Chan；命中下标也不等于读写成功。见 [CoSelect API](../../../../docs/guides/api-reference.md#5-coselect)。
+- `CoCond` 不会替你释放业务锁，也不保存提前发出的通知。任务完成用 Chan；见 [CoCond API](../../../../docs/guides/api-reference.md#7-cocond)。
 - `<<` / `>>` 丢失 `Write`/`Read` 的 `-1`/`-2` 细节。需要区分关闭与错误时用返回码。
 
 ## CoPool

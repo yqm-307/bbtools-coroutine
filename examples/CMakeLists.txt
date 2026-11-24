@@ -7,42 +7,23 @@ set(MY_LIBS
     bbt_coroutine
 )
 
-add_executable(coroutine coroutine.cc)
-target_link_libraries(coroutine ${MY_LIBS})
+foreach(example IN ITEMS coroutine async chan select cocond comutex copool socketpair_adapter waitfor)
+    add_executable(${example} ${example}/main.cc)
+    target_link_libraries(${example} ${MY_LIBS})
+endforeach()
 
-add_executable(chan chan.cc)
-target_link_libraries(chan ${MY_LIBS})
-
-add_executable(cocond cocond.cc)
-target_link_libraries(cocond ${MY_LIBS})
-
-add_executable(comutex comutex.cc)
-target_link_libraries(comutex ${MY_LIBS})
-
-add_executable(echo_client echoserver/EchoClient.cc)
+add_executable(echo_client echoserver/client.cc)
 target_link_libraries(echo_client ${MY_LIBS})
 
-add_executable(echo_server echoserver/EchoServer.cc)
+add_executable(echo_server echoserver/server.cc)
 target_link_libraries(echo_server ${MY_LIBS})
-
-add_executable(copool copool.cc)
-target_link_libraries(copool ${MY_LIBS})
-
-add_executable(socketpair_adapter socketpair_adapter.cc)
-target_link_libraries(socketpair_adapter ${MY_LIBS})
-
-add_executable(waitfor waitfor.cc)
-target_link_libraries(waitfor ${MY_LIBS})
-
-add_executable(consumer_productor consumer_productor.cc)
-target_link_libraries(consumer_productor ${MY_LIBS})
 
 # hiredis / mysqlclient 为可选外部依赖：缺失时跳过对应示例，
 # 不阻塞核心库与其余示例构建。
 find_path(HIREDIS_INCLUDE_DIR hiredis/hiredis.h)
 find_library(HIREDIS_LIBRARY hiredis)
 if (HIREDIS_INCLUDE_DIR AND HIREDIS_LIBRARY)
-    add_executable(co_with_hiredis redis/co_with_hiredis.cc)
+    add_executable(co_with_hiredis redis/main.cc)
     target_include_directories(co_with_hiredis PRIVATE ${HIREDIS_INCLUDE_DIR})
     # 注意：bbt_coroutine 需要在 hiredis 之前，这样 hook 函数能够正确覆盖系统调用
     target_link_libraries(co_with_hiredis ${MY_LIBS} ${HIREDIS_LIBRARY} dl)
@@ -53,7 +34,7 @@ endif()
 find_path(MYSQL_INCLUDE_DIR mysql/mysql.h)
 find_library(MYSQL_LIBRARY mysqlclient)
 if (MYSQL_INCLUDE_DIR AND MYSQL_LIBRARY)
-    add_executable(co_with_mysql mysqlpp/co_with_mysql.cc)
+    add_executable(co_with_mysql mysqlpp/main.cc)
     target_include_directories(co_with_mysql PRIVATE ${MYSQL_INCLUDE_DIR})
     target_link_libraries(co_with_mysql ${MY_LIBS} pthread ${MYSQL_LIBRARY} dl)
 else()
