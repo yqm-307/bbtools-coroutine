@@ -63,7 +63,7 @@
 
 ## async / bind / await / fire
 
-- 顺序 async 函数用 `bbt_co_async(T)` 声明返回类型，在函数体内用 `bbt_co_await`，并用 `bbt_co_return(value)` 或 `bbt_co_return_void` 返回。函数体从调用开始执行。
+- 顺序 async 函数用 `bbt_co_async(T)` 声明返回类型，在函数体内用 `bbt_co_await`，并用 `bbt_co_return value;` 或 `bbt_co_return_void;` 返回。函数体从调用开始执行。
 - `bbt_co_bind` 返回惰性 `AsyncOperation<T>`，裸调用只构造操作，不执行绑定的操作体。
 - 当前协程需要最终结果、错误或完成顺序时用 `bbt_co_await`。
 - 明确放弃最终结果的惰性 detached 副作用才用 `bbt_co_fire`。顺序 async 函数体不能依赖 `fire` 推迟执行，有顺序依赖时不能用 `fire`。

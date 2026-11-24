@@ -19,10 +19,10 @@ bbt_co_async(int) Fetch(int value)
 bbt_co_async(std::unique_ptr<int>) BuildAnswer(bool ready)
 {
     if (!ready)
-        bbt_co_return(std::unique_ptr<int>{});
+        bbt_co_return std::unique_ptr<int>{};
     const int base = bbt_co_await Fetch(40);
     const int extra = bbt_co_await Fetch(2);
-    bbt_co_return(std::make_unique<int>(base + extra));
+    bbt_co_return std::make_unique<int>(base + extra);
 }
 
 int bbtco_main()

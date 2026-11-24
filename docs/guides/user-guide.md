@@ -125,7 +125,7 @@ Hook 只改变支持的系统调用如何等待，不保证第三方库线程安
 
 [async 示例](../../examples/async/main.cc) 演示两步顺序等待、提前返回、只移动结果和 detached 投递。
 
-- 顺序 `bbt_co_async(T)` 从调用时执行，在受管协程中用 `bbt_co_await` 调用；`bbt_co_return(value)` 包装最终结果，不改变执行时机。
+- 顺序 `bbt_co_async(T)` 从调用时执行，在受管协程中用 `bbt_co_await` 调用；`bbt_co_return value;` 包装最终结果，不改变执行时机。
 - `bbt_co_bind` 按值保存 callable 和参数，消费时才执行。保存后的操作用 `std::move` 交给 `bbt_co_await` 或 `bbt_co_fire`，只能消费一次。
 - `bbt_co_fire` 只用于惰性操作，且不返回最终结果。需要等待它的业务副作用时，应另设完成通知；不能靠 `fire` 推迟顺序函数体。
 

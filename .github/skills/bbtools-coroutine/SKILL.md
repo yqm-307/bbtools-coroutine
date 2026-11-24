@@ -63,7 +63,7 @@ description: >
 
 写或迁移 async API 前必须读 `docs/guides/async-usage.md`。执行以下规则：
 
-- 顺序流程用 `bbt_co_async` 声明函数返回类型，在函数体内用 `bbt_co_await` 等待，并用 `bbt_co_return(value)` 或 `bbt_co_return_void` 返回。需要把 callable 和参数保存成惰性操作时用 `bbt_co_bind`。
+- 顺序流程用 `bbt_co_async` 声明函数返回类型，在函数体内用 `bbt_co_await` 等待，并用 `bbt_co_return value;` 或 `bbt_co_return_void;` 返回。需要把 callable 和参数保存成惰性操作时用 `bbt_co_bind`。
 - `bbt_co_fire` 只用于明确放弃最终结果的 detached 副作用。
 - `bbt_co_bind` 构造的操作必须通过 `await` 或 `fire` 消费。顺序 async 函数体从调用开始执行，不能依赖 `fire` 推迟函数体。
 - 不把可能挂起的业务流程藏在普通返回类型的命名函数里；定义方式以指南为准。

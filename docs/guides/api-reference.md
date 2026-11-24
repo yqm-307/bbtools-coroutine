@@ -148,7 +148,7 @@
 默认用 `bbt_co_async(T)` 声明异步操作、用 `bbt_co_await` 调用。定义方式、适合使用 `bind` 的场景和迁移规则见 [Async 调用指南](async-usage.md)。
 
 - `bbt_co_async(T)` 是带 `[[nodiscard]]` 的 `detail::AsyncOperation<T>` 返回类型，不是原始 `T` 的类型别名；顺序 async 函数体在调用时开始执行，惰性操作由 `bbt_co_bind` 构造；可变参数宏支持类型中的逗号（如 `std::pair<int, int>`）。
-- `bbt_co_return(expr)` 按表达式推导值类型，衰减后须与声明的 `T` 一致；例如返回 `std::string` 时写 `bbt_co_return(std::string("ok"));`。`void` 用 `bbt_co_return_void;`。借用左值用 `bbt_co_return_ref(value);`；不要返回局部变量，所指对象须活到调用方最后一次使用引用。
+- `bbt_co_return expr;` 按表达式推导值类型，衰减后须与声明的 `T` 一致；例如返回 `std::string` 时写 `bbt_co_return std::string("ok");`。`void` 用 `bbt_co_return_void;`。借用左值用 `bbt_co_return_ref(value);`；不要返回局部变量，所指对象须活到调用方最后一次使用引用。
 - `bbt_co_bind(f, args...)` 在绑定时求值实参并按值保存可调用对象和参数（左值拷贝、右值移动），不调用 `f`。消费时通过 `std::invoke` 语义以右值调用保存的对象与参数，推导值、左值引用或 `void` 结果，不支持右值引用结果。要借用外部参数可传 `std::ref` / `std::cref`；它们以及指针、视图和引用捕获都不延长对象寿命。返回的引用不能指向操作内部，因为操作在 `await` 返回前销毁。
 - `bbt_co_await f()` 展开为 `detail::AwaitHelper{} ->* f()`。C++17 先求值左侧：即使 `f` 是顺序 async 函数，非协程调用也会在求值 `f` 的实参或进入函数体前抛出 `std::logic_error`。若裸写 `auto op = f();`，则没有这层入口检查，函数体立即执行；其中的 `await` 在执行到该处时才检查环境。
 - `bbt_co_await` 在当前有栈协程中执行操作，期间可通过已有 API 挂起；返回后解包。`bbt_co_fire` 将操作提交到 detached 协程，不等待最终结果。操作对象保存调用所需的参数和执行体，helper 不保存 worker/TLS 指针，恢复可迁移 worker，异常按 detached 任务契约处理。提交失败会在调用点抛出异常。

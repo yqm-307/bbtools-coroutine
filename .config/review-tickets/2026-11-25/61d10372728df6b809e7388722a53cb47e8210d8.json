@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-25",
+  "commit": "61d10372728df6b809e7388722a53cb47e8210d8",
+  "base": "1e25c9baec45195a72814074afc9732b2c01ecc3",
+  "result": "pass",
+  "reviewer": "gpt-6.2-astra independent reviewer",
+  "summary": "Reviewed the complete candidate diff; no blocking findings. Independent C++17 compilation checked unparenthesized and legacy parenthesized expressions, ternary and grouped comma expressions, move-only values, and lvalue copies. Checked the void and reference paths, documentation, and local smoke and focused test reports.",
+  "checks": [
+    {
+      "id": "llm-review",
+      "kind": "attested",
+      "status": "pass",
+      "summary": "No blocking defects found in the independent review.",
+      "evidence": {
+        "reviewer": "gpt-6.2-astra independent reviewer",
+        "scope": "Full 1e25c9baec45195a72814074afc9732b2c01ecc3..61d10372728df6b809e7388722a53cb47e8210d8 diff, including Async.hpp, syntax regression tests, examples, and public usage documentation."
+      }
+    }
+  ]
+}

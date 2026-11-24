@@ -103,7 +103,7 @@ bbt_co_async(int) Fail()
 
 bbt_co_async(int) EagerValue(int value)
 {
-    bbt_co_return(value);
+    bbt_co_return value;
 }
 
 bbt_co_async(int) EagerSequence(int value, int& steps)
@@ -112,7 +112,7 @@ bbt_co_async(int) EagerSequence(int value, int& steps)
     ++steps;
     const auto second = bbt_co_await Identity(first + 1);
     ++steps;
-    bbt_co_return(second + 1);
+    bbt_co_return second + 1;
 }
 
 bbt_co_async(void) EagerMark(int& calls)
@@ -124,6 +124,7 @@ bbt_co_async(void) EagerMark(int& calls)
 bbt_co_async(int) EagerEarly(bool fail, int& awaited)
 {
     if (fail) {
+        // 带括号的旧写法保持兼容，语义与不带括号的写法一致。
         bbt_co_return(-1);
     }
     ++awaited;
@@ -136,7 +137,8 @@ bbt_co_async(std::string) EagerString(std::string value, int& stages)
     std::string local = std::move(value);
     const std::string suffix = bbt_co_await SuspendString(" suffix", stages);
     local += suffix;
-    bbt_co_return(std::move(local));
+    // 左值返回按拷贝保存，结果不依赖函数栈上的 local 寿命。
+    bbt_co_return local;
 }
 
 bbt_co_async(int&) EagerRef(int& value)
@@ -148,7 +150,19 @@ bbt_co_async(std::unique_ptr<int>) EagerUnique(int value, int& created)
 {
     auto owned = bbt_co_await Identity(std::make_unique<int>(value));
     ++created;
-    bbt_co_return(std::move(owned));
+    bbt_co_return std::move(owned);
+}
+
+// 赋值优先级必须接住整个三元表达式，而不是只绑定条件。
+bbt_co_async(int) EagerConditional(bool choose_high, int high, int low)
+{
+    bbt_co_return choose_high ? high : low;
+}
+
+// 顶层逗号须用括号分组，括号内保持逗号表达式语义。
+bbt_co_async(int) EagerCommaExpression(int value, int& steps)
+{
+    bbt_co_return(++steps, value + 1);
 }
 
 bbt_co_async(int) EagerFail()
@@ -211,6 +225,9 @@ struct SyntaxFacts {
 
     int eager_value = 0;
     int eager_sequence = 0;
+    int eager_conditional = 0;
+    int eager_comma = 0;
+    int eager_comma_steps = -1;
     int eager_early_failed = 0;
     int eager_early_normal = 0;
     std::string eager_string;
@@ -287,6 +304,9 @@ BOOST_AUTO_TEST_CASE(values_templates_and_suspend_in_real_coroutine)
             auto eager_value = EagerValue(2);
             int sequence_steps = 0;
             auto eager_sequence = EagerSequence(3, sequence_steps);
+            auto eager_conditional = EagerConditional(false, 30, -30);
+            int comma_steps = 0;
+            auto eager_comma = EagerCommaExpression(20, comma_steps);
             int eager_calls = 0;
             auto eager_void = EagerMark(eager_calls);
             int early_awaited = 0;
@@ -321,6 +341,9 @@ BOOST_AUTO_TEST_CASE(values_templates_and_suspend_in_real_coroutine)
 
             facts.eager_value = bbt_co_await std::move(eager_value);
             facts.eager_sequence = bbt_co_await std::move(eager_sequence);
+            facts.eager_conditional = bbt_co_await std::move(eager_conditional);
+            facts.eager_comma = bbt_co_await std::move(eager_comma);
+            facts.eager_comma_steps = comma_steps;
             bbt_co_await std::move(eager_void);
             facts.eager_early_failed = bbt_co_await std::move(eager_early_failed);
             facts.eager_early_normal = bbt_co_await std::move(eager_early_normal);
@@ -414,6 +437,9 @@ BOOST_AUTO_TEST_CASE(values_templates_and_suspend_in_real_coroutine)
 
     BOOST_CHECK_EQUAL(facts.eager_value, 2);
     BOOST_CHECK_EQUAL(facts.eager_sequence, 5);
+    BOOST_CHECK_EQUAL(facts.eager_conditional, -30);
+    BOOST_CHECK_EQUAL(facts.eager_comma, 21);
+    BOOST_CHECK_EQUAL(facts.eager_comma_steps, 1);
     BOOST_CHECK_EQUAL(facts.eager_early_failed, -1);
     BOOST_CHECK_EQUAL(facts.eager_early_normal, 7);
     BOOST_CHECK_EQUAL(facts.eager_string, "request suffix");
