@@ -1,6 +1,6 @@
 # Async 调用指南
 
-常规用法是用 `bbt_co_async(T)` 显式声明可能挂起的操作，在受管协程里用 `bbt_co_await` 调用。完整契约见 [API 参考](api-reference.md#2-协程注册与调用语法)。
+先看 [可运行的 async 示例](../../examples/async/README.md)。常规用法是用 `bbt_co_async(T)` 显式声明可能挂起的操作，在受管协程里用 `bbt_co_await` 调用。完整契约见 [API 参考](api-reference.md#2-协程注册与调用语法)。
 
 ## 先记住这条规则
 

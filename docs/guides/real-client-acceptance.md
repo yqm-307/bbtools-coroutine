@@ -10,7 +10,7 @@
 
 ## Echo 场景
 
-由仓内 `examples/echoserver/EchoServer.cc` 提供 TCP 服务，Python 标准库
+由仓内 [Echo 服务端示例](../../examples/echoserver/server.cc) 提供 TCP 服务，Python 标准库
 socket 作为阻塞式客户端，覆盖：
 
 - 多客户端并发连接、重复重连；
@@ -27,7 +27,7 @@ socket 作为阻塞式客户端，覆盖：
 
 ## hiredis 场景
 
-由 `examples/redis/co_with_hiredis.cc` 使用 hiredis（1.1.0 是历史记录时的版本，本仓不 pin 依赖版本、亦未复验其当时环境）连接本机 Redis，覆盖：
+由 [hiredis 示例](../../examples/redis/main.cc) 使用同步 hiredis 接口连接本机测试 Redis，覆盖：
 
 - 10 个协程池任务，每个任务复用一个独占 `redisContext`；
 - 每个任务执行 1,000 次混合操作，总计 10,000 次写入/读取校验；
@@ -36,7 +36,7 @@ socket 作为阻塞式客户端，覆盖：
 - `EXISTS` 存在性检查；
 - 空字符串值；
 - 随机比例 `DEL` 和删除后存在性检查；
-- 每个任务独立 key，避免共享 context 造成假失败；
+- key 按进程和任务隔离，设置短期 TTL，不连接共享 Redis；
 - 统计成功任务和操作错误，错误数必须为 0。
 
 ## 执行

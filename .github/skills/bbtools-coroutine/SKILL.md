@@ -28,15 +28,10 @@ description: >
 
 ## 2. 用法
 
-| 章节 | 何时读 |
-|------|--------|
-| 基本用法 | `Start` / `bbtco` / `sleep` / `IsInitialized` |
-| 进阶用法 | Chan、锁、CoSelect、事件、Hook IO、配置 |
-| 使用范式 | 生产消费、锁+条件变量、CoPool、事件驱动 |
+写调用代码，先从 [可运行示例索引](../../../examples/README.md) 找最接近的场景，优先读对应 `.cc`。再查 [使用指南](../../../docs/guides/user-guide.md) 和 API 参考，核对返回码、所有权和挂起条件。不要把测试、压测或栈预算工具的入口复制进应用。
 
-正文：`docs/guides/user-guide.md`；Agent 规则索引：`references/usage.md`
-
-async / await / fire 的写法：`docs/guides/async-usage.md`
+- 调用规则索引：[references/usage.md](references/usage.md)
+- async / await / fire：[Async 调用指南](../../../docs/guides/async-usage.md)
 
 ## 3. API 文档
 

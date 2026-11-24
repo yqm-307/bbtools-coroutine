@@ -35,7 +35,7 @@
 - 挂起后允许恢复到其他 worker。
 - TLS（`g_bbt_tls_processer` / `g_bbt_tls_coroutine_co`）只在 worker 线程、当前协程栈上有效。
 - 无抢占：用户死循环会占住该 worker。
-- 取消是协作式：`RequestCancel` 置标志，代码在检查点或等待返回后自行退出，走 C++ 析构。
+- 取消是协作式：`RequestCancel` 置标志并尝试唤醒当前等待，代码在检查点或等待返回后自行退出，走 C++ 析构。
 
 ## 生命周期
 

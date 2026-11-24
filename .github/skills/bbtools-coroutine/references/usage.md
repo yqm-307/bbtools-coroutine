@@ -1,6 +1,6 @@
 # 调用方式索引
 
-调用 `bbtools-coroutine` 的统一主指南是 [`docs/guides/user-guide.md`](../../../../docs/guides/user-guide.md)。它按场景说明入口、协程、等待、Hook I/O、同步原语、协程池、async、资源清理和常见错误。
+写调用代码先找 [同场景的可运行示例](../../../../examples/README.md)，再读 [使用指南](../../../../docs/guides/user-guide.md) 核对边界。
 
 按任务继续阅读：
 
