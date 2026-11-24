@@ -194,7 +194,7 @@ private:
     void _RunWork(class Work* work) noexcept;
 
     /**
-     * 封口后删除滞留任务；delete 释放 promise 形成 broken_promise
+     * 封口后销毁滞留任务；释放 promise 形成 broken_promise
      */
     void _DrainQueues() noexcept;
 
@@ -215,9 +215,9 @@ private:
     const int m_max_co_num{0};
 
     /**
-     * Work* 的所有权在这里：入队即交给池，由取到它的 work 协程 delete
+     * 保留已发布的 CoPool 对象布局，不预分配块；默认任务队列由 m_work_signal 持有。
      */
-    moodycamel::ConcurrentQueue<Work*> m_works_queue;
+    moodycamel::ConcurrentQueue<Work*> m_works_queue{0};
 
     /**
      * 默认提交的检查与入队必须和封口串行；通知、排空与任务析构都在锁外。

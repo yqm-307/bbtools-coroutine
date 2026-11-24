@@ -10,8 +10,8 @@
 namespace bbt::coroutine::pool {
 
 /**
- * @brief 池任务：持有回调，带 promise 时负责把结果交付给 future。Submit* 里 new、入队即交给池，执行完
- *        立刻 delete；池停止时队列剩余的也被 delete，未兑现的 future 得到 broken_promise 而非永挂。
+ * @brief 池任务：持有回调，带 promise 时负责把结果交付给 future。入队后由池接管，未执行的任务销毁时
+ *        通过 broken_promise 兑现 future。
  */
 class Work {
 public:
@@ -71,7 +71,7 @@ private:
     CoPoolWorkCallback m_callback{nullptr};
 
     /**
-     * 与 Work 同生命期：Work 被 delete 时释放，未兑现的 future 因此拿到 broken_promise
+     * 与 Work 同生命期：Work 析构时释放，未兑现的 future 因此拿到 broken_promise
      */
     std::shared_ptr<std::promise<void>> m_promise{nullptr};
 };

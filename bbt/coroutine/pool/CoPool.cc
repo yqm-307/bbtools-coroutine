@@ -1,6 +1,6 @@
 /**
  * @file CoPool.cc
- * @brief 固定数量协程池：任务提交、异常隔离与取消式停机；队列里的 Work 由提交方分配、消费者释放。
+ * @brief 固定数量协程池：任务提交、异常隔离与取消式停机。
  */
 #include <bbt/coroutine/pool/Work.hpp>
 #include <bbt/coroutine/pool/CoPool.hpp>
@@ -17,7 +17,6 @@
 #include <algorithm>
 #include <chrono>
 #include <limits>
-#include <optional>
 #include <thread>
 #include <utility>
 
@@ -36,8 +35,7 @@ struct CoPool::WaitSignal {
     std::mutex mutex;
     std::deque<sync::CoWaiter::SPtr> waiters;
     std::atomic_uint64_t sequence{0};
-    /** 实验保留外层布局，仅验证队列按值存储的收益。 */
-    std::optional<moodycamel::ConcurrentQueue<Work>> default_queue;
+    std::unique_ptr<moodycamel::ConcurrentQueue<Work>> default_queue;
 };
 
 /**
@@ -68,7 +66,7 @@ CoPool::CoPool(int max)
     , m_work_signal(std::make_unique<WaitSignal>())
 {
     Assert(m_max_co_num > 0);
-    m_work_signal->default_queue.emplace();
+    m_work_signal->default_queue = std::make_unique<moodycamel::ConcurrentQueue<Work>>();
     _Start();
 }
 
