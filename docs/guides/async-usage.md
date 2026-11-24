@@ -8,12 +8,12 @@
 
 | 意图 | 写法 | 执行位置 | 是否等待最终结果 |
 | --- | --- | --- | --- |
-| 声明一个顺序 async 函数 | `bbt_co_async(T) Function(...)` + `bbt_co_return(...)` | 调用时开始执行 | 由调用方决定是否解包最终操作 |
+| 声明一个顺序 async 函数 | `bbt_co_async(T) Function(...)` + `bbt_co_return expr;` | 调用时开始执行 | 由调用方决定是否解包最终操作 |
 | 当前协程等待操作（默认） | `bbt_co_await Function(...)` | 当前协程 | 是 |
 | 显式提交惰性操作 | `bbt_co_fire bbt_co_bind(f, args...)` | `f` 在新 detached 协程执行 | 否 |
 | 将已有函数或闭包连同参数打包，留待执行 | `bbt_co_bind(f, args...)` | 不调用 `f` | 不适用 |
 
-顺序 async 函数在调用时执行函数体，`bbt_co_return(...)` 只包装最终结果。`bbt_co_bind` 创建的操作仍然惰性，只有 `bbt_co_await` 或 `bbt_co_fire` 才执行绑定的函数体。
+顺序 async 函数在调用时执行函数体，`bbt_co_return` 只包装最终结果。`bbt_co_bind` 创建的操作仍然惰性，只有 `bbt_co_await` 或 `bbt_co_fire` 才执行绑定的函数体。
 
 ```cpp
 bbt_co_async(int) ReadValue();
@@ -46,7 +46,7 @@ operation();                  // 错误：AsyncOperation 没有业务调用运�
 
 ## 定义异步操作
 
-`bbt_co_async(T)` 是函数返回类型。C++17 不会自动改写函数体，因此顺序 async 函数需要用 `bbt_co_return(...)` 把最终业务值包装成 `AsyncOperation<T>`。函数体从调用开始执行，内部的 `bbt_co_await` 仍然可以挂起当前有栈协程。
+`bbt_co_async(T)` 是函数返回类型。C++17 不会自动改写函数体，因此顺序 async 函数用 `bbt_co_return expr;` 把最终业务值包装成 `AsyncOperation<T>`。函数体从调用开始执行，内部的 `bbt_co_await` 仍然可以挂起当前有栈协程。
 
 ```cpp
 bbt_co_async(int) ReadValue();
@@ -54,11 +54,11 @@ bbt_co_async(int) ReadValue();
 bbt_co_async(int) ReadNextValue()
 {
     const auto value = bbt_co_await ReadValue();
-    bbt_co_return(value + 1);
+    bbt_co_return value + 1;
 }
 ```
 
-`bbt_co_return(...)` 返回一个已经完成的 `AsyncOperation<int>`，调用方仍然写 `bbt_co_await ReadNextValue()` 来解包它。
+这里返回的是已完成的 `AsyncOperation<int>`，调用方仍然写 `bbt_co_await ReadNextValue()` 来解包它。旧写法 `bbt_co_return(expr);` 仍兼容；括号现在只是给表达式分组。顶层逗号表达式必须分组，例如 `bbt_co_return (first(), second());`。
 
 `void` 函数使用 `bbt_co_return_void`，提前返回和异常仍然在函数调用时发生：
 
@@ -72,9 +72,9 @@ bbt_co_async(void) Flush(int& calls)
 bbt_co_async(int) Check(bool valid)
 {
     if (!valid) {
-        bbt_co_return(-1);
+        bbt_co_return -1;
     }
-    bbt_co_return(1);
+    bbt_co_return 1;
 }
 ```
 

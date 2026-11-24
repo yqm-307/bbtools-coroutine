@@ -115,6 +115,17 @@ template <class T> AsyncOperation<std::decay_t<T>> MakeReadyAsync(T&& value)
         [value = std::forward<T>(value)]() mutable -> AsyncReturn<Result> { return std::move(value); });
 }
 
+/**
+ * @brief 用赋值优先级接住返回表达式，包括三元表达式，但不吞掉顶层逗号。
+ */
+class ReturnHelper {
+public:
+    template <class T> AsyncOperation<std::decay_t<T>> operator=(T&& value) const
+    {
+        return MakeReadyAsync(std::forward<T>(value));
+    }
+};
+
 template <class T> AsyncOperation<T&> MakeReadyAsyncRef(T& value)
 {
     return MakeAsyncOperation<T&>([&value]() -> AsyncReturn<T&> { return value; });
@@ -197,11 +208,12 @@ public:
 #define bbt_co_async_body(...) ::bbt::coroutine::detail::AsyncReturn<__VA_ARGS__>
 
 /**
- * @brief 按值返回顺序 async 函数的结果：`bbt_co_return(value + 1);`。
+ * @brief 按值返回顺序 async 函数的结果：`bbt_co_return value + 1;`。
  *
  * 函数体在调用时执行，只有返回值被包装为已完成的 AsyncOperation。
+ * 顶层逗号表达式须加括号，例如 `bbt_co_return (first(), second());`。
  */
-#define bbt_co_return(...) return ::bbt::coroutine::detail::MakeReadyAsync((__VA_ARGS__))
+#define bbt_co_return return ::bbt::coroutine::detail::ReturnHelper{} =
 
 /**
  * @brief 返回顺序 async 函数体的 void 结果：`bbt_co_return_void;`。
