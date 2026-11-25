@@ -8,6 +8,7 @@
 #include <bbt/coroutine/detail/CoPollEvent.hpp>
 #include <bbt/coroutine/detail/WaitNode.hpp>
 #include <bbt/coroutine/detail/CoPoller.hpp>
+#include <bbt/pollevent/Event.hpp>
 #include <bbt/coroutine/detail/Profiler.hpp>
 #include <bbt/coroutine/utils/DebugPrint.hpp>
 #include <bbt/coroutine/detail/debug/DebugMgr.hpp>
@@ -163,6 +164,20 @@ void Coroutine::Yield()
     m_context.Yield();
 }
 
+void Coroutine::_YieldArmedWaitNode()
+{
+    Assert(m_run_status == CoroutineStatus::CO_RUNNING && m_wait_node != nullptr);
+    /**
+     * 已登记的 WaitNode 仍只能锁存通知；只有切回 worker 后 CommitPark 才允许发布恢复。
+     */
+    m_yield_disposition = CoroutineYieldDisposition::EVENT_WAIT;
+    m_run_status = CoroutineStatus::CO_SUSPEND;
+#ifdef BBT_COROUTINE_STRINGENT_DEBUG
+    g_bbt_dbgmgr->OnEvent_YieldCo(this);
+#endif
+    m_context.Yield();
+}
+
 int Coroutine::YieldWithCallback(const CoroutineOnYieldCallback& cb)
 {
 
@@ -306,7 +321,7 @@ void Coroutine::RequestCancel() noexcept
         return;
     }
     if (auto node = _AwaitWaitNode())
-        node->Trigger(POLL_EVENT_CANCELLED);
+        node->Interrupt(POLL_EVENT_CANCELLED);
 }
 
 bool Coroutine::IsCancelRequested() const noexcept
@@ -340,7 +355,6 @@ void Coroutine::_SetWaitNode(std::shared_ptr<WaitNode> node)
 
 bool Coroutine::_HasAwait() const
 {
-    std::lock_guard<std::mutex> lk(m_await_mu);
     return m_await_event != nullptr || m_wait_node != nullptr;
 }
 
@@ -405,14 +419,65 @@ std::shared_ptr<CoPollEvent> Coroutine::RegistCustom(int key, int timeout_ms)
     return ev;
 }
 
-std::shared_ptr<WaitNode> Coroutine::RegistWaitNode()
+std::shared_ptr<WaitNode> Coroutine::RegistWaitNode(std::function<bool(short)> on_interrupt)
 {
     if (_HasAwait())
         return nullptr;
 
-    auto node = WaitNode::Create(GetId(), [this](short event) { OnWaitNode(event); });
+    auto node = WaitNode::Create(GetId(), [this](short event) { OnWaitNode(event); }, std::move(on_interrupt));
     _SetWaitNode(node);
     return node;
+}
+
+bool Coroutine::_WaitForOperation(
+    std::chrono::steady_clock::time_point deadline,
+    std::function<bool(short)> on_interrupt,
+    const std::function<bool(const std::shared_ptr<WaitNode>&)>& publish)
+{
+    using Clock = std::chrono::steady_clock;
+    auto node = RegistWaitNode(std::move(on_interrupt));
+    if (!node || !_RegistAwaitEvent())
+        return false;
+
+    // The timer is an interrupt source, not a second await slot or resumption path.
+    std::shared_ptr<bbt::pollevent::Event> timer;
+    auto disarm = [&]() {
+        node->UnRegist();
+        _SetWaitNode(nullptr);
+        m_parked_us = 0;
+    };
+    bool ready = true;
+    bool park = false;
+    try {
+        if (deadline != Clock::time_point::max()) {
+            const auto remaining = std::chrono::ceil<std::chrono::milliseconds>(deadline - Clock::now()).count();
+            if (remaining <= 0) {
+                node->Interrupt(POLL_EVENT_TIMEOUT);
+            } else {
+                timer = g_bbt_poller->CreateEvent(
+                    -1, EventOpt::TIMEOUT, [weak = std::weak_ptr<WaitNode>(node)](int, short, bbt::pollevent::EventId) {
+                        if (auto wait = weak.lock())
+                            wait->Interrupt(POLL_EVENT_TIMEOUT);
+                    });
+                ready = timer && timer->StartListen(remaining) == 0;
+            }
+        }
+        if (ready)
+            park = publish(node);
+    } catch (...) {
+        disarm();
+        if (timer)
+            g_bbt_poller->DeferDestroyEvent(std::move(timer));
+        throw;
+    }
+
+    if (park)
+        _YieldArmedWaitNode();
+    else
+        disarm();
+    if (timer)
+        g_bbt_poller->DeferDestroyEvent(std::move(timer));
+    return ready;
 }
 
 int Coroutine::YieldUntilFdReadable(int fd)
@@ -511,13 +576,13 @@ void Coroutine::_TestFailNextAwaitRegist() noexcept
 
 bool Coroutine::_RegistAwaitEvent()
 {
-    auto await_node = _AwaitWaitNode();
+    auto* await_node = m_wait_node.get();
     if (await_node != nullptr) {
         if (s_test_fail_await_regist.exchange(false, std::memory_order_acq_rel))
             await_node->UnRegist();
 
         if (IsCancelRequested())
-            await_node->Trigger(POLL_EVENT_CANCELLED);
+            await_node->Interrupt(POLL_EVENT_CANCELLED);
 
         if (await_node->Regist() == 0) {
             m_parked_us = bbt::core::clock::gettime_mono<bbt::core::clock::microseconds>();
@@ -606,11 +671,14 @@ CoroutineYieldDisposition Coroutine::CommitYield(ProcesserId processer_id)
 
     const auto disposition = m_yield_disposition;
     if (disposition == CoroutineYieldDisposition::EVENT_WAIT) {
-        auto await_event = _AwaitEvent();
+        /**
+         * CommitPark 前外部触发只能锁存原因；发布后完成方即可清槽，
+         * 所以必须先在本地持有事件，且提交后不再读槽。
+         */
         m_wait_processer_id = processer_id;
-        if (await_event != nullptr) {
+        if (auto await_event = m_await_event) {
             await_event->CommitPark();
-        } else if (auto await_node = _AwaitWaitNode()) {
+        } else if (auto await_node = m_wait_node) {
             await_node->CommitPark();
         } else {
             Assert(false);
@@ -709,14 +777,15 @@ void Coroutine::OnCoPollEvent(int event, int custom_key)
 void Coroutine::OnWaitNode(short event)
 {
     const auto priority = _WaitResumePriority(event);
-
-    auto node = _AwaitWaitNode();
-    Assert(node != nullptr);
     m_last_resume_event = event;
     m_last_wait_fd = -1;
     m_last_wait_epoch = 0;
     m_parked_us = 0;
-    _SetWaitNode(nullptr);
+    {
+        std::lock_guard<std::mutex> lk(m_await_mu);
+        Assert(m_wait_node != nullptr);
+        m_wait_node.reset();
+    }
     m_yield_disposition = CoroutineYieldDisposition::MANUAL;
     g_scheduler->OnActiveCoroutine(priority, this, m_wait_processer_id);
 }

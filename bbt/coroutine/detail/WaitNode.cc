@@ -35,15 +35,16 @@ void ReportWaitNodeException(CoroutineId owner, uint64_t generation, const char*
 
 } // namespace
 
-WaitNode::SPtr WaitNode::Create(CoroutineId owner, OnTrigger on_trigger)
+WaitNode::SPtr WaitNode::Create(CoroutineId owner, OnTrigger on_trigger, OnInterrupt on_interrupt)
 {
-    return std::make_shared<WaitNode>(owner, std::move(on_trigger));
+    return std::make_shared<WaitNode>(owner, std::move(on_trigger), std::move(on_interrupt));
 }
 
-WaitNode::WaitNode(CoroutineId owner, OnTrigger on_trigger)
+WaitNode::WaitNode(CoroutineId owner, OnTrigger on_trigger, OnInterrupt on_interrupt)
     : m_owner(owner)
     , m_generation(_NextGeneration())
     , m_on_trigger(std::move(on_trigger))
+    , m_on_interrupt(std::move(on_interrupt))
     , m_state(_Pack(Phase::INITED, 0))
 {
 }
@@ -76,7 +77,7 @@ int WaitNode::Trigger(short trigger_events)
     auto state = m_state.load(std::memory_order_acquire);
     for (;;) {
         const auto phase = _Phase(state);
-        if (phase == Phase::INITED || phase == Phase::ARMING || phase == Phase::ARMED) {
+        if (phase == Phase::INITED || phase == Phase::ARMED) {
             if (m_state.compare_exchange_weak(
                     state, _Pack(Phase::PENDING, trigger_events), std::memory_order_acq_rel, std::memory_order_acquire))
                 return 0;
@@ -98,22 +99,22 @@ int WaitNode::Trigger(short trigger_events)
     }
 }
 
+void WaitNode::Interrupt(short events)
+{
+    if (!m_on_interrupt || m_on_interrupt(events))
+        Trigger(events);
+}
+
 int WaitNode::Regist()
 {
-    auto state = m_state.load(std::memory_order_acquire);
-    if (_Phase(state) == Phase::PENDING)
-        return 0;
-
+    /**
+     * 纯等待不向 poller 登记，中间没有需要保留的半登记状态。
+     */
     uint64_t expected = _Pack(Phase::INITED, 0);
-    if (!m_state.compare_exchange_strong(
-            expected, _Pack(Phase::ARMING, 0), std::memory_order_acq_rel, std::memory_order_acquire)) {
-        return _Phase(expected) == Phase::PENDING ? 0 : -1;
-    }
-
-    expected = _Pack(Phase::ARMING, 0);
     if (m_state.compare_exchange_strong(
-            expected, _Pack(Phase::ARMED, 0), std::memory_order_acq_rel, std::memory_order_acquire))
+            expected, _Pack(Phase::ARMED, 0), std::memory_order_acq_rel, std::memory_order_acquire)) {
         return 0;
+    }
 
     return _Phase(expected) == Phase::PENDING ? 0 : -1;
 }
@@ -150,7 +151,7 @@ int WaitNode::UnRegist()
     auto state = m_state.load(std::memory_order_acquire);
     for (;;) {
         const auto phase = _Phase(state);
-        if (phase != Phase::INITED && phase != Phase::ARMING && phase != Phase::ARMED && phase != Phase::PARKED)
+        if (phase != Phase::INITED && phase != Phase::ARMED && phase != Phase::PARKED)
             return -1;
 
         if (m_state.compare_exchange_weak(

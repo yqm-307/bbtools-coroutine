@@ -260,27 +260,31 @@ public:
 
 ### `sync::Chan<TItem, Max>`
 
-- `Max > 0`：有缓冲。`Max == 0`：无缓冲，写等到读端取走。
+- `Max > 0`：有缓冲，容量 `Max`。`Max == 0`：真零缓冲，读写双方就绪才完成一次交接，无隐藏存储。
 - 构造：`sync::Chan<int, 8>{}` 或 `bbt::coroutine::Chan<int, 8>()`（返回 `SPtr`）。
 - 不可拷贝。
+- 多生产者/多消费者：等待的写者、读者各按入队 FIFO 匹配。
 
 | 方法 | 挂起 | 返回 |
 |------|------|------|
-| `int Write(const T&)` | 缓冲满（或无缓冲未配对） | `0` 成功，`-1` 已关闭，`-2` 错误 |
-| `int Read(T&)` | 空 | 同上 |
+| `int Write(const T&)` | 缓冲满（或零缓冲未配对） | `0` 成功，`-1` 已关闭，`-2` 取消/等待失败 |
+| `int Read(T&)` | 空且无等待写者 | `0` 成功，`-1` 已关闭，`-2` 错误 |
 | `int ReadAll(vector<T>&)` | 会挂起 | 同上 |
-| `int TryWrite(const T&)` | 否 | 同上 |
-| `int TryRead(T&)` | 否 | 同上 |
-| `int TryWrite(const T&, int timeout)` | 最多 `timeout` ms | 另加 `1` 超时 |
-| `int TryRead(T&, int timeout)` | 最多 `timeout` ms | 另加 `1` 超时 |
-| `void Close()` | 否 | 唤醒等待者；缓冲 Chan 的 `Read()` 可继续取完已入队数据 |
+| `int TryWrite(const T&)` | 否 | `0` 成功，`-1` 已关闭，`-2` 缓冲满或零缓冲无等待读者（不存值）/错误 |
+| `int TryRead(T&)` | 否 | `0` 取到值，`-1` 已关闭，`-2` 无数据/错误 |
+| `int TryWrite(const T&, int timeout)` | 最多 `timeout` ms | `0` 交接，`1` 超时，`-1` 关闭，`-2` 取消/错误 |
+| `int TryRead(T&, int timeout)` | 最多 `timeout` ms | `0` 取到，`1` 超时，`-1` 关闭，`-2` 取消/错误 |
+| `void Close()` | 否 | 见下 |
 | `bool IsClosed()` | 否 | |
 | `size_t size() const` | 否 | 当前缓冲数量 |
 | `size_t capacity() const` | 否 | `Max` |
 
+- 关闭语义：`Close()` 唤醒所有仍在等待的写者返回 `-1`。缓冲通道已入缓冲的残留仍可被 `Read`/`ReadAll` 按 FIFO 排空，排空后读返回 `-1`，两种 `TryRead` 关闭后直接 `-1`；零缓冲无残留，等待读写均 `-1`。
+- 首胜不可撤回：交接一旦完成，随后的 `Close()`/取消不撤回已交付的值；阻塞/限时写在交接前被取消返回 `-2`。
+- 异常：读端出参赋值抛异常时该次交接终止，元素不留给后续读者；零缓冲（`Max == 0`）阻塞/限时写者因此得失败，缓冲写入接纳即完成、不被读端异常反判。`ReadAll` 批量追加中途抛异常时，已追加项保留在调用方容器，已取出未追加项不回队。
 - `bool operator<<(Chan&, const T&)` / `operator>>` 及 `shared_ptr` 重载：等价 `Write`/`Read == 0`。
 - 析构：未关闭则 `Close()`。
-- `Add*Watcher`：供 `CoSelect` 使用。
+- `Add*Watcher`：供 `CoSelect` 使用（缓冲通道）。
 - 会挂起的读写必须在协程内。
 - 缓冲 Chan 的 `TryRead()` 和 `TryRead(out, timeout)` 遇到已经关闭的通道会直接返回 `-1`，不能替代 `Read()` 排空已关闭的通道。
 
@@ -301,7 +305,7 @@ int idx = sync::CoSelect()
 - `Run()` 必须在协程内。返回命中 Case 的注册下标：读写成功或 Chan 已关闭都算命中；关闭时不会写入 `out`。`-1` 表示没有命中，可能是超时、`Default()` 或唤醒后仍未就绪。
 - `CaseTimeout(ms)` 与 `Default()` 同时出现时 Default 优先（不挂起）。
 - `Default()`：全部未就绪立即 `-1`。
-- 仅 `Max > 0`。`Chan<T,0>` 为 `static_assert`。
+- 仅 `Max > 0`。`Chan<T,0>` 为 `static_assert` 拒绝（零缓冲 `CoSelect` 为后续专项）。
 - 引用与 `SPtr` 重载都只在 case 中借用 Chan；调用方保证 Chan 和 `out` 活到 `Run()` 返回。
 
 ---

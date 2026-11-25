@@ -3,6 +3,8 @@
  */
 #pragma once
 #include <atomic>
+#include <chrono>
+#include <functional>
 #include <bbt/coroutine/detail/CfsRunQueue.hpp>
 #include <exception>
 #include <memory>
@@ -15,6 +17,7 @@
 namespace bbt::coroutine::sync {
 class CoWaiter;
 class CoMutex;
+template <class TItem, int Max> class ChannelCore;
 } // namespace bbt::coroutine::sync
 
 namespace bbt::coroutine::detail {
@@ -58,6 +61,7 @@ public:
      */
     friend class bbt::coroutine::sync::CoWaiter;
     friend class bbt::coroutine::sync::CoMutex;
+    template <class TItem, int Max> friend class bbt::coroutine::sync::ChannelCore;
     friend class Scheduler;
     friend class Processer;
 
@@ -246,15 +250,26 @@ protected:
 
 private:
     /**
-     * 挂起后注册当前 await 事件：先做取消预检与单测注入，注册失败则清 await、回滚 disposition。
+     * 调度侧在 CommitPark 前注册 await 事件；此时外部触发不能清槽。
+     * 先做取消预检与单测注入，注册失败则清 await、回滚 disposition。
      */
     bool _RegistAwaitEvent();
+    void _YieldArmedWaitNode();
 
     CoroutinePriority _WaitResumePriority(int event) noexcept;
-    std::shared_ptr<WaitNode> RegistWaitNode();
+    std::shared_ptr<WaitNode> RegistWaitNode(std::function<bool(short)> on_interrupt = {});
+
+    // Publish only after the wait is armed. False from publish means no park is needed.
+    bool _WaitForOperation(
+        std::chrono::steady_clock::time_point deadline,
+        std::function<bool(short)> on_interrupt,
+        const std::function<bool(const std::shared_ptr<WaitNode>&)>& publish);
 
     std::shared_ptr<WaitNode> _AwaitWaitNode() const;
     void _SetWaitNode(std::shared_ptr<WaitNode> node);
+    /**
+     * 仅当前运行中的协程在让出前检查；外部取消只读槽，不能在此时完成等待。
+     */
     bool _HasAwait() const;
 
     /**
@@ -287,11 +302,11 @@ private:
 
     /**
      * 当前 fd/timer 事件：挂起前建好、挂起后注册，唤醒时被消费清空。
-     * 由 m_await_mu 保护，所以 poller 派发和其他 worker 的 Notify 能取到引用并 Trigger。
+     * 写入及外部取引用由 m_await_mu 保护；CommitPark 前只有协程所属 worker 能写。
      */
     std::shared_ptr<CoPollEvent> m_await_event{nullptr};
     /**
-     * 当前纯 custom 等待节点，与 m_await_event 互斥，只在一次等待代次内存活。
+     * 当前纯 custom 等待节点，与 m_await_event 互斥，遵循相同的保护规则。
      */
     std::shared_ptr<WaitNode> m_wait_node{nullptr};
     mutable std::mutex m_await_mu;

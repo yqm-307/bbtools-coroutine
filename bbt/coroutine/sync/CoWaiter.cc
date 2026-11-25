@@ -48,13 +48,20 @@ int CoWaiter::_WaitCustom(const detail::CoroutineOnYieldCallback& cb)
     }
 
     try {
-        const auto ret = coroutine->YieldWithCallback([coroutine, cb]() {
-            if (!coroutine->_RegistAwaitEvent())
-                return false;
-            if (cb)
-                cb();
-            return true;
-        });
+        int ret;
+        {
+            /**
+             * 回调副本留在本次等待栈上；挂起回调在等待返回前执行完，不必再复制它。
+             */
+            const auto on_registered = cb;
+            ret = coroutine->YieldWithCallback([coroutine, &on_registered]() {
+                if (!coroutine->_RegistAwaitEvent())
+                    return false;
+                if (on_registered)
+                    on_registered();
+                return true;
+            });
+        }
 
         std::lock_guard<std::mutex> lock(m_notify_mutex);
         if (m_wait_node == wait_node) {
@@ -112,11 +119,12 @@ CoWaiter::_WaitCustom(const WaitOptions& options, const detail::CoroutineOnYield
 
     int yield_ret = 0;
     try {
-        yield_ret = coroutine->YieldWithCallback([coroutine, cb]() {
+        const auto on_registered = cb;
+        yield_ret = coroutine->YieldWithCallback([coroutine, &on_registered]() {
             if (!coroutine->_RegistAwaitEvent())
                 return false;
-            if (cb)
-                cb();
+            if (on_registered)
+                on_registered();
             return true;
         });
     } catch (...) {

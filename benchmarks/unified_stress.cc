@@ -238,10 +238,15 @@ static void stress_chan()
         {
             uint64_t v = 0;
             while (g_running) {
-                g_ch_buf.Write(v++);
-                g_mt_chan.chan_writes++;
+                int ret = g_ch_buf.Write(v++);
+                if (ret == 0) {
+                    g_mt_chan.chan_writes++;
+                    g_mt_chan.ops_total++;
+                } else if (ret == -2)
+                    g_mt_chan.chan_write_failures++;
+                else if (ret != -1)
+                    g_mt_chan.errors++;
                 cpu_yield();
-                g_mt_chan.ops_total++;
             };
         };
     for (int i = 0; i < 10; ++i)
@@ -249,10 +254,15 @@ static void stress_chan()
         {
             uint64_t v;
             while (g_running) {
-                g_ch_buf.Read(v);
-                g_mt_chan.chan_reads++;
+                int ret = g_ch_buf.Read(v);
+                if (ret == 0) {
+                    g_mt_chan.chan_reads++;
+                    g_mt_chan.ops_total++;
+                } else if (ret == -2)
+                    g_mt_chan.chan_read_failures++;
+                else if (ret != -1)
+                    g_mt_chan.errors++;
                 cpu_yield();
-                g_mt_chan.ops_total++;
             };
         };
     for (int i = 0; i < 3; ++i)
@@ -260,10 +270,15 @@ static void stress_chan()
         {
             uint64_t v = 0;
             while (g_running) {
-                g_ch_nb.Write(v++);
-                g_mt_chan.chan_writes++;
+                int ret = g_ch_nb.Write(v++);
+                if (ret == 0) {
+                    g_mt_chan.chan_writes++;
+                    g_mt_chan.ops_total++;
+                } else if (ret == -2)
+                    g_mt_chan.chan_write_failures++;
+                else if (ret != -1)
+                    g_mt_chan.errors++;
                 cpu_yield();
-                g_mt_chan.ops_total++;
             };
         };
     for (int i = 0; i < 3; ++i)
@@ -271,10 +286,15 @@ static void stress_chan()
         {
             uint64_t v;
             while (g_running) {
-                g_ch_nb.Read(v);
-                g_mt_chan.chan_reads++;
+                int ret = g_ch_nb.Read(v);
+                if (ret == 0) {
+                    g_mt_chan.chan_reads++;
+                    g_mt_chan.ops_total++;
+                } else if (ret == -2)
+                    g_mt_chan.chan_read_failures++;
+                else if (ret != -1)
+                    g_mt_chan.errors++;
                 cpu_yield();
-                g_mt_chan.ops_total++;
             };
         };
 }
@@ -307,15 +327,14 @@ static void stress_chan_close()
         int ret = 0;
         while ((ret = g_close_buf.Read(v)) == 0) {
             n++;
+            g_mt_chan.chan_reads++;
             g_mt_chan.ops_total++;
         }
 
         /**
          * ret == -1: 关闭+空 ✅
          */
-        if (ret == -1)
-            g_mt_chan.chan_reads++;
-        else
+        if (ret != -1)
             g_mt_chan.errors++;
     };
 }
