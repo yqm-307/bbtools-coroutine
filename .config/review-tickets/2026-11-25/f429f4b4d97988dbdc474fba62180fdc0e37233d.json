@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-25",
+  "commit": "f429f4b4d97988dbdc474fba62180fdc0e37233d",
+  "base": "d11679b3f034060e7428f3c1b5c86cb902d358e6",
+  "result": "pass",
+  "reviewer": "Independent reviewer gpt-6.2-astra (deleg_be5cc83a)",
+  "summary": "Ship, high confidence, no blocking findings. Reviewed the complete six-file diff: exact PR/base/head binding, approval parsing, expected skip aggregation, unchanged main/release checks, tests and docs. Hosted execution with a configured approval remains unverified.",
+  "checks": [
+    {
+      "id": "llm-review",
+      "kind": "attested",
+      "status": "pass",
+      "summary": "Independent read-only review confirmed all three requirement groups; no findings.",
+      "evidence": {
+        "reviewer": "deleg_be5cc83a",
+        "scope": "Full d11679b3f034060e7428f3c1b5c86cb902d358e6..f429f4b4d97988dbdc474fba62180fdc0e37233d diff; SHA-256 1f7e5a734dcfbe773a47f5b7172a9b29a7175998652055a9e1aa37327b31d2c1."
+      }
+    }
+  ]
+}
