@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-25",
+  "commit": "3b455a74611e1a5aec506acafce2f58f6b7f6f7e",
+  "base": "b5b308bb617e373f12bf998c76369e3909302a91",
+  "result": "pass",
+  "reviewer": "Composed independent reviews: deleg_42d23a60, deleg_e872b3d1, deleg_70e2bbe7, deleg_e68049a1, deleg_86a7d8f9, deleg_2218ef15, deleg_be5cc83a",
+  "summary": "The complete feature range was independently reviewed by risk area before this main update. Unified Chan core and perf foundation shipped in deleg_e872b3d1 and deleg_42d23a60; buffered fast path and documentation constraints shipped in deleg_70e2bbe7 and deleg_e68049a1; benchmark counting/reporting correction shipped in deleg_86a7d8f9 and deleg_2218ef15; the CI waiver mechanism shipped in deleg_be5cc83a. This merge commit only integrates the already reviewed feature range with main. No unreviewed product changes were added by the merge.",
+  "checks": [
+    {
+      "id": "llm-review",
+      "kind": "attested",
+      "status": "pass",
+      "summary": "Composed independent review evidence covers the complete feature range and the CI waiver change.",
+      "evidence": {
+        "reviewer": "deleg_42d23a60; deleg_e872b3d1; deleg_70e2bbe7; deleg_e68049a1; deleg_86a7d8f9; deleg_2218ef15; deleg_be5cc83a",
+        "scope": "Full b5b308bb617e373f12bf998c76369e3909302a91..3b455a74611e1a5aec506acafce2f58f6b7f6f7e range, covering unified Chan core, perf foundation, buffered fast path, docs, tests, benchmark counting/reporting, and CI waiver files."
+      }
+    }
+  ]
+}
