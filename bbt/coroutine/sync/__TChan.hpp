@@ -122,6 +122,19 @@ public:
                 return Result(State::Unavailable);
         }
 
+        /**
+         * 缓冲即时写必然在 Admit 内完成（不挂起、不入队），用栈 Operation 即可，
+         * 省去共享等待记录与读取结果的再次加锁；元素复制仍在锁外。
+         */
+        if constexpr (Max > 0) {
+            if (mode == Mode::Immediate) {
+                auto value = std::make_unique<TItem>(item);
+                Operation op(true, value, Clock::time_point::max());
+                Admit(op, Op{}, co, mode, Wait{});
+                return Result(op.state);
+            }
+        }
+
         const auto deadline = Deadline(mode, timeout);
         auto value = std::make_unique<TItem>(item);
         auto op = std::make_shared<Operation>(true, value, deadline);
@@ -137,6 +150,21 @@ public:
 
     template <class Deliver> int Receive(Deliver deliver, Mode mode, int timeout = 0, bool all = false)
     {
+        /**
+         * 缓冲即时读（含空读探测）必然在 Admit 内完成，用栈 Operation 单锁即可。
+         * 命中后锁外 deliver；缓冲读无写者回执，赋值抛异常时值已出队不回队，直接外抛。
+         */
+        if constexpr (Max > 0) {
+            if (mode == Mode::Immediate && !all) {
+                Value value;
+                Operation op(false, value, Clock::time_point::max());
+                Admit(op, Op{}, CurrentCoroutine(), mode, Wait{});
+                if (op.state != State::Matched)
+                    return Result(op.state);
+                deliver(std::as_const(*value));
+                return Result(State::Completed);
+            }
+        }
         Value value;
         Batch batch;
         if constexpr (Max > 1) {
@@ -189,7 +217,7 @@ public:
                 while (m_size != 0 && !m_receivers.empty()) {
                     const auto& receiver = m_receivers.front();
                     if (receiver->drain_on_close) {
-                        ReserveBuffered(receiver);
+                        ReserveBuffered(*receiver);
                         receiver->position.reset();
                         matched.splice(matched.end(), m_receivers, m_receivers.begin());
                     } else {
@@ -270,7 +298,7 @@ private:
 
     void Start(const Op& op, detail::Coroutine* co, Mode mode)
     {
-        if (Admit(op, co, mode, {}) != Attempt::Register)
+        if (Admit(*op, op, co, mode, {}) != Attempt::Register)
             return;
 
         if (!co
@@ -283,24 +311,24 @@ private:
                            && owner->Resolve(
                                operation, events == detail::POLL_EVENT_TIMEOUT ? State::TimedOut : State::Cancelled);
                 },
-                [&](const Wait& wait) { return Admit(op, co, mode, wait) == Attempt::Park; })) {
+                [&](const Wait& wait) { return Admit(*op, op, co, mode, wait) == Attempt::Park; })) {
             Resolve(op, State::Unavailable);
         }
     }
 
-    Attempt Admit(const Op& op, detail::Coroutine* co, Mode mode, const Wait& wait)
+    Attempt Admit(Operation& op, const Op& owned, detail::Coroutine* co, Mode mode, const Wait& wait)
     {
         Queue expired;
         Queue pending;
         Queue admitted;
         if (wait)
-            pending.push_back(op);
+            pending.push_back(owned);
         Op reader_to_wake;
         Attempt next;
         {
             detail::DriverWakeDeferral defer;
             std::lock_guard<std::mutex> lock(m_mutex);
-            next = AdmitLocked(op, co, mode, wait, pending, expired, admitted, reader_to_wake);
+            next = AdmitLocked(op, owned, co, mode, wait, pending, expired, admitted, reader_to_wake);
         }
         SignalSends(expired, admitted);
         if (reader_to_wake)
@@ -309,7 +337,8 @@ private:
     }
 
     Attempt AdmitLocked(
-        const Op& op,
+        Operation& op,
+        [[maybe_unused]] const Op& owned,
         detail::Coroutine* co,
         Mode mode,
         const Wait& wait,
@@ -318,27 +347,27 @@ private:
         Queue& admitted,
         Op& reader_to_wake)
     {
-        if (op->state != State::Pending)
+        if (op.state != State::Pending)
             return Attempt::Done;
         /**
          * 缓冲残留只允许 Read / ReadAll 排空；两种 TryRead 都将关闭视为终态。
          */
-        if (m_closed && (!op->drain_on_close || m_size == 0)) {
-            op->state = State::Closed;
+        if (m_closed && (!op.drain_on_close || m_size == 0)) {
+            op.state = State::Closed;
             return Attempt::Done;
         }
         if (co && co->IsCancelRequested()) {
-            op->state = State::Cancelled;
+            op.state = State::Cancelled;
             return Attempt::Done;
         }
         const auto now = Clock::now();
-        if (op->deadline <= now) {
-            op->state = State::TimedOut;
+        if (op.deadline <= now) {
+            op.state = State::TimedOut;
             return Attempt::Done;
         }
 
         if constexpr (Max > 0) {
-            if (!op->sending && m_size != 0) {
+            if (!op.sending && m_size != 0) {
                 ReserveBuffered(op);
 
                 /**
@@ -350,55 +379,63 @@ private:
             }
         }
 
-        auto& peers = op->sending ? m_receivers : m_senders;
+        auto& peers = op.sending ? m_receivers : m_senders;
         ExpireFront(peers, now, expired);
-        const bool await_delivery = Max == 0 && op->sending && mode != Mode::Immediate;
+        const bool await_delivery = Max == 0 && op.sending && mode != Mode::Immediate;
         if (!peers.empty()) {
             if (await_delivery && !wait)
                 return Attempt::Register;
             auto peer = std::move(peers.front());
             peers.pop_front();
             peer->position.reset();
-            const auto& sender = op->sending ? op : peer;
-            const auto& receiver = op->sending ? peer : op;
-            receiver->state = State::Matched;
-            receiver->value = std::move(sender->value);
-
             /**
              * 有缓冲写入在接纳值时完成，即使等待读者直接取得该值。
              * 只有零缓冲交接的阻塞写者等待接收端赋值结果。
              */
-            if constexpr (Max == 0) {
-                op->wait = wait;
-                sender->state = State::Matched;
-                receiver->sender = sender;
-            } else {
-                sender->state = State::Completed;
-            }
-            if (op->sending)
+            if (op.sending) {
+                peer->value = std::move(op.value);
+                peer->state = State::Matched;
+                if constexpr (Max == 0) {
+                    op.wait = wait;
+                    op.state = State::Matched;
+                    peer->sender = owned;
+                } else {
+                    op.state = State::Completed;
+                }
                 reader_to_wake = std::move(peer);
+            } else {
+                op.value = std::move(peer->value);
+                op.state = State::Matched;
+                if constexpr (Max == 0) {
+                    op.wait = wait;
+                    peer->state = State::Matched;
+                    op.sender = peer;
+                } else {
+                    peer->state = State::Completed;
+                }
+            }
             return await_delivery ? Attempt::Park : Attempt::Done;
         }
 
         if constexpr (Max > 0) {
-            if (op->sending && m_size < Max) {
-                PushBuffered(std::move(op->value));
-                op->state = State::Completed;
+            if (op.sending && m_size < Max) {
+                PushBuffered(std::move(op.value));
+                op.state = State::Completed;
                 NotifyWatchers(m_readWatchers);
                 return Attempt::Done;
             }
         }
 
-        if (mode == Mode::Immediate || (mode == Mode::Timed && op->deadline == Clock::time_point::max())) {
-            op->state = mode == Mode::Immediate ? State::Unavailable : State::TimedOut;
+        if (mode == Mode::Immediate || (mode == Mode::Timed && op.deadline == Clock::time_point::max())) {
+            op.state = mode == Mode::Immediate ? State::Unavailable : State::TimedOut;
             return Attempt::Done;
         }
         if (!wait)
             return Attempt::Register;
-        auto& queue = op->sending ? m_senders : m_receivers;
-        op->position = pending.begin();
+        auto& queue = op.sending ? m_senders : m_receivers;
+        op.position = pending.begin();
         queue.splice(queue.end(), pending);
-        op->wait = wait;
+        op.wait = wait;
         return Attempt::Park;
     }
 
@@ -429,16 +466,16 @@ private:
         return value;
     }
 
-    void ReserveBuffered(const Op& receiver)
+    void ReserveBuffered(Operation& receiver)
     {
-        receiver->value = PopBuffered();
+        receiver.value = PopBuffered();
         ReserveBatchTail(receiver, Max - 1);
-        receiver->state = State::Matched;
+        receiver.state = State::Matched;
     }
 
-    void ReserveBatchTail(const Op& receiver, size_t limit)
+    void ReserveBatchTail(Operation& receiver, size_t limit)
     {
-        if (auto* batch = std::exchange(receiver->batch, nullptr)) {
+        if (auto* batch = std::exchange(receiver.batch, nullptr)) {
             while (m_size != 0 && batch->size() < limit)
                 batch->push_back(PopBuffered());
         }
@@ -458,7 +495,7 @@ private:
              * 空等的 ReadAll 已取得直接交接的首值，恢复时再取当下的缓冲快照。
              * 快照包括首值在内最多 Max 个元素，不把本轮补位纳入快照。
              */
-            ReserveBatchTail(receiver, Max - 1);
+            ReserveBatchTail(*receiver, Max - 1);
             OnBufferSpace(Clock::now(), expired, admitted);
         }
         SignalSends(expired, admitted);
