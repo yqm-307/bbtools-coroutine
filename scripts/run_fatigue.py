@@ -192,6 +192,8 @@ def compute_summary(module_name: str, metrics: List[dict], wall_s: float) -> dic
         "cond_avg_us": cond_avg_vals[-1] if cond_avg_vals else 0,
         "chan_reads": last.get("chan_reads", 0),
         "chan_writes": last.get("chan_writes", 0),
+        "chan_read_failures": last.get("chan_read_failures", 0),
+        "chan_write_failures": last.get("chan_write_failures", 0),
         "pool_tasks": last.get("pool_tasks", 0),
         "pool_completed": last.get("pool_completed", 0),
         "pool_dropped": last.get("pool_dropped", 0),
@@ -251,9 +253,12 @@ def generate_markdown(run_id: str, summaries: List[dict],
             lines.append(f"| cond_signals | {s['cond_signals']:,} |")
             lines.append(f"| cond_timeouts | {s['cond_timeouts']:,} |")
 
-        if s.get("chan_reads", 0) > 0:
-            lines.append(f"| chan_reads | {s['chan_reads']:,} |")
-            lines.append(f"| chan_writes | {s['chan_writes']:,} |")
+        if any(s.get(key, 0) > 0 for key in (
+                "chan_reads", "chan_writes", "chan_read_failures", "chan_write_failures")):
+            lines.append(f"| chan_reads | {s.get('chan_reads', 0):,} |")
+            lines.append(f"| chan_writes | {s.get('chan_writes', 0):,} |")
+            lines.append(f"| chan_read_failures | {s.get('chan_read_failures', 0):,} |")
+            lines.append(f"| chan_write_failures | {s.get('chan_write_failures', 0):,} |")
 
         if s.get("pool_tasks", 0) > 0:
             lines.append(f"| pool_tasks | {s['pool_tasks']:,} |")

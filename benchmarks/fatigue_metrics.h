@@ -79,9 +79,13 @@ struct Metrics {
 
     /**
      * ── Chan ──
+     * chan_reads/chan_writes count successful operations. Expected rejected
+     * attempts are reported separately so ops_total never rewards a failed call.
      */
     std::atomic<uint64_t> chan_reads{0};
     std::atomic<uint64_t> chan_writes{0};
+    std::atomic<uint64_t> chan_read_failures{0};
+    std::atomic<uint64_t> chan_write_failures{0};
     std::atomic<uint64_t> chan_read_blocks{0};
     std::atomic<uint64_t> chan_write_blocks{0};
 
@@ -153,6 +157,8 @@ struct Metrics {
         double cond_avg_us = ccnt > 0 ? (double)csum / ccnt : 0;
         uint64_t cr = chan_reads.load();
         uint64_t cw_ch = chan_writes.load();
+        uint64_t crf = chan_read_failures.load();
+        uint64_t cwf = chan_write_failures.load();
         uint64_t crb = chan_read_blocks.load();
         uint64_t cwb = chan_write_blocks.load();
         uint64_t pt = pool_tasks.load();
@@ -187,6 +193,8 @@ struct Metrics {
             "\"cond_avg_us\":%.1f,"
             "\"chan_reads\":%lu,"
             "\"chan_writes\":%lu,"
+            "\"chan_read_failures\":%lu,"
+            "\"chan_write_failures\":%lu,"
             "\"chan_read_blocks\":%lu,"
             "\"chan_write_blocks\":%lu,"
             "\"pool_tasks\":%lu,"
@@ -215,6 +223,8 @@ struct Metrics {
             cond_avg_us,
             (unsigned long)cr,
             (unsigned long)cw_ch,
+            (unsigned long)crf,
+            (unsigned long)cwf,
             (unsigned long)crb,
             (unsigned long)cwb,
             (unsigned long)pt,
