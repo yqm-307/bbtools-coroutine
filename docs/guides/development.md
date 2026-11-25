@@ -68,7 +68,7 @@ PR 快速反馈，main 快速集成，Release 严格发布。普通改动先自�
 以下检查是 PR 合入 main 的硬门槛（均为分钟级）：
 
 - `编译 & 单元测试`（hosted `ubuntu-24.04`：Boost 1.90 context 私有前缀、Release 构建、全量 smoke 标签集经 `run_test_profile.sh --profile smoke` 单跑；docs-only 变更时该 job 由分类器判为 optional 显式 skip，不伪造 success）
-- `性能回归检查`（同 runner 顺序构建 base+head 的 `unified_stress`，六模块 45s×2 threads 严格比较；缺证据、`errors>0`、zero ops、NaN/inf 一律 `exit 2` fail-closed，不以 skipped 或空成功置绿）
+- `性能回归检查`（同 runner 比较 base/head；触发条件、结果判定和 PR 豁免见 [CI 指南](ci.md)）
 
 两个 check 的语义与边界以 `docs/guides/ci.md` 为准，本文不复制细节。
 
