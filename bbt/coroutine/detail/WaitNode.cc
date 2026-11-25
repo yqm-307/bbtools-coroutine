@@ -35,15 +35,16 @@ void ReportWaitNodeException(CoroutineId owner, uint64_t generation, const char*
 
 } // namespace
 
-WaitNode::SPtr WaitNode::Create(CoroutineId owner, OnTrigger on_trigger)
+WaitNode::SPtr WaitNode::Create(CoroutineId owner, OnTrigger on_trigger, OnInterrupt on_interrupt)
 {
-    return std::make_shared<WaitNode>(owner, std::move(on_trigger));
+    return std::make_shared<WaitNode>(owner, std::move(on_trigger), std::move(on_interrupt));
 }
 
-WaitNode::WaitNode(CoroutineId owner, OnTrigger on_trigger)
+WaitNode::WaitNode(CoroutineId owner, OnTrigger on_trigger, OnInterrupt on_interrupt)
     : m_owner(owner)
     , m_generation(_NextGeneration())
     , m_on_trigger(std::move(on_trigger))
+    , m_on_interrupt(std::move(on_interrupt))
     , m_state(_Pack(Phase::INITED, 0))
 {
 }
@@ -96,6 +97,12 @@ int WaitNode::Trigger(short trigger_events)
             return _Complete(trigger_events);
         }
     }
+}
+
+void WaitNode::Interrupt(short events)
+{
+    if (!m_on_interrupt || m_on_interrupt(events))
+        Trigger(events);
 }
 
 int WaitNode::Regist()

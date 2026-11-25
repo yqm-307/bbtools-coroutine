@@ -3,6 +3,14 @@
  * @brief Chan 的模板实现，由 Chan.hpp 末尾包含。
  */
 #pragma once
+#include <algorithm>
+#include <array>
+#include <chrono>
+#include <list>
+#include <mutex>
+#include <optional>
+#include <type_traits>
+#include <utility>
 #include <bbt/core/clock/Clock.hpp>
 #include <bbt/core/util/Assert.hpp>
 #include <bbt/coroutine/sync/Chan.hpp>
@@ -11,616 +19,9 @@
 #include <bbt/coroutine/detail/Processer.hpp>
 #include <bbt/coroutine/detail/LocalThread.hpp>
 #include <bbt/coroutine/detail/DriverWakeDeferral.hpp>
+#include <bbt/coroutine/detail/WaitNode.hpp>
 
 namespace bbt::coroutine::sync {
-
-/**
- * @name inline helpers
- * @{
- */
-
-/**
- * RAII guard: 异常路径自动重置 m_is_reading
- */
-struct ChanReadGuard {
-    std::atomic_bool& flag;
-
-    ~ChanReadGuard() { flag.store(false, std::memory_order_release); }
-};
-
-/**
- * @}
- */
-
-/**
- * @name buffered Chan (Max > 0)
- * @{
- */
-
-template <class TItem, int Max>
-Chan<TItem, Max>::Chan()
-    : m_max_size(Max)
-    , m_enable_read_cond(CoWaiter::Create())
-{
-    Assert(m_max_size >= 0);
-    m_run_status.store(ChanStatus::CHAN_OPEN, std::memory_order_release);
-}
-
-template <class TItem, int Max> Chan<TItem, Max>::~Chan()
-{
-    if (!IsClosed())
-        Close();
-}
-
-template <class TItem, int Max> int Chan<TItem, Max>::Write(const ItemType& item)
-{
-    if (IsClosed())
-        return -1;
-
-    std::unique_lock<std::mutex> lock(m_item_queue_mutex);
-
-    /**
-     * Close() 的 CHAN_CLOSE 置位不持锁，可在首次 IsClosed() 检查与锁获取
-     * 之间完成；锁内复查封闭"关闭后仍写入"窗口（Close 后 Write 必须 -1）
-     */
-    if (IsClosed())
-        return -1;
-
-    while (m_item_queue.size() >= (size_t)m_max_size) {
-        auto enable_write_cond = _CreateEnableWriteCond();
-
-        lock.unlock();
-
-        /**
-         * 注册后入队协议：waiter 只在其等待事件登记成功后的回调里才进入
-         * m_enable_write_conds——否则 reader 可在 unlock→Wait 登记之间 pop
-         * 它并 Notify（此时 m_co_event==nullptr，Notify 返回 -1），waiter 已
-         * 离队，writer 随后永久 park。回调内持 chan 锁复查容量/关闭：条件
-         * 已满足则自 Notify 走 PENDING 早到路径，不得只入队而不复查。
-         */
-        int ret = _WaitUntilEnableWrite(enable_write_cond, [this, enable_write_cond]() {
-            _RegisterEnableWriteCond(
-                enable_write_cond, [this]() { return !IsClosed() && m_item_queue.size() >= (size_t)m_max_size; });
-            return true;
-        });
-        if (ret != 0) {
-
-            /**
-             * 等待失败：若 waiter 已入队，Cancel 使其永久 Notify==-1，
-             * 由 _OnEnableWrite 跳过，避免吞掉后续 writer 的唤醒
-             */
-            enable_write_cond->Cancel();
-            return -2;
-        }
-
-        if (IsClosed())
-            return -1;
-
-        lock.lock();
-    }
-
-    /**
-     * 通知段仍持 m_item_queue_mutex：driver Wake 须锁外。先建 deferral，
-     * 再把等待循环用的 unique_lock 移入内层局部——任何退出（含异常）
-     * 都先解锁、后 flush pending，guard 不覆盖此前可能 Yield 的循环。
-     */
-    detail::DriverWakeDeferral _defer;
-    {
-        std::unique_lock<std::mutex> tail_lock(std::move(lock));
-        m_item_queue.push(item);
-
-        /**
-         * 读 watcher 不受 m_is_reading 门控：CoSelect 等待者不置该标志
-         */
-        if (m_is_reading || !m_read_watchers.empty())
-            _OnEnableRead();
-    }
-
-    return 0;
-}
-
-template <class TItem, int Max> int Chan<TItem, Max>::Read(ItemType& item)
-{
-    bool expect = false;
-    if (!m_is_reading.compare_exchange_strong(expect, true))
-        return -2;
-
-    ChanReadGuard guard{m_is_reading};
-
-    if (IsClosed()) {
-        std::lock_guard<std::mutex> lock(m_item_queue_mutex);
-        if (m_item_queue.empty())
-            return -1;
-    }
-
-    std::unique_lock<std::mutex> lock(m_item_queue_mutex);
-
-    while (m_item_queue.empty() && !IsClosed()) {
-        lock.unlock();
-
-        /**
-         * 注册后复查：unlock 与事件登记之间若有 push/Close 到达，其
-         * _OnEnableRead 会因 waiter 尚未可 Notify 而落空；回调内持锁复查
-         * 谓词，已可读/已关闭则自唤醒，使无超时等待也不会漏掉早到通知。
-         */
-        int ret = _WaitUntilEnableRead([this]() {
-            _RecheckEnableRead([this]() { return !m_item_queue.empty() || IsClosed(); });
-            return true;
-        });
-        lock.lock();
-        if (ret != 0 && ret != 1)
-            return -2;
-    }
-
-    /**
-     * 通知尾部：先解锁、后 flush
-     */
-    detail::DriverWakeDeferral _defer;
-    {
-        std::unique_lock<std::mutex> tail_lock(std::move(lock));
-        if (m_item_queue.empty())
-            return -1;
-
-        item = m_item_queue.front();
-        m_item_queue.pop();
-
-        /**
-         * 唤醒一个等待写入的协程（忽略 -1，可能已被 Cancel）
-         */
-        _OnEnableWrite();
-    }
-
-    return 0;
-}
-
-template <class TItem, int Max> int Chan<TItem, Max>::ReadAll(std::vector<ItemType>& items)
-{
-    bool expect = false;
-    if (!m_is_reading.compare_exchange_strong(expect, true))
-        return -2;
-
-    ChanReadGuard guard{m_is_reading};
-
-    std::unique_lock<std::mutex> lock(m_item_queue_mutex);
-
-    while (m_item_queue.empty() && !IsClosed()) {
-        lock.unlock();
-
-        /**
-         * 注册后复查：unlock 与事件登记之间若有 push/Close 到达，其
-         * _OnEnableRead 会因 waiter 尚未可 Notify 而落空；回调内持锁复查
-         * 谓词，已可读/已关闭则自唤醒，使无超时等待也不会漏掉早到通知。
-         */
-        int ret = _WaitUntilEnableRead([this]() {
-            _RecheckEnableRead([this]() { return !m_item_queue.empty() || IsClosed(); });
-            return true;
-        });
-        lock.lock();
-        if (ret != 0 && ret != 1)
-            return -2;
-    }
-
-    /**
-     * 同 Read：通知尾部先解锁
-     */
-    detail::DriverWakeDeferral _defer;
-    {
-        std::unique_lock<std::mutex> tail_lock(std::move(lock));
-
-        /**
-         * 关闭+空
-         */
-        if (m_item_queue.empty())
-            return -1;
-
-        while (!m_item_queue.empty()) {
-            items.push_back(m_item_queue.front());
-            m_item_queue.pop();
-            _OnEnableWrite();
-        }
-    }
-
-    return 0;
-}
-
-template <class TItem, int Max> int Chan<TItem, Max>::TryWrite(const ItemType& item)
-{
-    if (IsClosed())
-        return -1;
-
-    /**
-     * 纯非挂起：在 lock_guard 前声明
-     */
-    detail::DriverWakeDeferral _defer;
-    std::lock_guard<std::mutex> lock(m_item_queue_mutex);
-    if (IsClosed())
-        return -1;
-
-    if (m_item_queue.size() >= (size_t)m_max_size)
-        return -2;
-
-    m_item_queue.push(item);
-
-    /**
-     * 读 watcher 不受 m_is_reading 门控
-     */
-    if (m_is_reading || !m_read_watchers.empty())
-        _OnEnableRead();
-
-    return 0;
-}
-
-template <class TItem, int Max> int Chan<TItem, Max>::TryWrite(const ItemType& item, int timeout)
-{
-    if (IsClosed())
-        return -1;
-
-    auto start = bbt::core::clock::gettime_mono();
-    std::unique_lock<std::mutex> lock(m_item_queue_mutex);
-
-    /**
-     * 与 Write 相同的关闭窗口：锁内复查
-     */
-    if (IsClosed())
-        return -1;
-
-    while (m_item_queue.size() >= (size_t)m_max_size) {
-        int elapsed = bbt::core::clock::gettime_mono() - start;
-        int remaining = timeout - elapsed;
-
-        /**
-         * 超时
-         */
-        if (remaining <= 0)
-            return 1;
-
-        auto enable_write_cond = _CreateEnableWriteCond();
-        lock.unlock();
-
-        /**
-         * 同 Write 的注册后入队协议：waiter 只在事件登记成功后的回调里入队，
-         * 并持锁复查容量/关闭，条件已满足则自唤醒（否则会假超时）。
-         */
-        int ret = _WaitUntilEnableWriteOrTimeout(enable_write_cond, remaining, [this, enable_write_cond]() {
-            _RegisterEnableWriteCond(
-                enable_write_cond, [this]() { return !IsClosed() && m_item_queue.size() >= (size_t)m_max_size; });
-            return true;
-        });
-
-        if (ret != 0) {
-
-            /**
-             * 超时/失败：waiter 仍是队列里的僵尸项（COND_FREE），Cancel 后
-             * _OnEnableWrite 会跳过它继续唤醒真正等待的 writer，而非停在 -1
-             */
-            enable_write_cond->Cancel();
-            return (ret == 1) ? 1 : -2;
-        }
-
-        if (IsClosed())
-            return -1;
-
-        lock.lock();
-    }
-
-    /**
-     * 通知尾部：先解锁、后 flush
-     */
-    detail::DriverWakeDeferral _defer;
-    {
-        std::unique_lock<std::mutex> tail_lock(std::move(lock));
-        m_item_queue.push(item);
-
-        /**
-         * 读 watcher 不受 m_is_reading 门控
-         */
-        if (m_is_reading || !m_read_watchers.empty())
-            _OnEnableRead();
-    }
-
-    return 0;
-}
-
-template <class TItem, int Max> int Chan<TItem, Max>::TryRead(ItemType& item)
-{
-    if (IsClosed())
-        return -1;
-
-    bool expect = false;
-    if (!m_is_reading.compare_exchange_strong(expect, true))
-        return -2;
-
-    ChanReadGuard guard{m_is_reading};
-
-    /**
-     * 纯非挂起 Try
-     */
-    detail::DriverWakeDeferral _defer;
-    std::lock_guard<std::mutex> lock(m_item_queue_mutex);
-
-    /**
-     * 空
-     */
-    if (m_item_queue.empty())
-        return -2;
-
-    item = m_item_queue.front();
-    m_item_queue.pop();
-    _OnEnableWrite();
-
-    return 0;
-}
-
-template <class TItem, int Max> int Chan<TItem, Max>::TryRead(ItemType& item, int timeout)
-{
-    if (IsClosed())
-        return -1;
-
-    bool expect = false;
-    if (!m_is_reading.compare_exchange_strong(expect, true))
-        return -2;
-
-    ChanReadGuard guard{m_is_reading};
-
-    auto start = bbt::core::clock::gettime_mono();
-    std::unique_lock<std::mutex> lock(m_item_queue_mutex);
-
-    while (m_item_queue.empty() && !IsClosed()) {
-        int elapsed = bbt::core::clock::gettime_mono() - start;
-        int remaining = timeout - elapsed;
-
-        /**
-         * 超时
-         */
-        if (remaining <= 0)
-            return 1;
-
-        lock.unlock();
-
-        /**
-         * 同 Read 的注册后复查：避免 push 落在检查/登记窗口造成假超时
-         */
-        int ret = _WaitUntilEnableReadOrTimeout(remaining, [this]() {
-            _RecheckEnableRead([this]() { return !m_item_queue.empty() || IsClosed(); });
-            return true;
-        });
-        lock.lock();
-        if (ret != 0 && ret != 1)
-            return -2;
-    }
-
-    /**
-     * 通知尾部：先解锁、后 flush
-     */
-    detail::DriverWakeDeferral _defer;
-    {
-        std::unique_lock<std::mutex> tail_lock(std::move(lock));
-
-        /**
-         * 关闭+空
-         */
-        if (m_item_queue.empty())
-            return -1;
-
-        item = m_item_queue.front();
-        m_item_queue.pop();
-        _OnEnableWrite();
-    }
-
-    return 0;
-}
-
-template <class TItem, int Max> void Chan<TItem, Max>::Close()
-{
-    if (IsClosed())
-        return;
-
-    /**
-     * Close 全量唤醒推迟到锁外 flush
-     */
-    detail::DriverWakeDeferral _defer;
-    std::lock_guard<std::mutex> lock(m_item_queue_mutex);
-
-    /**
-     * 置位在锁内：与 Write 系列"锁内复查"配对，保证关闭与入队串行化——
-     * 锁内复查通过（open）后，Close 必须等该次入队完成才能置位
-     */
-    m_run_status.store(ChanStatus::CHAN_CLOSE, std::memory_order_release);
-
-    /**
-     * 缓冲数据留给读者读完，这里不清空
-     * 唤醒所有阻塞的协程
-     */
-    if (m_is_reading)
-        _OnEnableRead();
-
-    while (!m_enable_write_conds.empty()) {
-        auto enable_write_cond = m_enable_write_conds.front();
-        m_enable_write_conds.pop();
-        enable_write_cond->Notify();
-    }
-
-    /**
-     * CoSelect watchers 必须无条件 Notify：上面的 _OnEnableRead 只在 m_is_reading
-     * （有阻塞读者）时触发，select 等待者不设该标志，否则会挂在已关闭 chan 上。
-     * 被唤醒方 Try 到 -1（closed）视为就绪。
-     */
-    auto read_watchers = m_read_watchers;
-    auto write_watchers = m_write_watchers;
-    for (auto& w : read_watchers)
-        w->Notify();
-    for (auto& w : write_watchers)
-        w->Notify();
-}
-
-template <class TItem, int Max> bool Chan<TItem, Max>::IsClosed()
-{
-    return (m_run_status.load(std::memory_order_acquire) == ChanStatus::CHAN_CLOSE);
-}
-
-/**
- * @}
- */
-
-/**
- * @name CoSelect watchers
- * @{
- */
-
-template <class TItem, int Max> void Chan<TItem, Max>::AddReadWatcher(const CoWaiter::SPtr& waiter)
-{
-    std::lock_guard<std::mutex> lock(m_item_queue_mutex);
-    m_read_watchers.push_back(waiter);
-}
-
-template <class TItem, int Max> void Chan<TItem, Max>::RemoveReadWatcher(const CoWaiter::SPtr& waiter)
-{
-    std::lock_guard<std::mutex> lock(m_item_queue_mutex);
-    m_read_watchers.erase(std::remove(m_read_watchers.begin(), m_read_watchers.end(), waiter), m_read_watchers.end());
-}
-
-template <class TItem, int Max> void Chan<TItem, Max>::AddWriteWatcher(const CoWaiter::SPtr& waiter)
-{
-    std::lock_guard<std::mutex> lock(m_item_queue_mutex);
-    m_write_watchers.push_back(waiter);
-}
-
-template <class TItem, int Max> void Chan<TItem, Max>::RemoveWriteWatcher(const CoWaiter::SPtr& waiter)
-{
-    std::lock_guard<std::mutex> lock(m_item_queue_mutex);
-    m_write_watchers.erase(
-        std::remove(m_write_watchers.begin(), m_write_watchers.end(), waiter), m_write_watchers.end());
-}
-
-/**
- * @}
- */
-
-/**
- * @name wait helpers
- * @{
- */
-
-template <class TItem, int Max> int Chan<TItem, Max>::_WaitUntilEnableRead(const detail::CoroutineOnYieldCallback& cb)
-{
-    return m_enable_read_cond->WaitWithCallback(cb);
-}
-
-template <class TItem, int Max>
-int Chan<TItem, Max>::_WaitUntilEnableWrite(CoWaiter::SPtr cond, const detail::CoroutineOnYieldCallback& cb)
-{
-    return cond->WaitWithCallback(cb);
-}
-
-template <class TItem, int Max>
-int Chan<TItem, Max>::_WaitUntilEnableWriteOrTimeout(
-    CoWaiter::SPtr cond, int timeout_ms, const detail::CoroutineOnYieldCallback& cb)
-{
-    return cond->WaitWithTimeoutAndCallback(timeout_ms, cb);
-}
-
-template <class TItem, int Max> int Chan<TItem, Max>::_OnEnableRead()
-{
-    int ret = m_enable_read_cond->Notify();
-
-    /**
-     * CoSelect watchers：拷贝列表再逐个 Notify（忽略 -1：waiter 未挂起或已 Cancel）。
-     * 时序约束：调用方持 m_item_queue_mutex；Notify 先锁存首胜，已挂起
-     * watcher 的调度投递等调用方解锁后再执行，避免回调重入 chan 锁。
-     */
-    auto watchers = m_read_watchers;
-    for (auto& w : watchers)
-        w->Notify();
-
-    return ret;
-}
-
-template <class TItem, int Max> int Chan<TItem, Max>::_OnEnableWrite()
-{
-
-    /**
-     * 同 CoCond::_NotifyOne：循环 pop，跳过已失效（Notify==-1，超时/Cancel）
-     * 的 waiter，直到成功唤醒一个或队列空。只 pop 一个会在僵尸 waiter 上
-     * 吞掉唤醒，真正等待的 writer 永远不醒。
-     */
-    int ret = 0;
-    while (!m_enable_write_conds.empty()) {
-        auto enable_write_cond = m_enable_write_conds.front();
-        m_enable_write_conds.pop();
-        ret = enable_write_cond->Notify();
-        if (ret == 0)
-            break;
-    }
-
-    /**
-     * CoSelect watchers：同 _OnEnableRead
-     */
-    auto watchers = m_write_watchers;
-    for (auto& w : watchers)
-        w->Notify();
-
-    return ret;
-}
-
-template <class TItem, int Max> CoWaiter::SPtr Chan<TItem, Max>::_CreateEnableWriteCond()
-{
-    auto enable_write_cond = CoWaiter::Create();
-    Assert(enable_write_cond != nullptr);
-    return enable_write_cond;
-}
-
-template <class TItem, int Max>
-void Chan<TItem, Max>::_RegisterEnableWriteCond(const CoWaiter::SPtr& waiter, const std::function<bool()>& need_wait)
-{
-
-    /**
-     * 自 Notify 路径 Wake 推迟到锁外
-     */
-    detail::DriverWakeDeferral _defer;
-    std::lock_guard<std::mutex> lock(m_item_queue_mutex);
-
-    /**
-     * 谓词在锁内求值：与 reader 的 pop+_OnEnableWrite、Close 的置位+全量
-     * 唤醒串行化，二者不会与本入队交错。
-     */
-    if (need_wait())
-        m_enable_write_conds.push(waiter);
-    else
-
-        /**
-         * 条件已满足（可写/已关闭）：自 Notify 走 PENDING 早到路径。
-         * 此时等待事件已登记（on_registered 只在登记成功后执行），
-         * Notify 必然命中，不会返回 -1。
-         */
-        waiter->Notify();
-}
-
-template <class TItem, int Max> void Chan<TItem, Max>::_RecheckEnableRead(const std::function<bool()>& ready)
-{
-
-    /**
-     * 同上
-     */
-    detail::DriverWakeDeferral _defer;
-    std::lock_guard<std::mutex> lock(m_item_queue_mutex);
-
-    /**
-     * 与写端 push+_OnEnableRead 串行化：若写端先拿到锁，其 Notify 会命中
-     * 已登记的本 waiter；若本复查先拿到锁，谓词为真则自唤醒。二者必居其一。
-     */
-    if (ready())
-        m_enable_read_cond->Notify();
-}
-
-template <class TItem, int Max>
-int Chan<TItem, Max>::_WaitUntilEnableReadOrTimeout(int timeout_ms, const detail::CoroutineOnYieldCallback& cb)
-{
-    return m_enable_read_cond->WaitWithTimeoutAndCallback(timeout_ms, cb);
-}
-
-/**
- * @}
- */
 
 /**
  * @name stream operators
@@ -663,149 +64,636 @@ template <class TItem, int Max> bool operator>>(std::shared_ptr<Chan<TItem, Max>
  * @}
  */
 
-/**
- * @name Chan no cache (Chan<T, 0>)
- * @{
- */
+template <class TItem, int Max> class ChannelCore : public std::enable_shared_from_this<ChannelCore<TItem, Max>> {
+    static_assert(Max >= 0, "Channel capacity must be non-negative");
+    enum class State { Pending, Matched, Completed, Failed, Closed, Cancelled, TimedOut, Unavailable };
+    enum class Attempt { Done, Register, Park };
+    using Clock = std::chrono::steady_clock;
+    using Value = std::unique_ptr<TItem>;
+    using Batch = std::vector<Value>;
 
-template <class TItem> int Chan<TItem, 0>::Write(const ItemType& item)
-{
-    if (IsClosed())
-        return -1;
+    struct EmptyBuffer {};
 
-    uint64_t is_writing_idx = 0;
+    using Buffer = std::conditional_t<(Max > 0), std::array<Value, Max>, EmptyBuffer>;
+    using Watchers = std::vector<CoWaiter::SPtr>;
+    using Wait = std::shared_ptr<detail::WaitNode>;
+    struct Operation;
+    using Op = std::shared_ptr<Operation>;
+    using Queue = std::list<Op>;
 
-    /**
-     * 锁内通知段用 deferral + 内层作用域：guard 不延伸到下方
-     * _WaitUntilEnableWrite 的挂起路径。
-     */
-    {
-        detail::DriverWakeDeferral _defer;
-        std::unique_lock<std::mutex> lock(BaseType::m_item_queue_mutex);
+    struct Operation {
+        Operation(
+            bool sending, Value& value, Clock::time_point deadline, Batch* batch = nullptr, bool drain_on_close = false)
+            : sending(sending)
+            , value(value)
+            , deadline(deadline)
+            , batch(batch)
+            , drain_on_close(drain_on_close)
+        {
+        }
 
+        const bool sending;
         /**
-         * 加入引用队列，并尝试唤醒挂起的读端
+         * 等待方保活栈槽，只有持锁且操作仍 Pending 时才能写入或取得槽中所有权。
          */
-        m_item_cache_ref.push(item);
-        m_write_idx++;
-        is_writing_idx = m_write_idx - 1;
+        Value& value;
+        const Clock::time_point deadline;
+        Batch* batch;
+        const bool drain_on_close;
+        State state{State::Pending};
+        std::optional<typename Queue::iterator> position;
+        Wait wait;
+        Op sender;
+    };
 
-        if (BaseType::m_is_reading && (is_writing_idx == m_read_idx)) {
-            BaseType::_OnEnableRead();
+public:
+    enum class Mode { Immediate, Blocking, Timed };
+
+    int Send(const TItem& item, Mode mode, int timeout = 0)
+    {
+        auto* co = CurrentCoroutine();
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            if (m_closed)
+                return Result(State::Closed);
+            if (co && co->IsCancelRequested())
+                return Result(State::Cancelled);
+            if (mode == Mode::Immediate && m_receivers.empty() && m_size == Max)
+                return Result(State::Unavailable);
+        }
+
+        const auto deadline = Deadline(mode, timeout);
+        auto value = std::make_unique<TItem>(item);
+        auto op = std::make_shared<Operation>(true, value, deadline);
+        Start(op, co, mode);
+        std::lock_guard<std::mutex> lock(m_mutex);
+        /**
+         * 零缓冲的非阻塞写只承诺配对，不等待接收端赋值。
+         */
+        if (mode == Mode::Immediate && (op->state == State::Matched || op->state == State::Failed))
             return 0;
+        return Result(op->state);
+    }
+
+    template <class Deliver> int Receive(Deliver deliver, Mode mode, int timeout = 0, bool all = false)
+    {
+        Value value;
+        Batch batch;
+        if constexpr (Max > 1) {
+            if (all)
+                batch.reserve(Max - 1);
+        }
+        auto op = std::make_shared<Operation>(
+            false, value, Deadline(mode, timeout), all ? &batch : nullptr, mode == Mode::Blocking);
+        Start(op, CurrentCoroutine(), mode);
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            if (op->state != State::Matched)
+                return Result(op->state);
+        }
+        if constexpr (Max > 1) {
+            if (all)
+                CompleteBatch(op);
+        }
+        try {
+            deliver(std::as_const(*value));
+            for (const auto& entry : batch)
+                deliver(std::as_const(*entry));
+        } catch (...) {
+            /**
+             * 配对后容量可能已被下一位写者占用；已保留的值不能回队。
+             */
+            Finish(op, State::Failed);
+            throw;
+        }
+        Finish(op, State::Completed);
+        return Result(State::Completed);
+    }
+
+    void Close()
+    {
+        Queue wake;
+        Queue matched;
+        {
+            detail::DriverWakeDeferral defer;
+            std::lock_guard<std::mutex> lock(m_mutex);
+            if (m_closed)
+                return;
+            m_closed = true;
+            wake.splice(wake.end(), m_senders);
+            if constexpr (Max > 0) {
+                /**
+                 * 正常配对时等待接收者与缓冲不会并存；关闭仍按同一排空规则处理，
+                 * 且已拒绝的写者不能在排空过程中补位。
+                 */
+                while (m_size != 0 && !m_receivers.empty()) {
+                    const auto& receiver = m_receivers.front();
+                    if (receiver->drain_on_close) {
+                        ReserveBuffered(receiver);
+                        receiver->position.reset();
+                        matched.splice(matched.end(), m_receivers, m_receivers.begin());
+                    } else {
+                        wake.splice(wake.end(), m_receivers, m_receivers.begin());
+                    }
+                }
+            }
+            wake.splice(wake.end(), m_receivers);
+            for (const auto& op : wake) {
+                op->state = State::Closed;
+                op->position.reset();
+            }
+            NotifyWatchers(m_readWatchers);
+            NotifyWatchers(m_writeWatchers);
+        }
+        for (const auto& op : matched)
+            Signal(op, detail::POLL_EVENT_CUSTOM);
+        for (const auto& op : wake)
+            Signal(op, detail::POLL_EVENT_CLOSED);
+    }
+
+    bool IsClosed()
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        return m_closed;
+    }
+
+    size_t Size() const
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        return m_size;
+    }
+
+    void AddWatcher(bool writing, const CoWaiter::SPtr& watcher)
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        (writing ? m_writeWatchers : m_readWatchers).push_back(watcher);
+    }
+
+    void RemoveWatcher(bool writing, const CoWaiter::SPtr& watcher)
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        auto& watchers = writing ? m_writeWatchers : m_readWatchers;
+        watchers.erase(std::remove(watchers.begin(), watchers.end(), watcher), watchers.end());
+    }
+
+private:
+    static Clock::time_point Deadline(Mode mode, int timeout)
+    {
+        return mode == Mode::Timed && timeout > 0 ? Clock::now() + std::chrono::milliseconds(timeout)
+                                                  : Clock::time_point::max();
+    }
+
+    static detail::Coroutine* CurrentCoroutine()
+    {
+        return g_bbt_tls_helper->EnableUseCo() ? g_bbt_tls_coroutine_co : nullptr;
+    }
+
+    static int Result(State state)
+    {
+        switch (state) {
+        case State::Completed:
+            return 0;
+        case State::Closed:
+            return -1;
+        case State::TimedOut:
+            return 1;
+        default:
+            return -2;
         }
     }
 
-    auto enable_write_cond = BaseType::_CreateEnableWriteCond();
-
-    /**
-     * 同 buffered Write 的注册后入队协议；谓词为「本条数据尚未被 reader
-     * 消费」（is_writing_idx 已被读取时 m_read_idx > is_writing_idx）。reader
-     * 的 _OnEnableWrite 与入队持同一把锁串行化，条件已满足则自唤醒。
-     */
-    if (BaseType::_WaitUntilEnableWrite(
-            enable_write_cond,
-            [this, is_writing_idx, enable_write_cond]() {
-                BaseType::_RegisterEnableWriteCond(enable_write_cond, [this, is_writing_idx]() {
-                    return !IsClosed() && m_read_idx <= is_writing_idx;
-                });
-                return true;
-            })
-        != 0) {
-        enable_write_cond->Cancel();
-        return -2;
+    static void Signal(const Op& op, short reason)
+    {
+        if (op->wait)
+            op->wait->Trigger(reason);
     }
 
-    return 0;
+    void Start(const Op& op, detail::Coroutine* co, Mode mode)
+    {
+        if (Admit(op, co, mode, {}) != Attempt::Register)
+            return;
+
+        if (!co
+            || !co->_WaitForOperation(
+                op->deadline,
+                [core = this->weak_from_this(), weak_op = std::weak_ptr<Operation>(op)](short events) {
+                    auto owner = core.lock();
+                    auto operation = weak_op.lock();
+                    return owner && operation
+                           && owner->Resolve(
+                               operation, events == detail::POLL_EVENT_TIMEOUT ? State::TimedOut : State::Cancelled);
+                },
+                [&](const Wait& wait) { return Admit(op, co, mode, wait) == Attempt::Park; })) {
+            Resolve(op, State::Unavailable);
+        }
+    }
+
+    Attempt Admit(const Op& op, detail::Coroutine* co, Mode mode, const Wait& wait)
+    {
+        Queue expired;
+        Queue pending;
+        Queue admitted;
+        if (wait)
+            pending.push_back(op);
+        Op reader_to_wake;
+        Attempt next;
+        {
+            detail::DriverWakeDeferral defer;
+            std::lock_guard<std::mutex> lock(m_mutex);
+            next = AdmitLocked(op, co, mode, wait, pending, expired, admitted, reader_to_wake);
+        }
+        SignalSends(expired, admitted);
+        if (reader_to_wake)
+            Signal(reader_to_wake, detail::POLL_EVENT_CUSTOM);
+        return next;
+    }
+
+    Attempt AdmitLocked(
+        const Op& op,
+        detail::Coroutine* co,
+        Mode mode,
+        const Wait& wait,
+        Queue& pending,
+        Queue& expired,
+        Queue& admitted,
+        Op& reader_to_wake)
+    {
+        if (op->state != State::Pending)
+            return Attempt::Done;
+        /**
+         * 缓冲残留只允许 Read / ReadAll 排空；两种 TryRead 都将关闭视为终态。
+         */
+        if (m_closed && (!op->drain_on_close || m_size == 0)) {
+            op->state = State::Closed;
+            return Attempt::Done;
+        }
+        if (co && co->IsCancelRequested()) {
+            op->state = State::Cancelled;
+            return Attempt::Done;
+        }
+        const auto now = Clock::now();
+        if (op->deadline <= now) {
+            op->state = State::TimedOut;
+            return Attempt::Done;
+        }
+
+        if constexpr (Max > 0) {
+            if (!op->sending && m_size != 0) {
+                ReserveBuffered(op);
+
+                /**
+                 * 先为本次读（含 ReadAll 快照）保留旧值，再按 FIFO 给等待写者补位。
+                 * 补位仍在同一锁内，避免后来的 TryWrite 抢走刚释放的容量。
+                 */
+                OnBufferSpace(now, expired, admitted);
+                return Attempt::Done;
+            }
+        }
+
+        auto& peers = op->sending ? m_receivers : m_senders;
+        ExpireFront(peers, now, expired);
+        const bool await_delivery = Max == 0 && op->sending && mode != Mode::Immediate;
+        if (!peers.empty()) {
+            if (await_delivery && !wait)
+                return Attempt::Register;
+            auto peer = std::move(peers.front());
+            peers.pop_front();
+            peer->position.reset();
+            const auto& sender = op->sending ? op : peer;
+            const auto& receiver = op->sending ? peer : op;
+            receiver->state = State::Matched;
+            receiver->value = std::move(sender->value);
+
+            /**
+             * 有缓冲写入在接纳值时完成，即使等待读者直接取得该值。
+             * 只有零缓冲交接的阻塞写者等待接收端赋值结果。
+             */
+            if constexpr (Max == 0) {
+                op->wait = wait;
+                sender->state = State::Matched;
+                receiver->sender = sender;
+            } else {
+                sender->state = State::Completed;
+            }
+            if (op->sending)
+                reader_to_wake = std::move(peer);
+            return await_delivery ? Attempt::Park : Attempt::Done;
+        }
+
+        if constexpr (Max > 0) {
+            if (op->sending && m_size < Max) {
+                PushBuffered(std::move(op->value));
+                op->state = State::Completed;
+                NotifyWatchers(m_readWatchers);
+                return Attempt::Done;
+            }
+        }
+
+        if (mode == Mode::Immediate || (mode == Mode::Timed && op->deadline == Clock::time_point::max())) {
+            op->state = mode == Mode::Immediate ? State::Unavailable : State::TimedOut;
+            return Attempt::Done;
+        }
+        if (!wait)
+            return Attempt::Register;
+        auto& queue = op->sending ? m_senders : m_receivers;
+        op->position = pending.begin();
+        queue.splice(queue.end(), pending);
+        op->wait = wait;
+        return Attempt::Park;
+    }
+
+    static void ExpireFront(Queue& queue, Clock::time_point now, Queue& expired)
+    {
+        /**
+         * 定时器投递延迟不延长已入队操作的匹配期限。
+         */
+        while (!queue.empty() && queue.front()->deadline <= now) {
+            const auto& op = queue.front();
+            op->state = State::TimedOut;
+            op->position.reset();
+            expired.splice(expired.end(), queue, queue.begin());
+        }
+    }
+
+    void PushBuffered(Value value)
+    {
+        m_buffer[(m_head + m_size) % Max] = std::move(value);
+        ++m_size;
+    }
+
+    Value PopBuffered()
+    {
+        auto value = std::move(m_buffer[m_head]);
+        m_head = (m_head + 1) % Max;
+        --m_size;
+        return value;
+    }
+
+    void ReserveBuffered(const Op& receiver)
+    {
+        receiver->value = PopBuffered();
+        ReserveBatchTail(receiver, Max - 1);
+        receiver->state = State::Matched;
+    }
+
+    void ReserveBatchTail(const Op& receiver, size_t limit)
+    {
+        if (auto* batch = std::exchange(receiver->batch, nullptr)) {
+            while (m_size != 0 && batch->size() < limit)
+                batch->push_back(PopBuffered());
+        }
+    }
+
+    void CompleteBatch(const Op& receiver)
+    {
+        Queue expired;
+        Queue admitted;
+        {
+            detail::DriverWakeDeferral defer;
+            std::lock_guard<std::mutex> lock(m_mutex);
+            if (!receiver->batch || m_size == 0)
+                return;
+
+            /**
+             * 空等的 ReadAll 已取得直接交接的首值，恢复时再取当下的缓冲快照。
+             * 快照包括首值在内最多 Max 个元素，不把本轮补位纳入快照。
+             */
+            ReserveBatchTail(receiver, Max - 1);
+            OnBufferSpace(Clock::now(), expired, admitted);
+        }
+        SignalSends(expired, admitted);
+    }
+
+    void OnBufferSpace(Clock::time_point now, Queue& expired, Queue& admitted)
+    {
+        if (m_closed)
+            return;
+        while (m_size < Max) {
+            ExpireFront(m_senders, now, expired);
+            if (m_senders.empty())
+                break;
+            const auto& sender = m_senders.front();
+            PushBuffered(std::move(sender->value));
+            sender->state = State::Completed;
+            sender->position.reset();
+            admitted.splice(admitted.end(), m_senders, m_senders.begin());
+        }
+        if (!admitted.empty())
+            NotifyWatchers(m_readWatchers);
+        if (m_size < Max)
+            NotifyWatchers(m_writeWatchers);
+    }
+
+    static void SignalSends(const Queue& expired, const Queue& admitted)
+    {
+        for (const auto& op : expired)
+            Signal(op, detail::POLL_EVENT_TIMEOUT);
+        for (const auto& op : admitted)
+            Signal(op, detail::POLL_EVENT_CUSTOM);
+    }
+
+    /**
+     * 通知与就绪变化一起锁存，避免在 watcher 的下一轮等待上重放旧通知。
+     * 调用方的 DriverWakeDeferral 确保已挂起 waiter 的完成在解锁后投递。
+     */
+    static void NotifyWatchers(const Watchers& watchers)
+    {
+        for (const auto& watcher : watchers)
+            watcher->Notify();
+    }
+
+    bool Resolve(const Op& op, State state)
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        if (op->state != State::Pending)
+            return false;
+        op->state = state;
+        if (op->position) {
+            auto& queue = op->sending ? m_senders : m_receivers;
+            queue.erase(*op->position);
+            op->position.reset();
+        }
+        return true;
+    }
+
+    void Finish(const Op& receiver, State state)
+    {
+        auto sender = receiver->sender;
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            receiver->state = state;
+            if (sender)
+                sender->state = state;
+        }
+        if (sender)
+            Signal(sender, detail::POLL_EVENT_CUSTOM);
+    }
+
+    mutable std::mutex m_mutex;
+    bool m_closed{false};
+    Queue m_senders;
+    Queue m_receivers;
+    Buffer m_buffer;
+    size_t m_head{0};
+    size_t m_size{0};
+    Watchers m_readWatchers;
+    Watchers m_writeWatchers;
+};
+
+template <class TItem, int Max>
+Chan<TItem, Max>::Chan()
+    : m_core(std::make_shared<Core>())
+{
+}
+
+template <class TItem, int Max> Chan<TItem, Max>::~Chan()
+{
+    Close();
+}
+
+template <class TItem, int Max> int Chan<TItem, Max>::Write(const ItemType& item)
+{
+    auto core = m_core;
+    return core->Send(item, Core::Mode::Blocking);
+}
+
+template <class TItem, int Max> int Chan<TItem, Max>::TryWrite(const ItemType& item)
+{
+    auto core = m_core;
+    return core->Send(item, Core::Mode::Immediate);
+}
+
+template <class TItem, int Max> int Chan<TItem, Max>::TryWrite(const ItemType& item, int timeout)
+{
+    auto core = m_core;
+    return core->Send(item, Core::Mode::Timed, timeout);
+}
+
+template <class TItem, int Max> int Chan<TItem, Max>::Read(ItemType& item)
+{
+    auto core = m_core;
+    return core->Receive([&item](const ItemType& value) { item = value; }, Core::Mode::Blocking);
+}
+
+template <class TItem, int Max> int Chan<TItem, Max>::TryRead(ItemType& item)
+{
+    auto core = m_core;
+    return core->Receive([&item](const ItemType& value) { item = value; }, Core::Mode::Immediate);
+}
+
+template <class TItem, int Max> int Chan<TItem, Max>::TryRead(ItemType& item, int timeout)
+{
+    auto core = m_core;
+    return core->Receive([&item](const ItemType& value) { item = value; }, Core::Mode::Timed, timeout);
+}
+
+template <class TItem, int Max> int Chan<TItem, Max>::ReadAll(std::vector<ItemType>& items)
+{
+    auto core = m_core;
+    return core->Receive([&items](const ItemType& value) { items.push_back(value); }, Core::Mode::Blocking, 0, true);
+}
+
+template <class TItem, int Max> void Chan<TItem, Max>::Close()
+{
+    auto core = m_core;
+    core->Close();
+}
+
+template <class TItem, int Max> bool Chan<TItem, Max>::IsClosed()
+{
+    return m_core->IsClosed();
+}
+
+template <class TItem, int Max> void Chan<TItem, Max>::AddReadWatcher(const CoWaiter::SPtr& waiter)
+{
+    m_core->AddWatcher(false, waiter);
+}
+
+template <class TItem, int Max> void Chan<TItem, Max>::RemoveReadWatcher(const CoWaiter::SPtr& waiter)
+{
+    m_core->RemoveWatcher(false, waiter);
+}
+
+template <class TItem, int Max> void Chan<TItem, Max>::AddWriteWatcher(const CoWaiter::SPtr& waiter)
+{
+    m_core->AddWatcher(true, waiter);
+}
+
+template <class TItem, int Max> void Chan<TItem, Max>::RemoveWriteWatcher(const CoWaiter::SPtr& waiter)
+{
+    m_core->RemoveWatcher(true, waiter);
+}
+
+template <class TItem, int Max> size_t Chan<TItem, Max>::size() const
+{
+    return m_core->Size();
+}
+
+template <class TItem>
+Chan<TItem, 0>::Chan()
+    : m_core(std::make_shared<Core>())
+{
+}
+
+template <class TItem> Chan<TItem, 0>::~Chan()
+{
+    Close();
+}
+
+template <class TItem> int Chan<TItem, 0>::Write(const ItemType& item)
+{
+    auto core = m_core;
+    return core->Send(item, Core::Mode::Blocking);
+}
+
+template <class TItem> int Chan<TItem, 0>::TryWrite(const ItemType& item)
+{
+    auto core = m_core;
+    return core->Send(item, Core::Mode::Immediate);
+}
+
+template <class TItem> int Chan<TItem, 0>::TryWrite(const ItemType& item, int timeout)
+{
+    auto core = m_core;
+    return core->Send(item, Core::Mode::Timed, timeout);
 }
 
 template <class TItem> int Chan<TItem, 0>::Read(ItemType& item)
 {
-    bool expect = false;
-    if (!BaseType::m_is_reading.compare_exchange_strong(expect, true))
-        return -2;
+    auto core = m_core;
+    return core->Receive([&item](const ItemType& value) { item = value; }, Core::Mode::Blocking);
+}
 
-    ChanReadGuard guard{BaseType::m_is_reading};
+template <class TItem> int Chan<TItem, 0>::TryRead(ItemType& item)
+{
+    auto core = m_core;
+    return core->Receive([&item](const ItemType& value) { item = value; }, Core::Mode::Immediate);
+}
 
-    if (IsClosed()) {
-        std::lock_guard<std::mutex> lock(BaseType::m_item_queue_mutex);
-        if (m_write_idx <= m_read_idx)
-            return -1;
-    }
+template <class TItem> int Chan<TItem, 0>::TryRead(ItemType& item, int timeout)
+{
+    auto core = m_core;
+    return core->Receive([&item](const ItemType& value) { item = value; }, Core::Mode::Timed, timeout);
+}
 
-    std::unique_lock<std::mutex> lock(BaseType::m_item_queue_mutex);
-
-    while (m_write_idx <= m_read_idx && !IsClosed()) {
-        lock.unlock();
-
-        /**
-         * 同 buffered Read 的注册后复查：push 落在检查/登记窗口时不丢唤醒
-         */
-        int ret = BaseType::_WaitUntilEnableRead([this]() {
-            BaseType::_RecheckEnableRead([this]() { return m_write_idx > m_read_idx || IsClosed(); });
-            return true;
-        });
-        lock.lock();
-        if (ret != 0 && ret != 1)
-            return -2;
-    }
-
+template <class TItem> int Chan<TItem, 0>::ReadAll(std::vector<ItemType>& items)
+{
+    auto core = m_core;
     /**
-     * 通知尾部：先解锁、后 flush
+     * 首次配对后没有缓冲可排空。
      */
-    detail::DriverWakeDeferral _defer;
-    {
-        std::unique_lock<std::mutex> tail_lock(std::move(lock));
-
-        /**
-         * 关闭+空
-         */
-        if (m_write_idx <= m_read_idx)
-            return -1;
-
-        item = m_item_cache_ref.front();
-        m_item_cache_ref.pop();
-        m_read_idx++;
-
-        BaseType::_OnEnableWrite();
-    }
-
-    return 0;
+    return core->Receive([&items](const ItemType& value) { items.push_back(value); }, Core::Mode::Blocking);
 }
 
 template <class TItem> void Chan<TItem, 0>::Close()
 {
-    if (IsClosed())
-        return;
-
-    /**
-     * 同 buffered Close
-     */
-    detail::DriverWakeDeferral _defer;
-    std::lock_guard<std::mutex> lock(BaseType::m_item_queue_mutex);
-
-    /**
-     * 与 Chan<TItem, Max>::Close 相同：锁内置位，与 Write 锁内复查配对
-     */
-    BaseType::m_run_status.store(ChanStatus::CHAN_CLOSE, std::memory_order_release);
-
-    if (BaseType::m_is_reading)
-        BaseType::_OnEnableRead();
-
-    while (!BaseType::m_enable_write_conds.empty()) {
-        auto enable_write_cond = BaseType::m_enable_write_conds.front();
-        BaseType::m_enable_write_conds.pop();
-        enable_write_cond->Notify();
-    }
+    auto core = m_core;
+    core->Close();
 }
 
 template <class TItem> bool Chan<TItem, 0>::IsClosed()
 {
-    return (BaseType::m_run_status.load(std::memory_order_acquire) == ChanStatus::CHAN_CLOSE);
+    return m_core->IsClosed();
 }
-
-/**
- * @}
- */
 
 } // namespace bbt::coroutine::sync

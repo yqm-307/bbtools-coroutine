@@ -827,10 +827,32 @@ struct CoWaiterProbe : sync::CoWaiter {
     }
 };
 
-struct ChanProbe : sync::Chan<int, 4> {
-    std::shared_ptr<CoWaiterProbe> reader = std::make_shared<CoWaiterProbe>();
+/**
+ * 统一核心的 Chan 读等待直接登记为读者 Coroutine 的 WaitNode，Chan 不再持有
+ * 可观察的 CoWaiter 槽。读者在进入 Read 前发布自身 Coroutine 指针；driver
+ * AfterSchedule 与读者同 P 执行，此时读者已 park，经公开诊断接口
+ * Coroutine::GetWaitInfo 可观察到 CUSTOM 等待。观察只成立一次。
+ */
+struct ChanReadParkProbe {
+    std::atomic<Coroutine*> reader{nullptr};
+    std::atomic_bool parked{false};
 
-    ChanProbe() { m_enable_read_cond = reader; }
+    bool ObserveParked()
+    {
+        if (parked.load(std::memory_order_acquire))
+            return true;
+
+        auto* co = reader.load(std::memory_order_acquire);
+        if (co == nullptr)
+            return false;
+
+        CoroutineWaitInfo info;
+        if (co->GetWaitInfo(info) != 0 || info.m_wait_event != POLL_EVENT_CUSTOM)
+            return false;
+
+        parked.store(true, std::memory_order_release);
+        return true;
+    }
 };
 
 } // namespace
@@ -1773,7 +1795,8 @@ void CaseReentrancy()
      * 共享场景对象：先建好再绑定，全部活到同步解绑之后
      */
     auto waiter = std::make_shared<CoWaiterProbe>();
-    auto chan = std::make_shared<ChanProbe>();
+    auto chan = std::make_shared<sync::Chan<int, 4>>();
+    auto chan_park = std::make_shared<ChanReadParkProbe>();
     CleanupAction close_reader([chan] { chan->Close(); });
     auto stage = std::make_shared<std::atomic<int>>(0);
     auto reenter_ok = std::make_shared<std::atomic<int>>(0);
@@ -1792,7 +1815,7 @@ void CaseReentrancy()
         auto pid = Processer::TryGetLocalProcesser()->GetId();
         if (registered_pid.load() == pid)
             committed = true;
-        if (chan_pid.load() == pid && chan->reader->SnapshotWaitNodeRegistered())
+        if (chan_pid.load() == pid && chan_park->ObserveParked())
             chan_committed = true;
     };
     stA->on_after = after_commit;
@@ -1904,13 +1927,13 @@ void CaseReentrancy()
     BOOST_TEST(notify_reenter->load() == -1);
 
     /**
-     * (c) Chan 链：真实读者挂起后 TryWrite 的 _OnEnableRead→Notify 只
-     * 定向唤醒读者提交目标一次，peer 零次；Wake 内 chan.size() 证明
-     * 外层 OS 锁已释放。
+     * (c) Chan 链：真实读者挂起后 TryWrite 的配对唤醒只定向通知读者提交
+     * 目标一次，peer 零次；Wake 内 chan.size() 证明外层 OS 锁已释放。
      */
     bbt::core::thread::CountDownLatch read_done{1};
     Post(sche, [&, chan] {
         chan_pid = Processer::TryGetLocalProcesser()->GetId();
+        chan_park->reader.store(g_bbt_tls_coroutine_co);
         int v = 0;
         chan->Read(v);
         read_done.Down();

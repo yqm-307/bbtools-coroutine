@@ -3,6 +3,8 @@
  */
 #pragma once
 #include <atomic>
+#include <chrono>
+#include <functional>
 #include <bbt/coroutine/detail/CfsRunQueue.hpp>
 #include <exception>
 #include <memory>
@@ -15,6 +17,7 @@
 namespace bbt::coroutine::sync {
 class CoWaiter;
 class CoMutex;
+template <class TItem, int Max> class ChannelCore;
 } // namespace bbt::coroutine::sync
 
 namespace bbt::coroutine::detail {
@@ -58,6 +61,7 @@ public:
      */
     friend class bbt::coroutine::sync::CoWaiter;
     friend class bbt::coroutine::sync::CoMutex;
+    template <class TItem, int Max> friend class bbt::coroutine::sync::ChannelCore;
     friend class Scheduler;
     friend class Processer;
 
@@ -250,9 +254,16 @@ private:
      * 先做取消预检与单测注入，注册失败则清 await、回滚 disposition。
      */
     bool _RegistAwaitEvent();
+    void _YieldArmedWaitNode();
 
     CoroutinePriority _WaitResumePriority(int event) noexcept;
-    std::shared_ptr<WaitNode> RegistWaitNode();
+    std::shared_ptr<WaitNode> RegistWaitNode(std::function<bool(short)> on_interrupt = {});
+
+    // Publish only after the wait is armed. False from publish means no park is needed.
+    bool _WaitForOperation(
+        std::chrono::steady_clock::time_point deadline,
+        std::function<bool(short)> on_interrupt,
+        const std::function<bool(const std::shared_ptr<WaitNode>&)>& publish);
 
     std::shared_ptr<WaitNode> _AwaitWaitNode() const;
     void _SetWaitNode(std::shared_ptr<WaitNode> node);

@@ -26,9 +26,12 @@ public:
     using SPtr = std::shared_ptr<WaitNode>;
     using OnTrigger = std::function<void(short)>;
 
-    static SPtr Create(CoroutineId owner, OnTrigger on_trigger);
+    // For waits whose owner arbitrates the outcome before the node may signal readiness.
+    using OnInterrupt = std::function<bool(short)>;
 
-    WaitNode(CoroutineId owner, OnTrigger on_trigger);
+    static SPtr Create(CoroutineId owner, OnTrigger on_trigger, OnInterrupt on_interrupt = {});
+
+    WaitNode(CoroutineId owner, OnTrigger on_trigger, OnInterrupt on_interrupt = {});
     ~WaitNode() = default;
 
     WaitNode(const WaitNode&) = delete;
@@ -38,6 +41,7 @@ public:
      * 首胜触发。早到触发只锁存 PENDING，由 CommitPark 消费。
      */
     int Trigger(short trigger_events);
+    void Interrupt(short events);
 
     /**
      * 挂起后登记。PENDING 允许登记成功，供早到路径继续提交。
@@ -88,6 +92,7 @@ private:
     const CoroutineId m_owner;
     const uint64_t m_generation;
     const OnTrigger m_on_trigger;
+    const OnInterrupt m_on_interrupt;
     std::atomic<uint64_t> m_state;
     SPtr m_next_completion;
     bbt::coroutine::CoEventValue m_notify_value{};

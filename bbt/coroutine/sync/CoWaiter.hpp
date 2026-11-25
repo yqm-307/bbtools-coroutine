@@ -8,8 +8,9 @@
 #include <bbt/coroutine/sync/CoEventValue.hpp>
 
 namespace bbt::coroutine::detail {
+class Coroutine;
 class WaitNode;
-}
+} // namespace bbt::coroutine::detail
 
 namespace bbt::coroutine::sync {
 

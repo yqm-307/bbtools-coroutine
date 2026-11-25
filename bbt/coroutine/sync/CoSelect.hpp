@@ -29,8 +29,8 @@ namespace bbt::coroutine::sync {
  * SPtr 重载内部转 *ch，临时 shared_ptr 只在该语句内保活，跨语句使用需
  * 调用方自行持有。
  *
- * 仅支持 Max>0 的缓冲 Chan：Chan<T,0> 为 private 继承、watcher 接口不可见，
- * Case* 对 Max==0 在编译期 static_assert 拒绝。
+ * 仅支持 Max>0 的缓冲 Chan：Chan<T,0> 无 watcher 接口，Case* 对 Max==0 在编译期
+ * static_assert 拒绝（零缓冲 CoSelect 为后续专项）。
  */
 class CoSelect {
 public:
