@@ -51,8 +51,7 @@ workflow 文件本身是权威定义，本文不复制其步骤，只给门禁�
 
 变更集判定：**全部路径为 doc → `docs-only`**；含任一 code 路径 → `code`；空集或分类器
 非 ok（diff 失败/未知 revision/超预算：>3000 文件或 >60KB JSON，整集回退不裁剪假子集）
-→ `unknown`，保守执行全部。`docs-only` 才允许重型 job（build）显式跳过；
-`code`/`unknown` 禁止任何跳过。
+→ `unknown`，保守执行全部。只有 `docs-only` 允许跳过编译与单测。
 
 **perf 触发位**（`perf` 输出，`true`/`false`）——只有会影响性能测量结论的改动才触发
 性能回归检查（方案 D4）：
@@ -85,12 +84,11 @@ workflow 文件本身是权威定义，本文不复制其步骤，只给门禁�
 heredoc 按 job 触发条件推导 `expected_skips`：
 
 - `build-test` 仅当 `classification=docs-only`（docs-only PR 的显式跳过）；
-- `perf-regression` 仅当 `perf=false`（D4 未触发，docs-only 恒成立）或
-  `workflow_dispatch`（perf job 的 `if` 限 `pull_request`/`push`，dispatch 必然 skipped）。
+- `perf-regression` 在 `perf=false`（未触发）或 `workflow_dispatch` 时正常跳过；
+  维护者豁免只放行真实的 `skipped`，不放行缺失、失败或取消。条件见 §5。
 
-**perf 触发时 `perf-regression` 进汇聚且 fail-closed**：skipped/缺失/失败都判红，
-不再「独立 context 不进汇聚」。changes 失败时其 outputs 为空，CLASSIFICATION/PERF
-显式回退 `unknown`/`true` → 不声明任何预期跳过 → 执行全部。
+**perf 触发时默认 fail-closed**：意外 skipped、缺失和失败都判红。changes 失败时
+CLASSIFICATION/PERF 回退 `unknown`/`true`，豁免不能生效。
 
 ## 4. 编译与单元测试（build job，`编译 & 单元测试`）
 
@@ -188,9 +186,23 @@ CoCond 放宽原因：其 ops 由 frame/timeout 定时器节拍驱动，对调�
 **信任边界**：job `permissions: contents: read`；顶层 `permissions: {}`；无
 secret/OIDC/写权限/`pull_request_target`/`workflow_dispatch`/self-hosted；远程 `uses`
 完整 40-hex SHA pin；`persist-credentials: false`；只 `pull_request`/`push` 事件；基线
-仅 runner 临时——**不**读/写 `tests/baselines/`、**不**动 `perf-baseline` 分支、
-**不**改仓库变量、**不**触碰 `release_gate.py`；该 job 的 result 进汇聚（见 §3），
-perf 触发时 fail-closed，perf=false/dispatch 的预期跳过由 `expected_skips` 显式放行。
+仅 runner 临时：不读写 `tests/baselines/`，不动 `perf-baseline` 分支或发布门禁；
+workflow 不写仓库变量。性能检查的结果进汇聚（见 §3）。
+
+**同仓 PR 的单次豁免**：仅当普通 PR 的分类为 `code` 且 `perf=true` 时，有权管理
+仓库 Actions 变量的维护者可以设置非敏感变量 `BBT_CI_PERF_WAIVER`，格式为
+`PR_NUMBER BASE_SHA HEAD_SHA REASON`。填两个完整的 40 位小写 SHA，以及单行、非空的
+原因（建议附证据链接）；同一时间只批准一组比较。PR 编号、base 和 head 必须与
+本次 PR 事件完全一致，任何一个变更后即不再适用。
+
+设置后须让该 PR 产生一轮新的 PR CI（例如重新打开同一 PR）；`workflow_dispatch`
+或仅重跑失败的 job 不用于申请豁免。命中时「变更类型检测」会记录 PR、两个 SHA 和
+理由，性能 job 显示 `skipped` 而非性能通过。删除变量可撤销，须在新的 PR CI 中核对
+已恢复检测；变量缺失、格式非法或版本不匹配均走默认检测。此机制不适用于 fork、
+分类未知、`main` push 或发布；不会跳过编译、单测和文档检查。
+
+PR 仍运行候选分支的 workflow；改变 workflow 或豁免脚本本身的 PR 必须独立审查，
+仓库变量不是对可修改 workflow 者的额外权限隔离。
 
 **设计边界**：同 runner 短测只覆盖 base↔head 同机相对退化，**不是** server3 长期
 基线；跨机/长期趋势由 `record_baseline.py` + `perf-baseline` 分支承担（发布 Gate 写入）。

@@ -2,7 +2,7 @@
 # changes → docs-check → build-test（Release 构建 + 全量 smoke 标签集 + 必要
 # focused 测试集：changes 的 focused 输出非空时在同一构建树追加
 # run_test_profile.sh --profile focused --regex <affected>，选集为空则不执行；
-# 均单跑不重试）→ perf-regression（仅 changes 的 perf 位为真，D4 语义不变）
+# 均单跑不重试）→ perf-regression（由 perf 位触发；特许 PR 例外见 CI 指南）
 # → result（唯一汇聚判定点，result.py）。
 # 分类与结果判定本仓内联（scripts/ci/{changed_files,result}.py），callee 链已删（D3）。
 # docs-check.yml 全部检查（空白 diff/密钥扫描/check_docs.py）已迁入 docs-check job；
@@ -41,6 +41,7 @@ jobs:
     outputs:
       classification: ${{ steps.diff.outputs.classification }}
       perf: ${{ steps.diff.outputs.perf }}
+      perf_waived: ${{ steps.perf-waiver.outputs.perf_waived }}
       focused: ${{ steps.diff.outputs.focused }}
     steps:
       - name: "拉取代码库（含历史，供三点 diff）"
@@ -67,6 +68,18 @@ jobs:
           python3 -m pip install --user --quiet "clang-format==23.1.3"
           export PATH="$HOME/.local/bin:$PATH"
           bash scripts/ci/check_format.sh
+      - name: "核对当前 PR 的性能检测豁免"
+        id: perf-waiver
+        if: >-
+          ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              && steps.diff.outputs.classification == 'code' && steps.diff.outputs.perf == 'true'
+              && vars.BBT_CI_PERF_WAIVER != '' }}
+        env:
+          WAIVER_APPROVAL: ${{ vars.BBT_CI_PERF_WAIVER }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 -I scripts/ci/perf_waiver.py
   # docs-check：空白 diff + 密钥扫描 + 链接/文件名/README（原 docs-check.yml 全量迁入）。
   # 恒跑（required）：docs-only PR 只跑本 job 与 changes。
   docs-check:
@@ -288,14 +301,17 @@ jobs:
         with:
           path: ${{ runner.temp }}/ccache
           key: ccache-${{ env.CCACHE_EPOCH }}-linux-gcc${{ env.GCC_ID }}-cc${{ env.CCACHE_VERSION }}-deps${{ hashFiles('CMakeLists.txt', 'scripts/ci/prepare_boost.sh') }}-${{ github.run_id }}-${{ github.run_attempt }}
-  # ── 性能回归检查：仅 changes 的 perf 位为真时跑（D4），阈值与阻断语义不变 ──
+  # ── 性能回归检查：默认按 perf 位触发，阈值与失败阻断语义不变 ──
   # 同 runner 顺序构建/测量 base+head 真实对比（fail-closed）；结果进 result 汇聚，
-  # 触发后 skipped/失败一律判红。判定链与阈值见 docs/guides/ci.md §5，与现役逐项一致。
+  # 失败与未获豁免的意外 skipped 一律判红。判定链与阈值见 docs/guides/ci.md §5。
   perf-regression:
     name: "性能回归检查"
     needs: [changes]
     # always()：changes 失败时 outputs 为空 → != 'false' → 保守执行（等价 perf=true 规则）。
-    if: ${{ always() && (github.event_name == 'pull_request' || github.event_name == 'push') && needs.changes.outputs.perf != 'false' }}
+    if: >-
+      ${{ always() && (github.event_name == 'pull_request' || github.event_name == 'push')
+          && needs.changes.outputs.perf != 'false'
+          && !(needs.changes.result == 'success' && needs.changes.outputs.perf_waived == 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
@@ -378,7 +394,7 @@ jobs:
   # 结果汇聚（唯一汇聚 check，context=CI/result；远端 required 以 ruleset 回读为准）：always 运行，
   # needs.*.result → scripts/ci/result.py，fail-closed。预期跳过由 payload 的
   # expected_skips 显式放行：build-test 仅 docs-only；perf-regression 仅
-  # perf=false（D4 未触发）或 workflow_dispatch（perf job 限 pull_request/push）。
+  # perf=false、workflow_dispatch 或精确获批的 PR 豁免。
   result:
     needs: [changes, docs-check, build-test, perf-regression]
     if: ${{ always() }}
@@ -391,6 +407,7 @@ jobs:
       # changes 失败时 outputs 为空，回退 unknown/'true' → 按「执行全部」判。
       CLASSIFICATION: ${{ needs.changes.outputs.classification || 'unknown' }}
       PERF: ${{ needs.changes.outputs.perf || 'true' }}
+      PERF_WAIVED: ${{ needs.changes.outputs.perf_waived }}
       EVENT_NAME: ${{ github.event_name }}
     steps:
       - name: "拉取代码库（result.py 在仓内）"
@@ -404,11 +421,15 @@ jobs:
           payload="$RUNNER_TEMP/result-input.json"
           python3 - "$payload" <<'PY'
           import json, os, sys
+          results = json.loads(os.environ["RESULTS_JSON"])
           skips = []
           if os.environ["CLASSIFICATION"] == "docs-only": skips.append("build-test")
           if os.environ["PERF"] == "false" or os.environ["EVENT_NAME"] == "workflow_dispatch":
               skips.append("perf-regression")
-          payload = {"results": json.loads(os.environ["RESULTS_JSON"]),
+          elif (os.environ["EVENT_NAME"] == "pull_request" and os.environ.get("PERF_WAIVED") == "true"
+                and results.get("perf-regression") == "skipped"):
+              skips.append("perf-regression")
+          payload = {"results": results,
                      "required": ["changes", "docs-check"],
                      "optional": ["build-test", "perf-regression"],
                      "expected_skips": skips}

@@ -44,7 +44,7 @@ run_test_profile.sh --build-dir <dir> --profile <smoke|focused|full> [选项]
 | 普通 PR CI（`编译 & 单元测试`） | 一次 Release 构建 + 全量 smoke 标签集 + **必要 focused**：`changes` 把变更路径经 `changed_files.py` 内 `FOCUSED_MAP`（路径前缀→ctest 测试名正则，覆盖全部 `bbt/**` 与 `tests/**`）映射为 focused 正则，非空时同一构建树追加 `--profile focused --regex <affected>`；**不自动重试**，无独立 Test_smoke/Test_reliability step |
 | 本地默认验证 | smoke + 本次改动相关 focused（`--regex`/`--label-expr`）；本地不跑全量 |
 | 完整回归 | `run_test_profile.sh --profile full`；发布 Gate（release.yml）跑全量 CTest（含 `Test_reliability` 等 integration 用例） |
-| 性能 | perf 位触发时 `性能回归检查`（同 runner base/head）；发布 Gate 完整性能判定 |
+| 性能 | 普通 CI 跑 `性能回归检查`（触发和例外见 [CI 指南](ci.md)）；发布 Gate 完整性能判定 |
 
 CTest 注册集 = 构建目标 = 实跑集；必跑项 0 skipped、0 Not Run、0 缺失二进制。
 flaky 失败保留证据修复，不用重跑掩盖。
