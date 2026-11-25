@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-25",
+  "commit": "6263c81cfefe78f62871c49e043db8b280994cbf",
+  "base": "acedbfbb4cf2e4a803316ca43834d01eb6361ea7",
+  "result": "pass",
+  "reviewer": "deleg_2218ef15 independent reviewer (gpt-6.2-astra)",
+  "summary": "Ship with high confidence. The Chan benchmark counting correction and report display fix were independently reviewed with no blocking defects. The review covered successful and rejected buffered/unbuffered operations, close handling, JSON field alignment, old-report compatibility, and failure-only Markdown rendering.",
+  "checks": [
+    {
+      "id": "llm-review",
+      "kind": "attested",
+      "status": "pass",
+      "summary": "Independent read-only review returned ship with high confidence and no blocking defects.",
+      "evidence": {
+        "reviewer": "deleg_2218ef15",
+        "scope": "Full acedbfbb4cf2e4a803316ca43834d01eb6361ea7..6263c81cfefe78f62871c49e043db8b280994cbf diff, including benchmarks/fatigue_metrics.h, benchmarks/unified_stress.cc, and scripts/run_fatigue.py."
+      }
+    }
+  ]
+}
