@@ -5,6 +5,7 @@
 #pragma once
 #include <functional>
 #include <memory>
+#include <random>
 #include <vector>
 #include <bbt/coroutine/sync/Chan.hpp>
 
@@ -70,7 +71,7 @@ public:
     CoSelect& Default();
 
     /**
-     * @brief 在协程中按注册顺序尝试各分支，必要时挂起以等待首胜。
+     * @brief 在协程中按注册分支尝试，多个同时就绪分支使用伪随机顺序选择，必要时挂起以等待首胜。
      *
      * @return 首胜分支的下标；默认分支、取消、超时、等待或交付失败返回 -1。
      */
@@ -91,6 +92,7 @@ private:
     template <class TItem, int Max> class ChanBranch;
 
     using Case = std::function<std::unique_ptr<Branch>(const std::shared_ptr<SelectChoice>&, int)>;
+    static std::mt19937& _RandomEngine();
 
     std::vector<Case> m_cases;
     int m_timeout_ms{-1};

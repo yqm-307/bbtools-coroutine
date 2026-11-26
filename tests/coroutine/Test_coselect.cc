@@ -84,33 +84,42 @@ BOOST_AUTO_TEST_CASE(t_select_case_read)
 }
 
 /**
- * 两路都有数据：命中注册序优先（0 或 1），对应 out 正确
+ * 两路都已就绪时使用伪随机顺序选择，返回原始注册下标；重复选择不能长期偏向同一个分支。
  */
-BOOST_AUTO_TEST_CASE(t_select_both_ready_first_registered)
+BOOST_AUTO_TEST_CASE(t_select_both_ready_pseudorandom)
 {
     bbt::core::thread::CountDownLatch l{1};
-    int index = -999;
-    int out1 = 0;
-    int out2 = 0;
+    int first_count = 0;
+    int second_count = 0;
 
     bbtco[&]()
     {
-        sync::Chan<int, 4> ch1;
-        sync::Chan<int, 4> ch2;
-        BOOST_CHECK_EQUAL(ch1.TryWrite(11), 0);
-        BOOST_CHECK_EQUAL(ch2.TryWrite(22), 0);
+        for (int i = 0; i < 64; ++i) {
+            sync::Chan<int, 1> ch1;
+            sync::Chan<int, 1> ch2;
+            BOOST_CHECK_EQUAL(ch1.TryWrite(11), 0);
+            BOOST_CHECK_EQUAL(ch2.TryWrite(22), 0);
 
-        index = sync::CoSelect().CaseRead(ch1, out1).CaseRead(ch2, out2).Run();
+            int out1 = 0;
+            int out2 = 0;
+            const int index = sync::CoSelect().CaseRead(ch1, out1).CaseRead(ch2, out2).Run();
+            if (index == 0) {
+                BOOST_CHECK_EQUAL(out1, 11);
+                ++first_count;
+            } else if (index == 1) {
+                BOOST_CHECK_EQUAL(out2, 22);
+                ++second_count;
+            } else {
+                BOOST_ERROR("both-ready select returned no case");
+                break;
+            }
+        }
         l.Down();
     };
 
     l.Wait();
-
-    /**
-     * 注册序优先，且未挂起即命中
-     */
-    BOOST_CHECK_EQUAL(index, 0);
-    BOOST_CHECK_EQUAL(out1, 11);
+    BOOST_CHECK_GT(first_count, 0);
+    BOOST_CHECK_GT(second_count, 0);
 }
 
 /**

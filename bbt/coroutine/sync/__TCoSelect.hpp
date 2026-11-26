@@ -3,6 +3,8 @@
  * @brief CoSelect 的模板与 inline 成员实现，由 CoSelect.hpp 末尾包含。
  */
 #pragma once
+#include <algorithm>
+#include <numeric>
 #include <bbt/coroutine/sync/CoSelect.hpp>
 
 namespace bbt::coroutine::sync {
@@ -125,6 +127,12 @@ inline CoSelect& CoSelect::Default()
     return *this;
 }
 
+inline std::mt19937& CoSelect::_RandomEngine()
+{
+    static thread_local std::mt19937 engine{std::random_device{}()};
+    return engine;
+}
+
 inline int CoSelect::Run()
 {
     Assert(!m_cases.empty());
@@ -138,11 +146,18 @@ inline int CoSelect::Run()
         auto active = weak.lock();
         return active && active->Interrupt();
     };
+    std::vector<size_t> order(m_cases.size());
+    std::iota(order.begin(), order.end(), 0);
+    std::shuffle(order.begin(), order.end(), _RandomEngine());
+
     std::vector<std::unique_ptr<Branch>> branches;
     branches.reserve(m_cases.size());
+    for (size_t i = 0; i < m_cases.size(); ++i)
+        branches.emplace_back(m_cases[i](choice, static_cast<int>(i)));
+
     int winner = SelectChoice::Pending;
-    for (const auto& entry : m_cases) {
-        auto& branch = branches.emplace_back(entry(choice, static_cast<int>(branches.size())));
+    for (const auto index : order) {
+        auto& branch = branches[index];
         if (branch->Probe(co, m_has_default) && co) {
             /**
              * 不先配对再登记回执：登记失败时接收方必须还未取得值。
@@ -162,17 +177,17 @@ inline int CoSelect::Run()
         /**
          * 把会抛异常的节点分配和用户复制放在发布前；发布只移动所有权和预分配的链表节点。
          */
-        for (auto& branch : branches)
-            branch->PrepareToPublish();
+        for (const auto index : order)
+            branches[index]->PrepareToPublish();
         const auto deadline =
             m_timeout_ms < 0 ? Clock::time_point::max() : Clock::now() + std::chrono::milliseconds(m_timeout_ms);
         choice->SetDeadline(deadline);
         try {
             if (!co->_WaitForOperation(deadline, interrupt, [&](const Wait& wait) {
-                    for (auto& branch : branches) {
+                    for (const auto index : order) {
                         if (choice->Winner() != SelectChoice::Pending)
                             break;
-                        branch->Publish(co, wait);
+                        branches[index]->Publish(co, wait);
                     }
                     return true;
                 }))
