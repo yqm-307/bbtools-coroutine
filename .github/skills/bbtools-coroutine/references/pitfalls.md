@@ -32,7 +32,7 @@
 - `CoMutex::Lock()` 返回 `void`。禁止 `auto x = mu->Lock()`。用 `CoLockGuard` / `CoUniqueLock`。
 - 同协程对同一 `CoMutex` 重入：底层 assert。
 - `CoRWMutex` 不允许持读锁再拿写锁（assert）。有写者排队时新读者会等。
-- `CoSelect` 不支持 `Chan<T,0>`，编译期 `static_assert`。
+- 零缓冲 Chan 上，同一次 `CoSelect::Run()` 的读写分支不能互相配对；须有另外的读写调用。
 - `CoSelect` 不持有传入的 Chan；命中下标也不等于读写成功。见 [CoSelect API](../../../../docs/guides/api-reference.md#5-coselect)。
 - `CoCond` 不会替你释放业务锁，也不保存提前发出的通知。任务完成用 Chan；见 [CoCond API](../../../../docs/guides/api-reference.md#7-cocond)。
 - `<<` / `>>` 丢失 `Write`/`Read` 的 `-1`/`-2` 细节。需要区分关闭与错误时用返回码。

@@ -4,108 +4,95 @@
  */
 #pragma once
 #include <functional>
+#include <memory>
+#include <random>
 #include <vector>
 #include <bbt/coroutine/sync/Chan.hpp>
 
 namespace bbt::coroutine::sync {
 
 /**
- * @brief Go select 风格多路 Chan 复用
+ * @brief 从缓冲和零缓冲 Chan 的多个分支中选择至多一个。
  *
- * 用法：
- *   int idx = CoSelect().CaseRead(ch1, a).CaseWrite(ch2, v).CaseTimeout(100).Run();
- *   idx 为命中的 Case 注册序下标；-1 = timeout / Default / 唤醒后全未就绪。
- *   命中 CaseRead 时值写入对应 out，CaseWrite 成功即值已入队。
- *
- * 时序约束（防丢唤醒）：
- *   watcher 只在 WaitWithCallback 的回调里注册——回调在协程 Yield 之后
- *   （Processer::Resume 内）执行，唤醒方的 Notify 不可能早于挂起；注册后
- *   回调内立即再 Try 一遍，若恰好落在"Try 失败与注册之间"的窗口则
- *   waiter->Notify() 自唤醒。
- *   唤醒后被别的 reader/writer 抢走数据属于合法竞争，此时 Run 返回 -1，
- *   调用方像 Go 一样外层循环即可。
- *
- * 生命周期：引用重载要求 Chan 与 out 存活到 Run() 返回（典型同栈用法）；
- * SPtr 重载内部转 *ch，临时 shared_ptr 只在该语句内保活，跨语句使用需
- * 调用方自行持有。
- *
- * 仅支持 Max>0 的缓冲 Chan：Chan<T,0> 无 watcher 接口，Case* 对 Max==0 在编译期
- * static_assert 拒绝（零缓冲 CoSelect 为后续专项）。
+ * 用法：CoSelect().CaseRead(ch1, a).CaseWrite(ch2, v).CaseTimeout(100).Run()。
+ * 关闭视为分支就绪，不读出缓冲残留，也不修改读出参数。零缓冲分支不能与同一 Run 的分支配对。
+ * 读出赋值在 Run 调用方执行，赋值异常原样抛出。缓冲写在接纳时完成；零缓冲阻塞写等待读方
+ * 赋值回执，交付失败返回 -1，不改选其他分支。已配对的分支不会被随后发生的超时或取消撤回。
  */
 class CoSelect {
 public:
     /**
-     * @brief 添加一个缓冲 Chan 的读分支；命中时把值写入 out。
-     * @tparam TItem Chan 中的元素类型
-     * @tparam Max 缓冲容量，必须大于 0
-     * @param ch 借用的 Chan，须存活至 Run() 返回
-     * @param out 命中时接收读出的值
+     * @brief 添加一个读分支；命中且未关闭时把值写入 out。
+     *
+     * @param ch 通道，注册期间必须存活；分支持有通道的内部状态，Chan 析构仍会关闭通道
+     * @param out 命中时接收读出的值，须存活至 Run() 返回
      */
     template <class TItem, int Max> CoSelect& CaseRead(Chan<TItem, Max>& ch, TItem& out);
 
     /**
-     * @brief 添加一个 shared_ptr 参数的缓冲 Chan 读分支；Chan 须由调用方保活至 Run() 返回。
-     * @tparam TItem Chan 中的元素类型
-     * @tparam Max 缓冲容量，必须大于 0
-     * @param ch 指向需由调用方保活至 Run() 返回的 Chan
-     * @param out 命中时接收读出的值
+     * @brief 添加一个读分支，不延长 Chan 对象的寿命。
+     *
+     * @param ch 指向通道的 shared_ptr
+     * @param out 命中时接收读出的值，须存活至 Run() 返回
      */
     template <class TItem, int Max> CoSelect& CaseRead(std::shared_ptr<Chan<TItem, Max>> ch, TItem& out);
 
     /**
-     * @brief 添加一个缓冲 Chan 的写分支；命中表示 val 已入队。
-     * @tparam TItem Chan 中的元素类型
-     * @tparam Max 缓冲容量，必须大于 0
-     * @param ch 借用的 Chan，须存活至 Run() 返回
-     * @param val 待写入的值；注册时按值捕获
+     * @brief 添加一个写分支。
+     *
+     * @param ch 通道，注册期间必须存活；分支持有通道的内部状态，Chan 析构仍会关闭通道
+     * @param val 待写入的值；添加分支时按值保存
      */
     template <class TItem, int Max> CoSelect& CaseWrite(Chan<TItem, Max>& ch, const TItem& val);
 
     /**
-     * @brief 添加一个 shared_ptr 参数的缓冲 Chan 写分支；Chan 须由调用方保活至 Run() 返回。
-     * @tparam TItem Chan 中的元素类型
-     * @tparam Max 缓冲容量，必须大于 0
-     * @param ch 指向需由调用方保活至 Run() 返回的 Chan
-     * @param val 待写入的值；注册时按值捕获
+     * @brief 添加一个写分支，不延长 Chan 对象的寿命。
+     *
+     * @param ch 指向通道的 shared_ptr
+     * @param val 待写入的值；添加分支时按值保存
      */
     template <class TItem, int Max> CoSelect& CaseWrite(std::shared_ptr<Chan<TItem, Max>> ch, const TItem& val);
 
     /**
-     * @brief 设置等待超时；与 Default 同时出现时 Default 优先（不挂起）。
-     * @param ms 超时毫秒；负值表示不设超时（默认）
+     * @brief 设置初次尝试全部未就绪后的等待超时；与 Default 同时出现时 Default 优先。
+     *
+     * @param ms 超时毫秒；0 不等待分支就绪，负值表示不设超时（默认）
      * @return 当前 CoSelect，供链式调用
      */
     CoSelect& CaseTimeout(int ms);
 
     /**
-     * @brief 设置非阻塞默认分支；全部未就绪时立即返回 -1。
+     * @brief 使用非阻塞选择；全部未就绪时立即返回 -1。
+     *
+     * 零缓冲写与无超时 TryWrite 一样，只确认已配对，不等待读方赋值回执。
+     *
      * @return 当前 CoSelect，供链式调用
      */
     CoSelect& Default();
 
     /**
-     * @brief 在协程上下文中按分支注册顺序尝试各分支，必要时挂起等待。
-     * @return 命中分支的下标；超时、默认分支或恢复后仍未就绪时返回 -1。
+     * @brief 在协程中按注册分支尝试，多个同时就绪分支使用伪随机顺序选择，必要时挂起以等待首胜。
+     *
+     * @return 首胜分支的下标；默认分支、取消、超时、等待或交付失败返回 -1。
      */
     int Run();
 
 private:
-    /**
-     * type erasure：watch/unwatch 操作对应 Chan 的 watcher 列表（Chan 内部持锁），
-     * try_op 返回 TryRead/TryWrite 的原始返回值
-     */
-    struct Case {
-        std::function<void(const CoWaiter::SPtr&)> watch;
-        std::function<void(const CoWaiter::SPtr&)> unwatch;
-        std::function<int()> try_op;
+    using Wait = std::shared_ptr<detail::WaitNode>;
+
+    struct Branch {
+        virtual ~Branch() = default;
+        virtual bool Probe(detail::Coroutine* co, bool immediate) = 0;
+        virtual bool PairWithReceipt(detail::Coroutine* co, const Wait& wait) = 0;
+        virtual void PrepareToPublish() = 0;
+        virtual void Publish(detail::Coroutine* co, const Wait& wait) = 0;
+        virtual bool Complete(bool immediate) = 0;
     };
 
-    /**
-     * 0 成功；-1 Chan 已关闭（永远等不到更多，视为就绪）。-2 = 未就绪
-     */
-    static bool _IsReady(int ret) { return ret == 0 || ret == -1; }
+    template <class TItem, int Max> class ChanBranch;
 
-    int _TryAll();
+    using Case = std::function<std::unique_ptr<Branch>(const std::shared_ptr<SelectChoice>&, int)>;
+    static std::mt19937& _RandomEngine();
 
     std::vector<Case> m_cases;
     int m_timeout_ms{-1};

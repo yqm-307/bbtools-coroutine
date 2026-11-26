@@ -52,7 +52,6 @@ description: >
 - 把进程退出当成「等任务跑完」：无业务停机入口，业务完成要用 latch/Chan 收齐后再返回 main
 - `Start(SCHE_START_OPT_SCHE_THREAD)` 之后调用 `LoopOnce()`
 - 非协程上下文调用会挂起的 API（`Wait` / `Lock` 等待 / `Chan` 阻塞读写 / `bbtco_wait_for`）
-- `CoSelect` 搭配 `Chan<T,0>`
 - 为「避免阻塞」手动改 FD 的 `O_NONBLOCK`；多线程对同一 fd 并发 IO
 - 在 `CoPool` 任务里跑长时间 CPU 循环占住池协程
 - 发明新宏或让宏承载另一套状态机

@@ -73,7 +73,7 @@ Hook 只改变支持的系统调用如何等待，不保证第三方库线程安
 | 场景 | 推荐能力 |
 | --- | --- |
 | 传递任务、结果或完成信号 | 缓冲 `Chan<T, N>`，需要当面交接时用 `Chan<T, 0>` |
-| 等多个缓冲通道 | `CoSelect` |
+| 等多个通道中的任意一次读写 | `CoSelect` |
 | 保护共享状态 | `CoMutex` + `CoLockGuard` |
 | 读多写少 | `CoRWMutex` + `CoReadLock` / `CoWriteLock` |
 | 唤醒已登记的等待者，不保存通知 | `CoCond` |
@@ -89,9 +89,9 @@ Hook 只改变支持的系统调用如何等待，不保证第三方库线程安
 
 ### 5.2 CoSelect 多路等待
 
-[CoSelect 示例](../../examples/select/main.cc) 保持通道打开。命中下标不一定代表读写成功：关闭也算就绪，而且不会填充读出变量。`-1` 只代表没选中，也可能是竞争失败，不等同于超时。需要区分来源结束时，可以先用打开的通道传递显式结束消息，再由调用方收口。
+[CoSelect 示例](../../examples/select/main.cc) 保持通道打开。命中下标不一定代表收到了值：关闭也算就绪，而且不会填充读出变量。`-1` 也不一定代表超时。需要区分来源结束时，可以先用打开的通道传递显式结束消息，再由调用方收口。
 
-引用和 `shared_ptr` 重载都不持有 Chan。调用方要保留 Chan 和读出变量，直到 `Run()` 返回；`CaseWrite` 按值保存待写值。只支持有缓冲的 Chan，见 [CoSelect API](api-reference.md#5-coselect)。
+需要当面交接时，`CaseRead` 和 `CaseWrite` 可以使用 `Chan<T,0>`，也可以和缓冲通道混用。对端可以是另一个协程的 `Run()` 或普通读写；不要用同一个 `Run()` 的两个分支互相收发。调用方保留 Chan 和读出变量直到 `Run()` 返回；`CaseWrite` 按值保存待写值。非阻塞写与异常回执见 [CoSelect API](api-reference.md#5-coselect)。
 
 ### 5.3 CoMutex
 

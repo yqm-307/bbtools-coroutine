@@ -284,7 +284,7 @@ public:
 - 异常：读端出参赋值抛异常时该次交接终止，元素不留给后续读者；零缓冲（`Max == 0`）阻塞/限时写者因此得失败，缓冲写入接纳即完成、不被读端异常反判。`ReadAll` 批量追加中途抛异常时，已追加项保留在调用方容器，已取出未追加项不回队。
 - `bool operator<<(Chan&, const T&)` / `operator>>` 及 `shared_ptr` 重载：等价 `Write`/`Read == 0`。
 - 析构：未关闭则 `Close()`。
-- `Add*Watcher`：供 `CoSelect` 使用（缓冲通道）。
+- `Add*Watcher`：缓冲通道的就绪通知，不预留值或缓冲空间。
 - 会挂起的读写必须在协程内。
 - 缓冲 Chan 的 `TryRead()` 和 `TryRead(out, timeout)` 遇到已经关闭的通道会直接返回 `-1`，不能替代 `Read()` 排空已关闭的通道。
 
@@ -302,11 +302,11 @@ int idx = sync::CoSelect()
     .Run();
 ```
 
-- `Run()` 必须在协程内。返回命中 Case 的注册下标：读写成功或 Chan 已关闭都算命中；关闭时不会写入 `out`。`-1` 表示没有命中，可能是超时、`Default()` 或唤醒后仍未就绪。
-- `CaseTimeout(ms)` 与 `Default()` 同时出现时 Default 优先（不挂起）。
-- `Default()`：全部未就绪立即 `-1`。
-- 仅 `Max > 0`。`Chan<T,0>` 为 `static_assert` 拒绝（零缓冲 `CoSelect` 为后续专项）。
-- 引用与 `SPtr` 重载都只在 case 中借用 Chan；调用方保证 Chan 和 `out` 活到 `Run()` 返回。
+- 在协程内调用 `Run()`。多个同时就绪的分支按伪随机顺序选择，返回从 0 起的原始注册下标。关闭也算命中：不写入 `out`，也不排空缓冲残留。`-1` 不是专门的超时码：默认分支、取消、等待失败或零缓冲写交付失败也返回 `-1`。
+- 同一次 `Run()` 可以组合不同类型、不同容量的 Chan。`Chan<T,0>` 上，普通读写或另一个 `Run()` 都可以作为对端；同一 `Run()` 的两个分支不会互相配对。
+- `CaseTimeout(ms)` 限制等待**配对**的时间。超时先胜就返回 `-1`，迟到对端不能交付；配对先胜后不改选。零缓冲写须等读端赋值完成，赋值抛异常时由读方捕获、写方返回 `-1`。缓冲写接纳即完成。
+- `Default()` 优先于超时，全部未就绪时立即返回 `-1`。若零缓冲写已有对端，返回下标只表示配对，不等待对端赋值。
+- 引用与 `SPtr` 重载都不会延长 Chan 对象的寿命；析构会关闭通道。需要正常读写时，保留 Chan 至 `Run()` 返回。`out` 必须活到 `Run()` 返回；`CaseWrite` 添加分支时按值保存待写值。
 
 ---
 
@@ -575,7 +575,7 @@ CoObjectStats GetCoObjectStats(std::string_view kind) noexcept;
 | 类型 | 创建方式 | 主要方法 | 描述 |
 |------|----------|----------|------|
 | `Chan<T, Size>` | `sync::Chan<int, 100>{}` | `Write()`, `Read()`, `TryWrite()`, `TryRead()`, `Close()`, `IsClosed()`, `<<` / `>>` | 协程间通信通道（`Size=0` 为无缓冲，写阻塞至读端取走） |
-| `CoSelect` | `sync::CoSelect()` | `CaseRead()`, `CaseWrite()`, `CaseTimeout()`, `Default()`, `Run()` | 多 Chan 复用，返回命中下标（-1 = 未命中） |
+| `CoSelect` | `sync::CoSelect()` | `CaseRead()`, `CaseWrite()`, `CaseTimeout()`, `Default()`, `Run()` | 多 Chan 复用，返回分支下标；`-1` 表示未命中或交付失败 |
 | `CoMutex` | `bbtco_make_comutex()` | `Lock()`, `UnLock()`, `TryLock()` | 协程互斥锁；RAII 用 `CoLockGuard<CoMutex>` |
 | `CoRWMutex` | `bbtco_make_corwmutex()` | `RLock()`, `WLock()`, `RUnLock()`, `WUnLock()`, `TryRLock()`, `TryWLock()` | 协程读写锁；RAII 用 `CoReadLock` / `CoWriteLock` |
 | `CoLockGuard<Mutex>` | `sync::CoLockGuard<CoMutex> g(lock)` | 构造加锁，析构解锁 | 通用 RAII 守卫（另有 `CoUniqueLock`） |

@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-26",
+  "commit": "40f1f5e54db905c91dbb085815b1ecedbd1001e9",
+  "base": "78e55a9f2b7c7a6a5ca6c2ad5fbfd4c8faf156c1",
+  "result": "pass",
+  "reviewer": "builtin:reviewer (independent read-only review)",
+  "summary": "CoSelect 多分支伪随机选择的实现、契约、API 文档和公平性测试已独立审查。审查指出公平性用例在异常返回时可能早退并漏掉倒计数，已改为记录错误后退出循环并通过目标测试复测。无合并或远端 CI 结论。",
+  "checks": [
+    {
+      "id": "llm-review",
+      "kind": "attested",
+      "status": "pass",
+      "summary": "独立审查确认随机排列、原始注册下标、首胜与 FIFO 语义符合需求；唯一 P2 测试收口问题已修复。",
+      "evidence": {
+        "reviewer": "builtin:reviewer — deleg_57a5ef8f / sa-0-22eea835",
+        "scope": "base 78e55a9f2b7c7a6a5ca6c2ad5fbfd4c8faf156c1 .. commit 40f1f5e54db905c91dbb085815b1ecedbd1001e9; independent review bound to the 5-file frozen delta cd831c21e24eeabc1cb07b9c764b32cfef2938508e4b5daca73c2a1f41333b1f, followed by the prescribed test cleanup and targeted Test_coselect rerun."
+      }
+    }
+  ]
+}
