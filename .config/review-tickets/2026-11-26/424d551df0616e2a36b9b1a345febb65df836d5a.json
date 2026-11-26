@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-26",
+  "commit": "424d551df0616e2a36b9b1a345febb65df836d5a",
+  "base": "b146a907608945fcc7cfb10ed9c82cf05034b78b",
+  "result": "pass",
+  "reviewer": "builtin:reviewer (independent read-only review)",
+  "summary": "CoSelect 零缓冲交接的实现、契约、调用指南和测试已独立审查。最终测试辅助协程提前返回的计数问题已由原审查者故障复测核销。无合并或远端 CI 结论。",
+  "checks": [
+    {
+      "id": "llm-review",
+      "kind": "attested",
+      "status": "pass",
+      "summary": "首轮审查覆盖 11 个文件；复核仅涉及测试变更。原审查者确认其唯一阻断已修复，并放行最终树。",
+      "evidence": {
+        "reviewer": "builtin:reviewer — deleg_2ba23937, deleg_922fbe4d, deleg_52b829f6",
+        "scope": "base b146a907608945fcc7cfb10ed9c82cf05034b78b .. commit 424d551df0616e2a36b9b1a345febb65df836d5a; reviewed product and docs in tree ca897c425bc438d45ecc96080fd39311ee563089 were unchanged. Test delta reviewed at ef1cafc8b6a34e111b7b553160fb73f0921cc71b, then its sole blocker was retested at final tree 8707e3ebb395155e2db3c4a1c1681dfdffd80204. Identical forced registration failure: before timed out (124), after reported three sentinel assertions (201). Normal local runs: smoke 8/8, focused 5/5, CoSelect 15/15 cases and 51/51 assertions."
+      }
+    }
+  ]
+}
