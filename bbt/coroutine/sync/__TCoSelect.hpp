@@ -7,15 +7,91 @@
 
 namespace bbt::coroutine::sync {
 
+template <class TItem, int Max> class CoSelect::ChanBranch final : public CoSelect::Branch {
+    using Core = ChannelCore<TItem, Max>;
+    using Attempt = typename Core::Attempt;
+    using Mode = typename Core::Mode;
+    using State = typename Core::State;
+
+public:
+    ChanBranch(
+        const std::shared_ptr<Core>& core,
+        const std::shared_ptr<SelectChoice>& choice,
+        int index,
+        TItem* out,
+        const TItem* source)
+        : m_core(core)
+        , m_op(
+              std::make_shared<typename Core::Operation>(
+                  source != nullptr, m_value, SelectChoice::Clock::time_point::max()))
+        , m_out(out)
+        , m_source(source)
+    {
+        m_op->choice = choice;
+        m_op->index = index;
+    }
+
+    ~ChanBranch() override
+    {
+        if (!m_core->Resolve(m_op, State::Unavailable) && m_out && m_core->ReadState(m_op) == State::Matched)
+            m_core->Finish(m_op, State::Failed);
+    }
+
+    bool Probe(detail::Coroutine* co, bool immediate) override
+    {
+        const auto mode = immediate ? Mode::Immediate : Mode::Blocking;
+        auto attempt = m_core->Admit(*m_op, m_op, co, mode, {});
+        if (attempt == Attempt::Prepare) {
+            m_value = std::make_unique<TItem>(*m_source);
+            attempt = m_core->Admit(*m_op, m_op, co, mode, {});
+        }
+        return attempt == Attempt::Arm;
+    }
+
+    bool PairWithReceipt(detail::Coroutine* co, const Wait& wait) override
+    {
+        typename Core::Queue no_publication;
+        return m_core->Admit(*m_op, m_op, co, Mode::Blocking, wait, &no_publication) == Attempt::Park;
+    }
+
+    void PrepareToPublish() override
+    {
+        if (m_source && !m_value && !m_core->IsClosed())
+            m_value = std::make_unique<TItem>(*m_source);
+        m_publication.push_back(m_op);
+    }
+
+    void Publish(detail::Coroutine* co, const Wait& wait) override
+    {
+        m_core->Admit(*m_op, m_op, co, Mode::Blocking, wait, &m_publication);
+    }
+
+    bool Complete(bool immediate) override
+    {
+        const auto state = m_core->ReadState(m_op);
+        if (m_out && state == State::Matched) {
+            m_core->DeliverMatched(m_op, [this]() { *m_out = std::as_const(*m_value); });
+            return true;
+        }
+        if (immediate && (state == State::Matched || state == State::Failed))
+            return true;
+        return state == State::Closed || state == State::Completed;
+    }
+
+private:
+    std::shared_ptr<Core> m_core;
+    typename Core::Value m_value;
+    typename Core::Op m_op;
+    typename Core::Queue m_publication;
+    TItem* m_out;
+    const TItem* m_source;
+};
+
 template <class TItem, int Max> CoSelect& CoSelect::CaseRead(Chan<TItem, Max>& ch, TItem& out)
 {
-    static_assert(Max > 0, "CoSelect: Chan<T, 0> has no watcher API and is not supported");
-    m_cases.push_back(
-        Case{
-            [&ch](const CoWaiter::SPtr& w) { ch.AddReadWatcher(w); },
-            [&ch](const CoWaiter::SPtr& w) { ch.RemoveReadWatcher(w); },
-            [&ch, &out]() { return ch.TryRead(out); },
-        });
+    m_cases.emplace_back([core = ch.m_core, &out](const std::shared_ptr<SelectChoice>& choice, int index) {
+        return std::make_unique<ChanBranch<TItem, Max>>(core, choice, index, std::addressof(out), nullptr);
+    });
     return *this;
 }
 
@@ -26,16 +102,9 @@ template <class TItem, int Max> CoSelect& CoSelect::CaseRead(std::shared_ptr<Cha
 
 template <class TItem, int Max> CoSelect& CoSelect::CaseWrite(Chan<TItem, Max>& ch, const TItem& val)
 {
-    static_assert(Max > 0, "CoSelect: Chan<T, 0> has no watcher API and is not supported");
-    m_cases.push_back(
-        Case{
-            [&ch](const CoWaiter::SPtr& w) { ch.AddWriteWatcher(w); },
-            [&ch](const CoWaiter::SPtr& w) { ch.RemoveWriteWatcher(w); },
-            /**
-         * val 按值捕获：调用方临时对象可能先于挂起期回调析构
-         */
-            [&ch, val]() { return ch.TryWrite(val); },
-        });
+    m_cases.emplace_back([core = ch.m_core, val](const std::shared_ptr<SelectChoice>& choice, int index) {
+        return std::make_unique<ChanBranch<TItem, Max>>(core, choice, index, nullptr, std::addressof(val));
+    });
     return *this;
 }
 
@@ -56,65 +125,70 @@ inline CoSelect& CoSelect::Default()
     return *this;
 }
 
-inline int CoSelect::_TryAll()
-{
-    for (size_t i = 0; i < m_cases.size(); ++i) {
-        if (_IsReady(m_cases[i].try_op()))
-            return (int)i;
-    }
-    return -1;
-}
-
 inline int CoSelect::Run()
 {
     Assert(!m_cases.empty());
+    auto* co = g_bbt_tls_helper->EnableUseCo() ? g_bbt_tls_coroutine_co : nullptr;
+    if (co && co->IsCancelRequested())
+        return -1;
 
-    /**
-     * 1. 先全部 Try：有就绪立即返回，不挂起
-     */
-    int index = _TryAll();
-
-    /**
-     * 2. Default 优先于 Timeout：有 Default 且全未就绪立即 -1，不挂起
-     */
-    if (index < 0 && !m_has_default) {
-        auto waiter = CoWaiter::Create();
-
-        /**
-         * 3. cb 在 Yield 之后执行：注册 watcher 后再 Try 一遍补丢唤醒窗口
-         */
-        int cb_index = -1;
-        auto cb = [this, waiter, &cb_index]() {
-            for (auto& c : m_cases)
-                c.watch(waiter);
-            cb_index = _TryAll();
-            if (cb_index >= 0)
-                waiter->Notify();
-            return true;
-        };
-
-        if (m_timeout_ms >= 0)
-            waiter->WaitWithTimeoutAndCallback(m_timeout_ms, cb);
-        else
-            waiter->WaitWithCallback(cb);
-
-        /**
-         * cb 在 Resume 线程上、协程重入前执行完毕（同线程顺序），cb_index 可见
-         */
-        if (cb_index < 0)
-            index = _TryAll();
-        else
-            index = cb_index;
-
-        /**
-         * 只有等待路径会登记 watcher。先从各通道摘除，再 Cancel，使迟到的 Notify 返回 -1。
-         */
-        for (auto& c : m_cases)
-            c.unwatch(waiter);
-        waiter->Cancel();
+    using Clock = SelectChoice::Clock;
+    auto choice = std::make_shared<SelectChoice>();
+    const auto interrupt = [weak = std::weak_ptr<SelectChoice>(choice)](short) {
+        auto active = weak.lock();
+        return active && active->Interrupt();
+    };
+    std::vector<std::unique_ptr<Branch>> branches;
+    branches.reserve(m_cases.size());
+    int winner = SelectChoice::Pending;
+    for (const auto& entry : m_cases) {
+        auto& branch = branches.emplace_back(entry(choice, static_cast<int>(branches.size())));
+        if (branch->Probe(co, m_has_default) && co) {
+            /**
+             * 不先配对再登记回执：登记失败时接收方必须还未取得值。
+             * 初次尝试不计入等待超时；一旦配对，只由回执结束本次等待。
+             */
+            if (!co->_WaitForOperation(Clock::time_point::max(), interrupt, [&](const Wait& wait) {
+                    return branch->PairWithReceipt(co, wait);
+                }))
+                return -1;
+        }
+        winner = choice->Winner();
+        if (winner != SelectChoice::Pending || (co && co->IsCancelRequested()))
+            break;
     }
 
-    return index;
+    if (winner == SelectChoice::Pending && co && !co->IsCancelRequested() && !m_has_default && m_timeout_ms != 0) {
+        /**
+         * 把会抛异常的节点分配和用户复制放在发布前；发布只移动所有权和预分配的链表节点。
+         */
+        for (auto& branch : branches)
+            branch->PrepareToPublish();
+        const auto deadline =
+            m_timeout_ms < 0 ? Clock::time_point::max() : Clock::now() + std::chrono::milliseconds(m_timeout_ms);
+        choice->SetDeadline(deadline);
+        try {
+            if (!co->_WaitForOperation(deadline, interrupt, [&](const Wait& wait) {
+                    for (auto& branch : branches) {
+                        if (choice->Winner() != SelectChoice::Pending)
+                            break;
+                        branch->Publish(co, wait);
+                    }
+                    return true;
+                }))
+                choice->Interrupt();
+        } catch (...) {
+            choice->Interrupt();
+            throw;
+        }
+        winner = choice->Winner();
+    }
+    if (winner < 0)
+        return -1;
+
+    auto selected = std::move(branches[winner]);
+    branches.clear();
+    return selected->Complete(m_has_default) ? winner : -1;
 }
 
 } // namespace bbt::coroutine::sync

@@ -17,6 +17,7 @@
 namespace bbt::coroutine::sync {
 class CoWaiter;
 class CoMutex;
+class CoSelect;
 template <class TItem, int Max> class ChannelCore;
 } // namespace bbt::coroutine::sync
 
@@ -61,6 +62,7 @@ public:
      */
     friend class bbt::coroutine::sync::CoWaiter;
     friend class bbt::coroutine::sync::CoMutex;
+    friend class bbt::coroutine::sync::CoSelect;
     template <class TItem, int Max> friend class bbt::coroutine::sync::ChannelCore;
     friend class Scheduler;
     friend class Processer;

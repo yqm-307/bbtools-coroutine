@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <functional>
 #include <list>
 #include <mutex>
 #include <optional>
@@ -64,10 +65,74 @@ template <class TItem, int Max> bool operator>>(std::shared_ptr<Chan<TItem, Max>
  * @}
  */
 
+/**
+ * 一个 Run 的首胜记录。ChannelCore 先持通道锁，再按地址序取至多两个 Run 锁；
+ * 中断只取 Run 锁，不回调通道。普通操作传空记录，不取 Run 锁。
+ */
+class SelectChoice {
+public:
+    using Clock = std::chrono::steady_clock;
+    static constexpr int Pending = -2;
+
+    void SetDeadline(Clock::time_point deadline)
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_deadline = deadline;
+    }
+
+    int Winner()
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        return m_winner;
+    }
+
+    bool Interrupt()
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        if (m_winner != Pending)
+            return false;
+        m_winner = -1;
+        return true;
+    }
+
+    static bool Claim(SelectChoice* first, int index, SelectChoice* second, int peer_index, bool commit)
+    {
+        if (!first && !second)
+            return true;
+        if (first == second)
+            return false;
+        if (!first || (second && std::less<SelectChoice*>{}(second, first))) {
+            std::swap(first, second);
+            std::swap(index, peer_index);
+        }
+        std::unique_lock<std::mutex> lock(first->m_mutex);
+        std::unique_lock<std::mutex> peer_lock;
+        if (second)
+            peer_lock = std::unique_lock<std::mutex>(second->m_mutex);
+        const auto now = Clock::now();
+        if (!first->CanClaim(now) || (second && !second->CanClaim(now)))
+            return false;
+        if (commit) {
+            first->m_winner = index;
+            if (second)
+                second->m_winner = peer_index;
+        }
+        return true;
+    }
+
+private:
+    bool CanClaim(Clock::time_point now) const { return m_winner == Pending && now < m_deadline; }
+
+    std::mutex m_mutex;
+    Clock::time_point m_deadline{Clock::time_point::max()};
+    int m_winner{Pending};
+};
+
 template <class TItem, int Max> class ChannelCore : public std::enable_shared_from_this<ChannelCore<TItem, Max>> {
+    friend class CoSelect;
     static_assert(Max >= 0, "Channel capacity must be non-negative");
     enum class State { Pending, Matched, Completed, Failed, Closed, Cancelled, TimedOut, Unavailable };
-    enum class Attempt { Done, Register, Park };
+    enum class Attempt { Done, Prepare, Arm, Register, Park };
     using Clock = std::chrono::steady_clock;
     using Value = std::unique_ptr<TItem>;
     using Batch = std::vector<Value>;
@@ -94,7 +159,7 @@ template <class TItem, int Max> class ChannelCore : public std::enable_shared_fr
 
         const bool sending;
         /**
-         * 等待方保活栈槽，只有持锁且操作仍 Pending 时才能写入或取得槽中所有权。
+         * 只在通道锁内预留或转移值槽。晚到的唤醒和写回执不再访问该槽。
          */
         Value& value;
         const Clock::time_point deadline;
@@ -104,6 +169,9 @@ template <class TItem, int Max> class ChannelCore : public std::enable_shared_fr
         std::optional<typename Queue::iterator> position;
         Wait wait;
         Op sender;
+        std::shared_ptr<SelectChoice> choice;
+        int index{-1};
+        uint64_t enqueue_order{0};
     };
 
 public:
@@ -183,18 +251,11 @@ public:
             if (all)
                 CompleteBatch(op);
         }
-        try {
+        DeliverMatched(op, [&]() {
             deliver(std::as_const(*value));
             for (const auto& entry : batch)
                 deliver(std::as_const(*entry));
-        } catch (...) {
-            /**
-             * 配对后容量可能已被下一位写者占用；已保留的值不能回队。
-             */
-            Finish(op, State::Failed);
-            throw;
-        }
-        Finish(op, State::Completed);
+        });
         return Result(State::Completed);
     }
 
@@ -208,28 +269,25 @@ public:
             if (m_closed)
                 return;
             m_closed = true;
-            wake.splice(wake.end(), m_senders);
             if constexpr (Max > 0) {
                 /**
                  * 正常配对时等待接收者与缓冲不会并存；关闭仍按同一排空规则处理，
                  * 且已拒绝的写者不能在排空过程中补位。
                  */
-                while (m_size != 0 && !m_receivers.empty()) {
-                    const auto& receiver = m_receivers.front();
-                    if (receiver->drain_on_close) {
-                        ReserveBuffered(*receiver);
-                        receiver->position.reset();
-                        matched.splice(matched.end(), m_receivers, m_receivers.begin());
-                    } else {
-                        wake.splice(wake.end(), m_receivers, m_receivers.begin());
-                    }
+                for (auto it = m_receivers.begin(); m_size != 0 && it != m_receivers.end();) {
+                    auto current = it++;
+                    if (!(*current)->drain_on_close)
+                        continue;
+                    ReserveBuffered(**current);
+                    (*current)->position.reset();
+                    matched.splice(matched.end(), m_receivers, current);
                 }
             }
-            wake.splice(wake.end(), m_receivers);
-            for (const auto& op : wake) {
-                op->state = State::Closed;
-                op->position.reset();
-            }
+            /**
+             * Close 同时使读写就绪；同通道的分支按发布顺序竞争，而不是固定由写分支抢先。
+             */
+            m_senders.merge(m_receivers, [](const Op& a, const Op& b) { return a->enqueue_order < b->enqueue_order; });
+            ClosePending(m_senders, wake);
             NotifyWatchers(m_readWatchers);
             NotifyWatchers(m_writeWatchers);
         }
@@ -296,9 +354,30 @@ private:
             op->wait->Trigger(reason);
     }
 
+    static bool Claim(Operation& op, Operation* peer = nullptr, bool commit = true)
+    {
+        return SelectChoice::Claim(
+            op.choice.get(), op.index, peer ? peer->choice.get() : nullptr, peer ? peer->index : -1, commit);
+    }
+
+    static void ClosePending(Queue& queue, Queue& wake)
+    {
+        while (!queue.empty()) {
+            const auto& op = queue.front();
+            op->position.reset();
+            if (Claim(*op)) {
+                op->state = State::Closed;
+                wake.splice(wake.end(), queue, queue.begin());
+            } else {
+                queue.pop_front();
+            }
+        }
+    }
+
     void Start(const Op& op, detail::Coroutine* co, Mode mode)
     {
-        if (Admit(*op, op, co, mode, {}) != Attempt::Register)
+        const auto attempt = Admit(*op, op, co, mode, {});
+        if (attempt != Attempt::Register && attempt != Attempt::Arm)
             return;
 
         if (!co
@@ -316,23 +395,31 @@ private:
         }
     }
 
-    Attempt Admit(Operation& op, const Op& owned, detail::Coroutine* co, Mode mode, const Wait& wait)
+    Attempt
+    Admit(Operation& op, const Op& owned, detail::Coroutine* co, Mode mode, const Wait& wait, Queue* prepared = nullptr)
     {
         Queue expired;
         Queue pending;
         Queue admitted;
-        if (wait)
+        if (wait && !prepared)
             pending.push_back(owned);
-        Op reader_to_wake;
+        auto& publication = prepared ? *prepared : pending;
+        Op peer_to_wake;
         Attempt next;
+        bool wake_self = false;
         {
             detail::DriverWakeDeferral defer;
             std::lock_guard<std::mutex> lock(m_mutex);
-            next = AdmitLocked(op, owned, co, mode, wait, pending, expired, admitted, reader_to_wake);
+            const bool publishing = op.choice && !publication.empty();
+            next = AdmitLocked(op, owned, co, mode, wait, publication, expired, admitted, peer_to_wake);
+            wake_self = publishing && next == Attempt::Done
+                        && (op.state == State::Closed || op.state == State::Matched || op.state == State::Completed);
         }
         SignalSends(expired, admitted);
-        if (reader_to_wake)
-            Signal(reader_to_wake, detail::POLL_EVENT_CUSTOM);
+        if (peer_to_wake)
+            Signal(peer_to_wake, detail::POLL_EVENT_CUSTOM);
+        if (wake_self)
+            wait->Trigger(detail::POLL_EVENT_CUSTOM);
         return next;
     }
 
@@ -345,7 +432,7 @@ private:
         Queue& pending,
         Queue& expired,
         Queue& admitted,
-        Op& reader_to_wake)
+        Op& peer_to_wake)
     {
         if (op.state != State::Pending)
             return Attempt::Done;
@@ -353,7 +440,8 @@ private:
          * 缓冲残留只允许 Read / ReadAll 排空；两种 TryRead 都将关闭视为终态。
          */
         if (m_closed && (!op.drain_on_close || m_size == 0)) {
-            op.state = State::Closed;
+            if (Claim(op))
+                op.state = State::Closed;
             return Attempt::Done;
         }
         if (co && co->IsCancelRequested()) {
@@ -365,9 +453,13 @@ private:
             op.state = State::TimedOut;
             return Attempt::Done;
         }
+        if (op.choice && !Claim(op, nullptr, false))
+            return Attempt::Done;
 
         if constexpr (Max > 0) {
             if (!op.sending && m_size != 0) {
+                if (!Claim(op))
+                    return Attempt::Done;
                 ReserveBuffered(op);
 
                 /**
@@ -380,13 +472,20 @@ private:
         }
 
         auto& peers = op.sending ? m_receivers : m_senders;
-        ExpireFront(peers, now, expired);
         const bool await_delivery = Max == 0 && op.sending && mode != Mode::Immediate;
-        if (!peers.empty()) {
+        for (auto it = peers.begin(); it != peers.end();) {
+            auto current = it++;
+            if (Expire(peers, current, now, expired))
+                continue;
+            const bool prepare = op.sending && !op.value;
+            if (!Claim(op, current->get(), !prepare && (!await_delivery || wait)))
+                continue;
+            if (prepare)
+                return Attempt::Prepare;
             if (await_delivery && !wait)
-                return Attempt::Register;
-            auto peer = std::move(peers.front());
-            peers.pop_front();
+                return Attempt::Arm;
+            auto peer = std::move(*current);
+            peers.erase(current);
             peer->position.reset();
             /**
              * 有缓冲写入在接纳值时完成，即使等待读者直接取得该值。
@@ -402,7 +501,7 @@ private:
                 } else {
                     op.state = State::Completed;
                 }
-                reader_to_wake = std::move(peer);
+                peer_to_wake = std::move(peer);
             } else {
                 op.value = std::move(peer->value);
                 op.state = State::Matched;
@@ -412,6 +511,7 @@ private:
                     op.sender = peer;
                 } else {
                     peer->state = State::Completed;
+                    peer_to_wake = std::move(peer);
                 }
             }
             return await_delivery ? Attempt::Park : Attempt::Done;
@@ -419,6 +519,10 @@ private:
 
         if constexpr (Max > 0) {
             if (op.sending && m_size < Max) {
+                if (!Claim(op, nullptr, static_cast<bool>(op.value)))
+                    return Attempt::Done;
+                if (!op.value)
+                    return Attempt::Prepare;
                 PushBuffered(std::move(op.value));
                 op.state = State::Completed;
                 NotifyWatchers(m_readWatchers);
@@ -426,6 +530,8 @@ private:
             }
         }
 
+        if (op.choice && pending.empty())
+            return Attempt::Register;
         if (mode == Mode::Immediate || (mode == Mode::Timed && op.deadline == Clock::time_point::max())) {
             op.state = mode == Mode::Immediate ? State::Unavailable : State::TimedOut;
             return Attempt::Done;
@@ -434,22 +540,24 @@ private:
             return Attempt::Register;
         auto& queue = op.sending ? m_senders : m_receivers;
         op.position = pending.begin();
+        op.enqueue_order = m_next_enqueue++;
         queue.splice(queue.end(), pending);
         op.wait = wait;
         return Attempt::Park;
     }
 
-    static void ExpireFront(Queue& queue, Clock::time_point now, Queue& expired)
+    static bool Expire(Queue& queue, typename Queue::iterator position, Clock::time_point now, Queue& expired)
     {
         /**
          * 定时器投递延迟不延长已入队操作的匹配期限。
          */
-        while (!queue.empty() && queue.front()->deadline <= now) {
-            const auto& op = queue.front();
-            op->state = State::TimedOut;
-            op->position.reset();
-            expired.splice(expired.end(), queue, queue.begin());
-        }
+        const auto& op = *position;
+        if (op->deadline > now)
+            return false;
+        op->state = State::TimedOut;
+        op->position.reset();
+        expired.splice(expired.end(), queue, position);
+        return true;
     }
 
     void PushBuffered(Value value)
@@ -505,15 +613,17 @@ private:
     {
         if (m_closed)
             return;
-        while (m_size < Max) {
-            ExpireFront(m_senders, now, expired);
-            if (m_senders.empty())
-                break;
-            const auto& sender = m_senders.front();
+        for (auto it = m_senders.begin(); m_size < Max && it != m_senders.end();) {
+            auto current = it++;
+            if (Expire(m_senders, current, now, expired))
+                continue;
+            const auto& sender = *current;
+            if (!Claim(*sender))
+                continue;
             PushBuffered(std::move(sender->value));
             sender->state = State::Completed;
             sender->position.reset();
-            admitted.splice(admitted.end(), m_senders, m_senders.begin());
+            admitted.splice(admitted.end(), m_senders, current);
         }
         if (!admitted.empty())
             NotifyWatchers(m_readWatchers);
@@ -553,6 +663,26 @@ private:
         return true;
     }
 
+    State ReadState(const Op& op)
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        return op->state;
+    }
+
+    template <class Delivery> void DeliverMatched(const Op& receiver, Delivery deliver)
+    {
+        try {
+            deliver();
+        } catch (...) {
+            /**
+             * 配对后容量可能已被下一位写者占用；已保留的值不能回队。
+             */
+            Finish(receiver, State::Failed);
+            throw;
+        }
+        Finish(receiver, State::Completed);
+    }
+
     void Finish(const Op& receiver, State state)
     {
         auto sender = receiver->sender;
@@ -570,6 +700,7 @@ private:
     bool m_closed{false};
     Queue m_senders;
     Queue m_receivers;
+    uint64_t m_next_enqueue{0};
     Buffer m_buffer;
     size_t m_head{0};
     size_t m_size{0};

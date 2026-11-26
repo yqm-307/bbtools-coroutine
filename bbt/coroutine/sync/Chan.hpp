@@ -15,6 +15,7 @@
 namespace bbt::coroutine::sync {
 
 template <class TItem, int Max> class ChannelCore;
+class CoSelect;
 
 /**
  * @brief 有缓冲 Chan：满则写挂起、空则读挂起；Close 后 Read 读完残留，TryRead 直接 -1。
@@ -88,11 +89,11 @@ public:
     virtual bool IsClosed() override;
 
     /**
-     * @brief CoSelect 观察者：状态变化（可读/可写/关闭）时额外 Notify 这些 waiter。
+     * @brief 通道观察者：状态变化（可读/可写/关闭）时额外 Notify 这些 waiter。
      *
      *  与 Wait 挂起不同，watcher 不独占唤醒——Notify 时若无协程在 Wait
      *  该 waiter 则返回 -1（忽略即可）。注册后调用方须自行再 Try 一次，
-     *  补上"Try 失败与注册之间"的丢唤醒窗口（CoSelect 回调里已处理）。
+     *  补上"Try 失败与注册之间"的丢唤醒窗口。CoSelect 不依赖此观察接口。
      */
     void AddReadWatcher(const CoWaiter::SPtr& waiter);
 
@@ -122,6 +123,7 @@ public:
     size_t capacity() const { return Max; }
 
 private:
+    friend class CoSelect;
     using Core = ChannelCore<TItem, Max>;
     const std::shared_ptr<Core> m_core;
 };
@@ -148,6 +150,7 @@ public:
     bool IsClosed() override;
 
 private:
+    friend class CoSelect;
     using Core = ChannelCore<TItem, 0>;
     const std::shared_ptr<Core> m_core;
 };
