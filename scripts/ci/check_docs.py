@@ -43,7 +43,9 @@ NOISE_RES = [
      '评审/契约行号用语'),
 ]
 
-SKIP_DIRS = {'.git', '.svn', '.hg', 'node_modules', '__pycache__'}
+# third-party/ 是外部仓的 submodule 检出，其文档由上游自己检查；
+# 不跳过时，本地检出会让结果与不拉 submodule 的 CI 不一致。
+SKIP_DIRS = {'.git', '.svn', '.hg', 'node_modules', '__pycache__', 'third-party'}
 
 
 def _rel(root, path):

@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-28",
+  "commit": "6c3c1c458e4102db29920b3f3d941f27db4239a7",
+  "base": "8095ed9d50a64fc5e089c00f59d74ccbb20273aa",
+  "result": "pass",
+  "reviewer": "alice-session-subagent",
+  "summary": "文档检查跳过 third-party 检出经独立审查 pass：补丁最小且与 bbt-framework 35155f9 一致；按目录名跳过只命中顶层外部 submodule，无本仓自有文档漏检；CI docs check 不拉 submodule，行为不变。",
+  "checks": [
+    {
+      "id": "llm-review",
+      "kind": "attested",
+      "status": "pass",
+      "summary": "no blocking or non-blocking findings; unittest 16/16 OK, check_docs exit 0",
+      "evidence": {
+        "reviewer": "independent subagent review (deleg_f7e01325)",
+        "scope": "origin/main..6c3c1c4"
+      }
+    }
+  ]
+}
