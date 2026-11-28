@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-28",
+  "commit": "400cac0f8a4f19483e840c7500f6fe0f17d286be",
+  "base": "08bdf9468d8ad24dba1da291fa3d8dd25d7277b9",
+  "result": "pass",
+  "reviewer": "alice-self-review",
+  "summary": "pub 升到 d80c415 + 全仓机械格式化自审：80 个文件去空白后 74 个逐字不变，6 个仅为无参 lambda 补 ()（脚本核对无其他差异）；Release 全目标构建 295/295、smoke 8/8；2 条构建警告位于逐字不变的文件，为存量。",
+  "checks": [
+    {
+      "id": "llm-review",
+      "kind": "attested",
+      "status": "pass",
+      "summary": "self-review: mechanical format only; token-equivalence script reports 0 unexplained files",
+      "evidence": {
+        "reviewer": "author self-review (mechanical formatting, per AGENTS.md)",
+        "scope": "origin/main..400cac0"
+      }
+    }
+  ]
+}

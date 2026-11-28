@@ -17,8 +17,7 @@ int main()
     auto cond = bbtco_make_cocond();
 
     for (int i = 0; i < nco; ++i) {
-        bbtco[&, i]()
-        {
+        bbtco [&, i]() {
             while (true) {
                 alive_arr[i] = current_frame.load();
                 cond->Wait();
@@ -26,8 +25,7 @@ int main()
         };
     }
 
-    bbtco_desc("定时检查")[&]()
-    {
+    bbtco_desc("定时检查") [&]() {
         while (true) {
             printf("check: current=%d\n", current_frame.load());
             int total_count = 0;

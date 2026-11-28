@@ -50,8 +50,7 @@ BOOST_AUTO_TEST_CASE(t_desc_recorded_and_readable)
     bbt::core::thread::CountDownLatch done{1};
     std::string seen{"<unset>"};
 
-    bbtco_desc("diag-probe-task")[&]()
-    {
+    bbtco_desc("diag-probe-task") [&]() {
         Coroutine* co = g_bbt_tls_coroutine_co;
         BOOST_REQUIRE(co != nullptr);
         seen = co->GetDescription();
@@ -70,8 +69,7 @@ BOOST_AUTO_TEST_CASE(t_plain_bbtc_has_empty_desc)
     bbt::core::thread::CountDownLatch done{1};
     std::atomic_bool empty{false};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         Coroutine* co = g_bbt_tls_coroutine_co;
         BOOST_REQUIRE(co != nullptr);
         empty.store(co->GetDescription().empty());
@@ -90,8 +88,7 @@ BOOST_AUTO_TEST_CASE(t_wait_scene_while_parked)
     bbt::core::thread::CountDownLatch done{1};
     std::atomic_bool checked{false};
 
-    bbtco_desc("parked-probe")[&]()
-    {
+    bbtco_desc("parked-probe") [&]() {
         Coroutine* co = g_bbt_tls_coroutine_co;
         BOOST_REQUIRE(co != nullptr);
 
@@ -123,8 +120,7 @@ BOOST_AUTO_TEST_CASE(t_waited_us_bounded_after_wake)
 {
     bbt::core::thread::CountDownLatch done{1};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         Coroutine* co = g_bbt_tls_coroutine_co;
         BOOST_REQUIRE(co != nullptr);
 

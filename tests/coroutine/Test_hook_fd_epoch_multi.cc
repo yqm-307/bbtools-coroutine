@@ -81,8 +81,7 @@ BOOST_AUTO_TEST_CASE(t_multi_worker_close_reuse_returns_ebadf)
     std::atomic<ssize_t> result{12345};
     std::atomic_int errcode{0};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         char buf[1];
         errno = 0;
         const ssize_t r = FdEpochRead(fds[0], buf, 1);

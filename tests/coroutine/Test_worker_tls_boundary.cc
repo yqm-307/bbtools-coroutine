@@ -144,8 +144,7 @@ bool RunYieldPhase(YieldStats& stats)
     bbt::core::thread::CountDownLatch done{kYieldCoroutines};
 
     for (int i = 0; i < kYieldCoroutines; ++i) {
-        bbtco[&, i]()
-        {
+        bbtco [&, i]() {
             const CoroutineId self = GetLocalCoroutineId();
             if (self == 0) {
                 stats.tls_bad.fetch_add(1, std::memory_order_relaxed);
@@ -321,8 +320,7 @@ BOOST_AUTO_TEST_CASE(t_runtime_tls_stable_after_event_wake)
         auto state = std::make_shared<EventRoundState>();
         auto waiter = sync::CoWaiter::Create();
 
-        bbtco[state, waiter]()
-        {
+        bbtco [state, waiter]() {
             const CoroutineId self = GetLocalCoroutineId();
             state->parked.Down();
             state->wait_ret.store(waiter->WaitWithTimeout(kEventWaitTimeoutMs));

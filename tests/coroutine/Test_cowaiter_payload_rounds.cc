@@ -85,8 +85,7 @@ BOOST_AUTO_TEST_CASE(t_plain_wait_payload_round_isolated)
     std::atomic<std::int64_t> first{-1}, second{-1};
     std::atomic<bool> first_has{false}, second_has{false};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         CoEventValue out;
         waiter->WaitWithCallback(WaitOptions{}, {}, &out);
         std::int64_t v = -1;
@@ -96,8 +95,7 @@ BOOST_AUTO_TEST_CASE(t_plain_wait_payload_round_isolated)
     };
     BOOST_REQUIRE(Until([&]() { return waiter->Ready(); }));
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         blocking.store(true);
         if (!Until([&]() { return release.load(); })) {
             done.fetch_add(1);
@@ -136,8 +134,7 @@ BOOST_AUTO_TEST_CASE(t_combined_wait_payload_round_isolated)
     std::atomic<std::int64_t> first{-1}, second{-1};
     std::atomic<bool> first_has{false}, second_has{false};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         CoEventValue out;
         waiter->Wait(CombinedWaitOptions{}, {}, &out);
         std::int64_t v = -1;
@@ -147,8 +144,7 @@ BOOST_AUTO_TEST_CASE(t_combined_wait_payload_round_isolated)
     };
     BOOST_REQUIRE(Until([&]() { return waiter->Ready(); }));
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         blocking.store(true);
         if (!Until([&]() { return release.load(); })) {
             done.fetch_add(1);

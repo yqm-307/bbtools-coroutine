@@ -103,8 +103,7 @@ BOOST_AUTO_TEST_CASE(t_regist_fail_keeps_stale_resume_mask)
     bbt::core::thread::CountDownLatch done{1};
     std::atomic<int> first_ret{-99}, second_ret{-99}, mask_after{-99};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         /**
          * 第一次真实超时：把 m_last_resume_event 固定为 TIMEOUT
          */
@@ -150,8 +149,7 @@ BOOST_AUTO_TEST_CASE(t_regist_fail_return_codes_across_interfaces)
     std::atomic<int> r_plain{-99}, r_cb{-99};
     std::atomic<WaitStatus> r_narrow{WaitStatus::Completed};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         /**
          * 先污染掩码：真实超时把 m_last_resume_event 固定为 TIMEOUT。
          * 不用 RequestCancel——取消位是粘性的，会让后续等待走预取消
@@ -195,8 +193,7 @@ BOOST_AUTO_TEST_CASE(t_waiter_usable_after_regist_fail)
     bbt::core::thread::CountDownLatch done{1};
     std::atomic<int> r_fail{-99}, r_ok{-99};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         Coroutine::_TestFailNextAwaitRegist();
         r_fail.store(waiter->WaitWithTimeout(60000));
 
@@ -244,8 +241,7 @@ BOOST_AUTO_TEST_CASE(t_injection_is_one_shot)
     std::atomic<Coroutine*> co_p{nullptr};
     std::atomic<int> r_fail{-99}, r_ok{-99};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         co_p.store(g_bbt_tls_coroutine_co);
         Coroutine::_TestFailNextAwaitRegist();
         r_fail.store(waiter->WaitWithTimeout(60000));

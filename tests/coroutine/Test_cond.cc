@@ -74,14 +74,12 @@ BOOST_AUTO_TEST_CASE(t_cond_multi)
 {
     std::atomic_bool run_in_co{false};
 
-    bbtco[&run_in_co]()
-    {
+    bbtco [&run_in_co]() {
         auto co1 = sync::CoWaiter::Create();
         auto co2 = sync::CoWaiter::Create();
         Assert(co1 != nullptr && co2 != nullptr);
 
-        bbtco[&run_in_co, co1, co2]()
-        {
+        bbtco [&run_in_co, co1, co2]() {
             BOOST_ASSERT(!run_in_co.load());
             run_in_co = true;
             co1->Notify();
@@ -114,8 +112,7 @@ BOOST_AUTO_TEST_CASE(t_cond_wait_with_timeout)
     const int wait_ms = 200;
     std::atomic_int a{0};
     std::atomic_uint64_t elapsed_ms{0};
-    bbtco[&]()
-    {
+    bbtco [&]() {
         auto cond = sync::CoWaiter::Create();
         auto begin = bbt::core::clock::gettime();
         cond->WaitWithTimeout(wait_ms);
@@ -140,13 +137,11 @@ BOOST_AUTO_TEST_CASE(t_cond_wait)
     std::atomic_int ncount{0};
     bbt::core::thread::CountDownLatch l2{nmax_co};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         auto cond = bbtco_make_cocond();
 
         for (int i = 0; i < nmax_co; ++i) {
-            bbtco[&]()
-            {
+            bbtco [&]() {
                 cond->Wait();
                 ncount++;
                 l2.Down();
@@ -173,8 +168,7 @@ BOOST_AUTO_TEST_CASE(t_waitfor_timeout)
     bbt::core::thread::CountDownLatch l{1};
     int result = -999;
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         auto cond = bbtco_make_cocond();
         auto begin = bbt::core::clock::gettime_mono();
         result = cond->WaitFor(100);
@@ -209,12 +203,10 @@ BOOST_AUTO_TEST_CASE(t_waitfor_notifyone)
     bbt::core::thread::CountDownLatch l{1};
     int result = -999;
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         auto cond = bbtco_make_cocond();
 
-        bbtco[cond, &result, &l]()
-        {
+        bbtco [cond, &result, &l]() {
             auto begin = bbt::core::clock::gettime_mono();
             result = cond->WaitFor(500);
             auto elapsed = bbt::core::clock::gettime_mono() - begin;
@@ -247,13 +239,11 @@ BOOST_AUTO_TEST_CASE(t_waitfor_notifyall)
     bbt::core::thread::CountDownLatch l{n};
     std::atomic_int woken{0};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         auto cond = bbtco_make_cocond();
 
         for (int i = 0; i < n; ++i) {
-            bbtco[cond, &woken, &l]()
-            {
+            bbtco [cond, &woken, &l]() {
                 int ret = cond->WaitFor(500);
                 if (ret == 0)
                     woken++;
@@ -280,8 +270,7 @@ BOOST_AUTO_TEST_CASE(t_notifyone_empty)
 {
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         auto cond = bbtco_make_cocond();
         int ret = cond->NotifyOne();
 
@@ -302,8 +291,7 @@ BOOST_AUTO_TEST_CASE(t_notifyone_empty_then_use)
 {
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         auto cond = bbtco_make_cocond();
 
         /**
@@ -315,8 +303,7 @@ BOOST_AUTO_TEST_CASE(t_notifyone_empty_then_use)
         /**
          * 之后正常 WaitFor + NotifyOne 仍然工作
          */
-        bbtco[cond]()
-        {
+        bbtco [cond]() {
             bbtco_sleep(50);
             cond->NotifyOne();
         };
@@ -337,12 +324,10 @@ BOOST_AUTO_TEST_CASE(t_wait_notifyone_single)
     bbt::core::thread::CountDownLatch l{1};
     int woken = 0;
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         auto cond = bbtco_make_cocond();
 
-        bbtco[cond, &woken, &l]()
-        {
+        bbtco [cond, &woken, &l]() {
             cond->Wait();
             woken = 1;
             l.Down();
@@ -410,8 +395,7 @@ BOOST_AUTO_TEST_CASE(t_notify_claims_exactly_once_no_cross_wake)
     auto state = std::make_shared<CaseState>();
 
     for (int i = 0; i < 4; ++i) {
-        bbtco[state, i]()
-        {
+        bbtco [state, i]() {
             auto& slot = state->slots[i];
             slot.ret.store(slot.waiter->WaitWithTimeoutAndCallback(400, [&slot]() {
                 slot.registered.store(1, std::memory_order_release);
@@ -422,8 +406,7 @@ BOOST_AUTO_TEST_CASE(t_notify_claims_exactly_once_no_cross_wake)
         };
     }
 
-    bbtco[state]()
-    {
+    bbtco [state]() {
         /**
          * 阶段门槛：4 槽全部完成挂起登记后才通知
          */
@@ -470,12 +453,10 @@ BOOST_AUTO_TEST_CASE(t_notifyone_before_wait_not_sticky)
 
     auto state = std::make_shared<CaseState>();
 
-    bbtco[state]()
-    {
+    bbtco [state]() {
         state->notify_empty_ret.store(state->cond->NotifyOne());
 
-        bbtco[state]()
-        {
+        bbtco [state]() {
             state->waiter_ret.store(state->cond->WaitFor(150));
             state->settled.store(1);
         };
@@ -510,8 +491,7 @@ BOOST_AUTO_TEST_CASE(t_cancel_after_notify_claim_pairing)
 
     auto state = std::make_shared<CaseState>();
 
-    bbtco[state]()
-    {
+    bbtco [state]() {
         state->wait_ret.store(state->waiter->WaitWithTimeoutAndCallback(400, [&state]() {
             state->registered.store(1);
             return true;
@@ -520,8 +500,7 @@ BOOST_AUTO_TEST_CASE(t_cancel_after_notify_claim_pairing)
         state->settled.store(1);
     };
 
-    bbtco[state]()
-    {
+    bbtco [state]() {
         state->stage_ok.store(SpinUntilCo([&state] { return state->registered.load() == 1; }, 3000) ? 1 : 0);
         state->notify_ret.store(state->waiter->Notify());
         state->waiter->Cancel();

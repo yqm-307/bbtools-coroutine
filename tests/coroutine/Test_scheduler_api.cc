@@ -114,8 +114,7 @@ BOOST_AUTO_TEST_CASE(t_explicit_stack_size_registration)
     g_scheduler->RegistCoroutineTask(request, [&]() { latch.Down(); }, succ);
     BOOST_CHECK(succ);
 
-    bbtco_desc("api-desc")[&]()
-    {
+    bbtco_desc("api-desc") [&]() {
         default_seen.store(GetLocalCoroutineStackSize());
         latch.Down();
     };

@@ -12,8 +12,7 @@ int main()
 
     auto pool = bbtco_make_copool(100);
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         for (int i = 0; i < nsum_co; ++i) {
             pool->Submit([&]() { l.Down(); });
         }

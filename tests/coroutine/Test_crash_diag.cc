@@ -61,8 +61,7 @@ static int RunStackOverflowChild(bool protect)
                 sink[0] = buf[1];
         };
         bbt::core::thread::CountDownLatch done{1};
-        bbtco[&]()
-        {
+        bbtco [&]() {
             rec(200);
             done.Down();
         };

@@ -125,11 +125,11 @@ bbt_co_async(int) EagerEarly(bool fail, int& awaited)
 {
     if (fail) {
         // 带括号的旧写法保持兼容，语义与不带括号的写法一致。
-        bbt_co_return(-1);
+        bbt_co_return (-1);
     }
     ++awaited;
     const auto value = bbt_co_await Identity(7);
-    bbt_co_return(value);
+    bbt_co_return (value);
 }
 
 bbt_co_async(std::string) EagerString(std::string value, int& stages)
@@ -162,7 +162,7 @@ bbt_co_async(int) EagerConditional(bool choose_high, int high, int low)
 // 顶层逗号须用括号分组，括号内保持逗号表达式语义。
 bbt_co_async(int) EagerCommaExpression(int value, int& steps)
 {
-    bbt_co_return(++steps, value + 1);
+    bbt_co_return (++steps, value + 1);
 }
 
 bbt_co_async(int) EagerFail()
@@ -485,8 +485,7 @@ BOOST_AUTO_TEST_CASE(fire_runs_after_submission_without_await)
     auto future = finished->get_future();
     auto calls = std::make_shared<std::atomic_int>(0);
 
-    bbtco[finished, calls]()
-    {
+    bbtco [finished, calls]() {
         bbt_co_fire bbt_co_bind([finished, calls] {
             const int count = calls->fetch_add(1, std::memory_order_acq_rel) + 1;
             if (count == 1)

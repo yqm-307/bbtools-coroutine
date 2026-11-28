@@ -26,8 +26,7 @@ void fatigue_1()
      * ── 100 个协程做 Lock/UnLock (互斥写入) ──
      */
     for (int i = 0; i < nco_num; ++i) {
-        bbtco[i]()
-        {
+        bbtco [i]() {
             while (true) {
                 uint64_t t0 = fatigue::now_us();
                 mutex->Lock();
@@ -49,8 +48,7 @@ void fatigue_1()
      * ── 5 个协程做 TryLock(10ms) ──
      */
     for (int i = 0; i < 5; ++i) {
-        bbtco[i]()
-        {
+        bbtco [i]() {
             while (true) {
                 uint64_t t0 = fatigue::now_us();
                 int ret = mutex->TryLock(10);

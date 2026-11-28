@@ -221,8 +221,7 @@ BOOST_AUTO_TEST_CASE(t_comutex_lock_regist_fail)
     bbt::core::thread::CountDownLatch done{2};
     std::atomic<int> lock_returned{0};
 
-    bbtco[mutex, &holding, &can_unlock, &done]()
-    {
+    bbtco [mutex, &holding, &can_unlock, &done]() {
         mutex->Lock();
         holding.store(true, std::memory_order_release);
 
@@ -234,8 +233,7 @@ BOOST_AUTO_TEST_CASE(t_comutex_lock_regist_fail)
         done.Down();
     };
 
-    bbtco[mutex, &holding, &can_unlock, &lock_returned, &done]()
-    {
+    bbtco [mutex, &holding, &can_unlock, &lock_returned, &done]() {
         /**
          * holder 已持锁：因果屏障
          */
@@ -271,8 +269,7 @@ BOOST_AUTO_TEST_CASE(t_comutex_trylock_neg1_contended)
     bbt::core::thread::CountDownLatch done{2};
     std::atomic<int> ret{-99};
 
-    bbtco[mutex, &holding, &can_unlock, &done]()
-    {
+    bbtco [mutex, &holding, &can_unlock, &done]() {
         mutex->Lock();
         holding.store(true, std::memory_order_release);
         CoWaitFlag(can_unlock);
@@ -280,8 +277,7 @@ BOOST_AUTO_TEST_CASE(t_comutex_trylock_neg1_contended)
         done.Down();
     };
 
-    bbtco[mutex, &holding, &can_unlock, &ret, &done]()
-    {
+    bbtco [mutex, &holding, &can_unlock, &ret, &done]() {
         CoWaitFlag(holding);
 
         /**
@@ -307,8 +303,7 @@ BOOST_AUTO_TEST_CASE(t_comutex_trylock_ms_regist_fail_and_reuse)
     bbt::core::thread::CountDownLatch done{2}, reuse{1};
     std::atomic<int> fail_ret{-99}, reacquired{0};
 
-    bbtco[mutex, &holding, &can_unlock, &done]()
-    {
+    bbtco [mutex, &holding, &can_unlock, &done]() {
         mutex->Lock();
         holding.store(true, std::memory_order_release);
         CoWaitFlag(can_unlock);
@@ -316,8 +311,7 @@ BOOST_AUTO_TEST_CASE(t_comutex_trylock_ms_regist_fail_and_reuse)
         done.Down();
     };
 
-    bbtco[mutex, &holding, &can_unlock, &fail_ret, &done]()
-    {
+    bbtco [mutex, &holding, &can_unlock, &fail_ret, &done]() {
         CoWaitFlag(holding);
         Coroutine::_TestFailNextAwaitRegist();
 
@@ -335,8 +329,7 @@ BOOST_AUTO_TEST_CASE(t_comutex_trylock_ms_regist_fail_and_reuse)
     /**
      * holder/victim 全部汇合后：另起协程真实重获锁，证明内部状态未污染
      */
-    bbtco[mutex, &reacquired, &reuse]()
-    {
+    bbtco [mutex, &reacquired, &reuse]() {
         if (mutex->TryLock() == 0) {
             reacquired.store(1);
             mutex->UnLock();
@@ -366,8 +359,7 @@ BOOST_AUTO_TEST_CASE(t_comutex_trylock_stale_mask)
     bbt::core::thread::CountDownLatch done{2};
     std::atomic<int> warm_ret{-99}, fail_ret{-99}, mask_ok{0};
 
-    bbtco[mutex, &holding, &can_unlock, &done]()
-    {
+    bbtco [mutex, &holding, &can_unlock, &done]() {
         mutex->Lock();
         holding.store(true, std::memory_order_release);
 
@@ -379,8 +371,7 @@ BOOST_AUTO_TEST_CASE(t_comutex_trylock_stale_mask)
         done.Down();
     };
 
-    bbtco[mutex, &holding, &can_unlock, &warm_ret, &fail_ret, &mask_ok, &done]()
-    {
+    bbtco [mutex, &holding, &can_unlock, &warm_ret, &fail_ret, &mask_ok, &done]() {
         CoWaitFlag(holding);
 
         /**
@@ -441,8 +432,7 @@ BOOST_AUTO_TEST_CASE(t_rwmutex_rlock_regist_fail)
     bbt::core::thread::CountDownLatch done{2};
     std::atomic<int> ret{-99};
 
-    bbtco[rw, &holding, &can_unlock, &done]()
-    {
+    bbtco [rw, &holding, &can_unlock, &done]() {
         rw->WLock();
         holding.store(true, std::memory_order_release);
         CoWaitFlag(can_unlock);
@@ -450,8 +440,7 @@ BOOST_AUTO_TEST_CASE(t_rwmutex_rlock_regist_fail)
         done.Down();
     };
 
-    bbtco[rw, &holding, &can_unlock, &ret, &done]()
-    {
+    bbtco [rw, &holding, &can_unlock, &ret, &done]() {
         CoWaitFlag(holding);
         Coroutine::_TestFailNextAwaitRegist();
 
@@ -478,8 +467,7 @@ BOOST_AUTO_TEST_CASE(t_rwmutex_wlock_regist_fail)
     bbt::core::thread::CountDownLatch done{2}, done2{1};
     std::atomic<int> wret{-99}, rgot{0};
 
-    bbtco[rw, &holding, &can_unlock, &done]()
-    {
+    bbtco [rw, &holding, &can_unlock, &done]() {
         rw->RLock();
         holding.store(true, std::memory_order_release);
         CoWaitFlag(can_unlock);
@@ -487,8 +475,7 @@ BOOST_AUTO_TEST_CASE(t_rwmutex_wlock_regist_fail)
         done.Down();
     };
 
-    bbtco[rw, &holding, &can_unlock, &wret, &done]()
-    {
+    bbtco [rw, &holding, &can_unlock, &wret, &done]() {
         CoWaitFlag(holding);
         Coroutine::_TestFailNextAwaitRegist();
 
@@ -506,8 +493,7 @@ BOOST_AUTO_TEST_CASE(t_rwmutex_wlock_regist_fail)
     /**
      * m_has_wait_wlock 残留检测：reader 应真实拿到读锁并归还
      */
-    bbtco[rw, &rgot, &done2]()
-    {
+    bbtco [rw, &rgot, &done2]() {
         if (rw->RLock() == 0) {
             rgot.store(1);
             rw->RUnLock();
@@ -529,8 +515,7 @@ BOOST_AUTO_TEST_CASE(t_rwmutex_tryrlock_ms_regist_fail)
     bbt::core::thread::CountDownLatch done{2}, done2{1};
     std::atomic<int> fail_ret{-99}, rgot{0};
 
-    bbtco[rw, &holding, &can_unlock, &done]()
-    {
+    bbtco [rw, &holding, &can_unlock, &done]() {
         rw->WLock();
         holding.store(true, std::memory_order_release);
         CoWaitFlag(can_unlock);
@@ -538,8 +523,7 @@ BOOST_AUTO_TEST_CASE(t_rwmutex_tryrlock_ms_regist_fail)
         done.Down();
     };
 
-    bbtco[rw, &holding, &can_unlock, &fail_ret, &done]()
-    {
+    bbtco [rw, &holding, &can_unlock, &fail_ret, &done]() {
         CoWaitFlag(holding);
         Coroutine::_TestFailNextAwaitRegist();
         fail_ret.store(rw->TryRLock(60000));
@@ -550,8 +534,7 @@ BOOST_AUTO_TEST_CASE(t_rwmutex_tryrlock_ms_regist_fail)
     done.Wait();
     BOOST_CHECK_EQUAL(fail_ret.load(), -1);
 
-    bbtco[rw, &rgot, &done2]()
-    {
+    bbtco [rw, &rgot, &done2]() {
         if (rw->TryRLock() == 0) {
             rgot.store(1);
             rw->RUnLock();
@@ -573,8 +556,7 @@ BOOST_AUTO_TEST_CASE(t_rwmutex_trywlock_ms_regist_fail)
     bbt::core::thread::CountDownLatch done{2}, done2{1};
     std::atomic<int> fail_ret{-99}, rgot{0};
 
-    bbtco[rw, &holding, &can_unlock, &done]()
-    {
+    bbtco [rw, &holding, &can_unlock, &done]() {
         rw->RLock();
         holding.store(true, std::memory_order_release);
         CoWaitFlag(can_unlock);
@@ -582,8 +564,7 @@ BOOST_AUTO_TEST_CASE(t_rwmutex_trywlock_ms_regist_fail)
         done.Down();
     };
 
-    bbtco[rw, &holding, &can_unlock, &fail_ret, &done]()
-    {
+    bbtco [rw, &holding, &can_unlock, &fail_ret, &done]() {
         CoWaitFlag(holding);
         Coroutine::_TestFailNextAwaitRegist();
         fail_ret.store(rw->TryWLock(60000));
@@ -594,8 +575,7 @@ BOOST_AUTO_TEST_CASE(t_rwmutex_trywlock_ms_regist_fail)
     done.Wait();
     BOOST_CHECK_EQUAL(fail_ret.load(), -1);
 
-    bbtco[rw, &rgot, &done2]()
-    {
+    bbtco [rw, &rgot, &done2]() {
         if (rw->RLock() == 0) {
             rgot.store(1);
             rw->RUnLock();
@@ -618,8 +598,7 @@ BOOST_AUTO_TEST_CASE(t_rwmutex_try_neg1_contended)
     bbt::core::thread::CountDownLatch done{2};
     std::atomic<int> rret{-99}, wret{-99};
 
-    bbtco[rw, &holding, &can_unlock, &done]()
-    {
+    bbtco [rw, &holding, &can_unlock, &done]() {
         rw->WLock();
         holding.store(true, std::memory_order_release);
         CoWaitFlag(can_unlock);
@@ -627,8 +606,7 @@ BOOST_AUTO_TEST_CASE(t_rwmutex_try_neg1_contended)
         done.Down();
     };
 
-    bbtco[rw, &holding, &can_unlock, &rret, &wret, &done]()
-    {
+    bbtco [rw, &holding, &can_unlock, &rret, &wret, &done]() {
         CoWaitFlag(holding);
         rret.store(rw->TryRLock(-1));
         wret.store(rw->TryWLock(-1));
@@ -652,8 +630,7 @@ BOOST_AUTO_TEST_CASE(t_trylock_neg1_free)
     bbt::core::thread::CountDownLatch done{1};
     std::atomic<int> m_ret{-99}, r_ret{-99}, w_ret{-99};
 
-    bbtco[mutex, rw, &m_ret, &r_ret, &w_ret, &done]()
-    {
+    bbtco [mutex, rw, &m_ret, &r_ret, &w_ret, &done]() {
         /**
          * 空闲：非等待分支，立即获锁
          */
@@ -688,8 +665,7 @@ BOOST_AUTO_TEST_CASE(t_normal_paths_preserved)
         auto free_mutex = bbtco_make_comutex();
         bbt::core::thread::CountDownLatch done{1};
         std::atomic<int> r0{-99}, rms{-99};
-        bbtco[free_mutex, &r0, &rms, &done]()
-        {
+        bbtco [free_mutex, &r0, &rms, &done]() {
             r0.store(free_mutex->TryLock());
             free_mutex->UnLock();
             rms.store(free_mutex->TryLock(50));
@@ -712,8 +688,7 @@ BOOST_AUTO_TEST_CASE(t_normal_paths_preserved)
         bbt::core::thread::CountDownLatch done{2};
         std::atomic<int> try_timeout{-99};
 
-        bbtco[mutex, &holding, &can_unlock, &done]()
-        {
+        bbtco [mutex, &holding, &can_unlock, &done]() {
             mutex->Lock();
             holding.store(true, std::memory_order_release);
             CoWaitFlag(can_unlock);
@@ -721,8 +696,7 @@ BOOST_AUTO_TEST_CASE(t_normal_paths_preserved)
             done.Down();
         };
 
-        bbtco[mutex, &holding, &can_unlock, &try_timeout, &done]()
-        {
+        bbtco [mutex, &holding, &can_unlock, &try_timeout, &done]() {
             CoWaitFlag(holding);
             try_timeout.store(mutex->TryLock(200));
             can_unlock.store(true, std::memory_order_release);
@@ -752,8 +726,7 @@ BOOST_AUTO_TEST_CASE(t_guard_regist_fail_observable)
     std::atomic<int> r_ctor{-1}, r_lock{-1}, w_ctor{-1}, w_lock{-1};
     std::atomic<int> read_blocked{0}, reacquired{0};
 
-    bbtco[rw, &holding, &can_unlock, &done]()
-    {
+    bbtco [rw, &holding, &can_unlock, &done]() {
         rw->WLock();
         holding.store(true, std::memory_order_release);
 
@@ -765,8 +738,7 @@ BOOST_AUTO_TEST_CASE(t_guard_regist_fail_observable)
         done.Down();
     };
 
-    bbtco[rw, &holding, &can_unlock, &done, &r_ctor, &r_lock, &w_ctor, &w_lock, &read_blocked]()
-    {
+    bbtco [rw, &holding, &can_unlock, &done, &r_ctor, &r_lock, &w_ctor, &w_lock, &read_blocked]() {
         CoWaitFlag(holding);
 
         Coroutine::_TestFailNextAwaitRegist();
@@ -826,8 +798,7 @@ BOOST_AUTO_TEST_CASE(t_guard_regist_fail_observable)
     /**
      * 锁对象未污染：holder 归还后读锁可真实获取
      */
-    bbtco[rw, &reacquired, &reuse]()
-    {
+    bbtco [rw, &reacquired, &reuse]() {
         if (rw->TryRLock() == 0) {
             reacquired.store(1);
             rw->RUnLock();
@@ -871,8 +842,7 @@ BOOST_AUTO_TEST_CASE(t_wlock_rewait_fail_keeps_live_writer)
      * A、C 都先排队；单 worker 内解锁、抢锁和武装注入之间不让权，
      * 保证 A 首次恢复后的再次登记消费注入，C 仍是存活等待者。
      */
-    bbtco[rw, &writer_queued, &holding, &a_done, &steal_ret, &read_during_c, &done]()
-    {
+    bbtco [rw, &writer_queued, &holding, &a_done, &steal_ret, &read_during_c, &done]() {
         rw->RLock();
         holding.store(true, std::memory_order_release);
         while (writer_queued.load(std::memory_order_acquire) < 2)
@@ -896,8 +866,7 @@ BOOST_AUTO_TEST_CASE(t_wlock_rewait_fail_keeps_live_writer)
     /**
      * writer A：挂起→被唤醒→被抢→再登记失败 → -1
      */
-    bbtco[rw, &holding, &a_done, &a_ret, &done]()
-    {
+    bbtco [rw, &holding, &a_done, &a_ret, &done]() {
         CoWaitFlag(holding);
         a_ret.store(rw->WLock());
         if (a_ret.load() == 0)
@@ -909,8 +878,7 @@ BOOST_AUTO_TEST_CASE(t_wlock_rewait_fail_keeps_live_writer)
     /**
      * C 必须排在 A 后面，回调计数 1 表明 A 已真实挂起。
      */
-    bbtco[rw, &writer_queued, &done]()
-    {
+    bbtco [rw, &writer_queued, &done]() {
         while (writer_queued.load(std::memory_order_acquire) < 1)
             bbtco_yield;
         if (rw->WLock() == 0)
@@ -927,8 +895,7 @@ BOOST_AUTO_TEST_CASE(t_wlock_rewait_fail_keeps_live_writer)
      */
     BOOST_CHECK_EQUAL(read_during_c.load(), -1);
 
-    bbtco[rw, &final_read, &post]()
-    {
+    bbtco [rw, &final_read, &post]() {
         final_read.store(rw->TryRLock());
         if (final_read.load() == 0)
             rw->RUnLock();
@@ -954,8 +921,7 @@ BOOST_AUTO_TEST_CASE(t_comutex_wait_prep_bad_alloc_releases_lock)
     bbt::core::thread::CountDownLatch done{2}, reuse{1};
     std::atomic<int> caught{0}, holder_unlocked{0}, reacquired{0};
 
-    bbtco[mutex, &holding, &can_unlock, &holder_unlocked, &done]()
-    {
+    bbtco [mutex, &holding, &can_unlock, &holder_unlocked, &done]() {
         mutex->Lock();
         holding.store(true, std::memory_order_release);
         CoWaitFlag(can_unlock);
@@ -968,8 +934,7 @@ BOOST_AUTO_TEST_CASE(t_comutex_wait_prep_bad_alloc_releases_lock)
         done.Down();
     };
 
-    bbtco[mutex, &holding, &can_unlock, &caught, &done]()
-    {
+    bbtco [mutex, &holding, &can_unlock, &caught, &done]() {
         CoWaitFlag(holding);
 
         /**
@@ -993,8 +958,7 @@ BOOST_AUTO_TEST_CASE(t_comutex_wait_prep_bad_alloc_releases_lock)
     BOOST_CHECK_GE(t_alloc_hits.load(), 1);
     BOOST_CHECK_EQUAL(holder_unlocked.load(), 1);
 
-    bbtco[mutex, &reacquired, &reuse]()
-    {
+    bbtco [mutex, &reacquired, &reuse]() {
         if (mutex->TryLock() == 0) {
             reacquired.store(1);
             mutex->UnLock();
@@ -1016,8 +980,7 @@ BOOST_AUTO_TEST_CASE(t_rwmutex_wait_prep_bad_alloc_releases_lock)
     bbt::core::thread::CountDownLatch done{2}, reuse{1};
     std::atomic<int> caught{0}, writer_unlocked{0}, reacquired{0};
 
-    bbtco[rw, &holding, &can_unlock, &writer_unlocked, &done]()
-    {
+    bbtco [rw, &holding, &can_unlock, &writer_unlocked, &done]() {
         rw->WLock();
         holding.store(true, std::memory_order_release);
         CoWaitFlag(can_unlock);
@@ -1026,8 +989,7 @@ BOOST_AUTO_TEST_CASE(t_rwmutex_wait_prep_bad_alloc_releases_lock)
         done.Down();
     };
 
-    bbtco[rw, &holding, &can_unlock, &caught, &done]()
-    {
+    bbtco [rw, &holding, &can_unlock, &caught, &done]() {
         CoWaitFlag(holding);
 
         /**
@@ -1050,8 +1012,7 @@ BOOST_AUTO_TEST_CASE(t_rwmutex_wait_prep_bad_alloc_releases_lock)
     BOOST_CHECK_EQUAL(caught.load(), 1);
     BOOST_CHECK_EQUAL(writer_unlocked.load(), 1);
 
-    bbtco[rw, &reacquired, &reuse]()
-    {
+    bbtco [rw, &reacquired, &reuse]() {
         if (rw->TryRLock() == 0) {
             reacquired.store(1);
             rw->RUnLock();
@@ -1204,8 +1165,7 @@ BOOST_AUTO_TEST_CASE(t_comutex_lock_callback_oom_last_alloc)
     std::atomic<int> total{0}, deep_oom{0}, oom_count{0};
     std::atomic<int> second_ret{-99}, status_bad{0}, req_bad{0};
 
-    bbtco[mutex, &held_seq, &go_seq, &fin_seq, &stop_all, &total, &done]()
-    {
+    bbtco [mutex, &held_seq, &go_seq, &fin_seq, &stop_all, &total, &done]() {
         for (int k = 1; k <= 2; ++k)
             HolderRound(
                 held_seq, go_seq, fin_seq, k, stop_all, [mutex] { mutex->Lock(); }, [mutex] { mutex->UnLock(); });
@@ -1218,8 +1178,7 @@ BOOST_AUTO_TEST_CASE(t_comutex_lock_callback_oom_last_alloc)
         done.Down();
     };
 
-    bbtco
-        [mutex,
+    bbtco [mutex,
          &held_seq,
          &go_seq,
          &fin_seq,
@@ -1230,82 +1189,81 @@ BOOST_AUTO_TEST_CASE(t_comutex_lock_callback_oom_last_alloc)
          &second_ret,
          &status_bad,
          &req_bad,
-         &done]()
-    {
-        for (int k = 1; k <= 2; ++k) {
-            if (!CoWaitSeqOrStop(held_seq, k, stop_all)) {
-                done.Down();
-                return;
-            }
-            go_seq.store(k, std::memory_order_release);
-            if (k == 1) {
-                /**
+         &done]() {
+            for (int k = 1; k <= 2; ++k) {
+                if (!CoWaitSeqOrStop(held_seq, k, stop_all)) {
+                    done.Down();
+                    return;
+                }
+                go_seq.store(k, std::memory_order_release);
+                if (k == 1) {
+                    /**
                  * 预热
                  */
-                mutex->Lock();
-                mutex->UnLock();
-            } else {
-                OrdinalGuard g(0);
+                    mutex->Lock();
+                    mutex->UnLock();
+                } else {
+                    OrdinalGuard g(0);
 
-                /**
+                    /**
                  * 计量
                  */
-                mutex->Lock();
-                total.store(g.Seen(), std::memory_order_release);
-                mutex->UnLock();
+                    mutex->Lock();
+                    total.store(g.Seen(), std::memory_order_release);
+                    mutex->UnLock();
+                }
+                fin_seq.store(k, std::memory_order_release);
             }
-            fin_seq.store(k, std::memory_order_release);
-        }
-        if (total.load() <= 0) {
-            req_bad.fetch_add(1);
-            done.Down();
-            return;
-        }
-        for (int i = 1; i <= total.load(); ++i) {
-            const int k = 2 + i;
-            if (!CoWaitSeqOrStop(held_seq, k, stop_all)) {
+            if (total.load() <= 0) {
+                req_bad.fetch_add(1);
                 done.Down();
                 return;
             }
-            go_seq.store(k, std::memory_order_release);
-            int ret = -99, caught = 0;
-            {
-                OrdinalGuard g(i);
-                try {
-                    mutex->Lock();
-                    ret = 0;
-                } catch (const std::bad_alloc&) {
-                    caught = 1;
-                } catch (...) {
-                    caught = 2;
+            for (int i = 1; i <= total.load(); ++i) {
+                const int k = 2 + i;
+                if (!CoWaitSeqOrStop(held_seq, k, stop_all)) {
+                    done.Down();
+                    return;
                 }
-            }
-            if (caught == 1) {
-                oom_count.fetch_add(1);
-                deep_oom.store(i, std::memory_order_release);
-            } else if (ret == 0) {
-                /**
+                go_seq.store(k, std::memory_order_release);
+                int ret = -99, caught = 0;
+                {
+                    OrdinalGuard g(i);
+                    try {
+                        mutex->Lock();
+                        ret = 0;
+                    } catch (const std::bad_alloc&) {
+                        caught = 1;
+                    } catch (...) {
+                        caught = 2;
+                    }
+                }
+                if (caught == 1) {
+                    oom_count.fetch_add(1);
+                    deep_oom.store(i, std::memory_order_release);
+                } else if (ret == 0) {
+                    /**
                  * 非预期获锁，归还保持序
                  */
-                mutex->UnLock();
+                    mutex->UnLock();
+                }
+                fin_seq.store(k, std::memory_order_release);
             }
-            fin_seq.store(k, std::memory_order_release);
-        }
-        if (g_bbt_tls_coroutine_co->GetStatus() != CoroutineStatus::CO_RUNNING)
-            status_bad.fetch_add(1);
+            if (g_bbt_tls_coroutine_co->GetStatus() != CoroutineStatus::CO_RUNNING)
+                status_bad.fetch_add(1);
 
-        const int k_last = total.load() + 3;
-        if (!CoWaitSeqOrStop(held_seq, k_last, stop_all)) {
+            const int k_last = total.load() + 3;
+            if (!CoWaitSeqOrStop(held_seq, k_last, stop_all)) {
+                done.Down();
+                return;
+            }
+            go_seq.store(k_last, std::memory_order_release);
+            second_ret.store(mutex->TryLock(1000));
+            if (second_ret.load() == 0)
+                mutex->UnLock();
+            fin_seq.store(k_last, std::memory_order_release);
             done.Down();
-            return;
-        }
-        go_seq.store(k_last, std::memory_order_release);
-        second_ret.store(mutex->TryLock(1000));
-        if (second_ret.load() == 0)
-            mutex->UnLock();
-        fin_seq.store(k_last, std::memory_order_release);
-        done.Down();
-    };
+        };
 
     done.Wait();
     BOOST_REQUIRE_EQUAL(req_bad.load(), 0);
@@ -1332,8 +1290,7 @@ BOOST_AUTO_TEST_CASE(t_comutex_trylock_ms_callback_oom_last_alloc)
     std::atomic<int> total{0}, deep_oom{0}, oom_count{0};
     std::atomic<int> second_ret{-99}, status_bad{0}, req_bad{0};
 
-    bbtco[mutex, &held_seq, &go_seq, &fin_seq, &stop_all, &total, &done]()
-    {
+    bbtco [mutex, &held_seq, &go_seq, &fin_seq, &stop_all, &total, &done]() {
         for (int k = 1; k <= 2; ++k)
             HolderRound(
                 held_seq, go_seq, fin_seq, k, stop_all, [mutex] { mutex->Lock(); }, [mutex] { mutex->UnLock(); });
@@ -1346,8 +1303,7 @@ BOOST_AUTO_TEST_CASE(t_comutex_trylock_ms_callback_oom_last_alloc)
         done.Down();
     };
 
-    bbtco
-        [mutex,
+    bbtco [mutex,
          &held_seq,
          &go_seq,
          &fin_seq,
@@ -1358,81 +1314,80 @@ BOOST_AUTO_TEST_CASE(t_comutex_trylock_ms_callback_oom_last_alloc)
          &second_ret,
          &status_bad,
          &req_bad,
-         &done]()
-    {
-        for (int k = 1; k <= 2; ++k) {
-            if (!CoWaitSeqOrStop(held_seq, k, stop_all)) {
-                done.Down();
-                return;
-            }
-            go_seq.store(k, std::memory_order_release);
-            int r;
-            if (k == 1) {
-                /**
+         &done]() {
+            for (int k = 1; k <= 2; ++k) {
+                if (!CoWaitSeqOrStop(held_seq, k, stop_all)) {
+                    done.Down();
+                    return;
+                }
+                go_seq.store(k, std::memory_order_release);
+                int r;
+                if (k == 1) {
+                    /**
                  * 预热
                  */
-                r = mutex->TryLock(60000);
-            } else {
-                OrdinalGuard g(0);
+                    r = mutex->TryLock(60000);
+                } else {
+                    OrdinalGuard g(0);
 
-                /**
+                    /**
                  * 计量
                  */
-                r = mutex->TryLock(60000);
-                total.store(g.Seen(), std::memory_order_release);
+                    r = mutex->TryLock(60000);
+                    total.store(g.Seen(), std::memory_order_release);
+                }
+                if (r != 0)
+                    req_bad.fetch_add(1);
+                else
+                    mutex->UnLock();
+                fin_seq.store(k, std::memory_order_release);
             }
-            if (r != 0)
+            if (total.load() <= 0) {
                 req_bad.fetch_add(1);
-            else
-                mutex->UnLock();
-            fin_seq.store(k, std::memory_order_release);
-        }
-        if (total.load() <= 0) {
-            req_bad.fetch_add(1);
-            done.Down();
-            return;
-        }
-        for (int i = 1; i <= total.load(); ++i) {
-            const int k = 2 + i;
-            if (!CoWaitSeqOrStop(held_seq, k, stop_all)) {
                 done.Down();
                 return;
             }
-            go_seq.store(k, std::memory_order_release);
-            int ret = -99, caught = 0;
-            {
-                OrdinalGuard g(i);
-                try {
-                    ret = mutex->TryLock(60000);
-                } catch (const std::bad_alloc&) {
-                    caught = 1;
-                } catch (...) {
-                    caught = 2;
+            for (int i = 1; i <= total.load(); ++i) {
+                const int k = 2 + i;
+                if (!CoWaitSeqOrStop(held_seq, k, stop_all)) {
+                    done.Down();
+                    return;
                 }
+                go_seq.store(k, std::memory_order_release);
+                int ret = -99, caught = 0;
+                {
+                    OrdinalGuard g(i);
+                    try {
+                        ret = mutex->TryLock(60000);
+                    } catch (const std::bad_alloc&) {
+                        caught = 1;
+                    } catch (...) {
+                        caught = 2;
+                    }
+                }
+                if (caught == 1) {
+                    oom_count.fetch_add(1);
+                    deep_oom.store(i, std::memory_order_release);
+                } else if (ret == 0) {
+                    mutex->UnLock();
+                }
+                fin_seq.store(k, std::memory_order_release);
             }
-            if (caught == 1) {
-                oom_count.fetch_add(1);
-                deep_oom.store(i, std::memory_order_release);
-            } else if (ret == 0) {
-                mutex->UnLock();
-            }
-            fin_seq.store(k, std::memory_order_release);
-        }
-        if (g_bbt_tls_coroutine_co->GetStatus() != CoroutineStatus::CO_RUNNING)
-            status_bad.fetch_add(1);
+            if (g_bbt_tls_coroutine_co->GetStatus() != CoroutineStatus::CO_RUNNING)
+                status_bad.fetch_add(1);
 
-        const int k_last = total.load() + 3;
-        if (!CoWaitSeqOrStop(held_seq, k_last, stop_all)) {
+            const int k_last = total.load() + 3;
+            if (!CoWaitSeqOrStop(held_seq, k_last, stop_all)) {
+                done.Down();
+                return;
+            }
+            go_seq.store(k_last, std::memory_order_release);
+            second_ret.store(mutex->TryLock(1000));
+            if (second_ret.load() == 0)
+                mutex->UnLock();
+            fin_seq.store(k_last, std::memory_order_release);
             done.Down();
-            return;
-        }
-        go_seq.store(k_last, std::memory_order_release);
-        second_ret.store(mutex->TryLock(1000));
-        if (second_ret.load() == 0)
-            mutex->UnLock();
-        fin_seq.store(k_last, std::memory_order_release);
-        done.Down();
-    };
+        };
 
     done.Wait();
     BOOST_REQUIRE_EQUAL(req_bad.load(), 0);
@@ -1460,8 +1415,7 @@ BOOST_AUTO_TEST_CASE(t_rwmutex_rlock_callback_oom_last_alloc)
      * k_last 轮：持写锁覆盖 victim 的 TryRLock(20) 全程——按 go_seq
      * 解锁会把本应超时的等待提前唤醒，故该轮等 verify_done。
      */
-    bbtco[rw, &held_seq, &go_seq, &fin_seq, &verify_done, &stop_all, &total, &done]()
-    {
+    bbtco [rw, &held_seq, &go_seq, &fin_seq, &verify_done, &stop_all, &total, &done]() {
         for (int k = 1; k <= 2; ++k)
             HolderRound(held_seq, go_seq, fin_seq, k, stop_all, [rw] { rw->WLock(); }, [rw] { rw->WUnLock(); });
         while (total.load(std::memory_order_acquire) == 0 && !stop_all.load(std::memory_order_acquire))
@@ -1480,8 +1434,7 @@ BOOST_AUTO_TEST_CASE(t_rwmutex_rlock_callback_oom_last_alloc)
         done.Down();
     };
 
-    bbtco
-        [rw,
+    bbtco [rw,
          &held_seq,
          &go_seq,
          &fin_seq,
@@ -1493,79 +1446,78 @@ BOOST_AUTO_TEST_CASE(t_rwmutex_rlock_callback_oom_last_alloc)
          &second_ret,
          &status_bad,
          &req_bad,
-         &done]()
-    {
-        for (int k = 1; k <= 2; ++k) {
-            if (!CoWaitSeqOrStop(held_seq, k, stop_all)) {
-                done.Down();
-                return;
-            }
-            go_seq.store(k, std::memory_order_release);
-            int r;
-            if (k == 1) {
-                r = rw->RLock();
-            } else {
-                OrdinalGuard g(0);
-                r = rw->RLock();
-                total.store(g.Seen(), std::memory_order_release);
-            }
-            if (r != 0)
-                req_bad.fetch_add(1);
-            else
-                rw->RUnLock();
-            fin_seq.store(k, std::memory_order_release);
-        }
-        if (total.load() <= 0) {
-            req_bad.fetch_add(1);
-            done.Down();
-            return;
-        }
-        for (int i = 1; i <= total.load(); ++i) {
-            const int k = 2 + i;
-            if (!CoWaitSeqOrStop(held_seq, k, stop_all)) {
-                done.Down();
-                return;
-            }
-            go_seq.store(k, std::memory_order_release);
-            int ret = -99, caught = 0;
-            {
-                OrdinalGuard g(i);
-                try {
-                    ret = rw->RLock();
-                } catch (const std::bad_alloc&) {
-                    caught = 1;
-                } catch (...) {
-                    caught = 2;
+         &done]() {
+            for (int k = 1; k <= 2; ++k) {
+                if (!CoWaitSeqOrStop(held_seq, k, stop_all)) {
+                    done.Down();
+                    return;
                 }
+                go_seq.store(k, std::memory_order_release);
+                int r;
+                if (k == 1) {
+                    r = rw->RLock();
+                } else {
+                    OrdinalGuard g(0);
+                    r = rw->RLock();
+                    total.store(g.Seen(), std::memory_order_release);
+                }
+                if (r != 0)
+                    req_bad.fetch_add(1);
+                else
+                    rw->RUnLock();
+                fin_seq.store(k, std::memory_order_release);
             }
-            if (caught == 1) {
-                oom_count.fetch_add(1);
-                deep_oom.store(i, std::memory_order_release);
-            } else if (ret == 0) {
-                rw->RUnLock();
+            if (total.load() <= 0) {
+                req_bad.fetch_add(1);
+                done.Down();
+                return;
             }
-            fin_seq.store(k, std::memory_order_release);
-        }
-        if (g_bbt_tls_coroutine_co->GetStatus() != CoroutineStatus::CO_RUNNING)
-            status_bad.fetch_add(1);
+            for (int i = 1; i <= total.load(); ++i) {
+                const int k = 2 + i;
+                if (!CoWaitSeqOrStop(held_seq, k, stop_all)) {
+                    done.Down();
+                    return;
+                }
+                go_seq.store(k, std::memory_order_release);
+                int ret = -99, caught = 0;
+                {
+                    OrdinalGuard g(i);
+                    try {
+                        ret = rw->RLock();
+                    } catch (const std::bad_alloc&) {
+                        caught = 1;
+                    } catch (...) {
+                        caught = 2;
+                    }
+                }
+                if (caught == 1) {
+                    oom_count.fetch_add(1);
+                    deep_oom.store(i, std::memory_order_release);
+                } else if (ret == 0) {
+                    rw->RUnLock();
+                }
+                fin_seq.store(k, std::memory_order_release);
+            }
+            if (g_bbt_tls_coroutine_co->GetStatus() != CoroutineStatus::CO_RUNNING)
+                status_bad.fetch_add(1);
 
-        const int k_last = total.load() + 3;
-        if (!CoWaitSeqOrStop(held_seq, k_last, stop_all)) {
-            done.Down();
-            return;
-        }
+            const int k_last = total.load() + 3;
+            if (!CoWaitSeqOrStop(held_seq, k_last, stop_all)) {
+                done.Down();
+                return;
+            }
 
-        /**
+            /**
          * holder 持写锁中：真实超时 1（非 -1）证明等待位/await/
          * tombstone 全部回滚干净
          */
-        second_ret.store(rw->TryRLock(20));
-        verify_done.store(1, std::memory_order_release);
-        if (second_ret.load() == 0)
-            rw->RUnLock();
-        fin_seq.store(k_last, std::memory_order_release);
-        done.Down();
-    };
+            second_ret.store(rw->TryRLock(20));
+            verify_done.store(1, std::memory_order_release);
+            if (second_ret.load() == 0)
+                rw->RUnLock();
+            fin_seq.store(k_last, std::memory_order_release);
+            done.Down();
+        };
 
     done.Wait();
     BOOST_REQUIRE_EQUAL(req_bad.load(), 0);
@@ -1592,8 +1544,7 @@ BOOST_AUTO_TEST_CASE(t_rwmutex_tryrlock_ms_callback_oom_last_alloc)
     std::atomic<int> total{0}, deep_oom{0}, oom_count{0};
     std::atomic<int> second_ret{-99}, status_bad{0}, req_bad{0};
 
-    bbtco[rw, &held_seq, &go_seq, &fin_seq, &verify_done, &stop_all, &total, &done]()
-    {
+    bbtco [rw, &held_seq, &go_seq, &fin_seq, &verify_done, &stop_all, &total, &done]() {
         for (int k = 1; k <= 2; ++k)
             HolderRound(held_seq, go_seq, fin_seq, k, stop_all, [rw] { rw->WLock(); }, [rw] { rw->WUnLock(); });
         while (total.load(std::memory_order_acquire) == 0 && !stop_all.load(std::memory_order_acquire))
@@ -1608,8 +1559,7 @@ BOOST_AUTO_TEST_CASE(t_rwmutex_tryrlock_ms_callback_oom_last_alloc)
         done.Down();
     };
 
-    bbtco
-        [rw,
+    bbtco [rw,
          &held_seq,
          &go_seq,
          &fin_seq,
@@ -1621,74 +1571,73 @@ BOOST_AUTO_TEST_CASE(t_rwmutex_tryrlock_ms_callback_oom_last_alloc)
          &second_ret,
          &status_bad,
          &req_bad,
-         &done]()
-    {
-        for (int k = 1; k <= 2; ++k) {
-            if (!CoWaitSeqOrStop(held_seq, k, stop_all)) {
-                done.Down();
-                return;
-            }
-            go_seq.store(k, std::memory_order_release);
-            int r;
-            if (k == 1) {
-                r = rw->TryRLock(60000);
-            } else {
-                OrdinalGuard g(0);
-                r = rw->TryRLock(60000);
-                total.store(g.Seen(), std::memory_order_release);
-            }
-            if (r != 0)
-                req_bad.fetch_add(1);
-            else
-                rw->RUnLock();
-            fin_seq.store(k, std::memory_order_release);
-        }
-        if (total.load() <= 0) {
-            req_bad.fetch_add(1);
-            done.Down();
-            return;
-        }
-        for (int i = 1; i <= total.load(); ++i) {
-            const int k = 2 + i;
-            if (!CoWaitSeqOrStop(held_seq, k, stop_all)) {
-                done.Down();
-                return;
-            }
-            go_seq.store(k, std::memory_order_release);
-            int ret = -99, caught = 0;
-            {
-                OrdinalGuard g(i);
-                try {
-                    ret = rw->TryRLock(60000);
-                } catch (const std::bad_alloc&) {
-                    caught = 1;
-                } catch (...) {
-                    caught = 2;
+         &done]() {
+            for (int k = 1; k <= 2; ++k) {
+                if (!CoWaitSeqOrStop(held_seq, k, stop_all)) {
+                    done.Down();
+                    return;
                 }
+                go_seq.store(k, std::memory_order_release);
+                int r;
+                if (k == 1) {
+                    r = rw->TryRLock(60000);
+                } else {
+                    OrdinalGuard g(0);
+                    r = rw->TryRLock(60000);
+                    total.store(g.Seen(), std::memory_order_release);
+                }
+                if (r != 0)
+                    req_bad.fetch_add(1);
+                else
+                    rw->RUnLock();
+                fin_seq.store(k, std::memory_order_release);
             }
-            if (caught == 1) {
-                oom_count.fetch_add(1);
-                deep_oom.store(i, std::memory_order_release);
-            } else if (ret == 0) {
-                rw->RUnLock();
+            if (total.load() <= 0) {
+                req_bad.fetch_add(1);
+                done.Down();
+                return;
             }
-            fin_seq.store(k, std::memory_order_release);
-        }
-        if (g_bbt_tls_coroutine_co->GetStatus() != CoroutineStatus::CO_RUNNING)
-            status_bad.fetch_add(1);
+            for (int i = 1; i <= total.load(); ++i) {
+                const int k = 2 + i;
+                if (!CoWaitSeqOrStop(held_seq, k, stop_all)) {
+                    done.Down();
+                    return;
+                }
+                go_seq.store(k, std::memory_order_release);
+                int ret = -99, caught = 0;
+                {
+                    OrdinalGuard g(i);
+                    try {
+                        ret = rw->TryRLock(60000);
+                    } catch (const std::bad_alloc&) {
+                        caught = 1;
+                    } catch (...) {
+                        caught = 2;
+                    }
+                }
+                if (caught == 1) {
+                    oom_count.fetch_add(1);
+                    deep_oom.store(i, std::memory_order_release);
+                } else if (ret == 0) {
+                    rw->RUnLock();
+                }
+                fin_seq.store(k, std::memory_order_release);
+            }
+            if (g_bbt_tls_coroutine_co->GetStatus() != CoroutineStatus::CO_RUNNING)
+                status_bad.fetch_add(1);
 
-        const int k_last = total.load() + 3;
-        if (!CoWaitSeqOrStop(held_seq, k_last, stop_all)) {
+            const int k_last = total.load() + 3;
+            if (!CoWaitSeqOrStop(held_seq, k_last, stop_all)) {
+                done.Down();
+                return;
+            }
+            second_ret.store(rw->TryRLock(20));
+            verify_done.store(1, std::memory_order_release);
+            if (second_ret.load() == 0)
+                rw->RUnLock();
+            fin_seq.store(k_last, std::memory_order_release);
             done.Down();
-            return;
-        }
-        second_ret.store(rw->TryRLock(20));
-        verify_done.store(1, std::memory_order_release);
-        if (second_ret.load() == 0)
-            rw->RUnLock();
-        fin_seq.store(k_last, std::memory_order_release);
-        done.Down();
-    };
+        };
 
     done.Wait();
     BOOST_REQUIRE_EQUAL(req_bad.load(), 0);
@@ -1713,8 +1662,7 @@ BOOST_AUTO_TEST_CASE(t_cowaiter_timeout_callback_oom_last_alloc)
     std::atomic<int> timeout_ret{-99}, notify_ret{-99};
     std::atomic<int> status_bad{0}, req_bad{0};
 
-    bbtco[waiter, &go_notify, &done]()
-    {
+    bbtco [waiter, &go_notify, &done]() {
         while (!go_notify.load(std::memory_order_acquire))
             bbtco_yield;
         for (int i = 0; i < 100000; ++i) {
@@ -1725,49 +1673,48 @@ BOOST_AUTO_TEST_CASE(t_cowaiter_timeout_callback_oom_last_alloc)
         done.Down();
     };
 
-    bbtco[waiter, &go_notify, &total, &deep_oom, &oom_count, &timeout_ret, &notify_ret, &status_bad, &req_bad, &done]()
-    {
-        /**
+    bbtco [waiter, &go_notify, &total, &deep_oom, &oom_count, &timeout_ret, &notify_ret, &status_bad, &req_bad, &done]() {
+            /**
          * 预热+计量：30ms 定时器窗口不依赖外部动作
          */
-        {
-            const int r = waiter->WaitWithTimeoutAndCallback(30, [] { return true; });
-            if (r != 1)
-                req_bad.fetch_add(1);
-        }
-        {
-            OrdinalGuard g(0);
-            const int r = waiter->WaitWithTimeoutAndCallback(30, [] { return true; });
-            total.store(g.Seen(), std::memory_order_release);
-            if (r != 1)
-                req_bad.fetch_add(1);
-        }
-        if (total.load() <= 0)
-            req_bad.fetch_add(1);
-        for (int i = 1; i <= total.load(); ++i) {
-            int caught = 0;
             {
-                OrdinalGuard g(i);
-                try {
-                    waiter->WaitWithTimeoutAndCallback(30, [] { return true; });
-                } catch (const std::bad_alloc&) {
-                    caught = 1;
-                } catch (...) {
-                    caught = 2;
+                const int r = waiter->WaitWithTimeoutAndCallback(30, [] { return true; });
+                if (r != 1)
+                    req_bad.fetch_add(1);
+            }
+            {
+                OrdinalGuard g(0);
+                const int r = waiter->WaitWithTimeoutAndCallback(30, [] { return true; });
+                total.store(g.Seen(), std::memory_order_release);
+                if (r != 1)
+                    req_bad.fetch_add(1);
+            }
+            if (total.load() <= 0)
+                req_bad.fetch_add(1);
+            for (int i = 1; i <= total.load(); ++i) {
+                int caught = 0;
+                {
+                    OrdinalGuard g(i);
+                    try {
+                        waiter->WaitWithTimeoutAndCallback(30, [] { return true; });
+                    } catch (const std::bad_alloc&) {
+                        caught = 1;
+                    } catch (...) {
+                        caught = 2;
+                    }
+                }
+                if (caught == 1) {
+                    oom_count.fetch_add(1);
+                    deep_oom.store(i, std::memory_order_release);
                 }
             }
-            if (caught == 1) {
-                oom_count.fetch_add(1);
-                deep_oom.store(i, std::memory_order_release);
-            }
-        }
-        if (g_bbt_tls_coroutine_co->GetStatus() != CoroutineStatus::CO_RUNNING)
-            status_bad.fetch_add(1);
-        timeout_ret.store(waiter->WaitWithTimeout(30));
-        go_notify.store(true, std::memory_order_release);
-        notify_ret.store(waiter->WaitWithTimeout(2000));
-        done.Down();
-    };
+            if (g_bbt_tls_coroutine_co->GetStatus() != CoroutineStatus::CO_RUNNING)
+                status_bad.fetch_add(1);
+            timeout_ret.store(waiter->WaitWithTimeout(30));
+            go_notify.store(true, std::memory_order_release);
+            notify_ret.store(waiter->WaitWithTimeout(2000));
+            done.Down();
+        };
 
     done.Wait();
     BOOST_REQUIRE_EQUAL(req_bad.load(), 0);
@@ -1793,8 +1740,7 @@ BOOST_AUTO_TEST_CASE(t_coroutine_yield_with_callback_oom_last_alloc)
     std::atomic<int> precheck{-99}, notify_ret{-99};
     std::atomic<int> status_bad{0}, progress_ok{0}, req_bad{0};
 
-    bbtco[waiter, &go_notify, &done]()
-    {
+    bbtco [waiter, &go_notify, &done]() {
         while (!go_notify.load(std::memory_order_acquire))
             bbtco_yield;
         for (int i = 0; i < 100000; ++i) {
@@ -1805,8 +1751,7 @@ BOOST_AUTO_TEST_CASE(t_coroutine_yield_with_callback_oom_last_alloc)
         done.Down();
     };
 
-    bbtco
-        [waiter,
+    bbtco [waiter,
          &go_notify,
          &total,
          &deep_oom,
@@ -1816,102 +1761,101 @@ BOOST_AUTO_TEST_CASE(t_coroutine_yield_with_callback_oom_last_alloc)
          &status_bad,
          &progress_ok,
          &req_bad,
-         &done]()
-    {
-        auto* coroutine = g_bbt_tls_coroutine_co;
+         &done]() {
+            auto* coroutine = g_bbt_tls_coroutine_co;
 
-        /**
+            /**
          * payload 使闭包超出 std::function SBO（libstdc++ 约 16B）——
          * 否则 cb 构造与 m_onyield_callback 拷贝都不分配，窗口内无可
          * 注入的「装配/存储」分配点，deep_oom 会停在事件构造上。
          */
-        const std::string payload(64, 'x');
-        for (int k = 0; k < 2; ++k) {
-            auto ev0 = coroutine->RegistCustom(detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND, 30);
-            if (ev0 == nullptr) {
-                req_bad.fetch_add(1);
-                done.Down();
-                return;
-            }
-            detail::CoroutineOnYieldCallback cb = [ev0, payload]() {
-                return ev0->Regist() == 0 && !payload.empty();
-            };
-            if (k == 0) {
-                /**
+            const std::string payload(64, 'x');
+            for (int k = 0; k < 2; ++k) {
+                auto ev0 = coroutine->RegistCustom(detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND, 30);
+                if (ev0 == nullptr) {
+                    req_bad.fetch_add(1);
+                    done.Down();
+                    return;
+                }
+                detail::CoroutineOnYieldCallback cb = [ev0, payload]() {
+                    return ev0->Regist() == 0 && !payload.empty();
+                };
+                if (k == 0) {
+                    /**
                  * 预热
                  */
-                const int r = coroutine->YieldWithCallback(cb);
-                if (r != 0)
-                    req_bad.fetch_add(1);
-            } else {
-                OrdinalGuard g(0);
+                    const int r = coroutine->YieldWithCallback(cb);
+                    if (r != 0)
+                        req_bad.fetch_add(1);
+                } else {
+                    OrdinalGuard g(0);
 
-                /**
+                    /**
                  * 计量
                  */
-                const int r = coroutine->YieldWithCallback(cb);
-                total.store(g.Seen(), std::memory_order_release);
-                if (r != 0)
-                    req_bad.fetch_add(1);
+                    const int r = coroutine->YieldWithCallback(cb);
+                    total.store(g.Seen(), std::memory_order_release);
+                    if (r != 0)
+                        req_bad.fetch_add(1);
+                }
             }
-        }
-        if (total.load() <= 0)
-            req_bad.fetch_add(1);
-        precheck.store(waiter->WaitWithTimeout(30));
-        if (precheck.load() != 1)
-            req_bad.fetch_add(1);
+            if (total.load() <= 0)
+                req_bad.fetch_add(1);
+            precheck.store(waiter->WaitWithTimeout(30));
+            if (precheck.load() != 1)
+                req_bad.fetch_add(1);
 
-        for (int i = 1; i <= total.load(); ++i) {
-            /**
+            for (int i = 1; i <= total.load(); ++i) {
+                /**
              * 1ms 定时事件：注入若命中 cb 构造，await 由 RegistCustom
              * 挂上但协程未让出——须以真实让出消费清账；1ms 保证消费
              * 路径不拖长用例。
              */
-            auto ev = coroutine->RegistCustom(detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND, 1);
-            if (ev == nullptr) {
-                req_bad.fetch_add(1);
-                break;
-            }
-            int caught = 0;
-            {
-                OrdinalGuard g(i);
-                try {
-                    detail::CoroutineOnYieldCallback cb = [ev, payload]() {
-                        return ev->Regist() == 0 && !payload.empty();
-                    };
-                    coroutine->YieldWithCallback(cb);
-                } catch (const std::bad_alloc&) {
-                    caught = 1;
-                } catch (...) {
-                    caught = 2;
+                auto ev = coroutine->RegistCustom(detail::CoPollEventCustom::POLL_EVENT_CUSTOM_COND, 1);
+                if (ev == nullptr) {
+                    req_bad.fetch_add(1);
+                    break;
                 }
-            }
-            if (caught == 1) {
-                oom_count.fetch_add(1);
-                deep_oom.store(i, std::memory_order_release);
-            }
+                int caught = 0;
+                {
+                    OrdinalGuard g(i);
+                    try {
+                        detail::CoroutineOnYieldCallback cb = [ev, payload]() {
+                            return ev->Regist() == 0 && !payload.empty();
+                        };
+                        coroutine->YieldWithCallback(cb);
+                    } catch (const std::bad_alloc&) {
+                        caught = 1;
+                    } catch (...) {
+                        caught = 2;
+                    }
+                }
+                if (caught == 1) {
+                    oom_count.fetch_add(1);
+                    deep_oom.store(i, std::memory_order_release);
+                }
 
-            /**
+                /**
              * 清账：捕获失败时 await 残留（RegistCustom 已挂），以一次
              * 真实让出消费——回调自身 Regist() 唤醒 ev（1ms 定时）；
              * await 已由回滚清空时这是一次无害空让出（ev 注册后无等
              * 待者，触发时由 poller 清账）。
              */
-            detail::CoroutineOnYieldCallback flush = [ev]() {
-                return ev->Regist() == 0;
-            };
-            const int fr = coroutine->YieldWithCallback(flush);
-            if (fr != 0)
-                req_bad.fetch_add(1);
-        }
-        if (coroutine->GetStatus() != CoroutineStatus::CO_RUNNING)
-            status_bad.fetch_add(1);
-        coroutine->YieldAndPushGCoQueue();
-        progress_ok.store(1);
-        go_notify.store(true, std::memory_order_release);
-        notify_ret.store(waiter->WaitWithTimeout(2000));
-        done.Down();
-    };
+                detail::CoroutineOnYieldCallback flush = [ev]() {
+                    return ev->Regist() == 0;
+                };
+                const int fr = coroutine->YieldWithCallback(flush);
+                if (fr != 0)
+                    req_bad.fetch_add(1);
+            }
+            if (coroutine->GetStatus() != CoroutineStatus::CO_RUNNING)
+                status_bad.fetch_add(1);
+            coroutine->YieldAndPushGCoQueue();
+            progress_ok.store(1);
+            go_notify.store(true, std::memory_order_release);
+            notify_ret.store(waiter->WaitWithTimeout(2000));
+            done.Down();
+        };
 
     done.Wait();
     BOOST_REQUIRE_EQUAL(req_bad.load(), 0);
@@ -1951,8 +1895,7 @@ BOOST_AUTO_TEST_CASE(t_comutex_tombstone_keeps_healthy_waiters)
      * 段 2：Lock → phase2=2 → 待 C 排队 → UnLock 唤醒队首 A；A 的
      * UnLock 沿队列扫过 tombstone 唤醒 C。
      */
-    bbtco[mutex, &held_seq, &go_seq, &fin_seq, &phase2, &c_queued, &total, &stop_all, &done]()
-    {
+    bbtco [mutex, &held_seq, &go_seq, &fin_seq, &phase2, &c_queued, &total, &stop_all, &done]() {
         for (int k = 1; k <= 2; ++k)
             HolderRound(
                 held_seq, go_seq, fin_seq, k, stop_all, [mutex] { mutex->Lock(); }, [mutex] { mutex->UnLock(); });
@@ -1979,8 +1922,7 @@ BOOST_AUTO_TEST_CASE(t_comutex_tombstone_keeps_healthy_waiters)
      * A：phase2 后置 flag 挂起（队首的活等待者——前面可能有扫描期
      * 遗留 tombstone，A 仍是第一个存活节点）
      */
-    bbtco[mutex, &phase2, &a_queued, &a_ret, &done]()
-    {
+    bbtco [mutex, &phase2, &a_queued, &a_ret, &done]() {
         while (phase2.load(std::memory_order_acquire) < 2)
             bbtco_yield;
         a_queued.store(1, std::memory_order_release);
@@ -1997,8 +1939,7 @@ BOOST_AUTO_TEST_CASE(t_comutex_tombstone_keeps_healthy_waiters)
     /**
      * B：段 1 预热+计量+扫描测得 deep_oom；段 2 在 A 之后注入
      */
-    bbtco
-        [mutex,
+    bbtco [mutex,
          &held_seq,
          &go_seq,
          &fin_seq,
@@ -2011,90 +1952,88 @@ BOOST_AUTO_TEST_CASE(t_comutex_tombstone_keeps_healthy_waiters)
          &b_status_bad,
          &req_bad,
          &stop_all,
-         &done]()
-    {
-        for (int k = 1; k <= 2; ++k) {
-            if (!CoWaitSeqOrStop(held_seq, k, stop_all)) {
-                done.Down();
-                return;
-            }
-            go_seq.store(k, std::memory_order_release);
-            if (k == 1) {
-                mutex->Lock();
-                mutex->UnLock();
-            } else {
-                OrdinalGuard g(0);
-                mutex->Lock();
-                total.store(g.Seen(), std::memory_order_release);
-                mutex->UnLock();
-            }
-            fin_seq.store(k, std::memory_order_release);
-        }
-        if (total.load() <= 0) {
-            req_bad.fetch_add(1);
-            done.Down();
-            return;
-        }
-        for (int i = 1; i <= total.load(); ++i) {
-            const int k = 2 + i;
-            if (!CoWaitSeqOrStop(held_seq, k, stop_all)) {
-                done.Down();
-                return;
-            }
-            go_seq.store(k, std::memory_order_release);
-            int ret = -99, caught = 0;
-            {
-                OrdinalGuard g(i);
-                try {
-                    mutex->Lock();
-                    ret = 0;
-                } catch (const std::bad_alloc&) {
-                    caught = 1;
-                } catch (...) {
-                    caught = 2;
+         &done]() {
+            for (int k = 1; k <= 2; ++k) {
+                if (!CoWaitSeqOrStop(held_seq, k, stop_all)) {
+                    done.Down();
+                    return;
                 }
+                go_seq.store(k, std::memory_order_release);
+                if (k == 1) {
+                    mutex->Lock();
+                    mutex->UnLock();
+                } else {
+                    OrdinalGuard g(0);
+                    mutex->Lock();
+                    total.store(g.Seen(), std::memory_order_release);
+                    mutex->UnLock();
+                }
+                fin_seq.store(k, std::memory_order_release);
             }
-            if (caught == 1)
-                deep_oom.store(i, std::memory_order_release);
-            else if (ret == 0)
-                mutex->UnLock();
-            fin_seq.store(k, std::memory_order_release);
-        }
-        if (deep_oom.load() < 2) {
-            req_bad.fetch_add(1);
-            done.Down();
-            return;
-        }
+            if (total.load() <= 0) {
+                req_bad.fetch_add(1);
+                done.Down();
+                return;
+            }
+            for (int i = 1; i <= total.load(); ++i) {
+                const int k = 2 + i;
+                if (!CoWaitSeqOrStop(held_seq, k, stop_all)) {
+                    done.Down();
+                    return;
+                }
+                go_seq.store(k, std::memory_order_release);
+                int ret = -99, caught = 0;
+                {
+                    OrdinalGuard g(i);
+                    try {
+                        mutex->Lock();
+                        ret = 0;
+                    } catch (const std::bad_alloc&) {
+                        caught = 1;
+                    } catch (...) {
+                        caught = 2;
+                    }
+                }
+                if (caught == 1)
+                    deep_oom.store(i, std::memory_order_release);
+                else if (ret == 0)
+                    mutex->UnLock();
+                fin_seq.store(k, std::memory_order_release);
+            }
+            if (deep_oom.load() < 2) {
+                req_bad.fetch_add(1);
+                done.Down();
+                return;
+            }
 
-        /**
+            /**
          * 段 2：holder 再持锁 + A 已排队 → B 以最深序号注入，
          * tombstone 落队尾
          */
-        while (phase2.load(std::memory_order_acquire) < 2)
-            bbtco_yield;
-        while (a_queued.load(std::memory_order_acquire) == 0)
-            bbtco_yield;
-        {
-            OrdinalGuard g(deep_oom.load());
-            try {
-                mutex->Lock();
-            } catch (const std::bad_alloc&) {
-                b_caught.store(1);
-            } catch (...) {
-                b_caught.store(2);
+            while (phase2.load(std::memory_order_acquire) < 2)
+                bbtco_yield;
+            while (a_queued.load(std::memory_order_acquire) == 0)
+                bbtco_yield;
+            {
+                OrdinalGuard g(deep_oom.load());
+                try {
+                    mutex->Lock();
+                } catch (const std::bad_alloc&) {
+                    b_caught.store(1);
+                } catch (...) {
+                    b_caught.store(2);
+                }
             }
-        }
-        if (g_bbt_tls_coroutine_co->GetStatus() != CoroutineStatus::CO_RUNNING)
-            b_status_bad.fetch_add(1);
-        b_done.store(1, std::memory_order_release);
-        done.Down();
-    };
+            if (g_bbt_tls_coroutine_co->GetStatus() != CoroutineStatus::CO_RUNNING)
+                b_status_bad.fetch_add(1);
+            b_done.store(1, std::memory_order_release);
+            done.Down();
+        };
 
     /**
      * C：B 失败后排队（tombstone 之后）→ 被 A 的 UnLock 唤醒
      */
-    bbtco[mutex, &b_done, &c_queued, &c_ret, &done]()
-    {
+    bbtco [mutex, &b_done, &c_queued, &c_ret, &done]() {
         while (b_done.load(std::memory_order_acquire) == 0)
             bbtco_yield;
         c_queued.store(1, std::memory_order_release);
@@ -2131,8 +2070,7 @@ BOOST_AUTO_TEST_CASE(t_rwmutex_writer_tombstone_and_priority)
     std::atomic<int> a_ret{-99}, c_ret{-99};
     std::atomic<bool> stop_all{false};
 
-    bbtco[rw, &held_seq, &go_seq, &fin_seq, &phase2, &c_queued, &total, &stop_all, &done]()
-    {
+    bbtco [rw, &held_seq, &go_seq, &fin_seq, &phase2, &c_queued, &total, &stop_all, &done]() {
         for (int k = 1; k <= 2; ++k)
             HolderRound(held_seq, go_seq, fin_seq, k, stop_all, [rw] { rw->RLock(); }, [rw] { rw->RUnLock(); });
         while (total.load(std::memory_order_acquire) == 0 && !stop_all.load(std::memory_order_acquire))
@@ -2153,8 +2091,7 @@ BOOST_AUTO_TEST_CASE(t_rwmutex_writer_tombstone_and_priority)
         done.Down();
     };
 
-    bbtco[rw, &phase2, &a_queued, &a_ret, &done]()
-    {
+    bbtco [rw, &phase2, &a_queued, &a_ret, &done]() {
         while (phase2.load(std::memory_order_acquire) < 2)
             bbtco_yield;
         a_queued.store(1, std::memory_order_release);
@@ -2168,8 +2105,7 @@ BOOST_AUTO_TEST_CASE(t_rwmutex_writer_tombstone_and_priority)
         done.Down();
     };
 
-    bbtco
-        [rw,
+    bbtco [rw,
          &held_seq,
          &go_seq,
          &fin_seq,
@@ -2182,84 +2118,82 @@ BOOST_AUTO_TEST_CASE(t_rwmutex_writer_tombstone_and_priority)
          &b_status_bad,
          &req_bad,
          &stop_all,
-         &done]()
-    {
-        for (int k = 1; k <= 2; ++k) {
-            if (!CoWaitSeqOrStop(held_seq, k, stop_all)) {
-                done.Down();
-                return;
+         &done]() {
+            for (int k = 1; k <= 2; ++k) {
+                if (!CoWaitSeqOrStop(held_seq, k, stop_all)) {
+                    done.Down();
+                    return;
+                }
+                go_seq.store(k, std::memory_order_release);
+                int r;
+                if (k == 1) {
+                    r = rw->WLock();
+                } else {
+                    OrdinalGuard g(0);
+                    r = rw->WLock();
+                    total.store(g.Seen(), std::memory_order_release);
+                }
+                if (r != 0)
+                    req_bad.fetch_add(1);
+                else
+                    rw->WUnLock();
+                fin_seq.store(k, std::memory_order_release);
             }
-            go_seq.store(k, std::memory_order_release);
-            int r;
-            if (k == 1) {
-                r = rw->WLock();
-            } else {
-                OrdinalGuard g(0);
-                r = rw->WLock();
-                total.store(g.Seen(), std::memory_order_release);
-            }
-            if (r != 0)
+            if (total.load() <= 0) {
                 req_bad.fetch_add(1);
-            else
-                rw->WUnLock();
-            fin_seq.store(k, std::memory_order_release);
-        }
-        if (total.load() <= 0) {
-            req_bad.fetch_add(1);
-            done.Down();
-            return;
-        }
-        for (int i = 1; i <= total.load(); ++i) {
-            const int k = 2 + i;
-            if (!CoWaitSeqOrStop(held_seq, k, stop_all)) {
                 done.Down();
                 return;
             }
-            go_seq.store(k, std::memory_order_release);
-            int ret = -99, caught = 0;
+            for (int i = 1; i <= total.load(); ++i) {
+                const int k = 2 + i;
+                if (!CoWaitSeqOrStop(held_seq, k, stop_all)) {
+                    done.Down();
+                    return;
+                }
+                go_seq.store(k, std::memory_order_release);
+                int ret = -99, caught = 0;
+                {
+                    OrdinalGuard g(i);
+                    try {
+                        ret = rw->WLock();
+                    } catch (const std::bad_alloc&) {
+                        caught = 1;
+                    } catch (...) {
+                        caught = 2;
+                    }
+                }
+                if (caught == 1)
+                    deep_oom.store(i, std::memory_order_release);
+                else if (ret == 0)
+                    rw->WUnLock();
+                fin_seq.store(k, std::memory_order_release);
+            }
+            if (deep_oom.load() < 2) {
+                req_bad.fetch_add(1);
+                done.Down();
+                return;
+            }
+            while (phase2.load(std::memory_order_acquire) < 2)
+                bbtco_yield;
+            while (a_queued.load(std::memory_order_acquire) == 0)
+                bbtco_yield;
             {
-                OrdinalGuard g(i);
+                OrdinalGuard g(deep_oom.load());
                 try {
-                    ret = rw->WLock();
+                    rw->WLock();
                 } catch (const std::bad_alloc&) {
-                    caught = 1;
+                    b_caught.store(1);
                 } catch (...) {
-                    caught = 2;
+                    b_caught.store(2);
                 }
             }
-            if (caught == 1)
-                deep_oom.store(i, std::memory_order_release);
-            else if (ret == 0)
-                rw->WUnLock();
-            fin_seq.store(k, std::memory_order_release);
-        }
-        if (deep_oom.load() < 2) {
-            req_bad.fetch_add(1);
+            if (g_bbt_tls_coroutine_co->GetStatus() != CoroutineStatus::CO_RUNNING)
+                b_status_bad.fetch_add(1);
+            b_done.store(1, std::memory_order_release);
             done.Down();
-            return;
-        }
-        while (phase2.load(std::memory_order_acquire) < 2)
-            bbtco_yield;
-        while (a_queued.load(std::memory_order_acquire) == 0)
-            bbtco_yield;
-        {
-            OrdinalGuard g(deep_oom.load());
-            try {
-                rw->WLock();
-            } catch (const std::bad_alloc&) {
-                b_caught.store(1);
-            } catch (...) {
-                b_caught.store(2);
-            }
-        }
-        if (g_bbt_tls_coroutine_co->GetStatus() != CoroutineStatus::CO_RUNNING)
-            b_status_bad.fetch_add(1);
-        b_done.store(1, std::memory_order_release);
-        done.Down();
-    };
+        };
 
-    bbtco[rw, &b_done, &c_queued, &c_ret, &done]()
-    {
+    bbtco [rw, &b_done, &c_queued, &c_ret, &done]() {
         while (b_done.load(std::memory_order_acquire) == 0)
             bbtco_yield;
         c_queued.store(1, std::memory_order_release);
@@ -2299,8 +2233,7 @@ BOOST_AUTO_TEST_CASE(t_rwmutex_trywlock_ms_callback_oom_last_alloc)
      * k_last 轮持读锁覆盖验证：victim 在其间做 TryRLock()/TryWLock()
      * 快路径检查（无挂起），holder 等 verify_done 后解锁。
      */
-    bbtco[rw, &held_seq, &go_seq, &fin_seq, &verify_done, &stop_all, &total, &done]()
-    {
+    bbtco [rw, &held_seq, &go_seq, &fin_seq, &verify_done, &stop_all, &total, &done]() {
         for (int k = 1; k <= 2; ++k)
             HolderRound(held_seq, go_seq, fin_seq, k, stop_all, [rw] { rw->RLock(); }, [rw] { rw->RUnLock(); });
         while (total.load(std::memory_order_acquire) == 0 && !stop_all.load(std::memory_order_acquire))
@@ -2315,8 +2248,7 @@ BOOST_AUTO_TEST_CASE(t_rwmutex_trywlock_ms_callback_oom_last_alloc)
         done.Down();
     };
 
-    bbtco
-        [rw,
+    bbtco [rw,
          &held_seq,
          &go_seq,
          &fin_seq,
@@ -2329,83 +2261,82 @@ BOOST_AUTO_TEST_CASE(t_rwmutex_trywlock_ms_callback_oom_last_alloc)
          &read_after,
          &read_blocked,
          &req_bad,
-         &done]()
-    {
-        for (int k = 1; k <= 2; ++k) {
-            if (!CoWaitSeqOrStop(held_seq, k, stop_all)) {
-                done.Down();
-                return;
-            }
-            go_seq.store(k, std::memory_order_release);
-            int r;
-            if (k == 1) {
-                r = rw->TryWLock(60000);
-            } else {
-                OrdinalGuard g(0);
-                r = rw->TryWLock(60000);
-                total.store(g.Seen(), std::memory_order_release);
-            }
-            if (r != 0)
-                req_bad.fetch_add(1);
-            else
-                rw->WUnLock();
-            fin_seq.store(k, std::memory_order_release);
-        }
-        if (total.load() <= 0) {
-            req_bad.fetch_add(1);
-            done.Down();
-            return;
-        }
-        for (int i = 1; i <= total.load(); ++i) {
-            const int k = 2 + i;
-            if (!CoWaitSeqOrStop(held_seq, k, stop_all)) {
-                done.Down();
-                return;
-            }
-            go_seq.store(k, std::memory_order_release);
-            int ret = -99, caught = 0;
-            {
-                OrdinalGuard g(i);
-                try {
-                    ret = rw->TryWLock(60000);
-                } catch (const std::bad_alloc&) {
-                    caught = 1;
-                } catch (...) {
-                    caught = 2;
+         &done]() {
+            for (int k = 1; k <= 2; ++k) {
+                if (!CoWaitSeqOrStop(held_seq, k, stop_all)) {
+                    done.Down();
+                    return;
                 }
+                go_seq.store(k, std::memory_order_release);
+                int r;
+                if (k == 1) {
+                    r = rw->TryWLock(60000);
+                } else {
+                    OrdinalGuard g(0);
+                    r = rw->TryWLock(60000);
+                    total.store(g.Seen(), std::memory_order_release);
+                }
+                if (r != 0)
+                    req_bad.fetch_add(1);
+                else
+                    rw->WUnLock();
+                fin_seq.store(k, std::memory_order_release);
             }
-            if (caught == 1) {
-                oom_count.fetch_add(1);
-                deep_oom.store(i, std::memory_order_release);
-            } else if (ret == 0) {
-                rw->WUnLock();
+            if (total.load() <= 0) {
+                req_bad.fetch_add(1);
+                done.Down();
+                return;
             }
-            fin_seq.store(k, std::memory_order_release);
-        }
-        if (g_bbt_tls_coroutine_co->GetStatus() != CoroutineStatus::CO_RUNNING)
-            status_bad.fetch_add(1);
+            for (int i = 1; i <= total.load(); ++i) {
+                const int k = 2 + i;
+                if (!CoWaitSeqOrStop(held_seq, k, stop_all)) {
+                    done.Down();
+                    return;
+                }
+                go_seq.store(k, std::memory_order_release);
+                int ret = -99, caught = 0;
+                {
+                    OrdinalGuard g(i);
+                    try {
+                        ret = rw->TryWLock(60000);
+                    } catch (const std::bad_alloc&) {
+                        caught = 1;
+                    } catch (...) {
+                        caught = 2;
+                    }
+                }
+                if (caught == 1) {
+                    oom_count.fetch_add(1);
+                    deep_oom.store(i, std::memory_order_release);
+                } else if (ret == 0) {
+                    rw->WUnLock();
+                }
+                fin_seq.store(k, std::memory_order_release);
+            }
+            if (g_bbt_tls_coroutine_co->GetStatus() != CoroutineStatus::CO_RUNNING)
+                status_bad.fetch_add(1);
 
-        const int k_last = total.load() + 3;
-        if (!CoWaitSeqOrStop(held_seq, k_last, stop_all)) {
-            done.Down();
-            return;
-        }
+            const int k_last = total.load() + 3;
+            if (!CoWaitSeqOrStop(held_seq, k_last, stop_all)) {
+                done.Down();
+                return;
+            }
 
-        /**
+            /**
          * holder 持读锁中：读者 TryRLock 即获——前提 m_wait_wlock_num==0
          * 且 m_has_wait_wlock 未误置（写者责任无残留）；再自加持读锁
          * 下 TryWLock 仍被拒——计数协议区分存活等待者未失真。
          */
-        read_after.store(rw->TryRLock());
-        if (read_after.load() == 0)
+            read_after.store(rw->TryRLock());
+            if (read_after.load() == 0)
+                rw->RUnLock();
+            rw->RLock();
+            read_blocked.store(rw->TryWLock());
             rw->RUnLock();
-        rw->RLock();
-        read_blocked.store(rw->TryWLock());
-        rw->RUnLock();
-        verify_done.store(1, std::memory_order_release);
-        fin_seq.store(k_last, std::memory_order_release);
-        done.Down();
-    };
+            verify_done.store(1, std::memory_order_release);
+            fin_seq.store(k_last, std::memory_order_release);
+            done.Down();
+        };
 
     done.Wait();
     BOOST_REQUIRE_EQUAL(req_bad.load(), 0);

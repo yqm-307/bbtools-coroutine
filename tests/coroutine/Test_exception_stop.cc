@@ -49,8 +49,7 @@ BOOST_AUTO_TEST_CASE(t_exception_ptr_saved_when_callback)
         done.Down();
     });
 
-    bbtco[]()
-    {
+    bbtco []() {
         throw std::runtime_error("eptr-panic");
     };
     done.Wait();
@@ -69,8 +68,7 @@ BOOST_AUTO_TEST_CASE(t_unhandled_exception_counted_without_callback)
     StartRuntime();
     const auto before = g_bbt_coroutine_config->m_unhandled_exception_count.load();
 
-    bbtco[]()
-    {
+    bbtco []() {
         throw std::runtime_error("count-panic");
     };
 
@@ -95,14 +93,12 @@ BOOST_AUTO_TEST_CASE(t_exception_callback_throw_isolated)
         throw std::runtime_error("callback boom");
     });
 
-    bbtco[]()
-    {
+    bbtco []() {
         throw std::runtime_error("task boom");
     };
     boom.Wait();
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         alive.Down();
     };
     alive.Wait();
@@ -116,8 +112,7 @@ BOOST_AUTO_TEST_CASE(t_timeout_is_status_not_exception)
     std::atomic<int> rc{-999};
     std::atomic_bool threw{false};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         try {
             rc.store(g_bbt_tls_coroutine_co->YieldUntilTimeout(20));
         } catch (...) {

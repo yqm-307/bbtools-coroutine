@@ -218,8 +218,7 @@ BOOST_AUTO_TEST_CASE(t_readable_resume_window_returns_ebadf)
     /**
      * 协程 A：在 fds[0] 上挂起读（socketpair 无数据 → EAGAIN → park）
      */
-    bbtco[&]()
-    {
+    bbtco [&]() {
         DoneOnExit signal{done};
         char buf[1];
         errno = 0;
@@ -234,8 +233,7 @@ BOOST_AUTO_TEST_CASE(t_readable_resume_window_returns_ebadf)
      * 线程已 _Complete 摘表）但 A 尚未恢复前，完成
      * close+dup2+新对象就绪——确定性命中「触发后未恢复」窗口。
      */
-    bbtco[&]()
-    {
+    bbtco [&]() {
         DoneOnExit signal{done};
         BOOST_REQUIRE(CoWaitFdWaiter(fds[0], 3000));
         const char r = 'r';
@@ -333,8 +331,7 @@ BOOST_AUTO_TEST_CASE(t_concurrent_close_and_new_waiter_not_miswoken)
     /**
      * A：等旧 fds[0]，将被 close+dup2 唤醒（应得 EBADF）
      */
-    bbtco[&]()
-    {
+    bbtco [&]() {
         DoneOnExit signal{done};
         char buf[1];
         errno = 0;
@@ -347,8 +344,7 @@ BOOST_AUTO_TEST_CASE(t_concurrent_close_and_new_waiter_not_miswoken)
      * 控制协程：等 A 真正进入等待表后 close+dup2 复用；等 C 在新 fd 上
      * park 后由 np[1] 写数据唤醒
      */
-    bbtco[&]()
-    {
+    bbtco [&]() {
         DoneOnExit signal{done};
 
         /**
@@ -374,8 +370,7 @@ BOOST_AUTO_TEST_CASE(t_concurrent_close_and_new_waiter_not_miswoken)
     /**
      * C：在复用后的新 fds[0] 上挂起读，应由真实事件唤醒读到 'q'
      */
-    bbtco[&]()
-    {
+    bbtco [&]() {
         DoneOnExit signal{done};
         BOOST_REQUIRE(CoWaitFlag(fd_reused, 3000));
         char buf[1] = {0};
@@ -450,8 +445,7 @@ BOOST_AUTO_TEST_CASE(t_concurrent_double_close_loser_ebadf_then_reuse_survives)
     /**
      * A：park 在旧 fds[0] 上，被 close 摘表唤醒（EBADF 语义由既有路径覆盖）
      */
-    bbtco[&]()
-    {
+    bbtco [&]() {
         DoneOnExit signal{done};
         char buf[1];
         const ssize_t r = FdEpochRead(fds[0], buf, 1);
@@ -791,8 +785,7 @@ BOOST_AUTO_TEST_CASE(t_parked_write_close_reuse_returns_ebadf)
     std::atomic_int errno_a{0};
     std::atomic_bool control_ran{false};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         DoneOnExit signal{done};
         const char c = 'A';
         errno = 0;
@@ -810,8 +803,7 @@ BOOST_AUTO_TEST_CASE(t_parked_write_close_reuse_returns_ebadf)
      * 「worker 已被 A 交还」变成可观察——本协程能继续跑本身就是证据
      * （单 worker 上 A 若不真让出，这里到不了）。随后 close+dup2。
      */
-    bbtco[&]()
-    {
+    bbtco [&]() {
         DoneOnExit signal{done};
         BOOST_REQUIRE(CoWaitFdWaiter(fds[0], 3000));
 

@@ -8,8 +8,7 @@ int main()
     g_scheduler->Start();
 
     for (int i = 0; i < 2; ++i) {
-        bbtco[&ncount]()
-        {
+        bbtco [&ncount]() {
             while (true) {
                 bbtco([&]() { ncount++; });
             }

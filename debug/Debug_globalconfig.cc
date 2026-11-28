@@ -8,8 +8,7 @@ void LimitCoroutineCount()
     g_scheduler->Start();
 
     bool succ = false;
-    bbtco_noexcept(&succ)[=]()
-    {
+    bbtco_noexcept(&succ) [=]() {
         std::cout << "Coroutine 1" << std::endl;
         bbtco_sleep(1000);
     };
@@ -19,8 +18,7 @@ void LimitCoroutineCount()
     }
 
     for (int i = 2; i < 4; ++i) {
-        bbtco_noexcept(&succ)[=]()
-        {
+        bbtco_noexcept(&succ) [=]() {
             std::cout << "Coroutine " << i << std::endl;
             bbtco_sleep(1000);
         };

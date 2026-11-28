@@ -18,8 +18,7 @@ int main()
      */
     bbt::co::sync::Chan<uint64_t, 0> chan;
 
-    bbtco_desc("写者")[&]()
-    {
+    bbtco_desc("写者") [&]() {
         for (uint64_t i = 0; i < UINT64_MAX; ++i) {
             if (chan << i) {
                 nocache_chan_write_count++;
@@ -29,8 +28,7 @@ int main()
         }
     };
 
-    bbtco_desc("读者")[&]()
-    {
+    bbtco_desc("读者") [&]() {
         uint64_t item;
         while (true) {
             Assert(chan >> item);
@@ -44,8 +42,7 @@ int main()
     bbt::co::sync::Chan<uint64_t, 10000> chan2;
     auto cond = bbtco_make_cocond();
 
-    bbtco_desc("写者2")[&]()
-    {
+    bbtco_desc("写者2") [&]() {
         while (true) {
             for (int i = 0; i < 10000; ++i) {
                 if (chan2 << i) {
@@ -58,8 +55,7 @@ int main()
         }
     };
 
-    bbtco_desc("读者2")[&]()
-    {
+    bbtco_desc("读者2") [&]() {
         uint64_t item;
         while (true) {
             for (int i = 0; i < 10000; ++i) {
@@ -72,8 +68,7 @@ int main()
         }
     };
 
-    bbtco_desc("监视者")[&]()
-    {
+    bbtco_desc("监视者") [&]() {
         while (true) {
             printf(
                 "[nocache chan] read=%d write=%d write_failed=%d\n",

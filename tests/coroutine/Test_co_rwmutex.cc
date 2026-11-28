@@ -86,12 +86,10 @@ BOOST_AUTO_TEST_CASE(t_rlock_block)
     bbt::core::thread::CountDownLatch l{1};
     bool succ = false;
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         auto cocond = bbtco_make_cocond();
         auto rwlock = bbtco_make_corwmutex();
-        bbtco[=, &succ]()
-        {
+        bbtco [=, &succ]() {
             rwlock->RLock();
             succ = true;
             cocond->Wait();
@@ -100,9 +98,7 @@ BOOST_AUTO_TEST_CASE(t_rlock_block)
 
         bbtco_sleep(50);
 
-        bbtco[=, &succ]()
-        {
-
+        bbtco [=, &succ]() {
             bbtco_sleep(50);
             rwlock->RLock();
             BOOST_ASSERT(succ == true);
@@ -122,18 +118,15 @@ BOOST_AUTO_TEST_CASE(t_rlock_wlock_block)
 {
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco_desc("main co")[&]()
-    {
+    bbtco_desc("main co") [&]() {
         int n = 0, m = 0;
         auto rwlock = bbtco_make_corwmutex();
-        bbtco[&]()
-        {
+        bbtco [&]() {
             rwlock->RLock();
             n++;
         };
 
-        bbtco[&]()
-        {
+        bbtco [&]() {
             m++;
             rwlock->WLock();
             n++;
@@ -154,12 +147,10 @@ BOOST_AUTO_TEST_CASE(t_rwlock_multi_co)
     std::atomic_int nwrite{0};
     std::atomic_int nread{0};
 
-    bbtco_desc("main")[&]()
-    {
+    bbtco_desc("main") [&]() {
         std::atomic_bool in_writing{false};
         auto rwlock = bbtco_make_corwmutex();
-        bbtco_desc("reader1")[&]()
-        {
+        bbtco_desc("reader1") [&]() {
             while (running) {
                 rwlock->RLock();
                 BOOST_ASSERT(in_writing == false);
@@ -169,8 +160,7 @@ BOOST_AUTO_TEST_CASE(t_rwlock_multi_co)
             }
         };
 
-        bbtco_desc("reader2")[&]()
-        {
+        bbtco_desc("reader2") [&]() {
             while (running) {
                 rwlock->RLock();
                 BOOST_ASSERT(in_writing == false);
@@ -180,8 +170,7 @@ BOOST_AUTO_TEST_CASE(t_rwlock_multi_co)
             bbtco_yield;
         };
 
-        bbtco_desc("writer")[&]()
-        {
+        bbtco_desc("writer") [&]() {
             while (running) {
                 rwlock->WLock();
                 in_writing = true;
@@ -230,8 +219,7 @@ BOOST_AUTO_TEST_CASE(t_writer_priority)
                 shared_state->reader_blocked.store(true, std::memory_order_release);
         });
 
-    bbtco[state]
-    {
+    bbtco [state]() {
         state->rwlock->RLock();
         state->reader_holding.store(true, std::memory_order_release);
         while (!state->release_reader.load(std::memory_order_acquire))
@@ -240,8 +228,7 @@ BOOST_AUTO_TEST_CASE(t_writer_priority)
         state->child_completed.fetch_add(1, std::memory_order_release);
     };
 
-    bbtco[state]
-    {
+    bbtco [state]() {
         while (!state->reader_holding.load(std::memory_order_acquire))
             bbtco_yield;
         state->rwlock->WLock();
@@ -250,8 +237,7 @@ BOOST_AUTO_TEST_CASE(t_writer_priority)
         state->child_completed.fetch_add(1, std::memory_order_release);
     };
 
-    bbtco[state]
-    {
+    bbtco [state]() {
         while (!state->writer_queued.load(std::memory_order_acquire))
             bbtco_yield;
         state->rwlock->RLock();
@@ -261,8 +247,7 @@ BOOST_AUTO_TEST_CASE(t_writer_priority)
         state->child_completed.fetch_add(1, std::memory_order_release);
     };
 
-    bbtco[state]
-    {
+    bbtco [state]() {
         while (!state->reader_blocked.load(std::memory_order_acquire))
             bbtco_yield;
         state->release_reader.store(true, std::memory_order_release);
@@ -283,8 +268,7 @@ BOOST_AUTO_TEST_CASE(t_try_rlock)
 {
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco_desc("main")[&]()
-    {
+    bbtco_desc("main") [&]() {
         auto rwlock = bbtco_make_corwmutex();
 
         BOOST_ASSERT(rwlock->TryRLock() == 0);
@@ -307,8 +291,7 @@ BOOST_AUTO_TEST_CASE(t_try_wlock)
 {
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco_desc("main")[&]()
-    {
+    bbtco_desc("main") [&]() {
         auto rwlock = bbtco_make_corwmutex();
 
         BOOST_ASSERT(rwlock->TryWLock() == 0);
@@ -331,8 +314,7 @@ BOOST_AUTO_TEST_CASE(t_try_rlock_timeout)
 {
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco_desc("main")[&]()
-    {
+    bbtco_desc("main") [&]() {
         auto rwlock = bbtco_make_corwmutex();
 
         rwlock->WLock();
@@ -356,8 +338,7 @@ BOOST_AUTO_TEST_CASE(t_try_wlock_timeout)
 {
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco_desc("main")[&]()
-    {
+    bbtco_desc("main") [&]() {
         auto rwlock = bbtco_make_corwmutex();
 
         rwlock->RLock();
@@ -382,14 +363,12 @@ BOOST_AUTO_TEST_CASE(t_timeout_recovery)
     bbt::core::thread::CountDownLatch l{1};
     std::atomic_int n{0};
 
-    bbtco_desc("main")[&]()
-    {
+    bbtco_desc("main") [&]() {
         auto rwlock = bbtco_make_corwmutex();
 
         rwlock->WLock();
 
-        bbtco_desc("timeout_reader")[rwlock]()
-        {
+        bbtco_desc("timeout_reader") [rwlock]() {
             int ret = rwlock->TryRLock(50);
             BOOST_ASSERT(ret == 1);
         };
@@ -399,8 +378,7 @@ BOOST_AUTO_TEST_CASE(t_timeout_recovery)
 
         bbtco_sleep(50);
 
-        bbtco_desc("later_reader")[rwlock, &n]()
-        {
+        bbtco_desc("later_reader") [rwlock, &n]() {
             rwlock->RLock();
             n++;
             rwlock->RUnLock();
@@ -425,8 +403,7 @@ BOOST_AUTO_TEST_CASE(t_try_wlock_timeout_then_wlock)
 {
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco_desc("main")[&]()
-    {
+    bbtco_desc("main") [&]() {
         auto rwlock = bbtco_make_corwmutex();
 
         /**
@@ -464,8 +441,7 @@ BOOST_AUTO_TEST_CASE(t_try_wlock_timeout_then_rlock)
     bbt::core::thread::CountDownLatch l{1};
     std::atomic_int nread{0};
 
-    bbtco_desc("main")[&]()
-    {
+    bbtco_desc("main") [&]() {
         auto rwlock = bbtco_make_corwmutex();
 
         /**
@@ -484,8 +460,7 @@ BOOST_AUTO_TEST_CASE(t_try_wlock_timeout_then_rlock)
         /**
          * 其他 reader 应该可以正常获取读锁（不被假 writer 阻塞）
          */
-        bbtco[rwlock, &nread]()
-        {
+        bbtco [rwlock, &nread]() {
             rwlock->RLock();
             nread.fetch_add(1, std::memory_order_relaxed);
             rwlock->RUnLock();
@@ -506,8 +481,7 @@ BOOST_AUTO_TEST_CASE(t_try_wlock_multiple_timeouts)
 {
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco_desc("main")[&]()
-    {
+    bbtco_desc("main") [&]() {
         auto rwlock = bbtco_make_corwmutex();
 
         /**
@@ -548,15 +522,13 @@ BOOST_AUTO_TEST_CASE(t_rwlock_multi_co_stress)
     std::atomic_int nread{0};
     std::atomic_int nwrite{0};
 
-    bbtco_desc("main")[&]()
-    {
+    bbtco_desc("main") [&]() {
         std::atomic_int in_writing{0};
         std::atomic_int active_readers{0};
         auto rwlock = bbtco_make_corwmutex();
 
         for (int i = 0; i < 4; ++i) {
-            bbtco[&]()
-            {
+            bbtco [&]() {
                 while (running) {
                     rwlock->RLock();
                     active_readers.fetch_add(1);
@@ -570,8 +542,7 @@ BOOST_AUTO_TEST_CASE(t_rwlock_multi_co_stress)
         }
 
         for (int i = 0; i < 3; ++i) {
-            bbtco[&]()
-            {
+            bbtco [&]() {
                 while (running) {
                     rwlock->WLock();
                     int old = in_writing.fetch_add(1);
@@ -630,8 +601,7 @@ BOOST_AUTO_TEST_CASE(t_wunlock_wakes_all_blocked_readers)
                 shared_state->blocked_readers.fetch_add(1, std::memory_order_release);
         });
 
-    bbtco_desc("writer")[state]
-    {
+    bbtco_desc("writer") [state]() {
         state->rw->WLock();
         state->writer_holding.store(1, std::memory_order_release);
 
@@ -646,13 +616,11 @@ BOOST_AUTO_TEST_CASE(t_wunlock_wakes_all_blocked_readers)
         state->done.Down();
     };
 
-    bbtco_desc("conductor")[state]
-    {
+    bbtco_desc("conductor") [state]() {
         state->stage_writer_holding_ok.store(
             SpinUntilCo([&state] { return state->writer_holding.load(std::memory_order_acquire) == 1; }, 3000) ? 1 : 0);
         for (int i = 0; i < 2; ++i) {
-            bbtco_desc("reader")[state]
-            {
+            bbtco_desc("reader") [state]() {
                 state->rw->RLock();
                 state->released_ok.fetch_add(state->writer_released.load(std::memory_order_acquire) == 1 ? 1 : 0);
 
@@ -717,10 +685,8 @@ BOOST_AUTO_TEST_CASE(t_timedout_writer_then_blocked_reader_wakes)
                 shared_state->reader_blocked.fetch_add(1, std::memory_order_release);
         });
 
-    bbtco_desc("conductor")[state]
-    {
-        bbtco_desc("r0")[state]
-        {
+    bbtco_desc("conductor") [state]() {
+        bbtco_desc("r0") [state]() {
             state->rw->RLock();
             state->r0_holding.store(1, std::memory_order_release);
 
@@ -738,8 +704,7 @@ BOOST_AUTO_TEST_CASE(t_timedout_writer_then_blocked_reader_wakes)
         state->stage_r0_ok.store(
             SpinUntilCo([&state] { return state->r0_holding.load(std::memory_order_acquire) == 1; }, 3000) ? 1 : 0);
 
-        bbtco_desc("w1")[state]
-        {
+        bbtco_desc("w1") [state]() {
             state->w1_ret.store(state->rw->TryWLock(80), std::memory_order_release);
             state->w1_done.store(1, std::memory_order_release);
             state->done.Down();
@@ -751,8 +716,7 @@ BOOST_AUTO_TEST_CASE(t_timedout_writer_then_blocked_reader_wakes)
         state->stage_w1_queued_ok.store(
             SpinUntilCo([&state] { return state->writer_queued.load(std::memory_order_acquire) >= 1; }, 3000) ? 1 : 0);
 
-        bbtco_desc("r2")[state]
-        {
+        bbtco_desc("r2") [state]() {
             state->rw->RLock();
             state->r2_acquired.store(1, std::memory_order_release);
             state->rw->RUnLock();

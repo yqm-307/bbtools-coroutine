@@ -140,8 +140,7 @@ BOOST_AUTO_TEST_CASE(t_coroutine_throw_without_handler)
     });
     handler->Install();
 
-    bbtco[]()
-    {
+    bbtco []() {
         throw std::runtime_error("co panic");
     };
 

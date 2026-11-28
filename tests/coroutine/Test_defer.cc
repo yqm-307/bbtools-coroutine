@@ -83,8 +83,7 @@ BOOST_AUTO_TEST_CASE(t_defer_on_exception)
     bbt::core::thread::CountDownLatch done{1};
     std::atomic_int defer_executed{0};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         bbtco_defer
         {
             defer_executed++;
@@ -109,8 +108,7 @@ BOOST_AUTO_TEST_CASE(t_defer_lifo_on_exception)
     std::atomic_int seq{0};
     std::atomic_int order[3] = {0, 0, 0};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         bbtco_defer
         {
             /**
@@ -154,16 +152,14 @@ BOOST_AUTO_TEST_CASE(t_defer_nested_coroutine_exception)
     bbt::core::thread::CountDownLatch done{2};
     std::atomic_int defer_executed{0};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         bbtco_defer
         {
             defer_executed++;
             done.Down();
         };
 
-        bbtco[&]()
-        {
+        bbtco [&]() {
             bbtco_defer
             {
                 defer_executed++;

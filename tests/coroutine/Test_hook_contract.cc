@@ -1288,8 +1288,7 @@ BOOST_AUTO_TEST_CASE(t_contract_dns_inflight_completes_without_stop)
     auto gate = std::make_shared<Gate>();
     bbt::core::thread::CountDownLatch await_done{1};
 
-    bbtco[gate, &await_done]()
-    {
+    bbtco [gate, &await_done]() {
         bbt::coroutine::detail::DnsResolver::GetInstance()->Await([gate]() {
             std::unique_lock<std::mutex> lock(gate->mutex);
             gate->entered = true;

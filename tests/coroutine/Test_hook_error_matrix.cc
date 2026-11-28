@@ -76,8 +76,7 @@ template <typename Fn> void RunInCo(Fn fn)
 {
     bbt::core::thread::CountDownLatch done{1};
     std::exception_ptr eptr;
-    bbtco[&]()
-    {
+    bbtco [&]() {
         try {
             fn();
         } catch (...) {
@@ -209,8 +208,7 @@ BOOST_AUTO_TEST_CASE(t_close_during_wait_wakes_with_ebadf)
     std::atomic<ssize_t> result{12345};
     std::atomic_int errcode{0};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         char buf[1];
         errno = 0;
         const ssize_t r = ::read(fds[0], buf, 1);
@@ -218,8 +216,7 @@ BOOST_AUTO_TEST_CASE(t_close_during_wait_wakes_with_ebadf)
         errcode.store(errno);
         done.Down();
     };
-    bbtco[&]()
-    {
+    bbtco [&]() {
         bbtco_sleep(20);
         BOOST_CHECK_EQUAL(::close(fds[0]), 0);
     };

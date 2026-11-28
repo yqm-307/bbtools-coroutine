@@ -80,8 +80,7 @@ BOOST_AUTO_TEST_CASE(t_ready_yield_resume_pairs)
     bbt::core::thread::CountDownLatch done{1};
     std::atomic_int rounds{0};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         for (int i = 0; i < 8; ++i) {
             bbtco_yield;
             rounds.fetch_add(1);
@@ -103,8 +102,7 @@ BOOST_AUTO_TEST_CASE(t_event_wait_resume_pairs)
     bbt::core::thread::CountDownLatch done{1};
     std::atomic_int wakes{0};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         for (int i = 0; i < 4; ++i) {
             bbtco_sleep(10);
             wakes.fetch_add(1);
@@ -127,8 +125,7 @@ BOOST_AUTO_TEST_CASE(t_concurrent_cos_independent_pairs)
     std::atomic_int finished{0};
 
     for (int i = 0; i < kCoNum; ++i) {
-        bbtco[&, i]()
-        {
+        bbtco [&, i]() {
             for (int j = 0; j <= i; ++j)
                 bbtco_sleep(5 + i * 5);
             finished.fetch_add(1);
@@ -153,8 +150,7 @@ BOOST_AUTO_TEST_CASE(t_final_coroutine_not_stuck_as_resumed)
     std::atomic<CoroutineId> seen{BBT_COROUTINE_INVALID_COROUTINE_ID};
     auto probe = std::make_shared<DestructionProbe>(&destroyed);
 
-    bbtco[&, probe]()
-    {
+    bbtco [&, probe]() {
         seen.store(g_bbt_tls_coroutine_co->GetId());
 
         /**
@@ -188,8 +184,7 @@ BOOST_AUTO_TEST_CASE(t_exception_final_not_stuck_as_resumed)
     std::atomic<CoroutineId> seen{BBT_COROUTINE_INVALID_COROUTINE_ID};
     auto probe = std::make_shared<DestructionProbe>(&destroyed);
 
-    bbtco[&, probe]()
-    {
+    bbtco [&, probe]() {
         seen.store(g_bbt_tls_coroutine_co->GetId());
         throw std::runtime_error{"stringent-debug probe exception"};
     };
@@ -217,8 +212,7 @@ BOOST_AUTO_TEST_CASE(t_regist_fail_reentry_pairs)
     std::atomic_int fail_ret{-2};
     auto probe = std::make_shared<DestructionProbe>(&destroyed);
 
-    bbtco[&, probe]()
-    {
+    bbtco [&, probe]() {
         seen.store(g_bbt_tls_coroutine_co->GetId());
         Coroutine::_TestFailNextAwaitRegist();
         fail_ret.store(g_bbt_tls_coroutine_co->YieldUntilTimeout(5));

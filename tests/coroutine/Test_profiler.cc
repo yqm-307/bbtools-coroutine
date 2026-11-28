@@ -150,8 +150,7 @@ BOOST_AUTO_TEST_CASE(t_scheduler_run_then_profile)
 
     bbt::core::thread::CountDownLatch done{10};
     for (int i = 0; i < 10; ++i) {
-        bbtco[&done]()
-        {
+        bbtco [&done]() {
             bbtco_sleep(1);
             done.Down();
         };

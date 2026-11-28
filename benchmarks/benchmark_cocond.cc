@@ -35,8 +35,7 @@ int main()
     auto cocond = bbtco_make_cocond();
 
     for (int i = 0; i < ncount; ++i) {
-        bbtco_desc("这个协程不停的 wait, 在醒来后将自己wait次数加1")[&, i]()
-        {
+        bbtco_desc("这个协程不停的 wait, 在醒来后将自己wait次数加1") [&, i]() {
             while (!is_stop) {
                 cocond->Wait();
                 dogs[i].Feed();
@@ -52,8 +51,7 @@ int main()
         };
     }
 
-    bbtco_desc("定时唤醒所有coroutine")[&]()
-    {
+    bbtco_desc("定时唤醒所有coroutine") [&]() {
         int notify_times = 0;
         auto now = bbt::core::clock::gettime();
         while (now + time_s * 1000 > bbt::core::clock::gettime()) {
@@ -74,8 +72,7 @@ int main()
         }
     };
 
-    bbtco_desc("monitor")[&]()
-    {
+    bbtco_desc("monitor") [&]() {
         while (!is_stop) {
             bbtco_sleep(1000);
             std::cout << "monitor" << std::endl;
@@ -92,8 +89,7 @@ int main()
     /**
      * 结束时唤醒所有协程，保证可以正常退出
      */
-    bbtco_desc("notified")[&]()
-    {
+    bbtco_desc("notified") [&]() {
         bbtco_sleep(time_s * 1000);
         is_stop = true;
         while (stop_count.load() < ncount) {

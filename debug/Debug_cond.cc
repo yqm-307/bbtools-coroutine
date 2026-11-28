@@ -27,8 +27,7 @@ void debug_notify()
     /**
      * 注册一个 coroutine
      */
-    bbtco[]()
-    {
+    bbtco []() {
         PrintTime("t2");
 
         /**
@@ -40,8 +39,7 @@ void debug_notify()
         /**
          * 注册一个coroutine
          */
-        bbtco[cond]()
-        {
+        bbtco [cond]() {
             PrintTime("t4");
 
             /**
@@ -62,8 +60,7 @@ void debug_notify()
         /**
          * 注册一个coroutine
          */
-        bbtco[cond]()
-        {
+        bbtco [cond]() {
             PrintTime("t6");
 
             /**
@@ -82,8 +79,7 @@ void debug_notify()
     printf("====================== wait timeout  ========================\n");
     printf("=============================================================\n");
 
-    bbtco[]()
-    {
+    bbtco []() {
         PrintTime("p1");
         auto cond = sync::CoWaiter::Create();
         Assert(cond != nullptr);
@@ -102,15 +98,13 @@ void dbg_coroutine_wait()
 {
     auto cond = sync::CoWaiter::Create();
     for (int i = 0; i < 10; ++i)
-        bbtco[&]()
-        {
+        bbtco [&]() {
             while (true)
                 cond->WaitWithTimeout(1);
         };
     ::sleep(1);
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         while (1) {
             cond->Notify();
         }
@@ -125,12 +119,10 @@ void cocond()
     bbt::core::thread::CountDownLatch l{1};
     bbt::core::thread::CountDownLatch l2{1};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         auto cond = bbtco_make_cocond();
 
-        bbtco[&]()
-        {
+        bbtco [&]() {
             cond->Wait();
             l.Down();
         };
@@ -155,13 +147,11 @@ void multi_cond_check()
         l1.Reset(nmax_wait_co);
         l2.Reset(1);
         std::atomic_int wait_count{0};
-        bbtco[&, i]()
-        {
+        bbtco [&, i]() {
             auto cond = bbtco_make_cocond();
 
             for (int i = 0; i < nmax_wait_co; ++i) {
-                bbtco[&]()
-                {
+                bbtco [&]() {
                     wait_count++;
                     cond->Wait();
                     l1.Down();
@@ -184,24 +174,20 @@ void multi_cond_check()
 
 void consumer_producer()
 {
-    bbtco[&]()
-    {
+    bbtco [&]() {
         auto cond = bbtco_make_cocond();
 
-        bbtco_desc("this is consumer co!")[&]()
-        {
+        bbtco_desc("this is consumer co!") [&]() {
             while (true) {
                 cond->NotifyAll();
                 bbtco_sleep(1);
             }
         };
 
-        bbtco_desc("this is producer co!")[&]()
-        {
+        bbtco_desc("this is producer co!") [&]() {
             while (true) {
                 for (int i = 0; i < 200; ++i)
-                    bbtco_desc("products")[&]()
-                    {
+                    bbtco_desc("products") [&]() {
                         cond->Wait();
                     };
 
@@ -221,8 +207,7 @@ void single_cond()
 {
     auto cond1 = bbtco_make_cocond();
     auto cond2 = bbtco_make_cocond();
-    bbtco[&]()
-    {
+    bbtco [&]() {
         while (true) {
             cond1->Wait();
             while (cond2->NotifyOne() != -1)
@@ -230,8 +215,7 @@ void single_cond()
         }
     };
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         while (true) {
             cond2->Wait();
             while (cond1->NotifyOne() != -1)

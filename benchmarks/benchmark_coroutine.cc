@@ -37,15 +37,12 @@ int main()
             /**
              * productor
              */
-            bbtco_noexcept(&succ)[&done_count, nsum_co, i, productor_num]()
-            {
-
+            bbtco_noexcept(&succ) [&done_count, nsum_co, i, productor_num]() {
                 for (int j = 0; j < (nsum_co / productor_num) + 1; ++j) {
                     bool succ = false;
 
                     while (!succ) {
-                        bbtco_noexcept(&succ)[&done_count, j]()
-                        {
+                        bbtco_noexcept(&succ) [&done_count, j]() {
                             done_count++;
                         };
 

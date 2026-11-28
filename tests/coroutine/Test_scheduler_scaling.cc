@@ -240,8 +240,7 @@ void RetireAndReap(bool manual_reaper)
     auto tls_second = std::make_shared<std::atomic_bool>(false);
     auto id_first = std::make_shared<std::atomic<ProcesserId>>(0);
     auto id_second = std::make_shared<std::atomic<ProcesserId>>(0);
-    bbtco[first, completed, tls_first, id_first]
-    {
+    bbtco [first, completed, tls_first, id_first]() {
         tls_receipt.destroyed = tls_first;
         *id_first = Processer::TryGetLocalProcesser()->GetId();
         first->Pass();
@@ -249,8 +248,7 @@ void RetireAndReap(bool manual_reaper)
     };
     BOOST_REQUIRE(first->WaitEntered());
     BOOST_REQUIRE(g_scheduler->SetProcesserNum(2) == ProcesserResizeResult::Ok);
-    bbtco[second, completed, tls_second, id_second]
-    {
+    bbtco [second, completed, tls_second, id_second]() {
         tls_receipt.destroyed = tls_second;
         *id_second = Processer::TryGetLocalProcesser()->GetId();
         second->Pass();
@@ -385,8 +383,7 @@ void DriverAndParked(bool pure_wait)
     auto result = std::make_shared<std::atomic<WaitStatus>>(WaitStatus::RuntimeUnavailable);
     auto destroyed = std::make_shared<std::atomic_bool>(false);
     auto resume_count = std::make_shared<std::atomic_int>(0);
-    bbtco[waiter, registered, done, resumed, result, destroyed, resume_count, pure_wait]
-    {
+    bbtco [waiter, registered, done, resumed, result, destroyed, resume_count, pure_wait]() {
         tls_receipt.destroyed = destroyed;
         WaitOptions options;
         if (pure_wait)
@@ -407,8 +404,7 @@ void DriverAndParked(bool pure_wait)
      * 单 worker 上随后任务完成，证明上一个 Resume 已完成 park disposition。
      */
     auto parked = std::make_shared<bbt::core::thread::CountDownLatch>(1);
-    bbtco[parked]
-    {
+    bbtco [parked]() {
         parked->Down();
     };
     BOOST_REQUIRE_EQUAL(parked->WaitTimeout(5000), 0);
@@ -477,13 +473,11 @@ void AutoScale(bool queue_signal)
             std::make_unique<Binding>(g_scheduler->GetWorkerProcesserIds().front(), std::make_shared<Driver>(gate));
         BOOST_REQUIRE(gate->WaitEntered());
         for (int i = 0; i < 64; ++i)
-            bbtco[done]
-            {
+            bbtco [done]() {
                 done->Down();
             };
     } else {
-        bbtco[gate, done]
-        {
+        bbtco [gate, done]() {
             gate->Pass();
             done->Down();
         };
@@ -541,8 +535,7 @@ void TlsReaper(bool threaded)
     auto entered = std::make_shared<std::atomic_int>(0);
     auto done = std::make_shared<std::atomic_int>(0);
     for (int i = 0; i < 2; ++i)
-        bbtco[tasks, tls, entered, done]
-        {
+        bbtco [tasks, tls, entered, done]() {
             tls_receipt.gate = tls;
             ++*entered;
             tasks->Pass();
@@ -814,8 +807,7 @@ void AutoReverse()
     auto gate = std::make_shared<Gate>();
     OpenOnExit release{gate};
     auto done = std::make_shared<std::atomic_bool>(false);
-    bbtco[gate, done]
-    {
+    bbtco [gate, done]() {
         gate->Pass();
         *done = true;
     };
@@ -956,15 +948,13 @@ void Admission(int point)
     auto survivor_gate = std::make_shared<Gate>();
     auto victim_gate = std::make_shared<Gate>();
     OpenOnExit release_survivor{survivor_gate}, release_victim{victim_gate};
-    bbtco[survivor_gate]
-    {
+    bbtco [survivor_gate]() {
         survivor_gate->Pass();
     };
     BOOST_REQUIRE(survivor_gate->WaitEntered());
     BOOST_REQUIRE(g_scheduler->SetProcesserNum(2) == ProcesserResizeResult::Ok);
     auto captured = std::make_shared<Processer::SPtr>();
-    bbtco[captured, victim_gate]
-    {
+    bbtco [captured, victim_gate]() {
         *captured = Processer::TryGetLocalProcesser();
         victim_gate->Pass();
     };

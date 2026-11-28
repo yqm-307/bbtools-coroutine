@@ -23,7 +23,7 @@ workflow 文件本身是权威定义，本文不复制其步骤，只给门禁�
 | `scripts/ci/run_test_profile.sh` | 统一测试执行入口：`--profile smoke|focused|full`，选集非空 → ctest → JUnit 校验注册集=实跑集，skipped/failure 判红 |
 | `scripts/ci/perf_contract.py` | 统一性能报告 schema、环境指纹比较、阈值判定、基线写闸门（见 §5） |
 | `scripts/ci/check_docs.py` | docs 检查：相对链接有效、docs 文件名无过程编号、README ≤200 行、ADR 编号唯一 |
-| `scripts/ci/check_format.sh` | 共用 `scripts/ci/format_cpp.py` 的整仓只读检查（阻断）；`--staged` 读 Git 暂存区源码，供提交前钩子用 |
+| `scripts/ci/check_format.sh` | 共用 `scripts/ci/format_cpp.py` 的整仓只读检查（阻断）；`--staged` 读 Git 暂存区源码，供提交前钩子用。`format_cpp.py` 转发到 pub 的 `tools/format/format-cpp.py`，与推送门禁共用一份实现，需先初始化 `third-party/bbtools-pub` |
 | `scripts/ci/test_changed_files.py` | 分类规则 + perf 触发位 + result 契约单测（仅标准库） |
 | `scripts/ci/test_check_docs.py` | check_docs 正反例单测 |
 | `scripts/ci/test_formal_ci.py` | 现役 workflow 的离线冒烟与文本/结构契约测试 |

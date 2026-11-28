@@ -161,8 +161,7 @@ BOOST_AUTO_TEST_CASE(single_p_external_progress_before_hot_release)
     auto registration = registered.get_future();
     auto wake_done = resumed.get_future();
     auto submit_done = submitted.get_future();
-    bbtco[&]
-    {
+    bbtco [&]() {
         sync::CombinedWaitOptions options;
         waiter.Wait(options, [&] {
             registered.set_value();
@@ -172,8 +171,7 @@ BOOST_AUTO_TEST_CASE(single_p_external_progress_before_hot_release)
     };
     BOOST_REQUIRE(Ready(registration));
     for (int n = 0; n < 4; ++n)
-        bbtco[&]
-        {
+        bbtco [&]() {
             while (!release.load()) {
                 ++turns;
                 bbtco_yield;
@@ -186,8 +184,7 @@ BOOST_AUTO_TEST_CASE(single_p_external_progress_before_hot_release)
     /**
      * 主线程是外部生产者；热点结束门保持关闭直到两条来源都获得执行。
      */
-    bbtco[&]
-    {
+    bbtco [&]() {
         submitted.set_value();
     };
     BOOST_CHECK_EQUAL(waiter.Notify(CoEventValue::From(true)), 0);

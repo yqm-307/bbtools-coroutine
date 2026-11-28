@@ -588,8 +588,7 @@ int bbtco_main()
     if (Mode("detached")) {
         auto entered = Chan<int, 1>();
         auto never = Chan<int, 1>();
-        bbtco[entered, never]
-        {
+        bbtco [entered, never]() {
             (*entered) << 1;
             int value = 0;
             (*never) >> value;

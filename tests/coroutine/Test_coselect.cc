@@ -52,13 +52,11 @@ BOOST_AUTO_TEST_CASE(t_select_case_read)
     int out2 = 0;
     int elapsed_ms = -1;
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         sync::Chan<int, 4> ch1;
         sync::Chan<int, 4> ch2;
 
-        bbtco[&ch1]()
-        {
+        bbtco [&ch1]() {
             /**
              * 写入故意滞后于 select 发起，等待中的分支也必须完成交付；
              * 行为断言只看交付完成与及时性，不依赖具体唤醒机制。
@@ -92,8 +90,7 @@ BOOST_AUTO_TEST_CASE(t_select_both_ready_pseudorandom)
     int first_count = 0;
     int second_count = 0;
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         for (int i = 0; i < 64; ++i) {
             sync::Chan<int, 1> ch1;
             sync::Chan<int, 1> ch2;
@@ -131,8 +128,7 @@ BOOST_AUTO_TEST_CASE(t_select_default)
     int index = -999;
     int elapsed = -1;
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         sync::Chan<int, 4> ch;
         int out = 0;
         auto begin = bbt::core::clock::gettime_mono();
@@ -155,8 +151,7 @@ BOOST_AUTO_TEST_CASE(t_select_timeout)
     int index = -999;
     int elapsed = -1;
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         sync::Chan<int, 4> ch;
         int out = 0;
         auto begin = bbt::core::clock::gettime_mono();
@@ -180,8 +175,7 @@ BOOST_AUTO_TEST_CASE(t_select_case_write)
     int index = -999;
     int written = 0;
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         sync::Chan<int, 1> ch;
 
         /**
@@ -189,8 +183,7 @@ BOOST_AUTO_TEST_CASE(t_select_case_write)
          */
         BOOST_CHECK_EQUAL(ch.TryWrite(99), 0);
 
-        bbtco[&ch]()
-        {
+        bbtco [&ch]() {
             /**
              * 等 select 挂起后腾出缓冲
              */
@@ -225,11 +218,9 @@ BOOST_AUTO_TEST_CASE(t_select_ticker_alive_while_waiting)
     int index = -999;
     std::atomic_int tick_count{0};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         std::atomic_bool ticker_done{false};
-        bbtco[&tick_count, &ticker_done]()
-        {
+        bbtco [&tick_count, &ticker_done]() {
             for (int i = 0; i < 30; ++i) {
                 bbtco_sleep(10);
                 ++tick_count;
@@ -267,13 +258,11 @@ BOOST_AUTO_TEST_CASE(t_select_close_wakeup)
     int index = -999;
     int elapsed = -1;
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         sync::Chan<int, 4> ch;
         int out = 0;
 
-        bbtco[&ch]()
-        {
+        bbtco [&ch]() {
             bbtco_sleep(30);
             ch.Close();
         };
@@ -366,8 +355,7 @@ RaceResult RunFirstWinRace(bool cancel_first, int timeout_ms)
     detail::Coroutine* r_co = nullptr;
     bool r_returned = false;
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         r_co = g_bbt_tls_coroutine_co;
 
         EnqueuePeer([&]() {
@@ -430,15 +418,13 @@ BOOST_AUTO_TEST_CASE(t_select_zero_complementary_selects_pair)
     bbt::core::thread::CountDownLatch latch{2};
     int read_idx = -999, read_value = 0, write_idx = -999;
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         int out = 0, filler_r = 0;
         read_idx = sync::CoSelect().CaseRead(*r_never, filler_r).CaseRead(*ch, out).Run();
         read_value = out;
         latch.Down();
     };
-    bbtco[&]()
-    {
+    bbtco [&]() {
         write_idx = sync::CoSelect().CaseWrite(*w_never, 0).CaseWrite(*ch, 42).Run();
         latch.Down();
     };
@@ -471,8 +457,7 @@ BOOST_AUTO_TEST_CASE(t_select_zero_pairs_plain_read_write)
             bbt::core::thread::CountDownLatch latch{2};
             int sel_idx = -999, plain_ret = -999, delivered = 0;
 
-            bbtco[&]()
-            {
+            bbtco [&]() {
                 if (c.select_reads) {
                     int out = 0;
                     sel_idx = sync::CoSelect().CaseRead(*ch, out).Run();
@@ -481,8 +466,7 @@ BOOST_AUTO_TEST_CASE(t_select_zero_pairs_plain_read_write)
                     sel_idx = sync::CoSelect().CaseWrite(*ch, c.write_val).Run();
                 latch.Down();
             };
-            bbtco[&]()
-            {
+            bbtco [&]() {
                 if (c.select_reads)
                     plain_ret = ch->Write(c.write_val);
                 else {
@@ -516,8 +500,7 @@ BOOST_AUTO_TEST_CASE(t_select_zero_no_self_pairing_within_run)
     bbt::core::thread::CountDownLatch latch{2};
     int read_idx = -999, read_value = 0, probe_ret = -999;
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         EnqueuePeer([&]() {
             probe_ret = ch->TryWrite(17);
             latch.Down();
@@ -553,8 +536,7 @@ BOOST_AUTO_TEST_CASE(t_select_zero_assign_throw_caught_by_reader)
     int read_idx = -999, read_caught = 0, write_ret = -999;
 
     UboThrowOnAssign dummy;
-    bbtco[&]()
-    {
+    bbtco [&]() {
         EnqueuePeer([&]() {
             write_ret = ch->Write(UboThrowOnAssign(42));
             latch.Down();

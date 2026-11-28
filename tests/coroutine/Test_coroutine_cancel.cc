@@ -66,8 +66,7 @@ BOOST_AUTO_TEST_CASE(t_cancel_wakes_timeout_wait)
     std::atomic<int> elapsed_ms{-1};
     std::atomic<bool> saw_cancel{false};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         target.store(g_bbt_tls_coroutine_co);
         parked.Down();
         const auto begin = bbt::core::clock::gettime_mono();
@@ -91,8 +90,7 @@ BOOST_AUTO_TEST_CASE(t_cancel_before_wait_returns_immediately)
     bbt::core::thread::CountDownLatch done{1};
     std::atomic<int> elapsed_ms{-1};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         g_bbt_tls_coroutine_co->RequestCancel();
         const auto begin = bbt::core::clock::gettime_mono();
         g_bbt_tls_coroutine_co->YieldUntilTimeout(5000);
@@ -112,8 +110,7 @@ BOOST_AUTO_TEST_CASE(t_cancel_running_does_not_kill)
     std::atomic<Coroutine*> target{nullptr};
     std::atomic<int> steps{0};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         target.store(g_bbt_tls_coroutine_co);
         started.Down();
 
@@ -148,8 +145,7 @@ BOOST_AUTO_TEST_CASE(t_cancel_runs_raii_dtors)
         ~Guard() { n->fetch_add(1); }
     };
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         /**
          * RAII 析断必须在 done.Down() 之前完成——否则主线程被唤醒后
          * 可能在析构前读 dtors（CI 实测竞态）

@@ -10,7 +10,7 @@ int bbtco_main()
     std::puts("main coroutine resumed");
 
     auto done = Chan<int, 1>();
-    if ((bbtco_ev_t(10)[done](int, short) { (void)done->TryWrite(1); }) != 0)
+    if ((bbtco_ev_t(10) [done](int, short) { (void)done->TryWrite(1); }) != 0)
         return 1;
 
     int value = 0;

@@ -15,8 +15,7 @@ void RunOnce()
     bbt::core::thread::CountDownLatch l{nco_num};
 
     for (int i = 0; i < nco_num; ++i) {
-        bbtco[&mutex, &a, &b, begin, &l]()
-        {
+        bbtco [&mutex, &a, &b, begin, &l]() {
             while ((bbt::core::clock::gettime_mono() - begin) < nsec) {
                 if (mutex->TryLock(1) == 0) {
                     Assert(a == b);
@@ -35,8 +34,7 @@ void RunOnce()
 void DeadLockAssert()
 {
     auto mutex = bbtco_make_comutex();
-    bbtco[&]()
-    {
+    bbtco [&]() {
         mutex->Lock();
 
         /**

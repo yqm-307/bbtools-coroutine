@@ -80,8 +80,7 @@ BOOST_AUTO_TEST_CASE(t_release_stops_pool)
 {
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         auto pool = bbtco_make_copool(10);
 
         /**
@@ -128,8 +127,7 @@ BOOST_AUTO_TEST_CASE(t_double_release_safe)
 {
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         auto pool = bbtco_make_copool(10);
         pool->Release();
 
@@ -151,8 +149,7 @@ BOOST_AUTO_TEST_CASE(t_release_empty_pool)
 {
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         auto pool = bbtco_make_copool(10);
         pool->Release();
         BOOST_TEST(true);
@@ -169,8 +166,7 @@ BOOST_AUTO_TEST_CASE(t_multiple_pools_release)
 {
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         std::atomic_int count1{0};
         std::atomic_int count2{0};
         bbt::core::thread::CountDownLatch done1{100};
@@ -226,8 +222,7 @@ BOOST_AUTO_TEST_CASE(t_stress_submit_release)
 {
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         for (int r = 0; r < 10; ++r) {
             auto pool = bbtco_make_copool(20);
             std::atomic_int count{0};
@@ -261,8 +256,7 @@ BOOST_AUTO_TEST_CASE(t_throwing_tasks_pool_alive)
 {
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         auto pool = bbtco_make_copool(8);
 
         /**
@@ -333,8 +327,7 @@ BOOST_AUTO_TEST_CASE(t_exception_ignore_count)
 {
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         auto pool = bbtco_make_copool(4);
         const int n = 25;
         bbt::core::thread::CountDownLatch done{n};
@@ -374,8 +367,7 @@ BOOST_AUTO_TEST_CASE(t_exception_callback)
 {
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         auto pool = bbtco_make_copool(4);
         std::atomic_int cb_calls{0};
         std::atomic_bool got_runtime_error{false};
@@ -447,8 +439,7 @@ BOOST_AUTO_TEST_CASE(t_submit_with_future)
 {
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         auto pool = bbtco_make_copool(4);
 
         /**
@@ -493,8 +484,7 @@ BOOST_AUTO_TEST_CASE(t_release_after_throwing)
 {
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         for (int round = 0; round < 5; ++round) {
             auto pool = bbtco_make_copool(4);
             for (int i = 0; i < 20; ++i)
@@ -523,8 +513,7 @@ BOOST_AUTO_TEST_CASE(t_release_drains_pending_futures)
 {
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         auto pool = bbtco_make_copool(1);
 
         /**
@@ -590,8 +579,7 @@ BOOST_AUTO_TEST_CASE(t_release_seal_linearizes_default_submit)
 
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         auto pool = bbtco_make_copool(1);
 
         /**

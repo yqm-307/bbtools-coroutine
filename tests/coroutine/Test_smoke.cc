@@ -101,16 +101,14 @@ BOOST_AUTO_TEST_CASE(smoke_chan_buffered_write_read)
     std::atomic_int read_ret{-1};
     std::atomic_int read_value{0};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         int val = 42;
         int ret = ch->Write(val);
         write_ret.store(ret, std::memory_order_release);
         done = true;
     };
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         int val = 0;
         int ret = ch->Read(val);
         read_ret.store(ret, std::memory_order_release);
@@ -132,8 +130,7 @@ BOOST_AUTO_TEST_CASE(smoke_chan_unbuffered_write_read)
 
     std::atomic_int result{0};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         int val = 0;
         int ret = ch->Read(val);
         if (ret == 0)
@@ -142,8 +139,7 @@ BOOST_AUTO_TEST_CASE(smoke_chan_unbuffered_write_read)
 
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         int val = 99;
         ch->Write(val);
     };
@@ -177,15 +173,13 @@ BOOST_AUTO_TEST_CASE(smoke_comutex_lock_unlock)
 
     std::atomic_int counter{0};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         mtx->Lock();
         counter++;
         mtx->UnLock();
     };
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         mtx->Lock();
         counter++;
         mtx->UnLock();
@@ -205,8 +199,7 @@ BOOST_AUTO_TEST_CASE(smoke_comutex_trylock_immediate)
     /**
      * TryLock must be called from within a coroutine (has deadlock assertion)
      */
-    bbtco[&]()
-    {
+    bbtco [&]() {
         int ret = mtx->TryLock();
         if (ret == 0) {
             trylock_ok = true;
@@ -234,8 +227,7 @@ BOOST_AUTO_TEST_CASE(smoke_cocond_wait_notify_one)
     auto cond = bbtco_make_cocond();
     std::atomic_bool woken{false};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         int ret = cond->Wait();
         if (ret == 0)
             woken = true;
@@ -266,15 +258,13 @@ BOOST_AUTO_TEST_CASE(smoke_corwmutex_read_lock_unlock)
 
     std::atomic_int read_count{0};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         rwmtx->RLock();
         read_count++;
         rwmtx->RUnLock();
     };
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         rwmtx->RLock();
         read_count++;
         rwmtx->RUnLock();
@@ -298,8 +288,7 @@ BOOST_AUTO_TEST_CASE(smoke_corwmutex_write_lock_unlock)
     std::promise<void> done;
     auto fut = done.get_future();
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         rwmtx->WLock();
         shared = 42;
         rwmtx->WUnLock();
@@ -359,8 +348,7 @@ BOOST_AUTO_TEST_CASE(smoke_hook_sleep)
 
     std::atomic_bool slept{false};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         /**
          * bbtco_sleep uses the hook mechanism to yield instead of blocking the thread
          */
@@ -387,8 +375,7 @@ BOOST_AUTO_TEST_CASE(smoke_defer_execute)
 
     std::atomic_bool defer_executed{false};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         bbtco_defer
         {
             defer_executed = true;
