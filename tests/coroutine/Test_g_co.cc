@@ -29,8 +29,7 @@ BOOST_AUTO_TEST_CASE(t_multi_coroutine)
     for (int i = 0; i < nco; ++i) {
         bool succ = false;
         while (!succ) {
-            bbtco_noexcept(&succ)[&]()
-            {
+            bbtco_noexcept(&succ) [&]() {
                 ncount++;
             };
         }

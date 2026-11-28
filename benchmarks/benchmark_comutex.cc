@@ -19,8 +19,7 @@ int main()
     g_scheduler->Start();
 
     for (int i = 0; i < nco_num; ++i) {
-        bbtco[]()
-        {
+        bbtco []() {
             while (true) {
                 std::lock_guard<StdLockWapper> lock(mutex);
                 Assert(a == b);

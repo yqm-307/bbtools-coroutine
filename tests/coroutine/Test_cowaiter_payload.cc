@@ -90,8 +90,7 @@ BOOST_AUTO_TEST_CASE(t_sync_notify_in_callback_delivers_payload)
     std::atomic<std::int64_t> got{0};
     std::atomic_bool has_value{false};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         CoEventValue out;
         st.store(waiter->WaitWithCallback(
             WaitOptions{},
@@ -133,8 +132,7 @@ BOOST_AUTO_TEST_CASE(t_callback_can_submit_when_stack_bucket_is_cold)
     stack_pool.ReleaseUnused();
     const auto before = stack_pool.Observe();
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         st.store(waiter->WaitWithCallback(WaitOptions{}, [&]() {
             bool ok = false;
             g_scheduler->RegistCoroutineTask(
@@ -173,8 +171,7 @@ BOOST_AUTO_TEST_CASE(t_first_win_payload_locked)
     std::atomic<WaitStatus> st{};
     std::atomic<std::int64_t> got{0};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         CoEventValue out;
         st.store(waiter->WaitWithCallback(
             WaitOptions{},
@@ -208,8 +205,7 @@ BOOST_AUTO_TEST_CASE(t_timeout_first_win_has_no_payload)
     std::atomic_bool has_value{true};
     std::atomic<std::int64_t> got{-1};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         WaitOptions options;
         options.deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds{50};
 
@@ -242,8 +238,7 @@ BOOST_AUTO_TEST_CASE(t_plain_notify_gives_empty_payload)
     std::atomic_bool has_value{true};
     std::atomic<Coroutine*> co_p{nullptr};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         co_p.store(g_bbt_tls_coroutine_co);
         CoEventValue out = CoEventValue::From(std::int64_t{5});
         st.store(waiter->WaitWithCallback(WaitOptions{}, {}, &out));
@@ -271,8 +266,7 @@ BOOST_AUTO_TEST_CASE(t_fresh_notify_fails_and_not_sticky)
     bbt::core::thread::CountDownLatch done{1};
     std::atomic<WaitStatus> st{};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         WaitOptions options;
         options.deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds{50};
         CoEventValue out;
@@ -300,8 +294,7 @@ BOOST_AUTO_TEST_CASE(t_regist_fail_does_not_deliver)
     std::atomic<WaitStatus> st{};
     std::atomic_bool has_value{true};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         CoEventValue out = CoEventValue::From(std::int64_t{5});
         Coroutine::_TestFailNextAwaitRegist();
         st.store(waiter->WaitWithCallback(
@@ -331,8 +324,7 @@ BOOST_AUTO_TEST_CASE(t_late_notify_does_not_pollute_next_wait)
 
     bbt::core::thread::CountDownLatch first_done{1};
     std::atomic<WaitStatus> st1{};
-    bbtco[&]()
-    {
+    bbtco [&]() {
         WaitOptions options;
         options.deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds{50};
         CoEventValue out;
@@ -347,8 +339,7 @@ BOOST_AUTO_TEST_CASE(t_late_notify_does_not_pollute_next_wait)
     bbt::core::thread::CountDownLatch done{1};
     std::atomic<WaitStatus> st2{};
     std::atomic<std::int64_t> got{0};
-    bbtco[&]()
-    {
+    bbtco [&]() {
         CoEventValue out;
         st2.store(waiter->WaitWithCallback(
             WaitOptions{}, [&]() { return waiter->Notify(CoEventValue::From(std::int64_t{11})) == 0; }, &out));
@@ -374,8 +365,7 @@ BOOST_AUTO_TEST_CASE(t_cancel_first_win_has_no_payload)
     std::atomic_bool has_value{true};
     std::atomic<Coroutine*> co_p{nullptr};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         co_p.store(g_bbt_tls_coroutine_co);
         CoEventValue out = CoEventValue::From(std::int64_t{5});
         st.store(waiter->WaitWithCallback(WaitOptions{}, {}, &out));
@@ -401,8 +391,7 @@ BOOST_AUTO_TEST_CASE(t_combined_wait_delivers_payload)
     std::atomic<CombinedWaitStatus> st{};
     std::atomic<std::int64_t> got{0};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         CoEventValue out;
         st.store(waiter->Wait(
             CombinedWaitOptions{}, [&]() { return waiter->Notify(CoEventValue::From(std::int64_t{42})) == 0; }, &out));
@@ -428,8 +417,7 @@ BOOST_AUTO_TEST_CASE(t_wrong_type_read_rejected_after_delivery)
     std::atomic_bool wrong_ok{false};
     std::atomic_bool out_untouched{false};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         CoEventValue out;
         waiter->WaitWithCallback(
             WaitOptions{}, [&]() { return waiter->Notify(CoEventValue::From(std::int64_t{7})) == 0; }, &out);
@@ -459,8 +447,7 @@ BOOST_AUTO_TEST_CASE(t_concurrent_notify_single_winner_payload)
     std::atomic<std::int64_t> got{0};
     std::atomic<Coroutine*> co_p{nullptr};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         co_p.store(g_bbt_tls_coroutine_co);
         CoEventValue out;
         st.store(waiter->WaitWithCallback(WaitOptions{}, {}, &out));

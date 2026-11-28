@@ -154,11 +154,9 @@ void RunNestedCoroutines()
     LatchSPtr inner_latch = std::make_shared<CountDownLatch>(kInnerTotal);
 
     for (int o = 0; o < kOuterCoroutines; ++o) {
-        bbtco[outer_latch, inner_latch, o]()
-        {
+        bbtco [outer_latch, inner_latch, o]() {
             for (int i = 0; i < kInnerPerOuter; ++i) {
-                bbtco[inner_latch, o, i]()
-                {
+                bbtco [inner_latch, o, i]() {
                     const int r = StackWork(static_cast<uint64_t>(o) * kInnerPerOuter + i);
                     (void)r;
                     g_inner_done.fetch_add(1, std::memory_order_relaxed);
@@ -185,8 +183,7 @@ long long RunCoMutex()
     LatchSPtr latch = std::make_shared<CountDownLatch>(kMutexCoroutines);
 
     for (int i = 0; i < kMutexCoroutines; ++i) {
-        bbtco[latch, counter, mutex]()
-        {
+        bbtco [latch, counter, mutex]() {
             for (int j = 0; j < kLockPerCoroutine; ++j) {
                 bbt::coroutine::sync::CoLockGuard<bbt::coroutine::sync::CoMutex> guard{mutex};
                 counter->fetch_add(1, std::memory_order_relaxed);
@@ -211,8 +208,7 @@ void RunOneChan(
     const LatchSPtr& done_latch)
 {
     for (int w = 0; w < kWriterPerChan; ++w) {
-        bbtco[chan, writer_latch, chan_index, w]()
-        {
+        bbtco [chan, writer_latch, chan_index, w]() {
             for (int i = 0; i < kWritePerWriter; ++i) {
                 if (chan->Write(chan_index * kWritePerChan + w * kWritePerWriter + i) != 0) {
                     std::fprintf(stderr, "[bbt-mc] chan[%d] writer[%d] failed at %d\n", chan_index, w, i);
@@ -225,8 +221,7 @@ void RunOneChan(
         };
     }
 
-    bbtco[chan, done_latch, chan_index]()
-    {
+    bbtco [chan, done_latch, chan_index]() {
         int local_read = 0;
         while (local_read < kWritePerChan) {
             int val = 0;

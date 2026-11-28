@@ -175,8 +175,7 @@ int RunRuntime(bool stack_protect)
     /**
      * 描述宏：保持原语法，默认大小
      */
-    bbtco_desc("macro-desc")[&]()
-    {
+    bbtco_desc("macro-desc") [&]() {
         desc_seen.store(GetLocalCoroutineStackSize());
         done.Down();
     };

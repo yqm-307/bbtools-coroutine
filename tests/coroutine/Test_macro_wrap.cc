@@ -40,19 +40,16 @@ BOOST_AUTO_TEST_CASE(t_bbtco_family_registers)
     bbt::core::thread::CountDownLatch done{3};
     std::atomic_int n{0};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         n.fetch_add(1);
         done.Down();
     };
-    bbtco_desc("ignored")[&]()
-    {
+    bbtco_desc("ignored") [&]() {
         n.fetch_add(1);
         done.Down();
     };
     bool succ = false;
-    bbtco_noexcept(&succ)[&]()
-    {
+    bbtco_noexcept(&succ) [&]() {
         n.fetch_add(1);
         done.Down();
     };
@@ -79,8 +76,7 @@ BOOST_AUTO_TEST_CASE(t_yield_and_sleep_are_wrappers)
     bbt::core::thread::CountDownLatch done{1};
     const auto t0 = std::chrono::steady_clock::now();
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         bbtco_yield;
         bbtco_sleep(20);
         done.Down();

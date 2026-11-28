@@ -160,8 +160,7 @@ BOOST_AUTO_TEST_CASE(real_coroutine_gate_survives_yield_and_respects_local_enabl
 
     auto main_done = std::make_shared<std::promise<bool>>();
     auto main_future = main_done->get_future();
-    bbtco[main_done]()
-    {
+    bbtco [main_done]() {
         try {
             main_done->set_value(bbtco_main());
         } catch (...) {

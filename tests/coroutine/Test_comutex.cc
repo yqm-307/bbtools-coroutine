@@ -83,8 +83,7 @@ BOOST_AUTO_TEST_CASE(t_lock_unlock)
     bbt::core::thread::CountDownLatch l{nco_num};
 
     for (int i = 0; i < nco_num; ++i) {
-        bbtco[mutex, &a, &b, begin, &l]()
-        {
+        bbtco [mutex, &a, &b, begin, &l]() {
             while ((bbt::core::clock::gettime_mono() - begin) < nsec) {
                 mutex->Lock();
                 BOOST_ASSERT(a == b);
@@ -119,8 +118,7 @@ BOOST_AUTO_TEST_CASE(t_try_lock)
     bbt::core::thread::CountDownLatch l{nco_num};
 
     for (int i = 0; i < nco_num; ++i) {
-        bbtco[mutex, &a, &b, begin, &l, &total_acquired]()
-        {
+        bbtco [mutex, &a, &b, begin, &l, &total_acquired]() {
             while ((bbt::core::clock::gettime_mono() - begin) < nsec) {
                 int ret = mutex->TryLock(5);
                 if (ret == 0) {
@@ -151,8 +149,7 @@ BOOST_AUTO_TEST_CASE(t_reentry_lock_unlock_lock)
     auto mutex = bbtco_make_comutex();
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco[mutex, &l]()
-    {
+    bbtco [mutex, &l]() {
         mutex->Lock();
         mutex->UnLock();
         mutex->Lock();
@@ -172,8 +169,7 @@ BOOST_AUTO_TEST_CASE(t_reentry_lock_unlock_loop)
     auto mutex = bbtco_make_comutex();
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco[mutex, &l]()
-    {
+    bbtco [mutex, &l]() {
         for (int i = 0; i < 100; ++i) {
             mutex->Lock();
             mutex->UnLock();
@@ -196,8 +192,7 @@ BOOST_AUTO_TEST_CASE(t_trylock_immediate_fails_when_locked)
     bbt::core::thread::CountDownLatch waiter_done{1};
     int trylock_result = 0;
 
-    bbtco[mutex, &holder_got_lock, &holder_done]()
-    {
+    bbtco [mutex, &holder_got_lock, &holder_done]() {
         mutex->Lock();
         holder_got_lock.Down();
         bbtco_sleep(200);
@@ -205,8 +200,7 @@ BOOST_AUTO_TEST_CASE(t_trylock_immediate_fails_when_locked)
         holder_done.Down();
     };
 
-    bbtco[mutex, &holder_got_lock, &waiter_done, &trylock_result]()
-    {
+    bbtco [mutex, &holder_got_lock, &waiter_done, &trylock_result]() {
         holder_got_lock.Wait();
         trylock_result = mutex->TryLock();
         BOOST_TEST(trylock_result == -1);
@@ -228,8 +222,7 @@ BOOST_AUTO_TEST_CASE(t_trylock_timeout_returns_on_timeout)
     bbt::core::thread::CountDownLatch waiter_done{1};
     int trylock_result = -999;
 
-    bbtco[mutex, &holder_got_lock, &holder_done]()
-    {
+    bbtco [mutex, &holder_got_lock, &holder_done]() {
         mutex->Lock();
         holder_got_lock.Down();
         bbtco_sleep(300);
@@ -237,8 +230,7 @@ BOOST_AUTO_TEST_CASE(t_trylock_timeout_returns_on_timeout)
         holder_done.Down();
     };
 
-    bbtco[mutex, &holder_got_lock, &waiter_done, &trylock_result]()
-    {
+    bbtco [mutex, &holder_got_lock, &waiter_done, &trylock_result]() {
         holder_got_lock.Wait();
         auto begin = bbt::core::clock::gettime_mono();
         trylock_result = mutex->TryLock(50);
@@ -263,8 +255,7 @@ BOOST_AUTO_TEST_CASE(t_trylock_timeout_no_dirty_state)
     bbt::core::thread::CountDownLatch l{1};
     int ok = 0;
 
-    bbtco[mutex, &l, &ok]()
-    {
+    bbtco [mutex, &l, &ok]() {
         mutex->Lock();
         mutex->UnLock();
 
@@ -289,8 +280,7 @@ BOOST_AUTO_TEST_CASE(t_trylock_immediate_succeeds_when_free)
     auto mutex = bbtco_make_comutex();
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco[mutex, &l]()
-    {
+    bbtco [mutex, &l]() {
         int ret = mutex->TryLock();
         BOOST_TEST(ret == 0);
         mutex->UnLock();
@@ -308,8 +298,7 @@ BOOST_AUTO_TEST_CASE(t_trylock_ms_succeeds_when_free)
     auto mutex = bbtco_make_comutex();
     bbt::core::thread::CountDownLatch l{1};
 
-    bbtco[mutex, &l]()
-    {
+    bbtco [mutex, &l]() {
         int ret = mutex->TryLock(1000);
         BOOST_TEST(ret == 0);
         mutex->UnLock();
@@ -352,13 +341,11 @@ BOOST_AUTO_TEST_CASE(t_unlock_handoff_single_wake_payload_visible)
 
     auto state = std::make_shared<CaseState>();
 
-    bbtco[state]()
-    {
+    bbtco [state]() {
         state->mutex->Lock();
         state->x.store(42);
 
-        bbtco[state]()
-        {
+        bbtco [state]() {
             state->attempts.fetch_add(1);
             state->mutex->Lock();
             state->prev1.store(state->owner.exchange(1));
@@ -369,8 +356,7 @@ BOOST_AUTO_TEST_CASE(t_unlock_handoff_single_wake_payload_visible)
             state->done.fetch_add(1);
         };
 
-        bbtco[state]()
-        {
+        bbtco [state]() {
             state->attempts.fetch_add(1);
             state->mutex->Lock();
             state->prev2.store(state->owner.exchange(2));
@@ -423,20 +409,17 @@ BOOST_AUTO_TEST_CASE(t_trylock_timeout_dead_waiter_skipped)
 
     auto state = std::make_shared<CaseState>();
 
-    bbtco[state]()
-    {
+    bbtco [state]() {
         state->mutex->Lock();
 
-        bbtco[state]()
-        {
+        bbtco [state]() {
             state->b_ret.store(state->mutex->TryLock(60));
             state->b_done.store(1);
         };
 
         state->stage_b_ok.store(SpinUntilCo([&state] { return state->b_done.load() == 1; }, 3000) ? 1 : 0);
 
-        bbtco[state]()
-        {
+        bbtco [state]() {
             state->mutex->Lock();
             state->c_acquired.store(1);
             state->mutex->UnLock();

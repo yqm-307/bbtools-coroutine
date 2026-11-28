@@ -116,8 +116,7 @@ void test()
 {
     bbt::core::thread::CountDownLatch l{2};
 
-    bbtco[&l]()
-    {
+    bbtco [&l]() {
         print("[server] server co=" << bbt::coroutine::GetLocalCoroutineId());
         int fd = CreateListenTcp("", 10001, true);
         Assert(fd >= 0);
@@ -145,8 +144,7 @@ void test()
         l.Down();
     };
 
-    bbtco[&l]()
-    {
+    bbtco [&l]() {
         print("[client] client co=" << bbt::coroutine::GetLocalCoroutineId());
         bbtco_sleep(1000);
         sockaddr_in addr;
@@ -182,16 +180,14 @@ void test()
 
 void recurrent()
 {
-    bbtco[]()
-    {
+    bbtco []() {
         echo_server();
     };
     sleep(1);
 
     while (1) {
         std::this_thread::sleep_for(bbt::core::clock::milliseconds(100));
-        bbtco[]()
-        {
+        bbtco []() {
             echo_client();
         };
     }

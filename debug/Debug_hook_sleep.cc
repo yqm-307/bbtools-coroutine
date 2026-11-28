@@ -16,8 +16,7 @@ int main()
     printf("begin time: %ld\n", bbt::core::clock::now<>().time_since_epoch().count());
 
     for (int i = 0; i < ncount; ++i) {
-        bbtco[i, &exit_value]()
-        {
+        bbtco [i, &exit_value]() {
             ::sleep(1);
             printf("tid:%ld t%d: %ld\n", ::gettid(), i, bbt::core::clock::now<>().time_since_epoch().count());
             exit_value++;

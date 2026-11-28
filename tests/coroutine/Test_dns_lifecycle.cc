@@ -35,8 +35,7 @@ BOOST_AUTO_TEST_CASE(t_dns_resolves_after_start)
 
     bbt::core::thread::CountDownLatch done{1};
     std::atomic_int rc{-1};
-    bbtco[&]()
-    {
+    bbtco [&]() {
         addrinfo hints{};
         hints.ai_family = AF_INET;
         hints.ai_flags = AI_NUMERICHOST;
@@ -63,8 +62,7 @@ BOOST_AUTO_TEST_CASE(t_dns_bounded_wait_keeps_worker_owned)
     auto gate = std::make_shared<Gate>();
     bbt::core::thread::CountDownLatch done{1};
     std::atomic_int status{-1};
-    bbtco[gate, &done, &status]()
-    {
+    bbtco [gate, &done, &status]() {
         bbt::coroutine::sync::CombinedWaitOptions options;
         options.deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds{100};
         auto result = bbt::coroutine::detail::DnsResolver::GetInstance()->AwaitBounded(
@@ -91,8 +89,7 @@ BOOST_AUTO_TEST_CASE(t_dns_expired_deadline_does_not_enqueue)
     bbt::core::thread::CountDownLatch done{1};
     std::atomic_int status{-1};
     std::atomic_bool ran{false};
-    bbtco[&]()
-    {
+    bbtco [&]() {
         bbt::coroutine::sync::CombinedWaitOptions options;
         options.deadline = std::chrono::steady_clock::now() - std::chrono::seconds{1};
         status.store(
@@ -126,8 +123,7 @@ BOOST_AUTO_TEST_CASE(t_dns_coroutine_cancel_while_worker_runs)
     std::atomic_int status{-1};
     std::atomic<bbt::coroutine::detail::Coroutine*> co_p{nullptr};
 
-    bbtco[gate, &done, &status, &co_p]()
-    {
+    bbtco [gate, &done, &status, &co_p]() {
         co_p.store(g_bbt_tls_coroutine_co);
         bbt::coroutine::sync::CombinedWaitOptions options;
         options.deadline = std::chrono::steady_clock::now() + std::chrono::seconds{30};
@@ -177,8 +173,7 @@ BOOST_AUTO_TEST_CASE(t_dns_pre_cancel_before_await_returns_cancelled)
     bbt::core::thread::CountDownLatch done{1};
     std::atomic_int status{-2};
     std::atomic_bool ran{false};
-    bbtco[&]()
-    {
+    bbtco [&]() {
         /**
          * 先请求取消，再进入等待
          */

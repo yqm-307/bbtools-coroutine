@@ -7,8 +7,7 @@ using namespace bbt::coroutine;
 template <int Capacity> bool ReceiveJobs()
 {
     auto jobs = Chan<int, Capacity>();
-    bbtco[jobs]()
-    {
+    bbtco [jobs]() {
         bbtco_defer
         {
             jobs->Close();

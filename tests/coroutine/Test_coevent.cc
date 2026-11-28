@@ -34,8 +34,7 @@ BOOST_AUTO_TEST_CASE(t_regist_event_timeout)
     auto begin = bbt::core::clock::gettime();
     std::atomic_bool ok{false};
 
-    bbtco_ev_t(100)[&](int fd, short event)
-    {
+    bbtco_ev_t(100) [&](int fd, short event) {
         ok.store(bbt::core::clock::gettime() - begin >= 100, std::memory_order_release);
         l.Down();
         return false;
@@ -59,8 +58,7 @@ BOOST_AUTO_TEST_CASE(t_regist_event_fd_ev_readable)
     int rfd = fds[0];
     int wfd = fds[1];
 
-    bbtco_ev_r(fds[0])[=, &l, &ok](int fd, short event)
-    {
+    bbtco_ev_r(fds[0]) [=, &l, &ok](int fd, short event) {
         char buf[10];
         memset(buf, '\0', sizeof(buf));
         int size = ::read(fd, buf, sizeof(buf));
@@ -91,8 +89,7 @@ BOOST_AUTO_TEST_CASE(t_regist_event_fd_ev_writeable)
     int rfd = fds[0];
     int wfd = fds[1];
 
-    bbtco_ev_w(fds[1])[&, &callback_write](int fd, short event)
-    {
+    bbtco_ev_w(fds[1]) [&, &callback_write](int fd, short event) {
         callback_write.store(::write(fd, msg, strlen(msg)), std::memory_order_release);
     };
 
@@ -111,16 +108,14 @@ BOOST_AUTO_TEST_CASE(t_regist_event_with_copool)
     auto cocond = bbtco_make_cocond();
     auto chan = bbt::co::sync::Chan<int, 10>();
 
-    auto succ = bbtco_ev_t_with_copool(10, copool)[&](auto, auto)
-    {
+    auto succ = bbtco_ev_t_with_copool(10, copool) [&](auto, auto) {
         for (int i = 0; i < 100; ++i) {
             chan << i;
         }
     };
     Assert(succ == 0);
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         while (true) {
             int val = 0;
             chan >> val;
@@ -149,8 +144,7 @@ BOOST_AUTO_TEST_CASE(t_regist_event_fd_timeout)
     auto start_time = bbt::core::clock::gettime();
     std::atomic_bool ok{false};
 
-    bbtco_ev_rt(fds[1], 100)[&](int fd, short event)
-    {
+    bbtco_ev_rt(fds[1], 100) [&](int fd, short event) {
         ok.store(bbt::core::clock::gettime() - start_time >= 100, std::memory_order_release);
         l.Down();
     };

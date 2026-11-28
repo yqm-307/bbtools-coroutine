@@ -78,8 +78,7 @@ BOOST_AUTO_TEST_CASE(t_normal_tasks_complete_without_starvation)
     std::atomic_int completed{0};
 
     for (int i = 0; i < kTotal; ++i) {
-        bbtco[&completed]()
-        {
+        bbtco [&completed]() {
             completed.fetch_add(1);
         };
     }
@@ -181,8 +180,7 @@ BOOST_AUTO_TEST_CASE(t_fd_readable_first_win)
     opt.want_readable = true;
     opt.fd = pipe.read;
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         co_p.store(g_bbt_tls_coroutine_co);
         st.store(waiter->Wait(opt));
         mask.store(g_bbt_tls_coroutine_co->GetLastResumeEvent());
@@ -219,8 +217,7 @@ BOOST_AUTO_TEST_CASE(t_fd_writeable_first_win)
     opt.want_writeable = true;
     opt.fd = fds[1];
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         co_p.store(g_bbt_tls_coroutine_co);
         st.store(waiter->Wait(opt));
         mask.store(g_bbt_tls_coroutine_co->GetLastResumeEvent());
@@ -255,8 +252,7 @@ BOOST_AUTO_TEST_CASE(t_notify_first_win)
     opt.want_readable = true;
     opt.fd = pipe.read;
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         co_p.store(g_bbt_tls_coroutine_co);
         st.store(waiter->Wait(opt));
         done.Down();
@@ -284,8 +280,7 @@ BOOST_AUTO_TEST_CASE(t_timeout_first_win)
     opt.fd = pipe.read;
     opt.deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(60);
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         st.store(waiter->Wait(opt));
         mask.store(g_bbt_tls_coroutine_co->GetLastResumeEvent());
         done.Down();
@@ -311,8 +306,7 @@ BOOST_AUTO_TEST_CASE(t_request_cancel_first_win)
     opt.want_readable = true;
     opt.fd = pipe.read;
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         co_p.store(g_bbt_tls_coroutine_co);
         st.store(waiter->Wait(opt));
         done.Down();
@@ -345,8 +339,7 @@ BOOST_AUTO_TEST_CASE(t_cancel_first_win)
         opt.want_readable = true;
         opt.fd = pipe.read;
 
-        bbtco[&]()
-        {
+        bbtco [&]() {
             co_p.store(g_bbt_tls_coroutine_co);
             st.store(waiter->Wait(opt));
             done.Down();
@@ -371,8 +364,7 @@ BOOST_AUTO_TEST_CASE(t_cancel_first_win)
         opt.want_readable = true;
         opt.fd = pipe.read;
 
-        bbtco[&]()
-        {
+        bbtco [&]() {
             g_bbt_tls_coroutine_co->RequestCancel();
             st.store(waiter->Wait(opt));
             done.Down();
@@ -394,8 +386,7 @@ BOOST_AUTO_TEST_CASE(t_notify_before_park_no_lost_wakeup)
         bbt::core::thread::CountDownLatch done{1};
         std::atomic<sync::CombinedWaitStatus> st{};
 
-        bbtco[&]()
-        {
+        bbtco [&]() {
             st.store(waiter->Wait(sync::CombinedWaitOptions{}));
             done.Down();
         };
@@ -424,8 +415,7 @@ BOOST_AUTO_TEST_CASE(t_invalid_options_rejected)
     bbt::core::thread::CountDownLatch done{1};
     std::atomic<sync::CombinedWaitStatus> st{};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         sync::CombinedWaitOptions bad_fd;
 
         /**
@@ -456,8 +446,7 @@ BOOST_AUTO_TEST_CASE(t_read_write_interest_combined)
     opt.want_writeable = true;
     opt.fd = pipe.read;
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         co_p.store(g_bbt_tls_coroutine_co);
         st.store(waiter->Wait(opt));
         done.Down();
@@ -482,8 +471,7 @@ BOOST_AUTO_TEST_CASE(t_repeated_wait_slot_reuse)
     sync::CombinedWaitOptions opt;
     opt.deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(60);
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         first_co.store(g_bbt_tls_coroutine_co);
         st1.store(waiter->Wait(opt));
         first_done.Down();
@@ -494,8 +482,7 @@ BOOST_AUTO_TEST_CASE(t_repeated_wait_slot_reuse)
     /**
      * 第一个等待者仍占用事件槽时，另一协程必须立即得到 AlreadyWaiting。
      */
-    bbtco[&]()
-    {
+    bbtco [&]() {
         st2.store(waiter->Wait(sync::CombinedWaitOptions{}));
         second_done.Down();
     };
@@ -508,8 +495,7 @@ BOOST_AUTO_TEST_CASE(t_repeated_wait_slot_reuse)
     /**
      * 前一等待恢复并出账后，同一个 waiter 可被新协程复用。
      */
-    bbtco[&]()
-    {
+    bbtco [&]() {
         third_co.store(g_bbt_tls_coroutine_co);
         st3.store(waiter->Wait(sync::CombinedWaitOptions{}));
         third_done.Down();
@@ -541,8 +527,7 @@ BOOST_AUTO_TEST_CASE(t_parked_combined_wait_does_not_block_process_lifetime)
 
     auto state = std::make_shared<ParkedState>();
 
-    bbtco[state]()
-    {
+    bbtco [state]() {
         sync::CombinedWaitOptions opt;
         opt.want_readable = true;
         opt.fd = state->pipe.read;

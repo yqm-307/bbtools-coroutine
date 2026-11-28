@@ -11,8 +11,7 @@ void SchedulerThread()
 
     for (int i = 0; i < 10; ++i) {
         for (int i = 0; i < 5000; ++i) {
-            bbtco[]()
-            {
+            bbtco []() {
                 g_count++;
 
                 /**
@@ -34,13 +33,11 @@ void LoopOnce()
 {
     g_scheduler->Start(bbt::coroutine::SCHE_START_OPT_SCHE_NO_LOOP);
 
-    bbtco[]()
-    {
+    bbtco []() {
         printf("i can print!\n");
     };
 
-    bbtco[]()
-    {
+    bbtco []() {
         printf("i can print!\n");
         bbtco_sleep(10);
         printf("can`t go there!\n");

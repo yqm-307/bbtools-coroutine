@@ -191,8 +191,7 @@ static void stress_cocond()
     g_ds_alive.reset(new std::atomic_int[g_ds_nco]());
     g_ds_frame = 0;
     for (int i = 0; i < g_ds_nco; ++i)
-        bbtco[index = i]
-        {
+        bbtco [index = i]() {
             while (g_running) {
                 g_ds_alive[index].store(g_ds_frame.load());
                 g_ds_cond->Wait();
@@ -363,8 +362,7 @@ static void stress_coroutine()
         bbtco_ref
         {
             while (g_running) {
-                bbtco[]()
-                {
+                bbtco []() {
                     g_mt_coroutine.co_spawns++;
                     g_mt_coroutine.ops_total++;
                 };

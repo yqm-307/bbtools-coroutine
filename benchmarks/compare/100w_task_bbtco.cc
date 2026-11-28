@@ -26,13 +26,11 @@ int main()
     bbt::core::thread::CountDownLatch latch(max_task_count);
 
     for (int i = 0; i < producer_count; ++i) {
-        bbtco_desc("producer")[&latch]
-        {
+        bbtco_desc("producer") [&latch]() {
             for (int i = 0; i < max_task_count / producer_count; ++i) {
                 bool succ = false;
                 while (!succ) {
-                    bbtco_noexcept(&succ)[i, &latch]
-                    {
+                    bbtco_noexcept(&succ) [i, &latch]() {
                         int a = i + i;
                         latch.Down();
                     };

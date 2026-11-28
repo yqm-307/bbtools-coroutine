@@ -10,11 +10,9 @@ using namespace bbt::coroutine;
 void FixSizeChan()
 {
 
-    bbtco[]()
-    {
+    bbtco []() {
         sync::Chan<int, 65535> a;
-        bbtco[&a]()
-        {
+        bbtco [&a]() {
             a.Write(1);
         };
 
@@ -35,16 +33,14 @@ void ReadMulti()
     /**
      * 注册一个协程
      */
-    bbtco[&count, &cond, &mutex]()
-    {
+    bbtco [&count, &cond, &mutex]() {
         sync::Chan<int, 65535> c;
 
         /**
          * 注册1000个写chan写成
          */
         for (int i = 0; i < 1000; ++i) {
-            bbtco[&c, i]()
-            {
+            bbtco [&c, i]() {
                 for (int i = 0; i < 1000; ++i) {
                     while (c.Write(i))
                         ;
@@ -83,13 +79,11 @@ void DebugWriteBlock()
     std::atomic_int n_read_succ_num{0};
     std::set<int> results;
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         auto chan = Chan<int, 1>();
 
         for (int i = 0; i < nwrite; ++i) {
-            bbtco[&chan, &n_read_succ_num, i]()
-            {
+            bbtco [&chan, &n_read_succ_num, i]() {
                 chan << i;
                 n_read_succ_num++;
             };

@@ -6,16 +6,14 @@ void debug_1()
     auto cocond = bbtco_make_cocond();
     auto chan = bbt::co::sync::Chan<int, 10>();
 
-    auto succ = bbtco_ev_t_with_copool(10, copool)[&](auto, auto)
-    {
+    auto succ = bbtco_ev_t_with_copool(10, copool) [&](auto, auto) {
         for (int i = 0; i < 100; ++i) {
             chan << i;
         }
     };
     Assert(succ == 0);
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         while (true) {
             int val = 0;
             chan >> val;
@@ -30,16 +28,14 @@ void debug_1()
 
 void debug_2()
 {
-    bbtco[]()
-    {
+    bbtco []() {
         while (true) {
             printf("======== turn once =========\n");
             auto cond = bbtco_make_cocond();
             auto chan = bbt::co::sync::Chan<int, 10>();
             std::atomic_int count{0};
 
-            bbtco[&]()
-            {
+            bbtco [&]() {
                 while (true) {
                     bbtco_sleep(10);
                     printf("enter once! %d\n", count.load());

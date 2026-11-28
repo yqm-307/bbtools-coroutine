@@ -10,13 +10,11 @@ void rwlock_test()
     int n = 0;
     int m = 0;
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         auto rwlock = bbtco_make_corwmutex();
 
         for (int i = 0; i < nread_co; ++i) {
-            bbtco[&, rwlock, i]()
-            {
+            bbtco [&, rwlock, i]() {
                 while (true) {
                     rwlock->RLock();
                     Assert(n == m);
@@ -32,8 +30,7 @@ void rwlock_test()
         }
 
         for (int i = 0; i < nwrite_co; ++i) {
-            bbtco[&, rwlock, i]()
-            {
+            bbtco [&, rwlock, i]() {
                 while (true) {
                     rwlock->WLock();
                     Assert(n == m);
@@ -45,8 +42,7 @@ void rwlock_test()
             };
         }
 
-        bbtco[&]()
-        {
+        bbtco [&]() {
             while (true) {
                 printf("\n=====================================\n");
                 for (auto v : vec) {

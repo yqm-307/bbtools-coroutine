@@ -8,8 +8,7 @@ int bbtco_main()
 {
     auto condition = bbtco_make_cocond();
     auto result = Chan<int, 1>();
-    bbtco[condition, result]()
-    {
+    bbtco [condition, result]() {
         (void)result->TryWrite(condition->NotifyOne());
     };
 

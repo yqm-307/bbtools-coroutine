@@ -119,8 +119,7 @@ inline void RunInCo(const std::function<void()>& fn)
     bbt::core::thread::CountDownLatch latch{1};
     std::exception_ptr eptr;
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         try {
             fn();
         } catch (...) {

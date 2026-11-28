@@ -398,8 +398,7 @@ BOOST_AUTO_TEST_CASE(t_postyield_regist_map_oom_recovers)
     [[maybe_unused]] const int hits_before = w_hits.load();
     [[maybe_unused]] const unsigned long long exc_before = g_bbt_coroutine_config->m_unhandled_exception_count.load();
 
-    bbtco[mutex, &holding, &can_unlock, &done]()
-    {
+    bbtco [mutex, &holding, &can_unlock, &done]() {
         mutex->Lock();
         holding.store(true, std::memory_order_release);
 
@@ -411,8 +410,7 @@ BOOST_AUTO_TEST_CASE(t_postyield_regist_map_oom_recovers)
         done.Down();
     };
 
-    bbtco[mutex, &holding, &can_unlock, &victim_done, &first_ret, &second_ret, &measure_ret, &done]()
-    {
+    bbtco [mutex, &holding, &can_unlock, &victim_done, &first_ret, &second_ret, &measure_ret, &done]() {
         CoWaitFlag(holding);
 
         /**
@@ -449,8 +447,7 @@ BOOST_AUTO_TEST_CASE(t_postyield_regist_map_oom_recovers)
      * 后继等待者：victim 全流程结束后真实获锁——证明锁对象与等待
      * 队列未受污染（放锁确实发生、内部状态可复用）。
      */
-    bbtco[mutex, &victim_done, &successor_got, &done]()
-    {
+    bbtco [mutex, &victim_done, &successor_got, &done]() {
         CoWaitFlag(victim_done);
         if (mutex->TryLock(2000) == 0) {
             successor_got.store(1);
@@ -536,8 +533,7 @@ BOOST_AUTO_TEST_CASE(t_resumeco_map_insert_oom_bounded_retry)
     [[maybe_unused]] const int hits_before = w_hits.load();
     [[maybe_unused]] const unsigned long long exc_before = g_bbt_coroutine_config->m_unhandled_exception_count.load();
 
-    bbtco[&armed_ready, &yield_again, &finished, &yields, &done]()
-    {
+    bbtco [&armed_ready, &yield_again, &finished, &yields, &done]() {
         /**
          * 轨迹：worker Resume#1（登记） → 此处运行 → yield（核销） →
          * armed + yield → worker Resume#2（insert 注入一次 bad_alloc） →
@@ -640,8 +636,7 @@ BOOST_AUTO_TEST_CASE(t_regist_pending_branch_oom_returns_fail)
     [[maybe_unused]] const int hits_before = w_hits.load();
     [[maybe_unused]] const unsigned long long exc_before = g_bbt_coroutine_config->m_unhandled_exception_count.load();
 
-    bbtco[mutex, &holding, &can_unlock, &done]()
-    {
+    bbtco [mutex, &holding, &can_unlock, &done]() {
         mutex->Lock();
         holding.store(true, std::memory_order_release);
 
@@ -653,8 +648,7 @@ BOOST_AUTO_TEST_CASE(t_regist_pending_branch_oom_returns_fail)
         done.Down();
     };
 
-    bbtco[mutex, &holding, &can_unlock, &victim_done, &lock_ret, &second_ret, &done]()
-    {
+    bbtco [mutex, &holding, &can_unlock, &victim_done, &lock_ret, &second_ret, &done]() {
         CoWaitFlag(holding);
         auto* co = g_bbt_tls_coroutine_co;
 
@@ -684,8 +678,7 @@ BOOST_AUTO_TEST_CASE(t_regist_pending_branch_oom_returns_fail)
         done.Down();
     };
 
-    bbtco[mutex, &victim_done, &successor_got, &done]()
-    {
+    bbtco [mutex, &victim_done, &successor_got, &done]() {
         CoWaitFlag(victim_done);
         if (mutex->TryLock(2000) == 0) {
             successor_got.store(1);
@@ -838,8 +831,7 @@ BOOST_AUTO_TEST_CASE(t_cowaiter_first_winner_oom_recovers)
         auto state = std::make_shared<FirstWinnerShared>();
         const int hits_before = w_hits.load();
         const auto exc_before = g_bbt_coroutine_config->m_unhandled_exception_count.load();
-        bbtco[state, mode]()
-        {
+        bbtco [state, mode]() {
             state->co = g_bbt_tls_coroutine_co;
             t_first_winner = state.get();
             CoEventValue value;

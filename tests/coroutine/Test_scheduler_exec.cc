@@ -73,8 +73,7 @@ BOOST_AUTO_TEST_CASE(t_tls_inside_coroutine)
     std::atomic<CoroutineId> co_id{0};
     std::atomic<ProcesserId> proc_id{0};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         co_id.store(GetLocalCoroutineId());
         auto proc = Processer::GetLocalProcesser();
         if (proc)
@@ -125,8 +124,7 @@ BOOST_AUTO_TEST_CASE(t_yield_keeps_single_running_and_valid_tls)
     std::set<ProcesserId> procs;
     std::mutex procs_mu;
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         for (int i = 0; i < 8; ++i) {
             const int now = overlap.fetch_add(1) + 1;
             int seen = overlap_max.load();
@@ -162,8 +160,7 @@ BOOST_AUTO_TEST_CASE(t_dense_ready_events_do_not_starve_timer_dispatch)
     static std::atomic<int> churn_fired{0};
     static std::atomic<bool> probe_fired{false};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         for (int i = 0; i < kChurnEvents; ++i) {
             bbtco_ev_t(1 + (i % 8)) [](int, short) {
                 churn_fired.fetch_add(1);
@@ -171,10 +168,8 @@ BOOST_AUTO_TEST_CASE(t_dense_ready_events_do_not_starve_timer_dispatch)
         }
     };
 
-    bbtco[&]()
-    {
-        bbtco_ev_t(50)[](int, short)
-        {
+    bbtco [&]() {
+        bbtco_ev_t(50) [](int, short) {
             probe_fired.store(true);
         };
     };

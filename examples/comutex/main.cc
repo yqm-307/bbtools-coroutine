@@ -15,8 +15,7 @@ int bbtco_main()
         sync::CoLockGuard<sync::CoMutex> lock(mutex);
         return ++*count;
     };
-    bbtco[increment, done]()
-    {
+    bbtco [increment, done]() {
         (void)done->TryWrite(increment());
     };
     const int local = increment();

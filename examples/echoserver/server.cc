@@ -66,8 +66,7 @@ int bbtco_main()
             return 1;
         }
         bool started = false;
-        bbtco_noexcept(&started)[client]()
-        {
+        bbtco_noexcept(&started) [client]() {
             Echo(client);
         };
         if (!started) {

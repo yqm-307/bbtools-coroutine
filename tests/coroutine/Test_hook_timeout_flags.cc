@@ -79,16 +79,14 @@ template <typename Fn> int RunWithTicker(Fn fn)
     std::atomic_int ticker{0};
     std::atomic_bool finished{false};
 
-    bbtco[&]()
-    {
+    bbtco [&]() {
         while (!finished.load()) {
             ticker.fetch_add(1);
             bbtco_yield;
         }
         done.Down();
     };
-    bbtco[&]()
-    {
+    bbtco [&]() {
         fn();
         finished.store(true);
     };

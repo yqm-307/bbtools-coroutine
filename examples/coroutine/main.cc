@@ -7,8 +7,7 @@ using namespace bbt::coroutine;
 int bbtco_main()
 {
     auto done = Chan<int, 1>();
-    bbtco_desc("worker")[done]()
-    {
+    bbtco_desc("worker") [done]() {
         bbtco_defer
         {
             (void)done->TryWrite(42);

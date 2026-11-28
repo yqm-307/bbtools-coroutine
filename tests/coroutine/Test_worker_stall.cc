@@ -205,8 +205,7 @@ BOOST_AUTO_TEST_CASE(t_spin_worker_is_reported)
     ClearReports();
     Spinner spinner;
 
-    bbtco_desc("spin-stall-probe")[&]()
-    {
+    bbtco_desc("spin-stall-probe") [&]() {
         RegisterTruth("spin-stall-probe");
 
         /**
@@ -249,8 +248,7 @@ BOOST_AUTO_TEST_CASE(t_same_stall_reported_once)
     ClearReports();
     Spinner spinner;
 
-    bbtco_desc("stall-dedup-probe")[&]()
-    {
+    bbtco_desc("stall-dedup-probe") [&]() {
         RegisterTruth("stall-dedup-probe");
         while (!spinner.release.load(std::memory_order_acquire))
             ;
@@ -297,16 +295,14 @@ BOOST_AUTO_TEST_CASE(t_concurrent_snapshot_reports_coherent_payload)
     bbt::core::thread::CountDownLatch entered{kSpinners};
     Spinner spinner_a, spinner_b;
 
-    bbtco_desc("stall-probe-A")[&]()
-    {
+    bbtco_desc("stall-probe-A") [&]() {
         RegisterTruth("stall-probe-A");
         entered.Down();
         while (!spinner_a.release.load(std::memory_order_acquire))
             ;
         spinner_a.finished.store(true, std::memory_order_release);
     };
-    bbtco_desc("stall-probe-B")[&]()
-    {
+    bbtco_desc("stall-probe-B") [&]() {
         RegisterTruth("stall-probe-B");
         entered.Down();
         while (!spinner_b.release.load(std::memory_order_acquire))
@@ -369,8 +365,7 @@ BOOST_AUTO_TEST_CASE(t_parked_coroutine_not_reported)
      */
     auto done = std::make_shared<bbt::core::thread::CountDownLatch>(1);
 
-    bbtco[done]()
-    {
+    bbtco [done]() {
         /**
          * 挂起 300ms > 阈值 200ms，但不得算停顿
          */
@@ -402,8 +397,7 @@ BOOST_AUTO_TEST_CASE(t_disabled_warn_ms_no_reports)
     ClearReports();
     Spinner spinner;
 
-    bbtco_desc("disabled-stall-probe")[&]()
-    {
+    bbtco_desc("disabled-stall-probe") [&]() {
         while (!spinner.release.load(std::memory_order_acquire))
             ;
         spinner.finished.store(true, std::memory_order_release);

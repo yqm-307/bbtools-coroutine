@@ -8,7 +8,7 @@ int main()
     const int ncount = 500000;
     auto begin = std::chrono::system_clock::now();
     for (int i = 0; i < ncount; ++i) {
-        bbtco[](){};
+        bbtco [](){};
     }
 
     auto end = std::chrono::system_clock::now();

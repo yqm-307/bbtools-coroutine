@@ -111,8 +111,7 @@ BOOST_AUTO_TEST_CASE(t_DL_01_hold_lock_await)
     bbt::core::thread::CountDownLatch latch{nco};
 
     for (int i = 0; i < nco; ++i) {
-        bbtco[mutex, &ops, &latch]()
-        {
+        bbtco [mutex, &ops, &latch]() {
             for (int j = 0; j < niter; ++j) {
                 mutex->Lock();
 
@@ -174,8 +173,7 @@ BOOST_AUTO_TEST_CASE(t_DL_02_destructor_race_deadlock)
      * 10 协程持续 Lock/UnLock
      */
     for (int i = 0; i < nco; ++i) {
-        bbtco[mutex, &ops, &running, &workers_done]()
-        {
+        bbtco [mutex, &ops, &running, &workers_done]() {
             while (running.load()) {
                 mutex->Lock();
                 ops++;
@@ -340,8 +338,7 @@ BOOST_AUTO_TEST_CASE(t_UAF_02_cross_await_stack_ref)
 
     {
         int local_value = 42;
-        bbtco[&local_value, &step1, &step2, &done]()
-        {
+        bbtco [&local_value, &step1, &step2, &done]() {
             BOOST_TEST(local_value == 42);
             step1.Down();
             step2.Wait();
@@ -449,8 +446,7 @@ BOOST_AUTO_TEST_CASE(t_UAF_04_cowaiter_shared_ptr)
      * 100 waiter
      */
     for (int i = 0; i < n_waiters; ++i) {
-        bbtco[cond, &woken, &ready]()
-        {
+        bbtco [cond, &woken, &ready]() {
             ready.Down();
             cond->Wait();
             woken++;
@@ -467,8 +463,7 @@ BOOST_AUTO_TEST_CASE(t_UAF_04_cowaiter_shared_ptr)
     /**
      * 唤醒全部
      */
-    bbtco[cond]()
-    {
+    bbtco [cond]() {
         cond->NotifyAll();
     };
 
@@ -512,8 +507,7 @@ BOOST_AUTO_TEST_CASE(t_DR_01_chan_concurrent_race)
     sync::Chan<int, 1000> ch;
 
     for (int i = 0; i < n_writers; ++i) {
-        bbtco[&]()
-        {
+        bbtco [&]() {
             int seq = 0;
             while (running.load()) {
                 int ret = ch.Write(seq++);
@@ -528,8 +522,7 @@ BOOST_AUTO_TEST_CASE(t_DR_01_chan_concurrent_race)
     }
 
     for (int i = 0; i < n_readers; ++i) {
-        bbtco[&]()
-        {
+        bbtco [&]() {
             int val;
             while (running.load()) {
                 int ret = ch.Read(val);
@@ -600,8 +593,7 @@ BOOST_AUTO_TEST_CASE(t_DR_02_chan_cas_in_lock)
     /**
      * Writer
      */
-    bbtco[&]()
-    {
+    bbtco [&]() {
         int seq = 0;
         for (int i = 0; i < n_rounds; ++i) {
             int ret = ch.Write(seq++);
@@ -621,8 +613,7 @@ BOOST_AUTO_TEST_CASE(t_DR_02_chan_cas_in_lock)
     /**
      * Reader
      */
-    bbtco[&]()
-    {
+    bbtco [&]() {
         int val;
         for (int i = 0; i < n_rounds; ++i) {
             int ret = ch.Read(val);
@@ -642,8 +633,7 @@ BOOST_AUTO_TEST_CASE(t_DR_02_chan_cas_in_lock)
     /**
      * Closer — 在随机时机关闭，测试 CAS+Notify 竞态
      */
-    bbtco[&]()
-    {
+    bbtco [&]() {
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
         ch.Close();
         close_done = true;
@@ -816,8 +806,7 @@ BOOST_AUTO_TEST_CASE(t_UB_01_dangling_pointer)
     bbt::core::thread::CountDownLatch all_done{n_cycles};
 
     for (int i = 0; i < n_cycles; ++i) {
-        bbtco[&created, &destroyed, &all_done]()
-        {
+        bbtco [&created, &destroyed, &all_done]() {
             created++;
 
             /**
@@ -888,8 +877,7 @@ BOOST_AUTO_TEST_CASE(t_UB_03_yieldwithcallback_lock)
     /**
      * 协程 A: Lock → shared=42 → UnLock → 通知完成
      */
-    bbtco[mutex, &callback_called, &shared, &a_done]()
-    {
+    bbtco [mutex, &callback_called, &shared, &a_done]() {
         mutex->Lock();
         shared.store(42);
 
@@ -914,8 +902,7 @@ BOOST_AUTO_TEST_CASE(t_UB_03_yieldwithcallback_lock)
     /**
      * 协程 B: 获取同一锁，验证协程 A 已释放
      */
-    bbtco[mutex, &shared]()
-    {
+    bbtco [mutex, &shared]() {
         mutex->Lock();
         int val = shared.load();
 
@@ -959,8 +946,7 @@ BOOST_AUTO_TEST_CASE(t_EX_01_cocond_exception_safety)
     /**
      * 异常 waiter
      */
-    bbtco[cond, &exception_thrown, &all_ready]()
-    {
+    bbtco [cond, &exception_thrown, &all_ready]() {
         all_ready.Down();
         try {
             cond->Wait();
@@ -975,8 +961,7 @@ BOOST_AUTO_TEST_CASE(t_EX_01_cocond_exception_safety)
      * 正常 waiter
      */
     for (int i = 0; i < n_normal; ++i) {
-        bbtco[cond, &normal_woken, &all_ready]()
-        {
+        bbtco [cond, &normal_woken, &all_ready]() {
             all_ready.Down();
             cond->Wait();
             normal_woken++;
@@ -989,8 +974,7 @@ BOOST_AUTO_TEST_CASE(t_EX_01_cocond_exception_safety)
     WaitLatchWithDeadline(all_ready, 5000);
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-    bbtco[cond]()
-    {
+    bbtco [cond]() {
         cond->NotifyAll();
     };
 
@@ -1037,8 +1021,7 @@ BOOST_AUTO_TEST_CASE(t_EX_02_chan_close_raii_guard)
     auto state = std::make_shared<ActorState>();
 
     for (int i = 0; i < n_writers; ++i) {
-        bbtco[state]()
-        {
+        bbtco [state]() {
             state->writers_ready.Down();
             int seq = 0;
             while (true) {
@@ -1056,8 +1039,7 @@ BOOST_AUTO_TEST_CASE(t_EX_02_chan_close_raii_guard)
     }
 
     for (int i = 0; i < n_readers; ++i) {
-        bbtco[state]()
-        {
+        bbtco [state]() {
             state->readers_ready.Down();
             int val;
             while (true) {

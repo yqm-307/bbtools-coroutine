@@ -10,8 +10,7 @@ int bbtco_main()
     auto left = Chan<int, 1>();
     auto right = Chan<int, 1>();
     auto written = Chan<int, 1>();
-    bbtco[right, written]()
-    {
+    bbtco [right, written]() {
         (void)written->TryWrite(right->Write(42));
     };
 
