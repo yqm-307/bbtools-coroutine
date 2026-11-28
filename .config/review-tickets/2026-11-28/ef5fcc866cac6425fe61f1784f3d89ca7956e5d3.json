@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-28",
+  "commit": "ef5fcc866cac6425fe61f1784f3d89ca7956e5d3",
+  "base": "a50bfe371d8e669f65b28da7efae59d96cf8a904",
+  "result": "pass",
+  "reviewer": "alice-session-subagent",
+  "summary": "推送门禁补回 secrets 经独立审查 pass：只追加一条规则，顺序与 pub schema 1 默认一致；secrets 只扫推送范围新增行，不会因存量内容误报；其他配置未动。",
+  "checks": [
+    {
+      "id": "llm-review",
+      "kind": "attested",
+      "status": "pass",
+      "summary": "no blocking or non-blocking findings; secrets check on origin/main..HEAD exit 0",
+      "evidence": {
+        "reviewer": "independent subagent review (deleg_7ab1a648)",
+        "scope": "origin/main..ef5fcc8"
+      }
+    }
+  ]
+}
