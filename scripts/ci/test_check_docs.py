@@ -96,6 +96,10 @@ class TestFilenames(DocsCheckCase):
         self.write('notes/issue-9.md', 'x\n')
         self.assertEqual(self.check(), [])
 
+    def test_third_party_checkout_skipped(self):
+        self.write('third-party/pub/docs/a.md', '[x](missing.md)\n')
+        self.assertEqual(self.check(), [])
+
 
 class TestReadme(DocsCheckCase):
     def test_readme_over_limit(self):
