@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-28",
+  "commit": "0351049ba49022956d1aff56cc9de2442090f420",
+  "base": "a87e537d22fad3bba7f03404763aa857c8f06922",
+  "result": "pass",
+  "reviewer": "alice-session-subagent",
+  "summary": "CI 格式检查改为转发到 pub 公共格式工具经独立审查 pass：转发脚本参数、退出码、stderr 原样透传，缺 pub 时报错清晰；workflow 仅按需以公开 https 初始化 pub submodule，无额外权限；pub debd4e4 的忽略文件探针与旧副本逐行等价。",
+  "checks": [
+    {
+      "id": "llm-review",
+      "kind": "attested",
+      "status": "pass",
+      "summary": "no blocking findings; 3 non-blocking notes (test skip coverage, empty CLANG_FORMAT_VERSION, explicit submodules:false)",
+      "evidence": {
+        "reviewer": "independent subagent review (deleg_a0969733)",
+        "scope": "a87e537..0351049"
+      }
+    }
+  ]
+}
