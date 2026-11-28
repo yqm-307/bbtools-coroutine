@@ -2,7 +2,7 @@ schema_version = 1
 timeout_seconds = 60
 
 [push]
-rules = ["review-ticket", "llm-review", "format"]
+rules = ["review-ticket", "llm-review", "format", "secrets"]
 
 [scope]
 exclude = ["bbt/coroutine/utils/lockfree/*"]
